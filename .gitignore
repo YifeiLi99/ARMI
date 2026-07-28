@@ -1,0 +1,30 @@
+# 私有设计资料
+/docs/
+
+# 本地配置与凭据
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# 依赖与构建产物
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+coverage/
+
+# 运行数据与临时文件
+logs/
+*.log
+.tmp/
+tmp/
+
+# 编辑器与操作系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
