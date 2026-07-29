@@ -14,6 +14,9 @@ dependencies = [
     "uvicorn==0.51.0",
 ]
 
+[project.scripts]
+armi = "armi_runtime.cli:main"
+
 [tool.uv.sources]
 armi-kernel = { workspace = true }
 

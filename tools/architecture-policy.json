@@ -13,7 +13,15 @@
     "generated_file": "apps/armi-creator-web/src/api/generated/creator.ts",
     "static_resource_root": "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources",
     "features": [],
-    "features_not_applicable_reason": "M0-S007 only establishes an honest disconnected static shell; business features start in their owning vertical slices.",
+    "features_not_applicable_reason": "M0-S008 serves one honest blocked steel-frame shell; business features start in their owning vertical slices.",
+    "runtime_discovery": false
+  },
+  "runtime_composition": {
+    "entry_point": "armi",
+    "manifest": "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/runtime-composition.manifest.json",
+    "active_bindings": {
+      "M0-SEAM-CREATOR-UI": "armi.creator-static.v1"
+    },
     "runtime_discovery": false
   }
 }

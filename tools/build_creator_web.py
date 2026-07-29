@@ -334,6 +334,8 @@ def files_under(root: Path) -> dict[str, bytes]:
         path.relative_to(root).as_posix(): path.read_bytes()
         for path in sorted(root.rglob("*"))
         if path.is_file()
+        and "__pycache__" not in path.relative_to(root).parts
+        and path.suffix != ".pyc"
     }
 
 

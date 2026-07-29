@@ -107,7 +107,10 @@ def main() -> int:
                             raise RuntimeError(
                                 "WEB-BROWSER-VISIBLE: required status is hidden"
                             )
-                        if "Runtime 尚未连接" not in status.inner_text():
+                        if (
+                            "Runtime 钢架已启动，业务尚未就绪"  # noqa: RUF001
+                            not in status.inner_text()
+                        ):
                             raise RuntimeError(
                                 "WEB-BROWSER-STATUS: honest state is missing"
                             )

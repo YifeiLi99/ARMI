@@ -105,6 +105,27 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
                     f"empty {field} requires {reason_field}",
                 )
             )
+    composition = policy.get("runtime_composition")
+    expected_composition = {
+        "entry_point": "armi",
+        "manifest": (
+            "apps/armi-runtime/src/armi_runtime/composition/"
+            "runtime_resources/runtime-composition.manifest.json"
+        ),
+        "active_bindings": {
+            "M0-SEAM-CREATOR-UI": "armi.creator-static.v1",
+        },
+        "runtime_discovery": False,
+    }
+    if composition != expected_composition:
+        violations.append(
+            Violation(
+                "ARC-BINDING-MANIFEST",
+                path,
+                1,
+                "runtime composition policy must declare the exact S008 binding",
+            )
+        )
     return violations
 
 

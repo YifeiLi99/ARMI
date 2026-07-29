@@ -126,8 +126,13 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         resources = (
             root / "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources"
         )
-        completed = subprocess.run(
-            [
+        commands = (
+            (
+                str(venv_python),
+                "-B",
+                str(root / "tools/generate_runtime_composition_artifacts.py"),
+            ),
+            (
                 str(managed_python),
                 "-B",
                 str(root / "tools/check_repository_hygiene.py"),
@@ -135,20 +140,27 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
                 str(root),
                 "--path",
                 str(resources),
-            ],
-            cwd=root,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+            ),
         )
-        output = "\n".join(
-            item.strip()
-            for item in (completed.stdout, completed.stderr)
-            if item.strip()
-        )
-        return completed.returncode == 0, output
+        outputs: list[str] = []
+        valid = True
+        for command in commands:
+            completed = subprocess.run(
+                command,
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            valid = valid and completed.returncode == 0
+            outputs.extend(
+                item.strip()
+                for item in (completed.stdout, completed.stderr)
+                if item.strip()
+            )
+        return valid, "\n".join(outputs)
 
     def py(*arguments: str) -> tuple[str, ...]:
         return (str(venv_python), *arguments)

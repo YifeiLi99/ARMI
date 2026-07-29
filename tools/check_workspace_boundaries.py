@@ -234,6 +234,15 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
                 list(distribution.dependencies),
             ),
             (
+                "project.scripts",
+                project.get("scripts"),
+                (
+                    {"armi": "armi_runtime.cli:main"}
+                    if distribution.name == "armi-runtime"
+                    else None
+                ),
+            ),
+            (
                 "build-system.requires",
                 build_system.get("requires"),
                 BUILD_REQUIREMENTS,

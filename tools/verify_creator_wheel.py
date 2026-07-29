@@ -1,4 +1,4 @@
-"""Verify that the Runtime wheel carries only the frozen Creator resources."""
+"""Verify the frozen Creator and Runtime-composition wheel resources."""
 
 from __future__ import annotations
 
@@ -10,11 +10,16 @@ from pathlib import Path
 from zipfile import ZipFile
 
 PACKAGE_PREFIX = "armi_runtime/interfaces/creator_web_resources/"
+RUNTIME_PREFIX = "armi_runtime/composition/runtime_resources/"
 REQUIRED = {
     f"{PACKAGE_PREFIX}openapi.json",
     f"{PACKAGE_PREFIX}manifest.json",
     f"{PACKAGE_PREFIX}static/index.html",
     f"{PACKAGE_PREFIX}static/.vite/manifest.json",
+    f"{RUNTIME_PREFIX}runtime.defaults.toml",
+    f"{RUNTIME_PREFIX}runtime.schema.json",
+    f"{RUNTIME_PREFIX}runtime-config-manifest.json",
+    f"{RUNTIME_PREFIX}runtime-composition.manifest.json",
 }
 FORBIDDEN_PARTS = (
     "node_modules",
@@ -51,10 +56,22 @@ def main() -> int:
     source_root = (
         root / "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources"
     )
-    expected_files = {
+    creator_files = {
         path.relative_to(source_root).as_posix(): path.read_bytes()
         for path in source_root.rglob("*")
         if path.is_file()
+        and "__pycache__" not in path.relative_to(source_root).parts
+        and path.suffix != ".pyc"
+    }
+    runtime_root = (
+        root / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources"
+    )
+    runtime_files = {
+        path.relative_to(runtime_root).as_posix(): path.read_bytes()
+        for path in runtime_root.rglob("*")
+        if path.is_file()
+        and "__pycache__" not in path.relative_to(runtime_root).parts
+        and path.suffix != ".pyc"
     }
     with ZipFile(wheel) as archive:
         names = set(archive.namelist())
@@ -64,9 +81,23 @@ def main() -> int:
         )
         drift = sorted(
             relative
-            for relative, expected in expected_files.items()
+            for relative, expected in creator_files.items()
             if f"{PACKAGE_PREFIX}{relative}" not in names
             or archive.read(f"{PACKAGE_PREFIX}{relative}") != expected
+        )
+        runtime_drift = sorted(
+            relative
+            for relative, expected in runtime_files.items()
+            if f"{RUNTIME_PREFIX}{relative}" not in names
+            or archive.read(f"{RUNTIME_PREFIX}{relative}") != expected
+        )
+        entry_points = [
+            name for name in names if name.endswith(".dist-info/entry_points.txt")
+        ]
+        entry_point_valid = (
+            len(entry_points) == 1
+            and archive.read(entry_points[0])
+            == b"[console_scripts]\narmi = armi_runtime.cli:main\n\n"
         )
     if missing:
         print(f"WEB-WHEEL-MISSING: {', '.join(missing)}", file=sys.stderr)
@@ -77,6 +108,15 @@ def main() -> int:
     if drift:
         print(f"WEB-WHEEL-DIGEST: {', '.join(drift)}", file=sys.stderr)
         return 1
+    if runtime_drift:
+        print(
+            f"CMP-WHEEL-DIGEST: {', '.join(runtime_drift)}",
+            file=sys.stderr,
+        )
+        return 1
+    if not entry_point_valid:
+        print("LIFE-WHEEL-ENTRY: armi console entry point has drifted", file=sys.stderr)
+        return 1
 
     sys.path.insert(0, str(wheel))
     try:
@@ -84,7 +124,7 @@ def main() -> int:
             "armi_runtime.interfaces.creator_web_resources"
         )
         manifest = importlib.resources.files(module).joinpath("manifest.json")
-        if manifest.read_bytes() != expected_files["manifest.json"]:
+        if manifest.read_bytes() != creator_files["manifest.json"]:
             print("WEB-WHEEL-READ: resource API returned drift", file=sys.stderr)
             return 1
     finally:
@@ -95,7 +135,9 @@ def main() -> int:
 
     print(
         "creator-wheel: pass "
-        f"({len(expected_files)} exact resources, Node-independent read)"
+        f"({len(creator_files)} Creator resources, "
+        f"{len(runtime_files)} composition resources, console entry, "
+        "Node-independent read)"
     )
     return 0
 
