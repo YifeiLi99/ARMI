@@ -58,8 +58,20 @@ def _safe_failure(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    credential_scope: dict[str, str]
+    if args.command == "config":
+        credential_scope = {}
+    elif args.command == "db" and args.database_command == "status":
+        credential_scope = {"database.status": "database.runtime"}
+    elif args.command == "db":
+        credential_scope = {"database.migrator": "database.migrator"}
+    else:
+        credential_scope = {"database.runtime": "database.runtime"}
     try:
-        prepared = prepare_environment(args.environment_root)
+        prepared = prepare_environment(
+            args.environment_root,
+            credential_scope=credential_scope,
+        )
     except (ConfigurationViolation, RuntimeViolation) as error:
         _safe_failure(error)
         return EXIT_INVOCATION_REJECTED

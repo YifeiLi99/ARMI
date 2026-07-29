@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S009，并建立了 PostgreSQL 18.4 最小 baseline、schema manifest、固定迁移入口和 Runtime 只读 schema 核验。S001 1.8 已进一步冻结环境作用域数据库身份、最小 grant、Migration→owner 唯一切换和后续 Windows 身份激活边界；业务表、正式角色权限、权威状态、恢复、审计、浏览器会话和产品能力仍未实现，Runtime 保持 blocked/not-ready，因此不是可用产品版本。
+项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S010，并建立了 PostgreSQL 18.4 最小 baseline、环境作用域 LOGIN 身份、固定 NOLOGIN 能力角色、最小 grant、Migration→owner 唯一切换和连接复用清理边界。Runtime 只读核验角色与 schema，产品 CLI 不提供角色 provision；Windows 服务身份与真实凭据 ACL 仍留待 S035 激活。业务表、事务工作单元、权威状态、恢复、审计、浏览器会话和产品能力尚未实现，Runtime 保持 blocked/not-ready，因此不是可用产品版本。
 
 ## 关于学习与参考
 

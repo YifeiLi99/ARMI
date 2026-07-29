@@ -18,6 +18,7 @@ from armi_runtime.composition import (
     load_effective_config,
     preflight_config,
 )
+from armi_runtime.composition.credential_scope import ScopedCredentialPort
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = ROOT / "config/runtime.defaults.toml"
@@ -47,6 +48,31 @@ def _load(root: Path, locator_lines: str):
 
 
 class SecretResolutionTests(unittest.TestCase):
+    def test_scoped_port_requires_exact_purpose_and_locator_identity(self) -> None:
+        approved = CredentialLocator.parse("env:ARMI_SECRET_DATABASE")
+        other = CredentialLocator.parse("env:ARMI_SECRET_OTHER")
+        delegate = EnvironmentFileCredentialPort(
+            environment={
+                "ARMI_SECRET_DATABASE": "database-value",
+                "ARMI_SECRET_OTHER": "other-value",
+            },
+            secret_roots=(Path.cwd(),),
+        )
+        port = ScopedCredentialPort(
+            delegate,
+            allowed={"database.runtime": approved},
+        )
+        with port.resolve(approved, CredentialPurpose("database.runtime")) as handle:
+            self.assertEqual(handle.consume(bytes), b"database-value")
+        for locator, purpose in (
+            (approved, CredentialPurpose("database.migrator")),
+            (other, CredentialPurpose("database.runtime")),
+        ):
+            with self.subTest(locator=repr(locator), purpose=str(purpose)):
+                with self.assertRaises(ConfigurationViolation) as raised:
+                    port.resolve(locator, purpose)
+                self.assertEqual(raised.exception.code, "SEC-SECRET-PURPOSE")
+
     def test_environment_locator_resolves_with_bounded_handle(self) -> None:
         value = "ephemeral-" + "credential"
         port = EnvironmentFileCredentialPort(

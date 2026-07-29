@@ -8,6 +8,18 @@
       "module": "armi_runtime.adapters.persistence.schema_gateway",
       "owner": "schema-governance",
       "allowed_callers": ["armi_runtime.composition.database"]
+    },
+    {
+      "id": "database-role-policy-runtime",
+      "module": "armi_runtime.adapters.persistence.role_policy",
+      "owner": "database-role-policy",
+      "allowed_callers": ["armi_runtime.adapters.persistence.schema_gateway"]
+    },
+    {
+      "id": "database-role-policy-admin",
+      "module": "armi_admin.persistence.role_session",
+      "owner": "database-role-policy",
+      "allowed_callers": []
     }
   ],
   "write_surfaces_not_applicable_reason": "",

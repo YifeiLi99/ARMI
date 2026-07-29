@@ -30,6 +30,17 @@ _REASON_BY_CODE: Final = {
     "DB-SCHEMA-DIRTY": "RUNTIME_SCHEMA_INVALID",
     "DB-SCHEMA-INVARIANT": "RUNTIME_SCHEMA_INVALID",
     "DB-MANIFEST-DRIFT": "RUNTIME_SCHEMA_INVALID",
+    "DB-ROLE-MANIFEST-DRIFT": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-IDENTITY": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-ATTRIBUTES": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-MEMBERSHIP": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-GRANT": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-OWNER": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-SEARCH-PATH": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-SESSION-DIRTY": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-PUBLIC-PRIVILEGE": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-SECURITY-DEFINER": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-ROLE-CREDENTIAL-SCOPE": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
 }
 
 
@@ -64,13 +75,25 @@ def _with_connection(
                         exit_code=3,
                     ) from None
                 if operation == "upgrade":
-                    return gateway.upgrade(conninfo)
-                return gateway.status(conninfo)
+                    return gateway.upgrade(
+                        conninfo,
+                        environment_id=prepared.effective.config.environment.environment_id,
+                    )
+                return gateway.status(
+                    conninfo,
+                    environment_id=prepared.effective.config.environment.environment_id,
+                    role_class="runtime",
+                )
 
             return handle.consume(invoke)
-    except ConfigurationViolation:
+    except ConfigurationViolation as error:
+        code = (
+            "DB-ROLE-CREDENTIAL-SCOPE"
+            if error.code == "SEC-SECRET-PURPOSE"
+            else "DB-CONNECTION-UNAVAILABLE"
+        )
         raise DatabaseViolation(
-            "DB-CONNECTION-UNAVAILABLE",
+            code,
             "the configured PostgreSQL connection is unavailable",
             status="unavailable",
             exit_code=3,

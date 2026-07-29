@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from importlib.resources import as_file, files
 from pathlib import Path
 
-from armi_kernel.application import CredentialPort
+from armi_kernel.application import CredentialLocator, CredentialPort
 
 from .configuration import (
     DeploymentProfile,
@@ -19,6 +19,7 @@ from .configuration import (
     preflight_config,
 )
 from .configuration.paths import canonical_absolute, has_reparse_point
+from .credential_scope import ScopedCredentialPort
 from .manifest import VerifiedComposition, verify_packaged_composition
 from .runtime_errors import RuntimeViolation
 
@@ -39,6 +40,7 @@ def prepare_environment(
     environment_root: Path,
     *,
     environment: Mapping[str, str] | None = None,
+    credential_scope: Mapping[str, str] | None = None,
 ) -> PreparedEnvironment:
     root = canonical_absolute(environment_root, code="CFG-ENV-ROOT")
     if not root.is_dir() or has_reparse_point(root, root=root):
@@ -92,10 +94,24 @@ def prepare_environment(
         environment=current_environment,
     )
     composition = verify_packaged_composition()
-    credential_port = EnvironmentFileCredentialPort(
+    credential_delegate = EnvironmentFileCredentialPort(
         environment=current_environment,
         secret_roots=profile.allowed_secret_roots,
         maximum_bytes=profile.maximum_secret_bytes,
+    )
+    requested_scope = (
+        {"database.runtime": "database.runtime"}
+        if credential_scope is None
+        else dict(credential_scope)
+    )
+    allowed_locators: dict[str, CredentialLocator] = {}
+    for purpose, locator_name in requested_scope.items():
+        locator = effective.config.secret_locators.get(locator_name)
+        if locator is not None:
+            allowed_locators[purpose] = locator
+    credential_port = ScopedCredentialPort(
+        credential_delegate,
+        allowed=allowed_locators,
     )
     return PreparedEnvironment(
         root=root,

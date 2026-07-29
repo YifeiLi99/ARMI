@@ -11,8 +11,10 @@ from pathlib import Path
 _RESOURCE_PREFIX = "armi_runtime/composition/runtime_resources/schema/"
 _FILES = (
     "checks/invariants.sql",
+    "manifests/database-role-manifest.json",
     "manifests/schema-manifest.json",
     "migrations/0001_m0_baseline.sql",
+    "migrations/0002_database_permissions.sql",
 )
 
 

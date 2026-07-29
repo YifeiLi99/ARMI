@@ -1,4 +1,4 @@
-"""Generate or verify the authoritative S009 schema manifest and wheel mirror."""
+"""Generate or verify authoritative schema and database-role governance artifacts."""
 
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ _SCHEMA_ROOT = Path("schema")
 _MIRROR_ROOT = Path(
     "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
 )
-_MIGRATION = Path("migrations/0001_m0_baseline.sql")
 _INVARIANTS = Path("checks/invariants.sql")
 _MANIFEST = Path("manifests/schema-manifest.json")
+_ROLE_MANIFEST = Path("manifests/database-role-manifest.json")
 _MIGRATION_NAME = re.compile(
     r"^(?P<version>[0-9]{4})_(?P<name>[a-z][a-z0-9_]{0,63})\.sql$"
 )
@@ -44,18 +44,158 @@ def _require_text_file(path: Path) -> bytes:
     return value
 
 
-def build_manifest(schema_root: Path) -> dict[str, object]:
-    migration_path = schema_root / _MIGRATION
+def build_role_manifest() -> dict[str, object]:
+    safe_attributes = {
+        "superuser": False,
+        "createdb": False,
+        "createrole": False,
+        "replication": False,
+        "bypassrls": False,
+    }
+    return {
+        "schema_version": "armi.database-roles.v1",
+        "postgresql_version": "18.4",
+        "environment_id": {
+            "format": "lowercase canonical UUIDv7",
+            "physical_role_template": "armi_{environment_uuid_hex}_{role_class}",
+            "role_classes": ["runtime", "admin", "migrator"],
+        },
+        "capability_roles": [
+            {
+                "name": name,
+                "login": False,
+                "inherit": False,
+                **safe_attributes,
+            }
+            for name in (
+                "armi_owner",
+                "armi_migrator",
+                "armi_runtime",
+                "armi_admin",
+            )
+        ],
+        "login_roles": [
+            {
+                "class": role_class,
+                "login": True,
+                "inherit": True,
+                **safe_attributes,
+            }
+            for role_class in ("runtime", "admin", "migrator")
+        ],
+        "memberships": [
+            {
+                "member_class": "runtime",
+                "role": "armi_runtime",
+                "inherit": True,
+                "set": False,
+                "admin": False,
+            },
+            {
+                "member_class": "admin",
+                "role": "armi_admin",
+                "inherit": True,
+                "set": False,
+                "admin": False,
+            },
+            {
+                "member_class": "migrator",
+                "role": "armi_migrator",
+                "inherit": True,
+                "set": False,
+                "admin": False,
+            },
+            {
+                "member_class": "migrator",
+                "role": "armi_owner",
+                "inherit": False,
+                "set": True,
+                "admin": False,
+            },
+        ],
+        "database_privileges": {
+            "public": [],
+            "owner": ["CREATE"],
+            "runtime": ["CONNECT"],
+            "admin": ["CONNECT"],
+            "migrator": ["CONNECT"],
+            "temporary_allowed": False,
+            "create_allowed": False,
+        },
+        "session": {
+            "search_path": ["pg_catalog", "armi"],
+            "checkout_requires_session_user": True,
+            "checkout_requires_current_user_reset": True,
+        },
+        "objects": [
+            {
+                "kind": "schema",
+                "name": "armi",
+                "owner": "armi_owner",
+                "public_privileges": [],
+                "grants": {
+                    "armi_runtime": ["USAGE"],
+                    "armi_admin": ["USAGE"],
+                    "armi_migrator": ["USAGE"],
+                },
+            },
+            {
+                "kind": "table",
+                "name": "armi.schema_migrations",
+                "owner": "armi_owner",
+                "public_privileges": [],
+                "grants": {
+                    "armi_runtime": ["SELECT"],
+                    "armi_admin": ["SELECT"],
+                    "armi_migrator": ["SELECT"],
+                },
+            },
+        ],
+        "default_privileges": [],
+        "security_definer": {
+            "entries": [],
+            "not_applicable_reason": (
+                "M0-S010 has no business or administration function requiring "
+                "privilege elevation."
+            ),
+            "required_search_path": ["pg_catalog", "armi", "pg_temp"],
+            "public_execute": False,
+        },
+        "credential_acl": {
+            "policy": "tools/windows-credential-acl-policy.json",
+            "activation_step": "M0-S035",
+            "active": False,
+        },
+    }
+
+
+def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, object]:
+    migration_paths = sorted((schema_root / "migrations").glob("*.sql"))
+    if not migration_paths:
+        raise ValueError("DB-SCHEMA-MISSING")
+    migrations: list[dict[str, object]] = []
+    migration_set_input = bytearray()
+    for expected_version, migration_path in enumerate(migration_paths, start=1):
+        relative = migration_path.relative_to(schema_root)
+        match = _MIGRATION_NAME.fullmatch(migration_path.name)
+        if match is None or int(match.group("version")) != expected_version:
+            raise ValueError("DB-SCHEMA-GAP")
+        migration = _require_text_file(migration_path)
+        migration_digest = _digest(migration)
+        path = f"schema/{relative.as_posix()}"
+        migrations.append(
+            {
+                "version": expected_version,
+                "name": match.group("name"),
+                "path": path,
+                "sha256": migration_digest,
+            }
+        )
+        migration_set_input.extend(
+            f"{expected_version}\t{path}\t{migration_digest}\n".encode()
+        )
     invariant_path = schema_root / _INVARIANTS
-    match = _MIGRATION_NAME.fullmatch(migration_path.name)
-    if match is None or int(match.group("version")) != 1:
-        raise ValueError("DB-SCHEMA-GAP")
-    migration = _require_text_file(migration_path)
     invariants = _require_text_file(invariant_path)
-    migration_digest = _digest(migration)
-    migration_set_input = (
-        f"1\tschema/{_MIGRATION.as_posix()}\t{migration_digest}\n".encode()
-    )
     return {
         "schema_version": "armi.schema-manifest.v1",
         "postgresql": {
@@ -69,16 +209,9 @@ def build_manifest(schema_root: Path) -> dict[str, object]:
             "locale_provider": "builtin",
             "locale": "C.UTF-8",
         },
-        "target": {"schema": "armi", "version": 1},
-        "migrations": [
-            {
-                "version": 1,
-                "name": match.group("name"),
-                "path": f"schema/{_MIGRATION.as_posix()}",
-                "sha256": migration_digest,
-            }
-        ],
-        "migration_set_sha256": _digest(migration_set_input),
+        "target": {"schema": "armi", "version": len(migrations)},
+        "migrations": migrations,
+        "migration_set_sha256": _digest(bytes(migration_set_input)),
         "invariants": {
             "path": f"schema/{_INVARIANTS.as_posix()}",
             "sha256": _digest(invariants),
@@ -101,7 +234,11 @@ def build_manifest(schema_root: Path) -> dict[str, object]:
             {"scope": "recovery_state", "activation_step": "M0-S017"},
         ],
         "runtime_upgrade_allowed": False,
-        "formal_roles_and_grants_activation_step": "M0-S010",
+        "database_role_manifest": {
+            "path": f"schema/{_ROLE_MANIFEST.as_posix()}",
+            "sha256": _digest(role_manifest_bytes),
+            "activation_step": "M0-S010",
+        },
     }
 
 
@@ -111,12 +248,17 @@ def canonical_manifest_bytes(value: dict[str, object]) -> bytes:
 
 def generated_files(root: Path) -> dict[Path, bytes]:
     schema_root = root / _SCHEMA_ROOT
-    manifest = canonical_manifest_bytes(build_manifest(schema_root))
-    return {
+    role_manifest = canonical_manifest_bytes(build_role_manifest())
+    manifest = canonical_manifest_bytes(build_manifest(schema_root, role_manifest))
+    generated = {
         _MANIFEST: manifest,
-        _MIGRATION: _require_text_file(schema_root / _MIGRATION),
+        _ROLE_MANIFEST: role_manifest,
         _INVARIANTS: _require_text_file(schema_root / _INVARIANTS),
     }
+    for migration_path in sorted((schema_root / "migrations").glob("*.sql")):
+        relative = migration_path.relative_to(schema_root)
+        generated[relative] = _require_text_file(migration_path)
+    return generated
 
 
 def _matches(root: Path, generated: dict[Path, bytes]) -> bool:

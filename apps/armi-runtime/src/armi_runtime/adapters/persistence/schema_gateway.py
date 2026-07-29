@@ -8,10 +8,18 @@ from contextlib import suppress
 from dataclasses import dataclass
 from importlib.resources import files
 from typing import Any, Final, LiteralString, cast
+from uuid import UUID
 
 import psycopg
 import rfc8785
 from psycopg import sql
+
+from armi_runtime.adapters.database_errors import (
+    KNOWN_DATABASE_CODES,
+    DatabaseViolation,
+)
+
+from .role_policy import PostgreSQLRolePolicyGateway
 
 _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 _SCHEMA_RESOURCE = "schema"
@@ -24,38 +32,6 @@ _EXPECTED_COLUMNS: Final = (
     ("applied_at", "timestamp(6) with time zone", True),
     ("application_version", "text", True),
 )
-_KNOWN_CODES: Final = frozenset(
-    {
-        "DB-CONNECTION-UNAVAILABLE",
-        "DB-PG-VERSION",
-        "DB-DATABASE-IDENTITY",
-        "DB-RUNTIME-ROLE-UNSAFE",
-        "DB-SCHEMA-DIRTY",
-        "DB-SCHEMA-AHEAD",
-        "DB-SCHEMA-GAP",
-        "DB-SCHEMA-HASH",
-        "DB-SCHEMA-MISSING",
-        "DB-SCHEMA-INVARIANT",
-        "DB-MIGRATION-LOCK",
-        "DB-MIGRATION-FAILED",
-        "DB-MANIFEST-DRIFT",
-    }
-)
-
-
-@dataclass(frozen=True, slots=True)
-class DatabaseViolation(RuntimeError):
-    code: str
-    message: str
-    status: str = "failed"
-    exit_code: int = 4
-
-    def __post_init__(self) -> None:
-        if self.code not in _KNOWN_CODES:
-            raise ValueError("database failure code is not registered")
-
-    def __str__(self) -> str:
-        return f"{self.code}: {self.message}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +41,8 @@ class SchemaStatus:
     applied_version: int
     migration_set_sha256: str
     catalog_sha256: str | None
+    role_policy_sha256: str | None = None
+    privilege_catalog_sha256: str | None = None
 
     def safe_view(self) -> dict[str, object]:
         return {
@@ -73,6 +51,8 @@ class SchemaStatus:
             "applied_version": self.applied_version,
             "migration_set_sha256": self.migration_set_sha256,
             "catalog_sha256": self.catalog_sha256,
+            "role_policy_sha256": self.role_policy_sha256,
+            "privilege_catalog_sha256": self.privilege_catalog_sha256,
         }
 
 
@@ -161,18 +141,40 @@ class PostgreSQLSchemaGateway:
         return str(self._packaged.manifest["migration_set_sha256"])
 
     def status(
-        self, conninfo: str, *, require_safe_runtime_role: bool = True
+        self,
+        conninfo: str,
+        *,
+        environment_id: UUID,
+        role_class: str = "runtime",
     ) -> SchemaStatus:
         with self._connect(conninfo) as connection:
             self._verify_database_identity(connection)
             state = self._inspect_schema(connection, allow_empty=False)
-            if require_safe_runtime_role:
-                self._verify_runtime_identity(connection)
-            return state
+            role_status = PostgreSQLRolePolicyGateway().verify(
+                connection,
+                environment_id=environment_id,
+                role_class=role_class,
+            )
+            return SchemaStatus(
+                state.status,
+                state.target_version,
+                state.applied_version,
+                state.migration_set_sha256,
+                state.catalog_sha256,
+                role_status.role_policy_sha256,
+                role_status.privilege_catalog_sha256,
+            )
 
-    def upgrade(self, conninfo: str) -> SchemaStatus:
+    def upgrade(self, conninfo: str, *, environment_id: UUID) -> SchemaStatus:
         with self._connect(conninfo, autocommit=True) as connection:
             self._verify_database_identity(connection)
+            role_gateway = PostgreSQLRolePolicyGateway()
+            role_gateway.verify(
+                connection,
+                environment_id=environment_id,
+                role_class="migrator",
+                require_objects=False,
+            )
             try:
                 connection.execute(
                     "SELECT pg_catalog.pg_advisory_lock(%s)", (_ADVISORY_LOCK,)
@@ -189,6 +191,7 @@ class PostgreSQLSchemaGateway:
                         continue
                     try:
                         with connection.transaction():
+                            connection.execute("SET LOCAL ROLE armi_owner")
                             connection.execute(
                                 sql.SQL(cast(LiteralString, migration.decode("utf-8")))
                             )
@@ -200,13 +203,29 @@ class PostgreSQLSchemaGateway:
                                 """,
                                 (version, name, digest, _APPLICATION_VERSION),
                             )
+                            current = self._inspect_schema(
+                                connection,
+                                allow_empty=True,
+                            )
                     except UnicodeDecodeError, psycopg.Error:
                         raise DatabaseViolation(
                             "DB-MIGRATION-FAILED",
                             "the packaged migration failed and was rolled back",
                         ) from None
-                    current = self._inspect_schema(connection, allow_empty=False)
-                return current
+                role_status = role_gateway.verify(
+                    connection,
+                    environment_id=environment_id,
+                    role_class="migrator",
+                )
+                return SchemaStatus(
+                    current.status,
+                    current.target_version,
+                    current.applied_version,
+                    current.migration_set_sha256,
+                    current.catalog_sha256,
+                    role_status.role_policy_sha256,
+                    role_status.privilege_catalog_sha256,
+                )
             finally:
                 with suppress(psycopg.Error):
                     connection.execute(
@@ -275,40 +294,6 @@ class PostgreSQLSchemaGateway:
             raise DatabaseViolation(
                 "DB-DATABASE-IDENTITY",
                 "database encoding, timezone, or locale is not the frozen identity",
-            )
-
-    def _verify_runtime_identity(
-        self, connection: psycopg.Connection[tuple[Any, ...]]
-    ) -> None:
-        try:
-            row = connection.execute(
-                """
-                SELECT
-                    role.rolsuper,
-                    database.datdba = role.oid,
-                    COALESCE(namespace.nspowner = role.oid, false),
-                    has_database_privilege(current_user, current_database(), 'CREATE'),
-                    COALESCE(
-                        has_schema_privilege(current_user, 'armi', 'CREATE'),
-                        false
-                    )
-                FROM pg_catalog.pg_roles AS role
-                JOIN pg_catalog.pg_database AS database
-                    ON database.datname = current_database()
-                LEFT JOIN pg_catalog.pg_namespace AS namespace
-                    ON namespace.nspname = 'armi'
-                WHERE role.rolname = current_user
-                """
-            ).fetchone()
-        except psycopg.Error:
-            raise DatabaseViolation(
-                "DB-RUNTIME-ROLE-UNSAFE",
-                "the Runtime database identity could not be verified",
-            ) from None
-        if row is None or any(bool(value) for value in row):
-            raise DatabaseViolation(
-                "DB-RUNTIME-ROLE-UNSAFE",
-                "the Runtime database identity has unsafe authority",
             )
 
     def _inspect_schema(
@@ -491,7 +476,7 @@ class PostgreSQLSchemaGateway:
             ) from None
         if violations:
             code = str(violations[0][0])
-            if code not in _KNOWN_CODES:
+            if code not in KNOWN_DATABASE_CODES:
                 code = "DB-SCHEMA-INVARIANT"
             raise DatabaseViolation(code, "a read-only schema invariant was violated")
 
