@@ -11,7 +11,6 @@ from tools.check_workspace_boundaries import (
     exit_code_for,
 )
 
-
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_EXPORTS = {
     "armi_kernel": frozenset(),

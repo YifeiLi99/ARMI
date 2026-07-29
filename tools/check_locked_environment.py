@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 TARGET_PYTHON = "3.14.6"
 TARGET_NODE = "24.18.0"
 TARGET_NPM = "11.16.0"
@@ -95,7 +94,9 @@ def _load_json(path: Path, violations: list[Violation]) -> dict[str, Any] | None
         violations.append(Violation("S003-METADATA", path.as_posix(), str(error)))
         return None
     if not isinstance(data, dict):
-        violations.append(Violation("S003-METADATA", path.as_posix(), "root must be an object"))
+        violations.append(
+            Violation("S003-METADATA", path.as_posix(), "root must be an object")
+        )
         return None
     return data
 
@@ -122,7 +123,9 @@ def _expect(
 ) -> None:
     if actual != expected:
         violations.append(
-            Violation(code, path.as_posix(), f"{field} expected {expected!r}, got {actual!r}")
+            Violation(
+                code, path.as_posix(), f"{field} expected {expected!r}, got {actual!r}"
+            )
         )
 
 
@@ -135,7 +138,9 @@ def _check_exact_map(
     field: str,
 ) -> None:
     if not isinstance(actual, dict):
-        violations.append(Violation("S003-METADATA", path.as_posix(), f"{field} must be an object"))
+        violations.append(
+            Violation("S003-METADATA", path.as_posix(), f"{field} must be an object")
+        )
         return
     _expect(
         violations,
@@ -182,7 +187,9 @@ def _check_package_lock(
     packages = data.get("packages")
     if not isinstance(packages, dict) or not isinstance(packages.get(""), dict):
         violations.append(
-            Violation("S003-LOCK-DRIFT", path.as_posix(), "lock root package is missing")
+            Violation(
+                "S003-LOCK-DRIFT", path.as_posix(), "lock root package is missing"
+            )
         )
         return
     lock_root = packages[""]
@@ -200,7 +207,10 @@ def _check_package_lock(
         path=path,
         field="packages[''].devDependencies",
     )
-    for dependency, version in {**expected_dependencies, **expected_dev_dependencies}.items():
+    for dependency, version in {
+        **expected_dependencies,
+        **expected_dev_dependencies,
+    }.items():
         package_key = f"node_modules/{dependency}"
         entry = packages.get(package_key)
         if not isinstance(entry, dict) or entry.get("version") != version:
@@ -408,7 +418,9 @@ def check_repository(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parents[1]
+    )
     parser.add_argument("--system")
     parser.add_argument("--machine")
     parser.add_argument("--allow-pending-generated", action="store_true")

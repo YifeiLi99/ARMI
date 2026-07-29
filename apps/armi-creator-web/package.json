@@ -7,6 +7,13 @@
     "node": "24.18.0"
   },
   "packageManager": "npm@11.16.0",
+  "scripts": {
+    "format:check": "prettier --check package.json tests/toolchain",
+    "lint": "oxlint --deny-warnings tests/toolchain",
+    "typecheck": "tsc --project tests/toolchain/tsconfig.json --noEmit",
+    "test": "vitest run --config tests/toolchain/vitest.config.ts",
+    "build:smoke": "vite build --config tests/toolchain/vite.config.ts"
+  },
   "dependencies": {
     "@tanstack/react-query": "5.101.4",
     "react": "19.2.8",

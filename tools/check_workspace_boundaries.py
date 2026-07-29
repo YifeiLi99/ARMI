@@ -8,10 +8,9 @@ import importlib.util
 import json
 import sys
 import tomllib
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
-
 
 WORKSPACE_VERSION = "0.0.0"
 PYTHON_RANGE = ">=3.14,<3.15"
@@ -77,7 +76,9 @@ DISTRIBUTIONS = (
     ),
 )
 
-EXPECTED_MEMBERS = [distribution.project_dir.as_posix() for distribution in DISTRIBUTIONS]
+EXPECTED_MEMBERS = [
+    distribution.project_dir.as_posix() for distribution in DISTRIBUTIONS
+]
 PUBLIC_KERNEL_MODULES = frozenset(
     {"armi_kernel", "armi_kernel.application", "armi_kernel.contracts"}
 )
@@ -226,7 +227,11 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
                 build_system.get("requires"),
                 BUILD_REQUIREMENTS,
             ),
-            ("build-system.build-backend", build_system.get("build-backend"), BUILD_BACKEND),
+            (
+                "build-system.build-backend",
+                build_system.get("build-backend"),
+                BUILD_BACKEND,
+            ),
         )
         for field, actual, expected in expected_fields:
             _expect(
@@ -239,8 +244,12 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
             )
 
         if distribution.dependencies:
-            sources = tool.get("uv", {}).get("sources", {}) if isinstance(tool, dict) else {}
-            kernel_source = sources.get("armi-kernel", {}) if isinstance(sources, dict) else {}
+            sources = (
+                tool.get("uv", {}).get("sources", {}) if isinstance(tool, dict) else {}
+            )
+            kernel_source = (
+                sources.get("armi-kernel", {}) if isinstance(sources, dict) else {}
+            )
             _expect(
                 violations,
                 actual=kernel_source,
@@ -252,7 +261,10 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
 
         required_package_paths = (
             distribution.module_dir / "__init__.py",
-            *(distribution.module_dir / layer / "__init__.py" for layer in distribution.layers),
+            *(
+                distribution.module_dir / layer / "__init__.py"
+                for layer in distribution.layers
+            ),
         )
         for required_path in required_package_paths:
             if not (root / required_path).is_file():
@@ -273,6 +285,13 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
         "type": "module",
         "engines": {"node": "24.18.0"},
         "packageManager": "npm@11.16.0",
+        "scripts": {
+            "format:check": "prettier --check package.json tests/toolchain",
+            "lint": "oxlint --deny-warnings tests/toolchain",
+            "typecheck": "tsc --project tests/toolchain/tsconfig.json --noEmit",
+            "test": "vitest run --config tests/toolchain/vitest.config.ts",
+            "build:smoke": "vite build --config tests/toolchain/vite.config.ts",
+        },
         "dependencies": {
             "@tanstack/react-query": "5.101.4",
             "react": "19.2.8",
@@ -324,12 +343,13 @@ def _literal_exports(
 ) -> tuple[frozenset[str] | None, list[Violation]]:
     assignments: list[ast.expr | None] = []
     for statement in tree.body:
-        if isinstance(statement, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "__all__"
-            for target in statement.targets
-        ):
-            assignments.append(statement.value)
-        elif (
+        if (
+            isinstance(statement, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in statement.targets
+            )
+        ) or (
             isinstance(statement, ast.AnnAssign)
             and isinstance(statement.target, ast.Name)
             and statement.target.id == "__all__"
@@ -348,7 +368,7 @@ def _literal_exports(
 
     try:
         value = ast.literal_eval(assignments[0])
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         value = None
     if not isinstance(value, (tuple, list)) or not all(
         isinstance(item, str) for item in value
@@ -383,11 +403,15 @@ def _literal_exports(
             )
         elif isinstance(statement, ast.ImportFrom):
             bound_names.update(
-                alias.asname or alias.name for alias in statement.names if alias.name != "*"
+                alias.asname or alias.name
+                for alias in statement.names
+                if alias.name != "*"
             )
         elif isinstance(statement, (ast.Assign, ast.AnnAssign)):
             targets = (
-                statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
             )
             bound_names.update(
                 target.id for target in targets if isinstance(target, ast.Name)
@@ -423,7 +447,7 @@ def _resolve_import_from(
     relative_name = "." * node.level + (node.module or "")
     try:
         return importlib.util.resolve_name(relative_name, package)
-    except (ImportError, ValueError):
+    except ImportError, ValueError:
         return relative_name
 
 
@@ -441,7 +465,10 @@ def _check_import(
     target_distribution = _distribution_for_module(imported_module)
     imported_root = imported_module.split(".", maxsplit=1)[0]
 
-    if source_distribution == "armi-kernel" and imported_root in KERNEL_FORBIDDEN_TECHNOLOGY:
+    if (
+        source_distribution == "armi-kernel"
+        and imported_root in KERNEL_FORBIDDEN_TECHNOLOGY
+    ):
         violations.append(
             Violation(
                 "ARC-SURFACE-KERNEL-TECH",
@@ -452,12 +479,18 @@ def _check_import(
         )
 
     reverse_dependency = (
-        source_distribution == "armi-kernel"
-        and target_distribution in {"armi-runtime", "armi-admin"}
-    ) or (
-        source_distribution == "armi-runtime" and target_distribution == "armi-admin"
-    ) or (
-        source_distribution == "armi-admin" and target_distribution == "armi-runtime"
+        (
+            source_distribution == "armi-kernel"
+            and target_distribution in {"armi-runtime", "armi-admin"}
+        )
+        or (
+            source_distribution == "armi-runtime"
+            and target_distribution == "armi-admin"
+        )
+        or (
+            source_distribution == "armi-admin"
+            and target_distribution == "armi-runtime"
+        )
     )
     if reverse_dependency:
         violations.append(
@@ -469,9 +502,8 @@ def _check_import(
             )
         )
 
-    if (
-        source_module.startswith("armi_kernel.domain")
-        and imported_module.startswith("armi_kernel.application")
+    if source_module.startswith("armi_kernel.domain") and imported_module.startswith(
+        "armi_kernel.application"
     ):
         violations.append(
             Violation(
@@ -484,7 +516,8 @@ def _check_import(
 
     runtime_layer = (
         source_module.split(".")[1]
-        if source_module.startswith("armi_runtime.") and len(source_module.split(".")) > 1
+        if source_module.startswith("armi_runtime.")
+        and len(source_module.split(".")) > 1
         else None
     )
     inferred_modules = [imported_module]
@@ -636,7 +669,9 @@ def _parse_python(path: Path, root: Path) -> tuple[ast.Module | None, list[Viola
     except (OSError, UnicodeError, SyntaxError) as error:
         line = error.lineno if isinstance(error, SyntaxError) and error.lineno else 1
         return None, [
-            Violation("ARC-SURFACE-SYNTAX", relative, line, f"cannot parse source: {error}")
+            Violation(
+                "ARC-SURFACE-SYNTAX", relative, line, f"cannot parse source: {error}"
+            )
         ]
 
 
@@ -646,8 +681,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
     violations: list[Violation] = []
     public_exports: dict[str, frozenset[str]] = {}
     public_paths = {
-        "armi_kernel": root
-        / "packages/armi-kernel/src/armi_kernel/__init__.py",
+        "armi_kernel": root / "packages/armi-kernel/src/armi_kernel/__init__.py",
         "armi_kernel.application": root
         / "packages/armi-kernel/src/armi_kernel/application/__init__.py",
         "armi_kernel.contracts": root

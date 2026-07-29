@@ -1,0 +1,11 @@
+{
+  "schema_version": "armi.architecture-policy.v1",
+  "persistence_markers": ["persistence", "repositories", "repository"],
+  "database_driver_roots": ["psycopg", "psycopg_pool"],
+  "write_surfaces": [],
+  "write_surfaces_not_applicable_reason": "M0-S009 has not created a database write surface.",
+  "named_coordinators": [],
+  "named_coordinators_not_applicable_reason": "No cross-owner transaction coordinator is implemented before the corresponding vertical slice.",
+  "forbidden_entry_points": [],
+  "forbidden_entry_points_not_applicable_reason": "The greenfield S004 baseline has no replaced production entry point."
+}

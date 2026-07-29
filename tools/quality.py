@@ -1,0 +1,325 @@
+"""Run all M0-S004 quality gates without installing or contacting a network."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from pathlib import Path
+
+GATE_ORDER = (
+    "QLT-LOCKED",
+    "PY-FORMAT",
+    "PY-LINT",
+    "PY-TYPE",
+    "PY-TEST",
+    "ARC-SURFACE",
+    "ARC-OWNER",
+    "EVO-CLEAN",
+    "SEC-REPOSITORY",
+    "WEB-FORMAT",
+    "WEB-LINT",
+    "WEB-TYPE",
+    "WEB-TEST",
+    "BUILD-PY",
+    "BUILD-WEB",
+)
+
+
+@dataclass(frozen=True)
+class GateResult:
+    gate_id: str
+    status: str
+    exit_code: int
+    output: str
+
+
+@dataclass(frozen=True)
+class Gate:
+    gate_id: str
+    command: tuple[str, ...]
+    cwd: Path
+    required_paths: tuple[Path, ...] = ()
+    prepare: Callable[[], None] | None = None
+    validate: Callable[[], tuple[bool, str]] | None = None
+
+
+def aggregate_exit_code(results: Iterable[GateResult]) -> int:
+    statuses = {result.status for result in results}
+    if "fail" in statuses:
+        return 1
+    if "blocked" in statuses:
+        return 2
+    return 0
+
+
+def safe_remove_output(path: Path, quality_root: Path) -> None:
+    resolved = path.resolve()
+    allowed = quality_root.resolve()
+    if resolved == allowed or allowed not in resolved.parents:
+        raise RuntimeError(f"unsafe quality output path: {resolved}")
+    if resolved.exists():
+        shutil.rmtree(resolved)
+
+
+def run_gate(gate: Gate, environment: dict[str, str]) -> GateResult:
+    missing = [path for path in gate.required_paths if not path.is_file()]
+    if missing:
+        names = ", ".join(path.name for path in missing)
+        return GateResult(gate.gate_id, "blocked", 2, f"missing required tool: {names}")
+    try:
+        if gate.prepare:
+            gate.prepare()
+        completed = subprocess.run(
+            gate.command,
+            cwd=gate.cwd,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError as error:
+        return GateResult(gate.gate_id, "blocked", 2, str(error))
+    output = "\n".join(
+        item.strip() for item in (completed.stdout, completed.stderr) if item.strip()
+    )
+    if completed.returncode != 0:
+        return GateResult(gate.gate_id, "fail", completed.returncode, output)
+    if gate.validate:
+        valid, validation_output = gate.validate()
+        if validation_output:
+            output = "\n".join(item for item in (output, validation_output) if item)
+        if not valid:
+            return GateResult(gate.gate_id, "fail", 1, output)
+    return GateResult(gate.gate_id, "pass", 0, output)
+
+
+def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
+    venv_python = root / ".venv/Scripts/python.exe"
+    managed_python = (
+        tool_root / "installs/python/cpython-3.14.6-windows-x86_64-none/python.exe"
+    )
+    node = tool_root / "installs/node/node-v24.18.0-win-x64/node.exe"
+    uv = tool_root / "installs/uv/0.11.33/uv.exe"
+    creator = root / "apps/armi-creator-web"
+    node_modules = creator / "node_modules"
+    pyright = root / "tools/toolchain-node/node_modules/pyright/index.js"
+    quality_root = root / ".tmp/quality"
+    python_dist = quality_root / "python-dist"
+    creator_dist = quality_root / "creator-dist"
+
+    def validate_python_build() -> tuple[bool, str]:
+        artifacts = sorted(
+            path.name for path in python_dist.glob("*") if path.is_file()
+        )
+        expected = ("armi_admin", "armi_kernel", "armi_runtime")
+        valid = all(
+            any(name.startswith(prefix) for name in artifacts) for prefix in expected
+        )
+        return valid, f"python build artifacts: {', '.join(artifacts)}"
+
+    def validate_creator_build() -> tuple[bool, str]:
+        maps = list(creator_dist.rglob("*.map")) if creator_dist.exists() else []
+        index = creator_dist / "index.html"
+        if not index.is_file():
+            return False, "Creator smoke output is missing index.html"
+        if maps:
+            return False, "Creator smoke output contains source maps"
+        completed = subprocess.run(
+            [
+                str(managed_python),
+                "-B",
+                str(root / "tools/check_repository_hygiene.py"),
+                "--root",
+                str(root),
+                "--path",
+                str(creator_dist),
+            ],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        output = "\n".join(
+            item.strip()
+            for item in (completed.stdout, completed.stderr)
+            if item.strip()
+        )
+        return completed.returncode == 0, output
+
+    def py(*arguments: str) -> tuple[str, ...]:
+        return (str(venv_python), *arguments)
+
+    def node_command(relative: str, *arguments: str) -> tuple[str, ...]:
+        return (str(node), str(node_modules / relative), *arguments)
+
+    common_python = (venv_python,)
+    common_node = (node,)
+    return {
+        "QLT-LOCKED": Gate(
+            "QLT-LOCKED",
+            py("-B", "tools/check_locked_environment.py"),
+            root,
+            common_python,
+        ),
+        "PY-FORMAT": Gate(
+            "PY-FORMAT",
+            py("-B", "-m", "ruff", "format", "--check", "."),
+            root,
+            common_python,
+        ),
+        "PY-LINT": Gate(
+            "PY-LINT",
+            py("-B", "-m", "ruff", "check", "."),
+            root,
+            common_python,
+        ),
+        "PY-TYPE": Gate(
+            "PY-TYPE",
+            (str(node), str(pyright), "--project", str(root / "pyrightconfig.json")),
+            root,
+            (node, pyright),
+        ),
+        "PY-TEST": Gate(
+            "PY-TEST",
+            py("-B", "-m", "pytest"),
+            root,
+            common_python,
+        ),
+        "ARC-SURFACE": Gate(
+            "ARC-SURFACE",
+            py("-B", "tools/check_workspace_boundaries.py"),
+            root,
+            common_python,
+        ),
+        "ARC-OWNER": Gate(
+            "ARC-OWNER",
+            py("-B", "tools/check_architecture_policy.py", "--family", "owner"),
+            root,
+            common_python,
+        ),
+        "EVO-CLEAN": Gate(
+            "EVO-CLEAN",
+            py("-B", "tools/check_architecture_policy.py", "--family", "clean"),
+            root,
+            common_python,
+        ),
+        "SEC-REPOSITORY": Gate(
+            "SEC-REPOSITORY",
+            py("-B", "tools/check_repository_hygiene.py"),
+            root,
+            common_python,
+        ),
+        "WEB-FORMAT": Gate(
+            "WEB-FORMAT",
+            node_command(
+                "prettier/bin/prettier.cjs",
+                "--check",
+                "package.json",
+                "tests/toolchain",
+            ),
+            creator,
+            common_node,
+        ),
+        "WEB-LINT": Gate(
+            "WEB-LINT",
+            node_command("oxlint/bin/oxlint", "--deny-warnings", "tests/toolchain"),
+            creator,
+            common_node,
+        ),
+        "WEB-TYPE": Gate(
+            "WEB-TYPE",
+            node_command(
+                "typescript/bin/tsc",
+                "--project",
+                "tests/toolchain/tsconfig.json",
+                "--noEmit",
+            ),
+            creator,
+            common_node,
+        ),
+        "WEB-TEST": Gate(
+            "WEB-TEST",
+            node_command(
+                "vitest/vitest.mjs",
+                "run",
+                "--config",
+                "tests/toolchain/vitest.config.ts",
+            ),
+            creator,
+            common_node,
+        ),
+        "BUILD-PY": Gate(
+            "BUILD-PY",
+            (
+                str(uv),
+                "build",
+                "--all-packages",
+                "--offline",
+                "--out-dir",
+                str(python_dist),
+            ),
+            root,
+            (uv,),
+            prepare=lambda: safe_remove_output(python_dist, quality_root),
+            validate=validate_python_build,
+        ),
+        "BUILD-WEB": Gate(
+            "BUILD-WEB",
+            node_command(
+                "vite/bin/vite.js",
+                "build",
+                "--config",
+                "tests/toolchain/vite.config.ts",
+            ),
+            creator,
+            (node, managed_python),
+            prepare=lambda: safe_remove_output(creator_dist, quality_root),
+            validate=validate_creator_build,
+        ),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parents[1]
+    )
+    parser.add_argument("--tool-root", type=Path)
+    parser.add_argument("--gate", action="append", choices=GATE_ORDER)
+    args = parser.parse_args()
+    root = args.root.resolve()
+    tool_root = args.tool_root.resolve() if args.tool_root else root / ".armi-tools"
+    selected = tuple(args.gate or GATE_ORDER)
+    available = commands(root, tool_root)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "ARMI_TOOL_ROOT": str(tool_root),
+            "UV_OFFLINE": "1",
+            "NPM_CONFIG_OFFLINE": "true",
+            "PLAYWRIGHT_BROWSERS_PATH": str(tool_root / "installs/playwright"),
+        }
+    )
+    results: list[GateResult] = []
+    for gate_id in selected:
+        result = run_gate(available[gate_id], environment)
+        results.append(result)
+        print(f"{result.gate_id}\t{result.status}\texit={result.exit_code}")
+        if result.output:
+            for line in result.output.splitlines():
+                print(f"  {line}")
+    exit_code = aggregate_exit_code(results)
+    print(f"QUALITY\t{'pass' if exit_code == 0 else 'fail'}\texit={exit_code}")
+    return exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

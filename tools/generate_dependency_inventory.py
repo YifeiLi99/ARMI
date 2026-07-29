@@ -18,7 +18,6 @@ from tools.check_locked_environment import (
     TOOL_DEPENDENCIES,
 )
 
-
 INTERNAL_PACKAGES = {"armi-admin", "armi-kernel", "armi-runtime"}
 
 
@@ -171,16 +170,13 @@ def update_tool_manifest(root: Path, tool_root: Path, graph_digest: str) -> None
         "cpython": tool_root
         / "installs/python/cpython-3.14.6-windows-x86_64-none/python.exe",
         "uv": tool_root / "installs/uv/0.11.33/uv.exe",
-        "node": tool_root
-        / "installs/node/node-v24.18.0-win-x64/node.exe",
+        "node": tool_root / "installs/node/node-v24.18.0-win-x64/node.exe",
         "npm": tool_root
         / "installs/node/node-v24.18.0-win-x64/node_modules/npm/bin/npm-cli.js",
         "codex-cli": root / "tools/toolchain-node/node_modules/@openai/codex",
         "pyright": root / "tools/toolchain-node/node_modules/pyright",
     }
-    browsers = sorted(
-        (tool_root / "installs/playwright").rglob("chrome.exe")
-    )
+    browsers = sorted((tool_root / "installs/playwright").rglob("chrome.exe"))
     for item in manifest["tools"]:
         tool_id = item["id"]
         install_path = install_paths.get(tool_id)
@@ -249,9 +245,7 @@ def main() -> int:
     parser.add_argument("--tool-root", type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
-    tool_root = (
-        args.tool_root.resolve() if args.tool_root else root / ".armi-tools"
-    )
+    tool_root = args.tool_root.resolve() if args.tool_root else root / ".armi-tools"
     inventory = generate(root, tool_root)
     if inventory["unresolved_licenses"]:
         for item in inventory["unresolved_licenses"]:

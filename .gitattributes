@@ -18,3 +18,4 @@ uv.lock text eol=lf
 .python-version text eol=lf
 .node-version text eol=lf
 .npmrc text eol=lf
+.prettierignore text eol=lf

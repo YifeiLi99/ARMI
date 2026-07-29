@@ -10,7 +10,6 @@ from pathlib import Path
 
 from tools.check_locked_environment import check_repository
 
-
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATHS = (
     ".python-version",

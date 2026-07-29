@@ -1,0 +1,28 @@
+{
+  "include": ["packages", "apps/armi-runtime", "apps/armi-admin", "tools", "tests"],
+  "exclude": [
+    ".armi-tools",
+    ".tmp",
+    ".venv",
+    "**/node_modules",
+    "apps/armi-creator-web"
+  ],
+  "extraPaths": [
+    "packages/armi-kernel/src",
+    "apps/armi-runtime/src",
+    "apps/armi-admin/src"
+  ],
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "standard",
+  "strict": [
+    "packages/armi-kernel/src",
+    "apps/armi-runtime/src",
+    "apps/armi-admin/src",
+    "tools/quality.py",
+    "tools/check_repository_hygiene.py",
+    "tests/quality"
+  ],
+  "venvPath": ".",
+  "venv": ".venv"
+}

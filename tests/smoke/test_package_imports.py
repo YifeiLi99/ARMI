@@ -8,7 +8,6 @@ import sys
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 KERNEL_SOURCE = ROOT / "packages/armi-kernel/src"
 RUNTIME_SOURCE = ROOT / "apps/armi-runtime/src"
