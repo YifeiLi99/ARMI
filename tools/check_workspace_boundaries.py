@@ -49,14 +49,31 @@ DISTRIBUTIONS = (
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
         layers=("adapters", "interfaces", "workers", "composition"),
-        dependencies=("armi-kernel==0.0.0",),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "fastapi==0.140.13",
+            "openai==2.49.0",
+            "playwright==1.61.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "pydantic==2.13.4",
+            "rfc8785==0.1.4",
+            "uvicorn==0.51.0",
+        ),
     ),
     Distribution(
         name="armi-admin",
         module="armi_admin",
         project_dir=Path("apps/armi-admin"),
         layers=("application", "mcp", "persistence", "process_control"),
-        dependencies=("armi-kernel==0.0.0",),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "mcp==2.0.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "pydantic==2.13.4",
+            "rfc8785==0.1.4",
+        ),
     ),
 )
 
@@ -134,7 +151,12 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
     violations.extend(errors)
     root_project = root_metadata.get("project", {})
     root_tool = root_metadata.get("tool", {})
-    if not isinstance(root_project, dict) or not isinstance(root_tool, dict):
+    root_groups = root_metadata.get("dependency-groups", {})
+    if (
+        not isinstance(root_project, dict)
+        or not isinstance(root_tool, dict)
+        or not isinstance(root_groups, dict)
+    ):
         return violations
 
     root_uv = root_tool.get("uv", {})
@@ -148,14 +170,28 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
         ("project.version", WORKSPACE_VERSION),
         ("project.requires-python", PYTHON_RANGE),
         ("project.dependencies", []),
+        (
+            "dependency-groups.dev",
+            [
+                "hypothesis==6.163.0",
+                "pytest==9.1.1",
+                "pytest-asyncio==1.4.0",
+                "ruff==0.16.0",
+            ],
+        ),
         ("tool.uv.package", False),
+        ("tool.uv.build-constraint-dependencies", ["uv_build==0.11.33"]),
         ("tool.uv.workspace.members", EXPECTED_MEMBERS),
     ):
         actual: object
         if field.startswith("project."):
             actual = root_project.get(field.removeprefix("project."))
+        elif field == "dependency-groups.dev":
+            actual = root_groups.get("dev")
         elif field == "tool.uv.package":
             actual = root_uv.get("package")
+        elif field == "tool.uv.build-constraint-dependencies":
+            actual = root_uv.get("build-constraint-dependencies")
         else:
             actual = workspace.get("members")
         _expect(
@@ -235,6 +271,30 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
         "version": WORKSPACE_VERSION,
         "private": True,
         "type": "module",
+        "engines": {"node": "24.18.0"},
+        "packageManager": "npm@11.16.0",
+        "dependencies": {
+            "@tanstack/react-query": "5.101.4",
+            "react": "19.2.8",
+            "react-dom": "19.2.8",
+        },
+        "devDependencies": {
+            "@testing-library/dom": "10.4.1",
+            "@testing-library/jest-dom": "6.9.1",
+            "@testing-library/react": "16.3.2",
+            "@testing-library/user-event": "14.6.1",
+            "@types/node": "24.13.3",
+            "@types/react": "19.2.17",
+            "@types/react-dom": "19.2.3",
+            "@vitejs/plugin-react": "6.0.4",
+            "jsdom": "30.0.0",
+            "openapi-typescript": "7.13.0",
+            "oxlint": "1.76.0",
+            "prettier": "3.9.6",
+            "typescript": "5.9.3",
+            "vite": "8.1.5",
+            "vitest": "4.1.10",
+        },
     }
     try:
         creator = json.loads(creator_path.read_text(encoding="utf-8"))

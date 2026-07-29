@@ -1,0 +1,106 @@
+{
+  "schema_version": "armi.toolchain-manifest.v1",
+  "target": {
+    "operating_system": "windows",
+    "architecture": "x86_64"
+  },
+  "official_sources": [
+    "https://files.pythonhosted.org/",
+    "https://pypi.org/",
+    "https://registry.npmjs.org/",
+    "https://nodejs.org/",
+    "https://github.com/astral-sh/",
+    "https://playwright.azureedge.net/",
+    "https://cdn.playwright.dev/"
+  ],
+  "tools": [
+    {
+      "id": "cpython",
+      "version": "3.14.6",
+      "acquisition": "uv-managed",
+      "archive_url": null,
+      "archive_sha256": null,
+      "install_digest": "3c6d868f2604f113468fbf2bd9398d42acb2466d21b32cb4f0c7fd54d4fd71cd"
+    },
+    {
+      "id": "uv",
+      "version": "0.11.33",
+      "acquisition": "pypi-wheel",
+      "archive_url": "https://files.pythonhosted.org/packages/dd/be/b90df95297cdae2cbd5a83fddf429a304b17a0e9c277ca02190d995cbe09/uv-0.11.33-py3-none-win_amd64.whl",
+      "archive_sha256": "521229afa69ad5f57127de800120cb2bea1ac729a05a0851aaf920124f8edf66",
+      "install_digest": "b06d20dc4fab6f0a7772b9d070904f21b099d1ff8b613dc9dd949dc6706ad657"
+    },
+    {
+      "id": "uv-build",
+      "version": "0.11.33",
+      "acquisition": "bundled-with-uv",
+      "archive_url": null,
+      "archive_sha256": null,
+      "install_digest": null
+    },
+    {
+      "id": "node",
+      "version": "24.18.0",
+      "acquisition": "official-windows-x64-zip",
+      "archive_url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-win-x64.zip",
+      "archive_sha256": "0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821",
+      "install_digest": "9a4eb5f1c29c6a2e93852ead46b999e284a6a5ca8bab4d4e241d587d025a52de"
+    },
+    {
+      "id": "npm",
+      "version": "11.16.0",
+      "acquisition": "bundled-with-node",
+      "archive_url": null,
+      "archive_sha256": null,
+      "install_digest": "3ce7cba6f5128dd5f54c98b6a5036b0f850496878cc2e21044b675fe3c594e3e"
+    },
+    {
+      "id": "playwright-chromium",
+      "version": "1228",
+      "acquisition": "playwright-python-1.61.0",
+      "archive_url": null,
+      "archive_sha256": null,
+      "install_digest": "b798f9e53a98d29eb7f36f8c409f905d3184780a04d2bcb56989067194784bd1"
+    },
+    {
+      "id": "codex-cli",
+      "version": "0.144.4",
+      "acquisition": "isolated-npm-lock",
+      "archive_url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.4.tgz",
+      "archive_sha256": null,
+      "install_digest": "66d97219c9f5a770b30da627be49ab4c390b4869e8ae0738f40a4f35047c8fb7"
+    },
+    {
+      "id": "pyright",
+      "version": "1.1.411",
+      "acquisition": "isolated-npm-lock",
+      "archive_url": "https://registry.npmjs.org/pyright/-/pyright-1.1.411.tgz",
+      "archive_sha256": null,
+      "install_digest": "23189c1db45e8dae7d120aa54d22e955c46e367ff1ad6ec508282219f913cf40"
+    }
+  ],
+  "lockfiles": [
+    {
+      "path": "uv.lock",
+      "sha256": "a19acc95777b3c8d8c7749053481762acf02acb261eeb18309945a63b5e95851"
+    },
+    {
+      "path": "apps/armi-creator-web/package-lock.json",
+      "sha256": "fcbf9d8b21e025af368f76edf270fffd54cc24ffa5c3f7a0a4ee57328ab59ae4"
+    },
+    {
+      "path": "tools/toolchain-node/package-lock.json",
+      "sha256": "713a6557c7787c7b474924a57588a17465146452b64384f6c4a024166d2b5c18"
+    }
+  ],
+  "offline_scope": {
+    "cold_machine": "unsupported",
+    "warm_cache": "Python and npm locked dependencies can be reinstalled after their exact archives have populated the isolated cache.",
+    "tool_artifacts": "uv, CPython, Node/npm and Chromium must already exist in the isolated tool root.",
+    "missing_artifact": "fail_without_network_fallback"
+  },
+  "dependency_inventory": {
+    "path": "tools/dependency-inventory.json",
+    "graph_sha256": "e221dc3e856a74b8d83a4c0e31f0819b6e3f983155e364a4f49c6aa4f0dc4d64"
+  }
+}
