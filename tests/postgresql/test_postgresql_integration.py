@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import io
 import json
 import os
 import secrets
+import selectors
 import socket
 import subprocess
 import sys
@@ -14,11 +16,19 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import LiteralString, cast
+from typing import Any, LiteralString, cast
 from uuid import UUID
 
 import psycopg
 from armi_admin.persistence.role_session import AdminRoleBoundPool
+from armi_kernel.application import (
+    CasStatus,
+    LockPlan,
+    LockTarget,
+    LockTargetKind,
+    PostCommitAction,
+    classify_cas_rows,
+)
 from armi_runtime.adapters.persistence.role_policy import (
     RoleBoundConnectionPool,
     physical_role_name,
@@ -28,6 +38,10 @@ from armi_runtime.adapters.persistence.schema_gateway import (
     PostgreSQLSchemaGateway,
     _PackagedSchema,
 )
+from armi_runtime.adapters.persistence.unit_of_work import (
+    PostgreSQLUnitOfWorkFactory,
+)
+from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 from armi_runtime.cli import main
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -524,6 +538,436 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(raised.exception.code, "DB-PG-VERSION")
+
+    def _prepare_s011_schema(self, fixture: DatabaseFixture) -> None:
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute("CREATE SCHEMA s011_test AUTHORIZATION armi_owner")
+            connection.execute(
+                """
+                CREATE TABLE s011_test.entries (
+                    id bigint PRIMARY KEY,
+                    value bigint NOT NULL CHECK (value >= 0),
+                    unique_value text UNIQUE
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE s011_test.subjects (
+                    id uuid PRIMARY KEY,
+                    version bigint NOT NULL CHECK (version >= 0),
+                    value text NOT NULL
+                )
+                """
+            )
+            connection.execute("CREATE TABLE s011_test.parents (id bigint PRIMARY KEY)")
+            connection.execute(
+                """
+                CREATE TABLE s011_test.children (
+                    id bigint PRIMARY KEY,
+                    parent_id bigint NOT NULL
+                        REFERENCES s011_test.parents (id)
+                )
+                """
+            )
+            connection.execute("GRANT USAGE ON SCHEMA s011_test TO armi_runtime")
+            connection.execute(
+                "GRANT SELECT, INSERT, UPDATE, DELETE "
+                "ON ALL TABLES IN SCHEMA s011_test TO armi_runtime"
+            )
+
+    def _drop_s011_schema(self, fixture: DatabaseFixture) -> None:
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute("DROP SCHEMA IF EXISTS s011_test CASCADE")
+
+    async def _new_uow_factory(
+        self,
+        fixture: DatabaseFixture,
+        *,
+        pool_max: int = 4,
+        statement_timeout_seconds: int = 5,
+    ) -> PostgreSQLUnitOfWorkFactory:
+        async def acquire_subject_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            if target.kind is not LockTargetKind.SUBJECT:
+                raise ValueError("test acquirer only owns subject locks")
+            row = await (
+                await connection.execute(
+                    "SELECT version FROM s011_test.subjects WHERE id = %s FOR UPDATE",
+                    (target.object_id,),
+                )
+            ).fetchone()
+            if row is None:
+                raise ValueError("subject lock target is missing")
+
+        factory = PostgreSQLUnitOfWorkFactory(
+            fixture.runtime_dsn,
+            environment_id=fixture.environment_id,
+            lock_acquirer=acquire_subject_lock,
+            pool_min=1,
+            pool_max=pool_max,
+            acquire_timeout_seconds=1,
+            statement_timeout_seconds=statement_timeout_seconds,
+        )
+        await factory.open()
+        return factory
+
+    def test_uow_commit_rollback_hooks_constraints_and_session_reset(self) -> None:
+        fixture = self.create_database()
+        self._prepare_s011_schema(fixture)
+
+        async def exercise() -> None:
+            factory = await self._new_uow_factory(fixture)
+            try:
+                uow = factory.unit_of_work(LockPlan())
+                action = PostCommitAction("audit.append", _uuid7())
+                async with uow:
+                    connection = uow._connection_for_repository()
+                    await connection.execute(
+                        "INSERT INTO s011_test.entries "
+                        "(id, value, unique_value) VALUES (1, 1, 'first')"
+                    )
+
+                    async def append_hook() -> None:
+                        await connection.execute(
+                            "INSERT INTO s011_test.entries "
+                            "(id, value, unique_value) VALUES (2, 2, 'second')"
+                        )
+
+                    uow.add_before_commit(append_hook)
+                    uow.defer_after_commit(action)
+                    self.assertEqual(uow.committed_actions, ())
+                self.assertEqual(uow.committed_actions, (action,))
+
+                rolled_back = factory.unit_of_work(LockPlan())
+                async with rolled_back:
+                    connection = rolled_back._connection_for_repository()
+                    await connection.execute(
+                        "INSERT INTO s011_test.entries "
+                        "(id, value, unique_value) VALUES (3, 3, 'third')"
+                    )
+                    rolled_back.request_rollback()
+                self.assertEqual(rolled_back.committed_actions, ())
+
+                failed = factory.unit_of_work(LockPlan())
+                with self.assertRaises(DatabaseTransactionError) as raised:
+                    async with failed:
+                        connection = failed._connection_for_repository()
+                        await connection.execute(
+                            "INSERT INTO s011_test.entries "
+                            "(id, value, unique_value) VALUES (4, 4, 'first')"
+                        )
+                self.assertEqual(raised.exception.code, "DB-TX-UNIQUE")
+                self.assertNotIn("first", str(raised.exception))
+
+                async def assert_database_error(
+                    query: LiteralString,
+                    parameters: tuple[object, ...],
+                    expected_code: str,
+                ) -> None:
+                    candidate = factory.unit_of_work(LockPlan())
+                    with self.assertRaises(DatabaseTransactionError) as error:
+                        async with candidate:
+                            await candidate._connection_for_repository().execute(
+                                query,
+                                parameters,
+                            )
+                    self.assertEqual(error.exception.code, expected_code)
+
+                await assert_database_error(
+                    "INSERT INTO s011_test.entries "
+                    "(id, value, unique_value) VALUES (%s, %s, %s)",
+                    (5, -1, "check"),
+                    "DB-TX-CHECK",
+                )
+                await assert_database_error(
+                    "INSERT INTO s011_test.entries "
+                    "(id, value, unique_value) VALUES (%s, %s, %s)",
+                    (6, None, "not-null"),
+                    "DB-TX-NOT-NULL",
+                )
+                await assert_database_error(
+                    "INSERT INTO s011_test.children (id, parent_id) VALUES (%s, %s)",
+                    (1, 999),
+                    "DB-TX-FOREIGN-KEY",
+                )
+                await assert_database_error(
+                    "CREATE TABLE s011_test.forbidden (id bigint)",
+                    (),
+                    "DB-TX-PRIVILEGE",
+                )
+
+                before_hook_failed = factory.unit_of_work(LockPlan())
+                with self.assertRaisesRegex(RuntimeError, "hook failed"):
+                    async with before_hook_failed:
+                        connection = before_hook_failed._connection_for_repository()
+                        await connection.execute(
+                            "INSERT INTO s011_test.entries "
+                            "(id, value, unique_value) VALUES (7, 7, 'hook')"
+                        )
+
+                        async def fail_hook() -> None:
+                            raise RuntimeError("hook failed")
+
+                        before_hook_failed.add_before_commit(fail_hook)
+                self.assertEqual(before_hook_failed.committed_actions, ())
+
+                cancellation_started = asyncio.Event()
+                never_release = asyncio.Event()
+
+                async def cancel_candidate() -> None:
+                    cancelled = factory.unit_of_work(LockPlan())
+                    async with cancelled:
+                        await cancelled._connection_for_repository().execute(
+                            "INSERT INTO s011_test.entries "
+                            "(id, value, unique_value) VALUES (8, 8, 'cancelled')"
+                        )
+                        cancellation_started.set()
+                        await never_release.wait()
+
+                cancellation_task = asyncio.create_task(cancel_candidate())
+                await cancellation_started.wait()
+                cancellation_task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await cancellation_task
+
+                contaminated = factory.unit_of_work(LockPlan())
+                async with contaminated:
+                    connection = contaminated._connection_for_repository()
+                    await connection.execute(
+                        "SET LOCAL application_name = 's011-contaminated'"
+                    )
+                    contaminated.request_rollback()
+                clean = factory.unit_of_work(LockPlan())
+                async with clean:
+                    connection = clean._connection_for_repository()
+                    row = await (
+                        await connection.execute(
+                            "SELECT session_user, current_user, "
+                            "current_setting('search_path'), "
+                            "current_setting('application_name')"
+                        )
+                    ).fetchone()
+                    self.assertEqual(
+                        row,
+                        (
+                            fixture.runtime_role,
+                            fixture.runtime_role,
+                            "pg_catalog, armi",
+                            "",
+                        ),
+                    )
+                    nested = factory.unit_of_work(LockPlan())
+                    with self.assertRaises(DatabaseTransactionError) as nested_error:
+                        async with nested:
+                            pass
+                    self.assertEqual(nested_error.exception.code, "DB-TX-NESTED")
+
+                single = await self._new_uow_factory(fixture, pool_max=1)
+                held = asyncio.Event()
+                release = asyncio.Event()
+
+                async def hold_only_connection() -> None:
+                    holder = single.unit_of_work(LockPlan())
+                    async with holder:
+                        held.set()
+                        await release.wait()
+
+                holder_task = asyncio.create_task(hold_only_connection())
+                await held.wait()
+                waiting = single.unit_of_work(LockPlan())
+                with self.assertRaises(DatabaseTransactionError) as pool_error:
+                    async with waiting:
+                        pass
+                self.assertEqual(pool_error.exception.code, "DB-TX-POOL-TIMEOUT")
+                release.set()
+                await holder_task
+                await single.close()
+            finally:
+                await factory.close()
+
+        try:
+            asyncio.run(
+                exercise(),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                rows = connection.execute(
+                    "SELECT id FROM s011_test.entries ORDER BY id"
+                ).fetchall()
+            self.assertEqual(rows, [(1,), (2,)])
+        finally:
+            self._drop_s011_schema(fixture)
+
+    def test_cas_deadlock_timeout_and_commit_unknown_are_not_replayed(self) -> None:
+        fixture = self.create_database()
+        self._prepare_s011_schema(fixture)
+        subject_id = _uuid7()
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                "INSERT INTO s011_test.subjects (id, version, value) "
+                "VALUES (%s, 0, 'initial')",
+                (subject_id,),
+            )
+            connection.execute(
+                "INSERT INTO s011_test.entries (id, value, unique_value) "
+                "VALUES (10, 10, 'ten'), (11, 11, 'eleven')"
+            )
+
+        async def exercise() -> None:
+            factory = await self._new_uow_factory(
+                fixture,
+                statement_timeout_seconds=2,
+            )
+            try:
+                start = asyncio.Event()
+
+                async def cas(value: str) -> CasStatus:
+                    await start.wait()
+                    plan = LockPlan.for_cas(
+                        LockTarget(LockTargetKind.SUBJECT, subject_id, 0)
+                    )
+                    uow = factory.unit_of_work(plan)
+                    result = CasStatus.CONFLICT
+                    async with uow:
+                        connection = uow._connection_for_repository()
+                        cursor = await connection.execute(
+                            "UPDATE s011_test.subjects "
+                            "SET version = version + 1, value = %s "
+                            "WHERE id = %s AND version = %s",
+                            (value, subject_id, 0),
+                        )
+                        result = classify_cas_rows(cursor.rowcount)
+                        if result is CasStatus.CONFLICT:
+                            uow.request_rollback()
+                    return result
+
+                tasks = (
+                    asyncio.create_task(cas("left")),
+                    asyncio.create_task(cas("right")),
+                )
+                start.set()
+                results = await asyncio.gather(*tasks)
+                self.assertCountEqual(
+                    results,
+                    (CasStatus.APPLIED, CasStatus.CONFLICT),
+                )
+
+                timeout_uow = factory.unit_of_work(LockPlan())
+                with self.assertRaises(DatabaseTransactionError) as timeout_error:
+                    async with timeout_uow:
+                        await timeout_uow._connection_for_repository().execute(
+                            "SELECT pg_catalog.pg_sleep(3)"
+                        )
+                self.assertEqual(
+                    timeout_error.exception.code,
+                    "DB-TX-STATEMENT-TIMEOUT",
+                )
+
+                first_locked = asyncio.Event()
+                second_locked = asyncio.Event()
+
+                async def deadlock(
+                    first_id: int,
+                    second_id: int,
+                    mine: asyncio.Event,
+                    other: asyncio.Event,
+                ) -> str:
+                    uow = factory.unit_of_work(LockPlan())
+                    try:
+                        async with uow:
+                            connection = uow._connection_for_repository()
+                            await connection.execute(
+                                "SELECT id FROM s011_test.entries "
+                                "WHERE id = %s FOR UPDATE",
+                                (first_id,),
+                            )
+                            mine.set()
+                            await other.wait()
+                            await connection.execute(
+                                "SELECT id FROM s011_test.entries "
+                                "WHERE id = %s FOR UPDATE",
+                                (second_id,),
+                            )
+                        return "committed"
+                    except DatabaseTransactionError as error:
+                        return error.code
+
+                deadlock_results = await asyncio.gather(
+                    deadlock(10, 11, first_locked, second_locked),
+                    deadlock(11, 10, second_locked, first_locked),
+                )
+                self.assertIn("DB-TX-DEADLOCK", deadlock_results)
+                self.assertIn("committed", deadlock_results)
+
+                unknown_uow = factory.unit_of_work(LockPlan())
+                with self.assertRaises(DatabaseTransactionError) as unknown_error:
+                    async with unknown_uow:
+                        connection = unknown_uow._connection_for_repository()
+                        await connection.execute(
+                            "INSERT INTO s011_test.entries "
+                            "(id, value, unique_value) "
+                            "VALUES (20, 20, 'unknown')"
+                        )
+                        unknown_uow.defer_after_commit(
+                            PostCommitAction("audit.append", _uuid7())
+                        )
+                        backend_pid = await (
+                            await connection.execute(
+                                "SELECT pg_catalog.pg_backend_pid()"
+                            )
+                        ).fetchone()
+                        assert backend_pid is not None
+
+                        def terminate() -> None:
+                            with psycopg.connect(
+                                fixture.provisioner_dsn,
+                                autocommit=True,
+                            ) as admin:
+                                admin.execute(
+                                    "SELECT pg_catalog.pg_terminate_backend(%s)",
+                                    (backend_pid[0],),
+                                )
+
+                        await asyncio.to_thread(terminate)
+                self.assertEqual(
+                    unknown_error.exception.code,
+                    "DB-TX-COMMIT-UNKNOWN",
+                )
+                self.assertEqual(unknown_uow.committed_actions, ())
+            finally:
+                await factory.close()
+
+        try:
+            asyncio.run(
+                exercise(),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                subject = connection.execute(
+                    "SELECT version, value FROM s011_test.subjects WHERE id = %s",
+                    (subject_id,),
+                ).fetchone()
+                unknown_count = connection.execute(
+                    "SELECT count(*) FROM s011_test.entries WHERE id = 20"
+                ).fetchone()
+            assert subject is not None
+            self.assertEqual(subject[0], 1)
+            self.assertIn(subject[1], {"left", "right"})
+            assert unknown_count is not None
+            self.assertIn(unknown_count[0], {0, 1})
+        finally:
+            self._drop_s011_schema(fixture)
 
     def test_real_cli_uses_fixed_scopes_and_safe_output(self) -> None:
         fixture = self.create_database()

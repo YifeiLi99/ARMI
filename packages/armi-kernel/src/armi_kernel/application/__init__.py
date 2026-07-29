@@ -6,10 +6,30 @@ from .credentials import (
     CredentialPurpose,
     SecretHandle,
 )
+from .transactions import (
+    BeforeCommitHook,
+    CasStatus,
+    LockPlan,
+    LockTarget,
+    LockTargetKind,
+    PostCommitAction,
+    TransactionIsolation,
+    UnitOfWork,
+    classify_cas_rows,
+)
 
 __all__ = (
+    "BeforeCommitHook",
+    "CasStatus",
     "CredentialLocator",
     "CredentialPort",
     "CredentialPurpose",
+    "LockPlan",
+    "LockTarget",
+    "LockTargetKind",
+    "PostCommitAction",
     "SecretHandle",
+    "TransactionIsolation",
+    "UnitOfWork",
+    "classify_cas_rows",
 )

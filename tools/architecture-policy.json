@@ -2,6 +2,13 @@
   "schema_version": "armi.architecture-policy.v1",
   "persistence_markers": ["persistence", "repositories", "repository"],
   "database_driver_roots": ["psycopg", "psycopg_pool"],
+  "database_driver_boundaries": [
+    {
+      "id": "transaction-error-mapping",
+      "module": "armi_runtime.adapters.transaction_errors",
+      "reason": "Maps PostgreSQL SQLSTATE and pool failures without owning writes."
+    }
+  ],
   "write_surfaces": [
     {
       "id": "schema-governance",
@@ -13,7 +20,10 @@
       "id": "database-role-policy-runtime",
       "module": "armi_runtime.adapters.persistence.role_policy",
       "owner": "database-role-policy",
-      "allowed_callers": ["armi_runtime.adapters.persistence.schema_gateway"]
+      "allowed_callers": [
+        "armi_runtime.adapters.persistence.schema_gateway",
+        "armi_runtime.adapters.persistence.unit_of_work"
+      ]
     },
     {
       "id": "database-role-policy-admin",
@@ -23,8 +33,39 @@
     }
   ],
   "write_surfaces_not_applicable_reason": "",
-  "named_coordinators": [],
-  "named_coordinators_not_applicable_reason": "No cross-owner transaction coordinator is implemented before the corresponding vertical slice.",
+  "named_coordinators": [
+    {
+      "id": "runtime-unit-of-work",
+      "module": "armi_runtime.adapters.persistence.unit_of_work",
+      "owner": "transaction-coordination",
+      "allowed_write_surfaces": []
+    }
+  ],
+  "named_coordinators_not_applicable_reason": "",
+  "transaction_control_exemptions": [
+    {
+      "id": "schema-migration-transaction",
+      "module": "armi_runtime.adapters.persistence.schema_gateway",
+      "reason": "Packaged migrations require one transaction per immutable migration."
+    },
+    {
+      "id": "runtime-pool-reset",
+      "module": "armi_runtime.adapters.persistence.role_policy",
+      "reason": "The role-bound pool must rollback and reset contaminated sessions."
+    },
+    {
+      "id": "admin-pool-reset",
+      "module": "armi_admin.persistence.role_session",
+      "reason": "The role-bound pool must rollback and reset contaminated sessions."
+    }
+  ],
+  "transaction_control_exemptions_not_applicable_reason": "",
+  "coordinator_forbidden_io_roots": [
+    "httpx",
+    "mcp",
+    "openai",
+    "playwright"
+  ],
   "forbidden_entry_points": [],
   "forbidden_entry_points_not_applicable_reason": "The greenfield S004 baseline has no replaced production entry point.",
   "creator_web": {

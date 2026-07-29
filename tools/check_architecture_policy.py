@@ -83,6 +83,10 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
     for field, reason_field in (
         ("write_surfaces", "write_surfaces_not_applicable_reason"),
         ("named_coordinators", "named_coordinators_not_applicable_reason"),
+        (
+            "transaction_control_exemptions",
+            "transaction_control_exemptions_not_applicable_reason",
+        ),
         ("forbidden_entry_points", "forbidden_entry_points_not_applicable_reason"),
     ):
         items = policy.get(field)
@@ -168,14 +172,38 @@ def analyze_source(
     coordinator_modules = {
         str(item.get("module")) for item in coordinators if item.get("module")
     }
+    driver_boundary_modules = {
+        str(item.get("module"))
+        for item in policy.get("database_driver_boundaries", [])
+        if isinstance(item, dict) and item.get("module")
+    }
+    transaction_exemptions = {
+        str(item.get("module"))
+        for item in policy.get("transaction_control_exemptions", [])
+        if isinstance(item, dict) and item.get("module")
+    }
+    forbidden_coordinator_io = set(policy.get("coordinator_forbidden_io_roots", []))
     imports = list(imported_modules(tree))
 
     imports_driver = False
     for imported, line in imports:
         root = imported.split(".", maxsplit=1)[0]
+        if module in coordinator_modules and root in forbidden_coordinator_io:
+            violations.append(
+                Violation(
+                    "ARC-OWNER-COORDINATOR-IO",
+                    path,
+                    line,
+                    f"transaction coordinator cannot import slow external I/O: {root}",
+                )
+            )
         if root in driver_roots:
             imports_driver = True
-            if module not in registered_modules and module not in coordinator_modules:
+            if (
+                module not in registered_modules
+                and module not in coordinator_modules
+                and module not in driver_boundary_modules
+            ):
                 violations.append(
                     Violation(
                         "ARC-OWNER-DIRECT-DRIVER",
@@ -235,6 +263,20 @@ def analyze_source(
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             name = dotted_name(node.func)
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"commit", "rollback", "transaction"}
+                and module not in coordinator_modules
+                and module not in transaction_exemptions
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-OWNER-TRANSACTION-CONTROL",
+                        path,
+                        node.lineno,
+                        "transaction control is reserved for the registered coordinator",
+                    )
+                )
             if name in DISCOVERY_CALLS:
                 violations.append(
                     Violation(

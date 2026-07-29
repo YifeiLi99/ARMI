@@ -19,7 +19,16 @@ PUBLIC_EXPORTS = {
             "CredentialLocator",
             "CredentialPort",
             "CredentialPurpose",
+            "BeforeCommitHook",
+            "CasStatus",
+            "LockPlan",
+            "LockTarget",
+            "LockTargetKind",
+            "PostCommitAction",
             "SecretHandle",
+            "TransactionIsolation",
+            "UnitOfWork",
+            "classify_cas_rows",
         }
     ),
     "armi_kernel.contracts": frozenset(
