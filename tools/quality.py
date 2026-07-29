@@ -111,7 +111,6 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
     pyright = root / "tools/toolchain-node/node_modules/pyright/index.js"
     quality_root = root / ".tmp/quality"
     python_dist = quality_root / "python-dist"
-    creator_dist = quality_root / "creator-dist"
 
     def validate_python_build() -> tuple[bool, str]:
         artifacts = sorted(
@@ -124,12 +123,9 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         return valid, f"python build artifacts: {', '.join(artifacts)}"
 
     def validate_creator_build() -> tuple[bool, str]:
-        maps = list(creator_dist.rglob("*.map")) if creator_dist.exists() else []
-        index = creator_dist / "index.html"
-        if not index.is_file():
-            return False, "Creator smoke output is missing index.html"
-        if maps:
-            return False, "Creator smoke output contains source maps"
+        resources = (
+            root / "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources"
+        )
         completed = subprocess.run(
             [
                 str(managed_python),
@@ -138,7 +134,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
                 "--root",
                 str(root),
                 "--path",
-                str(creator_dist),
+                str(resources),
             ],
             cwd=root,
             check=False,
@@ -223,14 +219,18 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
                 "prettier/bin/prettier.cjs",
                 "--check",
                 "package.json",
-                "tests/toolchain",
+                "index.html",
+                "tsconfig.json",
+                "vite.config.ts",
+                "vitest.config.ts",
+                "src",
             ),
             creator,
             common_node,
         ),
         "WEB-LINT": Gate(
             "WEB-LINT",
-            node_command("oxlint/bin/oxlint", "--deny-warnings", "tests/toolchain"),
+            node_command("oxlint/bin/oxlint", "--deny-warnings", "src"),
             creator,
             common_node,
         ),
@@ -239,7 +239,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             node_command(
                 "typescript/bin/tsc",
                 "--project",
-                "tests/toolchain/tsconfig.json",
+                "tsconfig.json",
                 "--noEmit",
             ),
             creator,
@@ -251,7 +251,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
                 "vitest/vitest.mjs",
                 "run",
                 "--config",
-                "tests/toolchain/vitest.config.ts",
+                "vitest.config.ts",
             ),
             creator,
             common_node,
@@ -273,15 +273,14 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         ),
         "BUILD-WEB": Gate(
             "BUILD-WEB",
-            node_command(
-                "vite/bin/vite.js",
-                "build",
-                "--config",
-                "tests/toolchain/vite.config.ts",
+            py(
+                "-B",
+                "tools/build_creator_web.py",
+                "--tool-root",
+                str(tool_root),
             ),
-            creator,
-            (node, managed_python),
-            prepare=lambda: safe_remove_output(creator_dist, quality_root),
+            root,
+            (node, managed_python, venv_python),
             validate=validate_creator_build,
         ),
     }

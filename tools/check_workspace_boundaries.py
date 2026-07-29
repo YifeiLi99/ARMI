@@ -297,11 +297,11 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
         "engines": {"node": "24.18.0"},
         "packageManager": "npm@11.16.0",
         "scripts": {
-            "format:check": "prettier --check package.json tests/toolchain",
-            "lint": "oxlint --deny-warnings tests/toolchain",
-            "typecheck": "tsc --project tests/toolchain/tsconfig.json --noEmit",
-            "test": "vitest run --config tests/toolchain/vitest.config.ts",
-            "build:smoke": "vite build --config tests/toolchain/vite.config.ts",
+            "format:check": "prettier --check package.json index.html tsconfig.json vite.config.ts vitest.config.ts src",
+            "lint": "oxlint --deny-warnings src",
+            "typecheck": "tsc --project tsconfig.json --noEmit",
+            "test": "vitest run --config vitest.config.ts",
+            "build": "vite build",
         },
         "dependencies": {
             "@tanstack/react-query": "5.101.4",
@@ -834,10 +834,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     violations = check_repository(root)
+    from check_creator_web import check_repository as check_creator_repository
+
+    creator_violations = check_creator_repository(root)
     if violations:
         for violation in violations:
             print(violation.render())
-        print(f"workspace-boundaries: fail ({len(violations)} violation(s))")
+    if creator_violations:
+        for violation in creator_violations:
+            print(violation.render())
+    if violations or creator_violations:
+        print(
+            "workspace-boundaries: fail "
+            f"({len(violations) + len(creator_violations)} violation(s))"
+        )
         return 1
     source_count = sum(
         1
@@ -848,6 +858,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "workspace-boundaries: pass "
         f"({len(DISTRIBUTIONS)} distributions, {source_count} Python source files)"
     )
+    print("creator-web-boundaries: pass")
     return 0
 
 
