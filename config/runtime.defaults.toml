@@ -1,0 +1,51 @@
+schema_version = "armi.runtime-config.v1"
+
+[environment]
+
+[database]
+pool_min = 2
+pool_max = 12
+pool_acquire_timeout_seconds = 5
+statement_timeout_seconds = 5
+diagnostic_statement_timeout_seconds = 30
+
+[runtime]
+lease_seconds = 30
+heartbeat_seconds = 10
+
+[work]
+lease_seconds = 60
+heartbeat_seconds = 20
+max_deadline_seconds = 3600
+
+[model]
+concurrency = 2
+attempt_timeout_seconds = 180
+episode_max_attempts = 2
+
+[web]
+concurrency = 1
+step_timeout_seconds = 30
+total_timeout_seconds = 90
+
+[codex]
+concurrency = 1
+total_timeout_seconds = 1800
+
+[creator]
+bind_host = "127.0.0.1"
+request_body_max_bytes = 262144
+bootstrap_ttl_seconds = 120
+session_ttl_seconds = 28800
+
+[artifacts]
+max_object_bytes = 104857600
+
+[lifecycle]
+graceful_shutdown_seconds = 30
+
+[scheduler]
+idle_poll_initial_seconds = 1
+idle_poll_max_seconds = 10
+
+[secret_locators]

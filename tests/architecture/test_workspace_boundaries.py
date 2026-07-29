@@ -14,7 +14,14 @@ from tools.check_workspace_boundaries import (
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_EXPORTS = {
     "armi_kernel": frozenset(),
-    "armi_kernel.application": frozenset({"PublicPort"}),
+    "armi_kernel.application": frozenset(
+        {
+            "CredentialLocator",
+            "CredentialPort",
+            "CredentialPurpose",
+            "SecretHandle",
+        }
+    ),
     "armi_kernel.contracts": frozenset(
         {
             "CONTRACT_VERSION",
@@ -53,7 +60,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
 
     def test_explicit_kernel_application_export_is_allowed(self) -> None:
         violations = self.analyze(
-            "from armi_kernel.application import PublicPort\n",
+            "from armi_kernel.application import CredentialPort\n",
             module="armi_runtime.adapters.example",
             distribution="armi-runtime",
         )
@@ -138,11 +145,28 @@ class WorkspaceBoundaryTests(unittest.TestCase):
 
     def test_domain_cannot_depend_on_application(self) -> None:
         violations = self.analyze(
-            "from armi_kernel.application import PublicPort\n",
+            "from armi_kernel.application import CredentialPort\n",
             module="armi_kernel.domain.example",
             distribution="armi-kernel",
         )
         self.assert_rejected(violations, "ARC-SURFACE-REVERSE")
+
+    def test_kernel_application_deep_import_is_rejected(self) -> None:
+        violations = self.analyze(
+            "from armi_kernel.application.credentials import CredentialPort\n",
+            module="armi_runtime.composition.example",
+            distribution="armi-runtime",
+        )
+        self.assert_rejected(violations, "ARC-SURFACE-DEEP")
+
+    def test_kernel_credential_contract_has_no_technical_or_filesystem_imports(
+        self,
+    ) -> None:
+        source = (
+            ROOT / "packages/armi-kernel/src/armi_kernel/application/credentials.py"
+        ).read_text(encoding="utf-8")
+        for forbidden in ("pydantic", "rfc8785", "pathlib", "os", "psycopg"):
+            self.assertNotIn(f"import {forbidden}", source)
 
     def test_runtime_layers_cannot_depend_on_composition(self) -> None:
         violations = self.analyze(

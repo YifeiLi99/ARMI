@@ -1,0 +1,183 @@
+{
+  "defaults": {
+    "contains_secrets": false,
+    "path": "config/runtime.defaults.toml",
+    "sha256": "28b8206b35c80a19c25efdaaf2cb05cd39d87e183972ee1fa620c985c57e6cc5"
+  },
+  "effective_digest": {
+    "algorithm": "sha256",
+    "canonicalization": "RFC 8785",
+    "excludes": [
+      "secret values"
+    ],
+    "includes": [
+      "normalized effective values",
+      "locator identities"
+    ],
+    "prefix": "sha256:"
+  },
+  "environment_overrides": {
+    "ARMI_ARTIFACT_MAX_BYTES": {
+      "env_overridable": true,
+      "path": "artifacts.max_object_bytes",
+      "type": "integer"
+    },
+    "ARMI_CODEX_CONCURRENCY": {
+      "env_overridable": true,
+      "path": "codex.concurrency",
+      "type": "integer"
+    },
+    "ARMI_CODEX_TOTAL_TIMEOUT_SECONDS": {
+      "env_overridable": true,
+      "path": "codex.total_timeout_seconds",
+      "type": "integer"
+    },
+    "ARMI_CREATOR_BOOTSTRAP_TTL_SECONDS": {
+      "env_overridable": true,
+      "path": "creator.bootstrap_ttl_seconds",
+      "type": "integer"
+    },
+    "ARMI_CREATOR_PORT": {
+      "env_overridable": true,
+      "path": "creator.port",
+      "type": "integer"
+    },
+    "ARMI_CREATOR_REQUEST_BODY_MAX_BYTES": {
+      "env_overridable": true,
+      "path": "creator.request_body_max_bytes",
+      "type": "integer"
+    },
+    "ARMI_CREATOR_SESSION_TTL_SECONDS": {
+      "env_overridable": true,
+      "path": "creator.session_ttl_seconds",
+      "type": "integer"
+    },
+    "ARMI_DATA_ROOT": {
+      "env_overridable": true,
+      "path": "environment.data_root",
+      "type": "string"
+    },
+    "ARMI_DB_DIAGNOSTIC_TIMEOUT_SECONDS": {
+      "env_overridable": true,
+      "path": "database.diagnostic_statement_timeout_seconds",
+      "type": "integer"
+    },
+    "ARMI_DB_POOL_ACQUIRE_TIMEOUT_SECONDS": {
+      "env_overridable": true,
+      "path": "database.pool_acquire_timeout_seconds",
+      "type": "integer"
+    },
+    "ARMI_DB_POOL_MAX": {
+      "env_overridable": true,
+      "path": "database.pool_max",
+      "type": "integer"
+    },
+    "ARMI_DB_POOL_MIN": {
+      "env_overridable": true,
+      "path": "database.pool_min",
+      "type": "integer"
+    },
+    "ARMI_DB_STATEMENT_TIMEOUT_SECONDS": {
+      "env_overridable": true,
+      "path": "database.statement_timeout_seconds",
+      "type": "integer"
+    },
+    "ARMI_ENVIRONMENT_ID": {
+      "env_overridable": true,
+      "path": "environment.environment_id",
+      "type": "string"
+    },
+    "ARMI_GRACEFUL_SHUTDOWN_SECONDS": {
+      "env_overridable": true,
+      "path": "lifecycle.graceful_shutdown_seconds",
+      "type": "integer"
+    },
+    "ARMI_IDLE_POLL_INITIAL_SECONDS": {
+      "env_overridable": true,
+      "path": "scheduler.idle_poll_initial_seconds",
+      "type": "integer"
+    },
+    "ARMI_IDLE_POLL_MAX_SECONDS": {
+      "env_overridable": true,
+      "path": "scheduler.idle_poll_max_seconds",
+      "type": "integer"
+    },
+    "ARMI_MODEL_ATTEMPT_TIMEOUT_SECONDS": {
+      "env_overridable": true,
+      "path": "model.attempt_timeout_seconds",
+      "type": "integer"
+    },
+    "ARMI_MODEL_CONCURRENCY": {
+      "env_overridable": true,
+      "path": "model.concurrency",
+      "type": "integer"
+    },
+    "ARMI_MODEL_MAX_ATTEMPTS": {
+      "env_overridable": true,
+      "path": "model.episode_max_attempts",
+      "type": "integer"
+    },
+    "ARMI_RUNTIME_HEARTBEAT_SECONDS": {
+      "env_overridable": true,
+      "path": "runtime.heartbeat_seconds",
+      "type": "integer"
+    },
+    "ARMI_RUNTIME_LEASE_SECONDS": {
+      "env_overridable": true,
+      "path": "runtime.lease_seconds",
+      "type": "integer"
+    },
+    "ARMI_WEB_CONCURRENCY": {
+      "env_overridable": true,
+      "path": "web.concurrency",
+      "type": "integer"
+    },
+    "ARMI_WEB_STEP_TIMEOUT_SECONDS": {
+      "env_overridable": true,
+      "path": "web.step_timeout_seconds",
+      "type": "integer"
+    },
+    "ARMI_WEB_TOTAL_TIMEOUT_SECONDS": {
+      "env_overridable": true,
+      "path": "web.total_timeout_seconds",
+      "type": "integer"
+    },
+    "ARMI_WORK_HEARTBEAT_SECONDS": {
+      "env_overridable": true,
+      "path": "work.heartbeat_seconds",
+      "type": "integer"
+    },
+    "ARMI_WORK_LEASE_SECONDS": {
+      "env_overridable": true,
+      "path": "work.lease_seconds",
+      "type": "integer"
+    },
+    "ARMI_WORK_MAX_DEADLINE_SECONDS": {
+      "env_overridable": true,
+      "path": "work.max_deadline_seconds",
+      "type": "integer"
+    }
+  },
+  "format": "armi-runtime-config-manifest",
+  "redaction": {
+    "absolute_paths": "configured-state-only",
+    "locator_targets": "scheme-and-reference-digest-only"
+  },
+  "runtime_business_contract": false,
+  "schema": {
+    "path": "config/runtime.schema.json",
+    "sha256": "e46db60556f8175fd31218dd66a189f4ae8fcc76b9f6559f6897646e9f33edde"
+  },
+  "schema_version": "armi.runtime-config.v1",
+  "secret_locator_schemes": {
+    "enabled": [
+      "env",
+      "file"
+    ],
+    "unsupported": [
+      "command",
+      "os-store"
+    ]
+  },
+  "version": 1
+}
