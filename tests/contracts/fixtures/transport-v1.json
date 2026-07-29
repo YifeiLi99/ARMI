@@ -1,0 +1,176 @@
+{
+  "contract_version": "1.0",
+  "valid": {
+    "command": {
+      "contract_version": "1.0",
+      "command_id": "018f3f7d-8b2a-7c4d-8e9f-0123456789ab",
+      "idempotency_key": "birth.accept:0001",
+      "request_digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "actor": {
+        "kind": "creator",
+        "actor_id": "creator:primary",
+        "authentication": "local.session"
+      },
+      "subject_id": "018f3f7d-8b2a-7c4d-8e9f-1123456789ab",
+      "scene_id": "018f3f7d-8b2a-7c4d-8e9f-2123456789ab",
+      "purpose": "birth.acceptance",
+      "requested_at": "2026-07-29T16:00:00+08:00",
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "payload": {
+        "note": "accept durable input"
+      }
+    },
+    "outcomes": [
+      {
+        "contract_version": "1.0",
+        "status": "accepted",
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "occurred_at": "2026-07-29T08:00:01.000001Z",
+        "message": "accepted",
+        "details": {
+          "attempt": 1
+        },
+        "result_ref": "018f3f7d-8b2a-7c4d-8e9f-3123456789ab",
+        "custodian": "runtime"
+      },
+      {
+        "contract_version": "1.0",
+        "status": "applied",
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "occurred_at": "2026-07-29T08:00:02.000002Z",
+        "message": "applied",
+        "result_ref": "018f3f7d-8b2a-7c4d-8e9f-3123456789ab",
+        "state_version": 0
+      },
+      {
+        "contract_version": "1.0",
+        "status": "waiting",
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "occurred_at": "2026-07-29T08:00:03.000003Z",
+        "message": "waiting",
+        "result_ref": "018f3f7d-8b2a-7c4d-8e9f-3123456789ab",
+        "waiting_for": "creator.confirmation",
+        "resume_condition": "a verified creator decision is recorded"
+      },
+      {
+        "contract_version": "1.0",
+        "status": "rejected",
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "occurred_at": "2026-07-29T08:00:04.000004Z",
+        "message": "rejected",
+        "error": {
+          "category": "conflict",
+          "code": "CONFLICT_SUBJECT_VERSION"
+        }
+      },
+      {
+        "contract_version": "1.0",
+        "status": "unavailable",
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "occurred_at": "2026-07-29T08:00:05.000005Z",
+        "message": "unavailable",
+        "error": {
+          "category": "capability",
+          "code": "CAPABILITY_UNAVAILABLE"
+        },
+        "recovery_hint": "prepare the capability before retrying"
+      },
+      {
+        "contract_version": "1.0",
+        "status": "failed",
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "occurred_at": "2026-07-29T08:00:06.000006Z",
+        "message": "failed",
+        "error": {
+          "category": "dependency",
+          "code": "DEPENDENCY_TRANSPORT_FAILED",
+          "error_instance_id": "018f3f7d-8b2a-7c4d-8e9f-4123456789ab"
+        },
+        "retryable": true
+      },
+      {
+        "contract_version": "1.0",
+        "status": "unknown",
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "occurred_at": "2026-07-29T08:00:07.000007Z",
+        "message": "unknown",
+        "result_ref": "018f3f7d-8b2a-7c4d-8e9f-3123456789ab",
+        "custodian": "effect.ledger",
+        "verification_action": "query the durable effect receipt"
+      },
+      {
+        "contract_version": "1.0",
+        "status": "completed",
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "occurred_at": "2026-07-29T08:00:08.000008Z",
+        "message": "completed",
+        "result_ref": "018f3f7d-8b2a-7c4d-8e9f-3123456789ab",
+        "completion_evidence": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+      }
+    ],
+    "page_request": {
+      "contract_version": "1.0",
+      "limit": 100,
+      "cursor": "v1.cXVlcnktc3RhdGU.c2lnbmF0dXJl"
+    },
+    "page": {
+      "contract_version": "1.0",
+      "items": [
+        {
+          "name": "first"
+        }
+      ],
+      "next_cursor": "v1.bmV4dC1zdGF0ZQ.bmV4dC1zaWduYXR1cmU"
+    }
+  },
+  "invalid": [
+    {
+      "id": "unknown-version",
+      "kind": "contract_version",
+      "value": "1",
+      "expected_code": "CON-VERSION"
+    },
+    {
+      "id": "uuid-v4",
+      "kind": "uuid",
+      "value": "123e4567-e89b-42d3-a456-426614174000",
+      "expected_code": "CON-ID"
+    },
+    {
+      "id": "zero-trace",
+      "kind": "trace_id",
+      "value": "00000000000000000000000000000000",
+      "expected_code": "CON-TRACE"
+    },
+    {
+      "id": "uppercase-digest",
+      "kind": "digest",
+      "value": "sha256:ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789",
+      "expected_code": "CON-DIGEST"
+    },
+    {
+      "id": "naive-time",
+      "kind": "instant",
+      "value": "2026-07-29T08:00:00",
+      "expected_code": "CON-TIME"
+    },
+    {
+      "id": "unknown-outcome",
+      "kind": "outcome_status",
+      "value": "conflict",
+      "expected_code": "CON-OUTCOME"
+    },
+    {
+      "id": "invalid-cursor-padding",
+      "kind": "cursor",
+      "value": "v1.cGF5bG9hZA==.c2ln",
+      "expected_code": "CON-PAGE"
+    },
+    {
+      "id": "limit-zero",
+      "kind": "limit",
+      "value": 0,
+      "expected_code": "CON-PAGE"
+    }
+  ]
+}

@@ -83,11 +83,22 @@ PUBLIC_KERNEL_MODULES = frozenset(
     {"armi_kernel", "armi_kernel.application", "armi_kernel.contracts"}
 )
 KERNEL_FORBIDDEN_TECHNOLOGY = frozenset(
-    {"fastapi", "mcp", "openai", "playwright", "psycopg", "psycopg_pool"}
+    {
+        "fastapi",
+        "mcp",
+        "openai",
+        "playwright",
+        "psycopg",
+        "psycopg_pool",
+        "pydantic",
+        "rfc8785",
+        "sqlalchemy",
+    }
 )
 MODULE_TO_DISTRIBUTION = {
     distribution.module: distribution.name for distribution in DISTRIBUTIONS
 }
+PUBLIC_SURFACE_MANIFEST = Path("tools/public-contract-surface.json")
 
 
 @dataclass(frozen=True, order=True)
@@ -675,6 +686,84 @@ def _parse_python(path: Path, root: Path) -> tuple[ast.Module | None, list[Viola
         ]
 
 
+def _validate_public_surface_manifest(
+    root: Path, public_exports: Mapping[str, frozenset[str]]
+) -> list[Violation]:
+    path = root / PUBLIC_SURFACE_MANIFEST
+    relative = _relative(path, root)
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return [
+            Violation(
+                "ARC-SURFACE-MANIFEST",
+                relative,
+                1,
+                f"cannot read public surface manifest: {error}",
+            )
+        ]
+    expected_metadata = {
+        "format": "armi-public-contract-surface",
+        "version": 1,
+        "module": "armi_kernel.contracts",
+        "consumers": ["armi-admin", "armi-runtime"],
+        "runtime_discovery": False,
+    }
+    violations: list[Violation] = []
+    if not isinstance(manifest, dict):
+        return [
+            Violation(
+                "ARC-SURFACE-MANIFEST",
+                relative,
+                1,
+                "public surface manifest must be an object",
+            )
+        ]
+    for field, expected in expected_metadata.items():
+        if manifest.get(field) != expected:
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-MANIFEST",
+                    relative,
+                    1,
+                    f"{field} must be {expected!r}",
+                )
+            )
+    exports = manifest.get("exports")
+    if (
+        not isinstance(exports, list)
+        or not all(isinstance(item, str) for item in exports)
+        or exports != sorted(set(exports))
+    ):
+        violations.append(
+            Violation(
+                "ARC-SURFACE-MANIFEST",
+                relative,
+                1,
+                "exports must be a sorted unique list of names",
+            )
+        )
+    elif frozenset(exports) != public_exports.get("armi_kernel.contracts", frozenset()):
+        violations.append(
+            Violation(
+                "ARC-SURFACE-MANIFEST",
+                relative,
+                1,
+                "exports must exactly match armi_kernel.contracts.__all__",
+            )
+        )
+    if frozenset(manifest) != frozenset((*expected_metadata, "exports")):
+        violations.append(
+            Violation(
+                "ARC-SURFACE-MANIFEST",
+                relative,
+                1,
+                "manifest contains unknown or missing top-level fields",
+            )
+        )
+    return violations
+
+
 def validate_source_boundaries(root: Path) -> list[Violation]:
     """Scan production Python sources and explicit package surfaces."""
 
@@ -695,6 +784,8 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             violations.extend(export_errors)
             if exports is not None:
                 public_exports[module] = exports
+
+    violations.extend(_validate_public_surface_manifest(root, public_exports))
 
     for distribution in DISTRIBUTIONS:
         source_dir = root / distribution.source_dir

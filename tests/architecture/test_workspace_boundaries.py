@@ -15,7 +15,14 @@ ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_EXPORTS = {
     "armi_kernel": frozenset(),
     "armi_kernel.application": frozenset({"PublicPort"}),
-    "armi_kernel.contracts": frozenset({"PublicContract"}),
+    "armi_kernel.contracts": frozenset(
+        {
+            "CONTRACT_VERSION",
+            "CommandEnvelope",
+            "ContractViolation",
+            "SubjectId",
+        }
+    ),
 }
 
 
@@ -53,6 +60,15 @@ class WorkspaceBoundaryTests(unittest.TestCase):
         self.assertEqual(violations, [])
         self.assertEqual(exit_code_for(violations), 0)
 
+    def test_explicit_kernel_contract_export_is_allowed(self) -> None:
+        violations = self.analyze(
+            "from armi_kernel.contracts import SubjectId\n",
+            module="armi_runtime.interfaces.example",
+            distribution="armi-runtime",
+        )
+        self.assertEqual(violations, [])
+        self.assertEqual(exit_code_for(violations), 0)
+
     def test_runtime_cannot_import_admin(self) -> None:
         violations = self.analyze(
             "from armi_admin import application\n",
@@ -68,6 +84,16 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             distribution="armi-kernel",
         )
         self.assert_rejected(violations, "ARC-SURFACE-KERNEL-TECH")
+
+    def test_kernel_contract_cannot_import_validation_or_digest_library(self) -> None:
+        for package in ("pydantic", "rfc8785", "psycopg"):
+            with self.subTest(package=package):
+                violations = self.analyze(
+                    f"import {package}\n",
+                    module="armi_kernel.contracts.example",
+                    distribution="armi-kernel",
+                )
+                self.assert_rejected(violations, "ARC-SURFACE-KERNEL-TECH")
 
     def test_cross_distribution_deep_import_is_rejected(self) -> None:
         violations = self.analyze(
