@@ -11,7 +11,8 @@
     "https://nodejs.org/",
     "https://github.com/astral-sh/",
     "https://playwright.azureedge.net/",
-    "https://cdn.playwright.dev/"
+    "https://cdn.playwright.dev/",
+    "https://get.enterprisedb.com/"
   ],
   "tools": [
     {
@@ -37,6 +38,14 @@
       "archive_url": null,
       "archive_sha256": null,
       "install_digest": null
+    },
+    {
+      "id": "postgresql",
+      "version": "18.4",
+      "acquisition": "edb-official-windows-x64-binary-archive",
+      "archive_url": "https://get.enterprisedb.com/postgresql/postgresql-18.4-1-windows-x64-binaries.zip",
+      "archive_sha256": "7effe34c0bf89027b3f171447d351cbc460f4566c8d0f643daec67f140787858",
+      "install_digest": "0205691fc599bc780d55e653edbf7085fa5474f3eb6d6b8227bd60b3a8ba4a9f"
     },
     {
       "id": "node",
@@ -96,7 +105,7 @@
   "offline_scope": {
     "cold_machine": "unsupported",
     "warm_cache": "Python and npm locked dependencies can be reinstalled after their exact archives have populated the isolated cache.",
-    "tool_artifacts": "uv, CPython, Node/npm and Chromium must already exist in the isolated tool root.",
+    "tool_artifacts": "uv, CPython, Node/npm, Chromium and PostgreSQL 18.4 must already exist in the isolated tool root.",
     "missing_artifact": "fail_without_network_fallback"
   },
   "dependency_inventory": {

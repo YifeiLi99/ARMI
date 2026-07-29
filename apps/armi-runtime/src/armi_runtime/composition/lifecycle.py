@@ -13,13 +13,11 @@ from armi_runtime.interfaces.creator_contract import Readiness, RuntimeState
 
 from .runtime_errors import RuntimeViolation
 
-S008_BLOCKING_REASONS = (
+S009_BLOCKING_REASONS = (
     "CREATOR_SESSION_NOT_IMPLEMENTED",
     "RUNTIME_AUDIT_NOT_IMPLEMENTED",
     "RUNTIME_AUTHORITY_NOT_IMPLEMENTED",
-    "RUNTIME_DATABASE_NOT_IMPLEMENTED",
     "RUNTIME_RECOVERY_NOT_IMPLEMENTED",
-    "RUNTIME_SCHEMA_NOT_IMPLEMENTED",
 )
 
 _ALLOWED_TRANSITIONS = {
@@ -59,8 +57,10 @@ class LifecycleController:
     def start(self) -> RuntimeSnapshot:
         return self._transition(RuntimeState.STARTING, ())
 
-    def block(self) -> RuntimeSnapshot:
-        return self._transition(RuntimeState.BLOCKED, S008_BLOCKING_REASONS)
+    def block(
+        self, reasons: tuple[str, ...] = S009_BLOCKING_REASONS
+    ) -> RuntimeSnapshot:
+        return self._transition(RuntimeState.BLOCKED, reasons)
 
     def drain(self) -> RuntimeSnapshot:
         with self._lock:
@@ -111,7 +111,7 @@ class LifecycleController:
 
 
 __all__ = (
-    "S008_BLOCKING_REASONS",
+    "S009_BLOCKING_REASONS",
     "LifecycleController",
     "RuntimeSnapshot",
 )

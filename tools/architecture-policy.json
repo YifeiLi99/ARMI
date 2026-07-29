@@ -2,8 +2,15 @@
   "schema_version": "armi.architecture-policy.v1",
   "persistence_markers": ["persistence", "repositories", "repository"],
   "database_driver_roots": ["psycopg", "psycopg_pool"],
-  "write_surfaces": [],
-  "write_surfaces_not_applicable_reason": "M0-S009 has not created a database write surface.",
+  "write_surfaces": [
+    {
+      "id": "schema-governance",
+      "module": "armi_runtime.adapters.persistence.schema_gateway",
+      "owner": "schema-governance",
+      "allowed_callers": ["armi_runtime.composition.database"]
+    }
+  ],
+  "write_surfaces_not_applicable_reason": "",
   "named_coordinators": [],
   "named_coordinators_not_applicable_reason": "No cross-owner transaction coordinator is implemented before the corresponding vertical slice.",
   "forbidden_entry_points": [],

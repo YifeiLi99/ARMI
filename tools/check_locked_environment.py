@@ -17,6 +17,13 @@ TARGET_PYTHON = "3.14.6"
 TARGET_NODE = "24.18.0"
 TARGET_NPM = "11.16.0"
 TARGET_UV = "0.11.33"
+TARGET_POSTGRESQL = "18.4"
+POSTGRESQL_ARCHIVE_SHA256 = (
+    "7effe34c0bf89027b3f171447d351cbc460f4566c8d0f643daec67f140787858"
+)
+POSTGRESQL_INSTALL_SHA256 = (
+    "0205691fc599bc780d55e653edbf7085fa5474f3eb6d6b8227bd60b3a8ba4a9f"
+)
 
 PYTHON_DIRECT = {
     "fastapi": "0.140.13",
@@ -358,6 +365,11 @@ def check_repository(
             for item in manifest.get("tools", [])
             if isinstance(item, dict)
         }
+        tools_by_id = {
+            str(item.get("id")): item
+            for item in manifest.get("tools", [])
+            if isinstance(item, dict)
+        }
         for tool_id, version in {
             "cpython": TARGET_PYTHON,
             "uv": TARGET_UV,
@@ -366,6 +378,7 @@ def check_repository(
             "npm": TARGET_NPM,
             "codex-cli": "0.144.4",
             "pyright": "1.1.411",
+            "postgresql": TARGET_POSTGRESQL,
         }.items():
             _expect(
                 violations,
@@ -374,6 +387,21 @@ def check_repository(
                 path=manifest_path,
                 field=f"tools.{tool_id}.version",
             )
+        postgresql = tools_by_id.get("postgresql", {})
+        _expect(
+            violations,
+            actual=postgresql.get("archive_sha256"),
+            expected=POSTGRESQL_ARCHIVE_SHA256,
+            path=manifest_path,
+            field="tools.postgresql.archive_sha256",
+        )
+        _expect(
+            violations,
+            actual=postgresql.get("install_digest"),
+            expected=POSTGRESQL_INSTALL_SHA256,
+            path=manifest_path,
+            field="tools.postgresql.install_digest",
+        )
         for lock in manifest.get("lockfiles", []):
             if not isinstance(lock, dict):
                 continue

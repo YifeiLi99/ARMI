@@ -4,7 +4,7 @@ import json
 import unittest
 from importlib.resources import files
 
-from armi_runtime.composition.lifecycle import S008_BLOCKING_REASONS
+from armi_runtime.composition.lifecycle import S009_BLOCKING_REASONS
 from armi_runtime.composition.manifest import (
     COMPOSITION_SCHEMA_VERSION,
     verify_packaged_composition,
@@ -26,7 +26,7 @@ class CompositionManifestTests(unittest.TestCase):
             active,
             [("M0-SEAM-CREATOR-UI", "armi.creator-static.v1")],
         )
-        self.assertEqual(verified.readiness_blockers, S008_BLOCKING_REASONS)
+        self.assertEqual(verified.readiness_blockers, S009_BLOCKING_REASONS)
         self.assertTrue(verified.digest.startswith("sha256:"))
 
     def test_manifest_forbids_runtime_discovery(self) -> None:

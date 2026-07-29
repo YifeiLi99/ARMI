@@ -31,16 +31,19 @@ _SEAMS: Final = (
 )
 _BLOCKERS: Final = (
     ("CREATOR_SESSION_NOT_IMPLEMENTED", "M0-S018"),
-    ("RUNTIME_AUDIT_NOT_IMPLEMENTED", "M0-S012"),
-    ("RUNTIME_AUTHORITY_NOT_IMPLEMENTED", "M0-S013"),
-    ("RUNTIME_DATABASE_NOT_IMPLEMENTED", "M0-S009"),
-    ("RUNTIME_RECOVERY_NOT_IMPLEMENTED", "M0-S012"),
-    ("RUNTIME_SCHEMA_NOT_IMPLEMENTED", "M0-S009"),
+    ("RUNTIME_AUDIT_NOT_IMPLEMENTED", "M0-S013"),
+    ("RUNTIME_AUTHORITY_NOT_IMPLEMENTED", "M0-S016"),
+    ("RUNTIME_RECOVERY_NOT_IMPLEMENTED", "M0-S017"),
 )
 _CONFIG_FILES: Final = (
     "runtime.defaults.toml",
     "runtime.schema.json",
     "runtime-config-manifest.json",
+)
+_SCHEMA_FILES: Final = (
+    "checks/invariants.sql",
+    "manifests/schema-manifest.json",
+    "migrations/0001_m0_baseline.sql",
 )
 
 
@@ -53,6 +56,7 @@ def build_composition_manifest(
     config_resources: dict[str, bytes],
     creator_manifest: bytes,
     creator_openapi: bytes,
+    schema_resources: dict[str, bytes],
 ) -> dict[str, object]:
     """Return the only allowed S008 composition declaration."""
 
@@ -60,6 +64,11 @@ def build_composition_manifest(
         raise RuntimeViolation(
             "CMP-RESOURCE-SET",
             "the packaged configuration resource set is incomplete",
+        )
+    if set(schema_resources) != set(_SCHEMA_FILES):
+        raise RuntimeViolation(
+            "CMP-RESOURCE-SET",
+            "the packaged schema resource set is incomplete",
         )
     seams: list[dict[str, object]] = []
     for seam_id, activation_steps in _SEAMS:
@@ -87,6 +96,10 @@ def build_composition_manifest(
             },
             "creator/manifest.json": _sha256(creator_manifest),
             "creator/openapi.json": _sha256(creator_openapi),
+            **{
+                f"schema/{name}": _sha256(value)
+                for name, value in sorted(schema_resources.items())
+            },
         },
         "runtime_business_contract": False,
     }
@@ -108,6 +121,7 @@ def verify_packaged_composition() -> VerifiedComposition:
     """Verify the package copies and the explicit seam set before listening."""
 
     resources = files(_RESOURCE_PACKAGE)
+    schema = resources.joinpath("schema")
     creator = files(_CREATOR_PACKAGE)
     try:
         config_resources = {
@@ -116,6 +130,9 @@ def verify_packaged_composition() -> VerifiedComposition:
         creator_manifest = creator.joinpath("manifest.json").read_bytes()
         creator_openapi = creator.joinpath("openapi.json").read_bytes()
         committed = resources.joinpath("runtime-composition.manifest.json").read_bytes()
+        schema_resources = {
+            name: schema.joinpath(name).read_bytes() for name in _SCHEMA_FILES
+        }
     except OSError:
         raise RuntimeViolation(
             "CMP-RESOURCE-MISSING",
@@ -125,6 +142,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         config_resources=config_resources,
         creator_manifest=creator_manifest,
         creator_openapi=creator_openapi,
+        schema_resources=schema_resources,
     )
     expected_bytes = canonical_manifest_bytes(expected)
     if committed != expected_bytes:

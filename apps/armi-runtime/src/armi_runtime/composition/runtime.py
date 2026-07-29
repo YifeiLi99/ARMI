@@ -15,9 +15,10 @@ import uvicorn
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.static_assets import AssetViolation, StaticAssetStore
 
+from .database import runtime_database_reason
 from .diagnostics import StructuredDiagnosticLog
 from .environment import PreparedEnvironment
-from .lifecycle import LifecycleController
+from .lifecycle import S009_BLOCKING_REASONS, LifecycleController
 from .runtime_errors import RuntimeViolation
 
 EXIT_GRACEFUL = 0
@@ -58,11 +59,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         instance_id=instance_id,
     )
     assets = StaticAssetStore.load_packaged()
+    database_reasons = runtime_database_reason(prepared)
 
     async def started() -> None:
         lifecycle.start()
         diagnostic.emit("runtime.lifecycle.starting", result_code="LIFE_STARTING")
-        snapshot = lifecycle.block()
+        snapshot = lifecycle.block((*S009_BLOCKING_REASONS, *database_reasons))
         diagnostic.emit(
             "runtime.lifecycle.blocked",
             level=logging.WARNING,

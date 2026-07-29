@@ -20,6 +20,14 @@ _CONFIG = {
     "runtime-config-manifest.json": Path("config/runtime-config-manifest.json"),
 }
 _CREATOR = Path("apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources")
+_SCHEMA = Path(
+    "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+)
+_SCHEMA_FILES = (
+    "checks/invariants.sql",
+    "manifests/schema-manifest.json",
+    "migrations/0001_m0_baseline.sql",
+)
 
 
 def _generate(root: Path, output: Path) -> None:
@@ -31,10 +39,14 @@ def _generate(root: Path, output: Path) -> None:
         (output / target_name).write_bytes(value)
     creator_manifest = (root / _CREATOR / "manifest.json").read_bytes()
     creator_openapi = (root / _CREATOR / "openapi.json").read_bytes()
+    schema_resources = {
+        name: (root / _SCHEMA / name).read_bytes() for name in _SCHEMA_FILES
+    }
     manifest = build_composition_manifest(
         config_resources=config_resources,
         creator_manifest=creator_manifest,
         creator_openapi=creator_openapi,
+        schema_resources=schema_resources,
     )
     (output / "runtime-composition.manifest.json").write_bytes(
         canonical_manifest_bytes(manifest)

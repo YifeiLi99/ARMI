@@ -4,7 +4,7 @@ import unittest
 from datetime import UTC, datetime
 
 from armi_runtime.composition.lifecycle import (
-    S008_BLOCKING_REASONS,
+    S009_BLOCKING_REASONS,
     LifecycleController,
 )
 from armi_runtime.composition.runtime_errors import RuntimeViolation
@@ -29,7 +29,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(starting.runtime_state, RuntimeState.STARTING)
         self.assertEqual(blocked.runtime_state, RuntimeState.BLOCKED)
         self.assertEqual(blocked.readiness, Readiness.NOT_READY)
-        self.assertEqual(blocked.reason_codes, S008_BLOCKING_REASONS)
+        self.assertEqual(blocked.reason_codes, S009_BLOCKING_REASONS)
         self.assertEqual(draining.runtime_state, RuntimeState.DRAINING)
         self.assertEqual(stopped.runtime_state, RuntimeState.STOPPED)
         self.assertEqual(stopped.observed_at, "2026-07-29T01:02:03.456789Z")

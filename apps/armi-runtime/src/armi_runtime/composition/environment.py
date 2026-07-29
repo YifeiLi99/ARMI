@@ -8,9 +8,12 @@ from dataclasses import dataclass
 from importlib.resources import as_file, files
 from pathlib import Path
 
+from armi_kernel.application import CredentialPort
+
 from .configuration import (
     DeploymentProfile,
     EffectiveConfig,
+    EnvironmentFileCredentialPort,
     PreflightRequirements,
     load_effective_config,
     preflight_config,
@@ -29,6 +32,7 @@ class PreparedEnvironment:
     secrets_root: Path
     effective: EffectiveConfig
     composition: VerifiedComposition
+    credential_port: CredentialPort
 
 
 def prepare_environment(
@@ -88,12 +92,18 @@ def prepare_environment(
         environment=current_environment,
     )
     composition = verify_packaged_composition()
+    credential_port = EnvironmentFileCredentialPort(
+        environment=current_environment,
+        secret_roots=profile.allowed_secret_roots,
+        maximum_bytes=profile.maximum_secret_bytes,
+    )
     return PreparedEnvironment(
         root=root,
         data_root=data_root,
         secrets_root=secrets_root,
         effective=effective,
         composition=composition,
+        credential_port=credential_port,
     )
 
 

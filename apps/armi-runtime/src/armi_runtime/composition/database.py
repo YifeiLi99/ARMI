@@ -1,0 +1,125 @@
+"""Explicit database composition for Runtime probing and operator migration."""
+
+from __future__ import annotations
+
+from typing import Final
+
+from armi_kernel.application import CredentialPort, CredentialPurpose
+
+from armi_runtime.adapters.persistence.schema_gateway import (
+    DatabaseViolation,
+    PostgreSQLSchemaGateway,
+    SchemaStatus,
+)
+
+from .configuration import ConfigurationViolation
+from .environment import PreparedEnvironment
+
+RUNTIME_LOCATOR_NAME: Final = "database.runtime"
+MIGRATOR_LOCATOR_NAME: Final = "database.migrator"
+
+_REASON_BY_CODE: Final = {
+    "DB-CONNECTION-UNAVAILABLE": "RUNTIME_DATABASE_UNAVAILABLE",
+    "DB-PG-VERSION": "RUNTIME_DATABASE_VERSION_MISMATCH",
+    "DB-DATABASE-IDENTITY": "RUNTIME_DATABASE_IDENTITY_MISMATCH",
+    "DB-RUNTIME-ROLE-UNSAFE": "RUNTIME_DATABASE_ROLE_UNSAFE",
+    "DB-SCHEMA-MISSING": "RUNTIME_SCHEMA_MISSING",
+    "DB-SCHEMA-AHEAD": "RUNTIME_SCHEMA_AHEAD",
+    "DB-SCHEMA-GAP": "RUNTIME_SCHEMA_INVALID",
+    "DB-SCHEMA-HASH": "RUNTIME_SCHEMA_INVALID",
+    "DB-SCHEMA-DIRTY": "RUNTIME_SCHEMA_INVALID",
+    "DB-SCHEMA-INVARIANT": "RUNTIME_SCHEMA_INVALID",
+    "DB-MANIFEST-DRIFT": "RUNTIME_SCHEMA_INVALID",
+}
+
+
+def _with_connection(
+    prepared: PreparedEnvironment,
+    *,
+    locator_name: str,
+    purpose: str,
+    operation: str,
+) -> SchemaStatus:
+    locator = prepared.effective.config.secret_locators.get(locator_name)
+    if locator is None:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the required database credential locator is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
+    port: CredentialPort = prepared.credential_port
+    try:
+        with port.resolve(locator, CredentialPurpose(purpose)) as handle:
+            gateway = PostgreSQLSchemaGateway()
+
+            def invoke(value: memoryview) -> SchemaStatus:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-CONNECTION-UNAVAILABLE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
+                    ) from None
+                if operation == "upgrade":
+                    return gateway.upgrade(conninfo)
+                return gateway.status(conninfo)
+
+            return handle.consume(invoke)
+    except ConfigurationViolation:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
+
+
+def inspect_runtime_schema(prepared: PreparedEnvironment) -> SchemaStatus:
+    """Read-only Runtime probe; this path cannot invoke schema upgrade."""
+
+    return _with_connection(
+        prepared,
+        locator_name=RUNTIME_LOCATOR_NAME,
+        purpose="database.runtime",
+        operation="status",
+    )
+
+
+def inspect_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
+    return _with_connection(
+        prepared,
+        locator_name=RUNTIME_LOCATOR_NAME,
+        purpose="database.status",
+        operation="status",
+    )
+
+
+def upgrade_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
+    return _with_connection(
+        prepared,
+        locator_name=MIGRATOR_LOCATOR_NAME,
+        purpose="database.migrator",
+        operation="upgrade",
+    )
+
+
+def runtime_database_reason(prepared: PreparedEnvironment) -> tuple[str, ...]:
+    try:
+        inspect_runtime_schema(prepared)
+    except DatabaseViolation as error:
+        return (_REASON_BY_CODE.get(error.code, "RUNTIME_SCHEMA_INVALID"),)
+    return ()
+
+
+__all__ = (
+    "MIGRATOR_LOCATOR_NAME",
+    "RUNTIME_LOCATOR_NAME",
+    "DatabaseViolation",
+    "inspect_operator_schema",
+    "inspect_runtime_schema",
+    "runtime_database_reason",
+    "upgrade_operator_schema",
+)
