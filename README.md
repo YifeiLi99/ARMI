@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S019，并已将 M0-S020 的 authenticated SSE、进程纪元 event ID、有界 replay、409 缺口同步和浏览器降级规则重冻为 S001 2.9；产品 schema 仍为 v9，S020 实现尚未完成。born Runtime 现在可在取得 authority、完成恢复并接好 Creator credential 后进入 `ready`，通过严格同源 loopback 提供短期 browser session、安全运行状态，以及唯一默认 scene 的可分页权威 timeline 读取；timeline 为空时只显示诚实空态，当前没有生产写入器、正文展示、可用 SSE 或输入接纳。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务 timeline 数据，仍不是可用产品版本。
+项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S020，当前设计基线为 S001 2.9。born Runtime 现在可在取得 authority、完成恢复并接好 Creator credential 后进入 `ready`，通过严格同源 loopback 提供短期 browser session、安全运行状态、唯一默认 scene 的可分页权威 timeline 读取，以及 authenticated SSE 失效通知；SSE 使用进程纪元 event ID、有界 replay 和 409 缺口恢复，Creator 只据此重取 PostgreSQL 权威 Query，不把流事件当作事实。产品 schema 仍为 v9，当前没有生产 timeline 写入器、输入接纳、正文展示或跨重启事件重放，M0-A02 尚未完成，M0-S021 仅开放计划前置条件。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务 timeline 数据，仍不是可用产品版本。
 
 ## 关于学习与参考
 

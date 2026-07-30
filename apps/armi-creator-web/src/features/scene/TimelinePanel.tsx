@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiFailure, getSceneTimeline } from "../../api/client";
+import { useSceneEventStream } from "./useSceneEventStream";
 
 type TimelinePanelProps = {
   token: string;
@@ -9,6 +10,7 @@ type TimelinePanelProps = {
   creatorPartyId: string;
   sceneKey: string;
   onUnauthorized: () => void;
+  registerStreamAbort: (abort: (() => void) | null) => void;
 };
 
 export function TimelinePanel({
@@ -17,14 +19,13 @@ export function TimelinePanel({
   creatorPartyId,
   sceneKey,
   onUnauthorized,
+  registerStreamAbort,
 }: TimelinePanelProps) {
   const queryClient = useQueryClient();
-  const queryKey = [
-    "scene-timeline",
-    environmentId,
-    creatorPartyId,
-    sceneKey,
-  ] as const;
+  const queryKey = useMemo(
+    () => ["scene-timeline", environmentId, creatorPartyId, sceneKey] as const,
+    [creatorPartyId, environmentId, sceneKey],
+  );
   const timeline = useInfiniteQuery({
     queryKey,
     initialPageParam: undefined as string | undefined,
@@ -38,6 +39,15 @@ export function TimelinePanel({
       onUnauthorized();
     }
   }, [onUnauthorized, timeline.error]);
+  const liveUpdate = useSceneEventStream({
+    enabled: timeline.isSuccess,
+    token,
+    sceneKey,
+    queryClient,
+    queryKey,
+    onUnauthorized,
+    registerAbort: registerStreamAbort,
+  });
 
   if (timeline.isPending) {
     return (
@@ -90,6 +100,13 @@ export function TimelinePanel({
           刷新
         </button>
       </div>
+      <p className={`live-update is-${liveUpdate}`} role="status">
+        {liveUpdate === "connecting"
+          ? "正在建立实时更新"
+          : liveUpdate === "connected"
+            ? "实时更新已连接"
+            : "实时更新已断开，正在定期核验"}
+      </p>
       {items.length === 0 ? (
         <p className="timeline-empty" role="status">
           尚无耐久可见记录

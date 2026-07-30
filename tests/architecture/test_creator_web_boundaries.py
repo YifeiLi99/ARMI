@@ -24,6 +24,16 @@ class CreatorWebBoundaryTests(unittest.TestCase):
             "SEC-WEB-NETWORK",
         )
 
+    def test_native_stream_clients_are_rejected(self) -> None:
+        self.assert_rejected(
+            'const stream = new EventSource("/v1/events");\n',
+            "SEC-WEB-STREAM",
+        )
+        self.assert_rejected(
+            'const socket = new WebSocket("/v1/events");\n',
+            "SEC-WEB-STREAM",
+        )
+
     def test_browser_storage_is_rejected(self) -> None:
         self.assert_rejected(
             'sessionStorage.setItem("token", value);\n',

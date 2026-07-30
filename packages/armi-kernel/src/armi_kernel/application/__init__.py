@@ -31,6 +31,12 @@ from .birth import (
     BirthViolation,
     PersonalityAnchor,
 )
+from .creator_events import (
+    CreatorEventResourceKind,
+    CreatorEventViolation,
+    CreatorProjectionInvalidation,
+    CreatorProjectionNotifier,
+)
 from .credentials import (
     CredentialLocator,
     CredentialPort,
@@ -115,6 +121,10 @@ __all__ = (
     "BirthResult",
     "BirthViolation",
     "CasStatus",
+    "CreatorEventResourceKind",
+    "CreatorEventViolation",
+    "CreatorProjectionInvalidation",
+    "CreatorProjectionNotifier",
     "CredentialLocator",
     "CredentialPort",
     "CredentialPurpose",

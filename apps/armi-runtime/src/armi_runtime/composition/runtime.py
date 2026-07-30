@@ -26,6 +26,7 @@ from armi_runtime.interfaces.browser_sessions import (
 )
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.creator_contract import RuntimeStatusResponse
+from armi_runtime.interfaces.creator_events import CreatorEventBroker
 from armi_runtime.interfaces.static_assets import AssetViolation, StaticAssetStore
 
 from .authority import (
@@ -103,6 +104,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     recovery_reasons: tuple[str, ...] = ()
     browser_sessions: BrowserSessionStore | None = None
     scene_timeline_query = None
+    creator_events: CreatorEventBroker | None = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -160,6 +162,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 cursor_key=derive_timeline_cursor_key(prepared),
             )
             await scene_timeline_query.open()
+            creator_events = CreatorEventBroker(
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="CREATOR_EVENT_STREAM",
+                )
+            )
         except DatabaseViolation, RuntimeAuthorityViolation:
             diagnostic.emit(
                 "runtime.authority.unavailable",
@@ -254,6 +262,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         nonlocal drain_timed_out
         lifecycle.drain()
         diagnostic.emit("runtime.lifecycle.draining", result_code="LIFE_DRAINING")
+        if creator_events is not None:
+            await creator_events.close_active()
         if browser_sessions is not None:
             browser_sessions.revoke_all()
             diagnostic.emit(
@@ -328,6 +338,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         assets=assets,
         browser_sessions=browser_sessions,
         scene_timeline_query=scene_timeline_query,
+        creator_events=creator_events,
         expected_authority=f"{config.creator.bind_host}:{config.creator.port}",
         request_body_max_bytes=config.creator.request_body_max_bytes,
         on_started=started,

@@ -17,6 +17,7 @@ from armi_kernel.contracts import (
     UnavailableOutcome,
 )
 from fastapi import FastAPI, Query, Security
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer
 from pydantic import (
     BaseModel,
@@ -39,6 +40,7 @@ _BOOTSTRAP_CODE_PATTERN = r"bootstrap-v1\.[A-Za-z0-9_-]{22}"
 _SESSION_TOKEN_PATTERN = r"browser-v1\.[A-Za-z0-9_-]{43}"
 _SCENE_KEY_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"
 _CURSOR_PATTERN = r"v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+_EVENT_ID_PATTERN = r"sse-v1\.[A-Za-z0-9_-]{22}\.[1-9][0-9]*"
 type ReasonCode = Annotated[str, Field(pattern=_ERROR_CODE_PATTERN)]
 type ErrorCategoryValue = Literal[
     "input",
@@ -188,6 +190,23 @@ class SceneTimelinePageResponse(_StrictWireModel):
     next_cursor: (
         Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
     ) = None
+
+
+class CreatorProjectionEventResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    event_id: Annotated[str, Field(pattern=_EVENT_ID_PATTERN, max_length=128)]
+    event_kind: Literal["scene.timeline.invalidated"]
+    resource_kind: Literal["scene_timeline"]
+    resource_ref: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
+    projection_version: Literal["scene-timeline.v1"]
+    occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("occurred_at")
+    @classmethod
+    def validate_occurred_at(cls, value: str) -> str:
+        if Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-SSE-TIME: instant must be canonical")
+        return value
 
 
 class RuntimeStatusResponse(_StrictWireModel):
@@ -412,6 +431,43 @@ def build_creator_openapi() -> dict[str, object]:
         del scene_key, limit, cursor
         raise NotImplementedError
 
+    @app.get(
+        "/v1/scenes/{scene_key}/events",
+        operation_id="streamSceneEvents",
+        response_class=StreamingResponse,
+        responses={
+            200: {
+                "description": "Authenticated Creator projection invalidations.",
+                "content": {
+                    "text/event-stream": {
+                        "schema": {
+                            "type": "string",
+                            "x-event-data-schema": {
+                                "$ref": (
+                                    "#/components/schemas/"
+                                    "CreatorProjectionEventResponse"
+                                )
+                            },
+                        }
+                    }
+                },
+            },
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            429: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def scene_events(
+        scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)],
+    ) -> StreamingResponse:
+        del scene_key
+        raise NotImplementedError
+
     schema_handlers = (
         health_live,
         health_ready,
@@ -421,12 +477,22 @@ def build_creator_openapi() -> dict[str, object]:
         delete_browser_session,
         runtime_status,
         scene_timeline,
+        scene_events,
     )
     del schema_handlers
     schema = app.openapi()
     schema.pop("servers", None)
     schema["paths"]["/v1/scenes/{scene_key}/timeline"]["get"]["responses"].pop(
         "422", None
+    )
+    schema["paths"]["/v1/scenes/{scene_key}/events"]["get"]["responses"].pop(
+        "422", None
+    )
+    schemas = schema["components"]["schemas"]
+    schemas["CreatorProjectionEventResponse"] = (
+        CreatorProjectionEventResponse.model_json_schema(
+            ref_template="#/components/schemas/{model}",
+        )
     )
     return schema
 
@@ -436,6 +502,7 @@ __all__ = (
     "BrowserSessionCreateRequest",
     "BrowserSessionCurrentResponse",
     "BrowserSessionResponse",
+    "CreatorProjectionEventResponse",
     "ErrorDescriptorResponse",
     "LiveResponse",
     "Readiness",

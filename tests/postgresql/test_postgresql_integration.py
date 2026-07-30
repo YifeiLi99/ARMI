@@ -1966,14 +1966,46 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "items": [],
                         },
                     )
-                    connection.request(
+                    stream_connection = http.client.HTTPConnection(
+                        "127.0.0.1",
+                        runtime_port,
+                        timeout=20,
+                    )
+                    stream_connection.request(
+                        "GET",
+                        "/v1/scenes/default/events",
+                        headers={
+                            **authenticated_headers,
+                            "Accept": "text/event-stream",
+                        },
+                    )
+                    stream_response = stream_connection.getresponse()
+                    self.assertEqual(stream_response.status, 200)
+                    self.assertTrue(
+                        stream_response.getheader("Content-Type", "").startswith(
+                            "text/event-stream"
+                        )
+                    )
+                    self.assertEqual(stream_response.readline(), b"retry: 1000\n")
+                    self.assertEqual(stream_response.readline(), b"\n")
+                    self.assertEqual(stream_response.readline(), b": keepalive\n")
+                    self.assertEqual(stream_response.readline(), b"\n")
+                    logout_connection = http.client.HTTPConnection(
+                        "127.0.0.1",
+                        runtime_port,
+                        timeout=5,
+                    )
+                    logout_connection.request(
                         "DELETE",
                         "/v1/browser-sessions/current",
                         headers=authenticated_headers,
                     )
-                    logout_response = connection.getresponse()
+                    logout_response = logout_connection.getresponse()
                     logout_response.read()
                     self.assertEqual(logout_response.status, 204)
+                    self.assertEqual(stream_response.readline(), b"")
+                    logout_connection.close()
+                    stream_connection.close()
                 finally:
                     connection.close()
                 process.send_signal(signal.CTRL_BREAK_EVENT)
@@ -2000,6 +2032,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "runtime.lifecycle.ready",
                     "creator.bootstrap.issued",
                     "creator.session.established",
+                    "creator.event_stream.connected",
+                    "runtime.authority.heartbeat",
+                    "creator.event_stream.closed",
                     "creator.session.revoked",
                     "runtime.lifecycle.draining",
                     "creator.session.revoked_all",

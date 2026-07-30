@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 SOURCE_SUFFIXES = {".ts", ".tsx", ".css", ".html"}
-NETWORK_PATTERN = re.compile(r"\b(?:fetch|XMLHttpRequest|WebSocket|EventSource)\s*\(")
+NETWORK_PATTERN = re.compile(r"\b(?:fetch|XMLHttpRequest)\s*\(")
+FORBIDDEN_STREAM_PATTERN = re.compile(r"\b(?:WebSocket|EventSource)\s*\(")
 STORAGE_PATTERN = re.compile(
     r"\b(?:localStorage|sessionStorage|indexedDB|document\.cookie|serviceWorker)\b"
 )
@@ -84,7 +85,24 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
                 "ARC-WEB-FEATURE",
                 path,
                 1,
-                "S019 must register only the session and scene features",
+                "S020 must register only the session and scene features",
+            )
+        )
+    event_stream = creator.get("event_stream")
+    if event_stream != {
+        "transport": "authenticated-fetch-sse",
+        "client": "apps/armi-creator-web/src/api/eventStream.ts",
+        "broker": "armi_runtime.interfaces.creator_events.CreatorEventBroker",
+        "fact_source": False,
+        "runtime_discovery": False,
+        "persistent_event_cache": False,
+    }:
+        violations.append(
+            Violation(
+                "ARC-WEB-STREAM",
+                path,
+                1,
+                "Creator SSE boundary must remain explicit and non-authoritative",
             )
         )
     return violations
@@ -94,7 +112,10 @@ def analyze_source(source: str, *, path: str) -> list[Violation]:
     if ".test." in path:
         return []
     violations: list[Violation] = []
-    if path != "apps/armi-creator-web/src/api/client.ts":
+    if path not in {
+        "apps/armi-creator-web/src/api/client.ts",
+        "apps/armi-creator-web/src/api/eventStream.ts",
+    }:
         violations.extend(
             _matches(
                 source,
@@ -104,6 +125,15 @@ def analyze_source(source: str, *, path: str) -> list[Violation]:
                 message="network activity is allowed only in the explicit API client",
             )
         )
+    violations.extend(
+        _matches(
+            source,
+            path=path,
+            pattern=FORBIDDEN_STREAM_PATTERN,
+            code="SEC-WEB-STREAM",
+            message="native EventSource and WebSocket are forbidden",
+        )
+    )
     if path != "apps/armi-creator-web/src/features/session/storage.ts":
         violations.extend(
             _matches(
@@ -224,7 +254,7 @@ def check_repository(root: Path) -> list[Violation]:
                         "ARC-WEB-FUTURE",
                         (feature_root / name).relative_to(root).as_posix(),
                         1,
-                        "S019 must not prebuild a future business feature",
+                        "S020 must not prebuild a future business feature",
                     )
                 )
         for path in sorted(source_root.rglob("*")):

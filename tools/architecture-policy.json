@@ -223,6 +223,14 @@
       "scene"
     ],
     "features_not_applicable_reason": "",
+    "event_stream": {
+      "transport": "authenticated-fetch-sse",
+      "client": "apps/armi-creator-web/src/api/eventStream.ts",
+      "broker": "armi_runtime.interfaces.creator_events.CreatorEventBroker",
+      "fact_source": false,
+      "runtime_discovery": false,
+      "persistent_event_cache": false
+    },
     "runtime_discovery": false
   },
   "runtime_composition": {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -43,11 +43,20 @@ function safeMessage(error: unknown): string {
 
 export function SessionPanel() {
   const queryClient = useQueryClient();
+  const streamAbort = useRef<(() => void) | null>(null);
   const [code, setCode] = useState("");
   const [view, setView] = useState<ViewState>({
     kind: "loading",
     message: "正在核对浏览器会话",
   });
+  const registerStreamAbort = useCallback((abort: (() => void) | null) => {
+    streamAbort.current = abort;
+  }, []);
+
+  function abortStream(): void {
+    streamAbort.current?.();
+    streamAbort.current = null;
+  }
 
   async function loadAuthenticated(
     stored: StoredBrowserSession,
@@ -56,6 +65,7 @@ export function SessionPanel() {
     try {
       const session = await getCurrentBrowserSession(stored.token, signal);
       if (session.environment_id !== stored.environmentId) {
+        abortStream();
         clearStoredSession();
         queryClient.clear();
         setView({
@@ -129,6 +139,7 @@ export function SessionPanel() {
       return;
     }
     const token = view.stored.token;
+    abortStream();
     clearStoredSession();
     queryClient.clear();
     setView({ kind: "bootstrap", message: "浏览器会话已注销。" });
@@ -140,6 +151,7 @@ export function SessionPanel() {
   }
 
   function unauthorized() {
+    abortStream();
     clearStoredSession();
     queryClient.clear();
     setView({
@@ -247,6 +259,7 @@ export function SessionPanel() {
         creatorPartyId={view.session.creator_party_id}
         sceneKey={view.session.default_scene_key}
         onUnauthorized={unauthorized}
+        registerStreamAbort={registerStreamAbort}
       />
     </div>
   );

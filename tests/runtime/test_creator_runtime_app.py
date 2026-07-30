@@ -12,6 +12,7 @@ from armi_runtime.interfaces.creator_contract import (
     RejectedOutcomeResponse,
     RuntimeStatusResponse,
 )
+from armi_runtime.interfaces.creator_events import CreatorEventBroker
 from armi_runtime.interfaces.static_assets import StaticAsset, StaticAssetStore
 from fastapi.testclient import TestClient
 
@@ -50,6 +51,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             bootstrap_ttl_seconds=120,
             session_ttl_seconds=28_800,
         )
+        self.events = CreatorEventBroker(epoch=b"\x06" * 16)
 
     def _status(self) -> RuntimeStatusResponse:
         snapshot = self.lifecycle.snapshot()
@@ -81,6 +83,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             on_started=started,
             on_stopping=stopping,
             scene_timeline_query=_SceneTimelineQuery(),
+            creator_events=self.events,
         )
 
     @staticmethod
@@ -265,6 +268,56 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(cookie.status_code, 403)
         self.assertEqual(query.status_code, 400)
         self.assertEqual(oversized.status_code, 413)
+
+    def test_event_stream_validates_boundary_accept_and_replay_header(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            base = self._browser_headers(token)
+            wrong_accept = client.get(
+                "/v1/scenes/default/events",
+                headers=base,
+            )
+            query = client.get(
+                "/v1/scenes/default/events?token=x",
+                headers={**base, "Accept": "text/event-stream"},
+            )
+            malformed = client.get(
+                "/v1/scenes/default/events",
+                headers={
+                    **base,
+                    "Accept": "text/event-stream",
+                    "Last-Event-ID": "invalid",
+                },
+            )
+            stale = client.get(
+                "/v1/scenes/default/events",
+                headers={
+                    **base,
+                    "Accept": "text/event-stream",
+                    "Last-Event-ID": f"sse-v1.{'A' * 22}.1",
+                },
+            )
+            invisible = client.get(
+                "/v1/scenes/other/events",
+                headers={**base, "Accept": "text/event-stream"},
+            )
+
+        self.assertEqual(wrong_accept.status_code, 400)
+        self.assertEqual(query.status_code, 400)
+        self.assertEqual(malformed.status_code, 400)
+        self.assertEqual(malformed.json()["error"]["code"], "INPUT_EVENT_ID_INVALID")
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.json()["error"]["code"], "CONFLICT_EVENT_GAP")
+        self.assertEqual(invisible.status_code, 404)
 
     def test_host_fetch_origin_preflight_and_creator_route_matrix(self) -> None:
         code_body = {"bootstrap_code": f"bootstrap-v1.{'a' * 22}"}

@@ -30,6 +30,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     creator_party_id = "018f47a6-7b2d-7c35-8b18-684e38ab6ef8"
     bootstrap_code = "bootstrap-v1." + ("b" * 22)
     session_token = "browser-v1." + ("a" * 43)
+    event_epoch = "e" * 22
+    timeline_reads = 0
+    event_streams = 0
 
     def log_message(self, format: str, *args: object) -> None:
         del format, args
@@ -92,15 +95,62 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             )
             return
         if self.path == "/v1/scenes/default/timeline?limit=50":
+            type(self).timeline_reads += 1
+            items: list[dict[str, object]] = []
+            if type(self).timeline_reads > 1:
+                items.append(
+                    {
+                        "timeline_item_id": ("018f47a6-7b2d-7c35-8b18-684e38ab6efa"),
+                        "source_kind": "browser.event",
+                        "source_ref": "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
+                        "status": "completed",
+                        "occurred_at": "2026-07-30T10:02:00.000000Z",
+                    }
+                )
             self._json_response(
                 200,
                 {
                     "contract_version": "1.0",
                     "projection_version": "scene-timeline.v1",
                     "scene_key": "default",
-                    "items": [],
+                    "items": items,
                 },
             )
+            return
+        if self.path == "/v1/scenes/default/events":
+            if (
+                self.headers.get("Authorization") != f"Bearer {self.session_token}"
+                or self.headers.get("Accept") != "text/event-stream"
+                or self.headers.get("Cookie") is not None
+            ):
+                self.send_error(403)
+                return
+            type(self).event_streams += 1
+            event_id = f"sse-v1.{self.event_epoch}.1"
+            data = json.dumps(
+                {
+                    "contract_version": "1.0",
+                    "event_id": event_id,
+                    "event_kind": "scene.timeline.invalidated",
+                    "resource_kind": "scene_timeline",
+                    "resource_ref": "default",
+                    "projection_version": "scene-timeline.v1",
+                    "occurred_at": "2026-07-30T10:02:00.000000Z",
+                },
+                separators=(",", ":"),
+            )
+            content = (
+                "retry: 1000\n\n"
+                f"id: {event_id}\n"
+                "event: scene.timeline.invalidated\n"
+                f"data: {data}\n\n"
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
             return
         super().do_GET()
 
@@ -166,6 +216,8 @@ def main() -> int:
                 )
                 try:
                     for viewport in VIEWPORTS:
+                        QuietHandler.timeline_reads = 0
+                        QuietHandler.event_streams = 0
                         page = browser.new_page(viewport=viewport)
                         requests: list[str] = []
                         page.on(
@@ -195,7 +247,15 @@ def main() -> int:
                             name="建立浏览器会话",
                         ).click()
                         page.get_by_text("浏览器会话已建立").wait_for()
-                        page.get_by_text("尚无耐久可见记录").wait_for()
+                        page.get_by_text("browser.event").wait_for()
+                        if (
+                            QuietHandler.timeline_reads < 2
+                            or QuietHandler.event_streams < 1
+                        ):
+                            raise RuntimeError(
+                                "WEB-BROWSER-SSE: invalidation did not refetch "
+                                "the authoritative timeline"
+                            )
                         page.get_by_role("button", name="刷新").click()
                         page.wait_for_load_state("networkidle")
                         if page.get_by_text("ready").count() != 2:
@@ -220,7 +280,7 @@ def main() -> int:
                             )
                         page.reload(wait_until="networkidle")
                         page.get_by_text("浏览器会话已建立").wait_for()
-                        page.get_by_text("尚无耐久可见记录").wait_for()
+                        page.get_by_text("browser.event").wait_for()
                         overflow = page.evaluate(
                             "() => document.documentElement.scrollWidth > "
                             "document.documentElement.clientWidth"
@@ -246,6 +306,11 @@ def main() -> int:
                             raise RuntimeError(
                                 "SEC-WEB-LOGOUT: logout retained browser session"
                             )
+                        if page.evaluate("() => localStorage.length") != 0:
+                            raise RuntimeError(
+                                "SEC-WEB-EVENT-CACHE: event state reached "
+                                "persistent browser storage"
+                            )
                         results.append(
                             {
                                 "width": viewport["width"],
@@ -253,6 +318,7 @@ def main() -> int:
                                 "requests": len(requests),
                                 "horizontal_overflow": False,
                                 "session_flow": "pass",
+                                "event_stream": "pass",
                             }
                         )
                         page.close()

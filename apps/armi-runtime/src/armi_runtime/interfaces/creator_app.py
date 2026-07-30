@@ -27,7 +27,12 @@ from armi_kernel.contracts import (
     UnavailableOutcome,
 )
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import (
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from pydantic import ValidationError
 
 from .browser_sessions import (
@@ -46,6 +51,12 @@ from .creator_contract import (
     RuntimeStatusResponse,
     SceneTimelineItemResponse,
     SceneTimelinePageResponse,
+)
+from .creator_events import (
+    CreatorEventBroker,
+    CreatorEventBrokerViolation,
+    parse_last_event_id,
+    stream_creator_events,
 )
 from .static_assets import StaticAssetStore
 
@@ -201,6 +212,7 @@ def create_runtime_app(
     on_started: AsyncCallback,
     on_stopping: AsyncCallback,
     scene_timeline_query: SceneTimelineQueryPort | None = None,
+    creator_events: CreatorEventBroker | None = None,
     on_security_event: SecurityEvent | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
@@ -342,6 +354,8 @@ def create_runtime_app(
                 status_code=error.status_code,
                 content=_rejected(error.code),
             )
+        if creator_events is not None:
+            await creator_events.close_active()
         emit("creator.session.established")
         response = BrowserSessionResponse(
             **_metadata_wire(established.metadata),
@@ -399,6 +413,8 @@ def create_runtime_app(
                 status_code=error.status_code,
                 content=_rejected(error.code),
             )
+        if creator_events is not None:
+            await creator_events.close_active()
         emit("creator.session.revoked")
         return Response(status_code=204)
 
@@ -538,6 +554,102 @@ def create_runtime_app(
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
     del get_scene_timeline
+
+    @app.get("/v1/scenes/{scene_key}/events")
+    async def get_scene_events(
+        scene_key: str,
+        request: Request,
+    ) -> Response:
+        if (
+            browser_sessions is None
+            or scene_timeline_query is None
+            or creator_events is None
+        ):
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_EVENT_STREAM_UNAVAILABLE"),
+            )
+        if not _browser_boundary(request, canonical_origin=canonical_origin):
+            return JSONResponse(
+                status_code=403,
+                content=_rejected("AUTH_BROWSER_BOUNDARY"),
+            )
+        if request.headers.get("accept") != "text/event-stream":
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_EVENT_STREAM_ACCEPT"),
+            )
+        try:
+            last_event_id = parse_last_event_id(request.scope["headers"])
+        except CreatorEventBrokerViolation as error:
+            emit("creator.event_stream.parser_failure")
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            metadata = browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            parsed_scene_key = SceneKey(scene_key)
+        except SceneQueryViolation:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+            )
+        if parsed_scene_key.value != metadata.default_scene_key:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+            )
+        try:
+            await scene_timeline_query.query(
+                SceneTimelineQuery(scene_key=parsed_scene_key, limit=1)
+            )
+        except SceneQueryViolation as error:
+            if error.code == "SCENE-NOT-VISIBLE":
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_EVENT_STREAM_UNAVAILABLE"),
+            )
+        try:
+            subscription = await creator_events.subscribe(last_event_id)
+        except CreatorEventBrokerViolation as error:
+            emit(
+                "creator.event_stream.gap"
+                if error.status_code == 409
+                else "creator.event_stream.parser_failure"
+            )
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        return StreamingResponse(
+            stream_creator_events(
+                subscription,
+                sessions=browser_sessions,
+                token=token,
+                diagnostic=emit,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    del get_scene_events
 
     @app.get("/ui", include_in_schema=False)
     async def creator_redirect() -> RedirectResponse:

@@ -10,6 +10,7 @@ from typing import Any, cast
 from armi_runtime.interfaces.creator_contract import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
+    CreatorProjectionEventResponse,
     RejectedOutcomeResponse,
     RuntimeStatusResponse,
     build_creator_openapi,
@@ -60,6 +61,7 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/browser-sessions",
                 "/v1/browser-sessions/current",
                 "/v1/runtime/status",
+                "/v1/scenes/{scene_key}/events",
                 "/v1/scenes/{scene_key}/timeline",
             },
         )
@@ -88,6 +90,18 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(
             set(timeline["responses"]),
             {"200", "400", "401", "403", "404", "409", "503"},
+        )
+        events = paths["/v1/scenes/{scene_key}/events"]["get"]
+        self.assertEqual(events["operationId"], "streamSceneEvents")
+        self.assertEqual(events["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(
+            set(events["responses"]),
+            {"200", "400", "401", "403", "404", "409", "429", "503"},
+        )
+        event_content = events["responses"]["200"]["content"]["text/event-stream"]
+        self.assertEqual(
+            event_content["schema"]["x-event-data-schema"]["$ref"],
+            "#/components/schemas/CreatorProjectionEventResponse",
         )
 
     def test_openapi_is_repeatable(self) -> None:
@@ -168,6 +182,31 @@ class CreatorContractTests(unittest.TestCase):
         error["code"] = "CONFLICT_SUBJECT_VERSION"
         with self.assertRaises(ValidationError):
             RejectedOutcomeResponse.model_validate_json(json.dumps(sample))
+
+    def test_projection_event_response_is_strict(self) -> None:
+        sample = {
+            "contract_version": "1.0",
+            "event_id": f"sse-v1.{'a' * 22}.1",
+            "event_kind": "scene.timeline.invalidated",
+            "resource_kind": "scene_timeline",
+            "resource_ref": "default",
+            "projection_version": "scene-timeline.v1",
+            "occurred_at": INSTANT,
+        }
+        model = CreatorProjectionEventResponse.model_validate(sample)
+        self.assertEqual(model.resource_ref, "default")
+        for field, value in (
+            ("event_id", "sse-v1.invalid.1"),
+            ("event_kind", "timeline.item"),
+            ("resource_kind", "subject"),
+            ("projection_version", "scene-timeline.v2"),
+            ("occurred_at", "2026-07-29T10:00:00Z"),
+        ):
+            with (
+                self.subTest(field=field),
+                self.assertRaises(ValidationError),
+            ):
+                CreatorProjectionEventResponse.model_validate({**sample, field: value})
 
 
 if __name__ == "__main__":

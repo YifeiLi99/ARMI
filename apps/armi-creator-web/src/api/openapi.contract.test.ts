@@ -1,4 +1,5 @@
 import type {
+  CreatorProjectionEventResponse,
   LiveResponse,
   ReadyResponse,
   RejectedOutcome,
@@ -28,5 +29,8 @@ describe("generated Creator OpenAPI types", () => {
     >();
     expectTypeOf<RejectedOutcome["status"]>().toEqualTypeOf<"rejected">();
     expectTypeOf<UnavailableOutcome["status"]>().toEqualTypeOf<"unavailable">();
+    expectTypeOf<
+      CreatorProjectionEventResponse["event_kind"]
+    >().toEqualTypeOf<"scene.timeline.invalidated">();
   });
 });

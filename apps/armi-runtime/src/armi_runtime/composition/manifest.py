@@ -23,10 +23,10 @@ _SEAMS: Final = (
     ("M0-SEAM-POLICY", ("M0-S027—M0-S029",)),
     ("M0-SEAM-WEB", ("M0-S032—M0-S034",)),
     ("M0-SEAM-CODEX", ("M0-S038", "M0-S039")),
-    ("M0-SEAM-CREATOR-PROJECTION", ("M0-S019", "M0-S031")),
+    ("M0-SEAM-CREATOR-PROJECTION", ("M0-S019", "M0-S020", "M0-S031")),
     (
         "M0-SEAM-CREATOR-UI",
-        ("M0-S007", "M0-S022", "M0-S031", "M0-S043"),
+        ("M0-S007", "M0-S020", "M0-S022", "M0-S031", "M0-S043"),
     ),
 )
 _CONFIG_FILES: Final = (
