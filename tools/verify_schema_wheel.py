@@ -18,6 +18,7 @@ _FILES = (
     "migrations/0003_content_addressed_artifacts.sql",
     "migrations/0004_normal_audit_foundation.sql",
     "migrations/0005_durable_work_and_outbox.sql",
+    "migrations/0006_unique_birth.sql",
 )
 
 

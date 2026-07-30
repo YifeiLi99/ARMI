@@ -8,6 +8,9 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from armi_kernel.application import BirthViolation
+
+from armi_runtime.composition.bootstrap import execute_birth
 from armi_runtime.composition.configuration import ConfigurationViolation
 from armi_runtime.composition.database import (
     DatabaseViolation,
@@ -38,16 +41,29 @@ def _parser() -> argparse.ArgumentParser:
     database_status.add_argument("--environment-root", type=Path, required=True)
     database_upgrade = database_command.add_parser("upgrade")
     database_upgrade.add_argument("--environment-root", type=Path, required=True)
+    bootstrap = command.add_parser("bootstrap")
+    bootstrap_command = bootstrap.add_subparsers(
+        dest="bootstrap_command",
+        required=True,
+    )
+    bootstrap_birth = bootstrap_command.add_parser("birth")
+    bootstrap_birth.add_argument("--environment-root", type=Path, required=True)
     return parser
 
 
 def _safe_failure(
-    error: ConfigurationViolation | RuntimeViolation | DatabaseViolation,
+    error: ConfigurationViolation
+    | RuntimeViolation
+    | DatabaseViolation
+    | BirthViolation,
 ) -> None:
     status = error.status if isinstance(error, DatabaseViolation) else "rejected"
+    message = (
+        "birth operation failed" if isinstance(error, BirthViolation) else error.message
+    )
     print(
         json.dumps(
-            {"status": status, "code": error.code, "message": error.message},
+            {"status": status, "code": error.code, "message": message},
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
@@ -65,6 +81,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {"database.status": "database.runtime"}
     elif args.command == "db":
         credential_scope = {"database.migrator": "database.migrator"}
+    elif args.command == "bootstrap":
+        credential_scope = {"database.birth": "database.runtime"}
     else:
         credential_scope = {"database.runtime": "database.runtime"}
     try:
@@ -102,6 +120,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         except DatabaseViolation as error:
             _safe_failure(error)
             return error.exit_code
+        print(
+            json.dumps(
+                result.safe_view(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    if args.command == "bootstrap":
+        try:
+            result = execute_birth(prepared)
+        except BirthViolation as error:
+            _safe_failure(error)
+            return EXIT_INVOCATION_REJECTED
         print(
             json.dumps(
                 result.safe_view(),

@@ -52,6 +52,95 @@ def build_role_manifest() -> dict[str, object]:
         "replication": False,
         "bypassrls": False,
     }
+    birth_insert_columns = {
+        "armi.subjects": [
+            "subject_id",
+            "singleton_key",
+            "birth_request_id",
+            "birth_idempotency_key",
+            "birth_manifest_digest",
+            "current_generation_id",
+            "current_bundle_activation_id",
+        ],
+        "armi.life_generations": [
+            "life_generation_id",
+            "subject_id",
+            "generation_no",
+            "status",
+            "opened_subject_version",
+            "activation_reason",
+        ],
+        "armi.runtime_bundle_activations": [
+            "bundle_activation_id",
+            "subject_id",
+            "bundle_version",
+            "bundle_digest",
+            "manifest_artifact_id",
+            "schema_baseline_digest",
+            "fixed_policy_digest",
+            "fixed_prompt_set_digest",
+            "creator_asset_digest",
+            "status",
+            "activated_by_party_id",
+        ],
+        "armi.parties": [
+            "party_id",
+            "party_kind",
+            "represented_subject_id",
+            "creator_role",
+        ],
+        "armi.prompt_documents": [
+            "prompt_document_id",
+            "subject_id",
+            "prompt_kind",
+            "write_authority",
+            "current_revision_id",
+        ],
+        "armi.prompt_revisions": [
+            "prompt_revision_id",
+            "prompt_document_id",
+            "revision_no",
+            "content_artifact_id",
+            "content_digest",
+            "author_party_id",
+            "change_reason",
+        ],
+        "armi.subject_component_heads": [
+            "subject_id",
+            "component_kind",
+            "current_revision_id",
+            "component_version",
+        ],
+        "armi.subject_component_revisions": [
+            "component_revision_id",
+            "subject_id",
+            "component_kind",
+            "component_version",
+            "origin_kind",
+            "origin_ref",
+            "semantic_payload",
+            "privacy_scope",
+        ],
+    }
+    birth_objects = [
+        {
+            "kind": "table",
+            "name": name,
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {"INSERT": columns},
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        }
+        for name, columns in birth_insert_columns.items()
+    ]
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -314,12 +403,13 @@ def build_role_manifest() -> dict[str, object]:
                     "armi_migrator": {},
                 },
             },
+            *birth_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S014 has no business or administration function requiring "
+                "M0-S015 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -411,6 +501,54 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "name": "armi.outbox_items",
                 "logical_owner": "durable-work",
                 "activation_step": "M0-S014",
+            },
+            {
+                "kind": "table",
+                "name": "armi.subjects",
+                "logical_owner": "subject-continuity",
+                "activation_step": "M0-S015",
+            },
+            {
+                "kind": "table",
+                "name": "armi.life_generations",
+                "logical_owner": "subject-continuity",
+                "activation_step": "M0-S015",
+            },
+            {
+                "kind": "table",
+                "name": "armi.runtime_bundle_activations",
+                "logical_owner": "subject-continuity",
+                "activation_step": "M0-S015",
+            },
+            {
+                "kind": "table",
+                "name": "armi.parties",
+                "logical_owner": "subject-identity",
+                "activation_step": "M0-S015",
+            },
+            {
+                "kind": "table",
+                "name": "armi.prompt_documents",
+                "logical_owner": "prompt-authority",
+                "activation_step": "M0-S015",
+            },
+            {
+                "kind": "table",
+                "name": "armi.prompt_revisions",
+                "logical_owner": "prompt-authority",
+                "activation_step": "M0-S015",
+            },
+            {
+                "kind": "table",
+                "name": "armi.subject_component_heads",
+                "logical_owner": "subject-components",
+                "activation_step": "M0-S015",
+            },
+            {
+                "kind": "table",
+                "name": "armi.subject_component_revisions",
+                "logical_owner": "subject-components",
+                "activation_step": "M0-S015",
             },
         ],
         "deferred_objects": [

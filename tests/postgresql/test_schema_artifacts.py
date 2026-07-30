@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 5})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 6})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3, 4, 5],
+            [1, 2, 3, 4, 5, 6],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -77,6 +77,14 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.audit_events",
                 "armi.durable_work",
                 "armi.outbox_items",
+                "armi.subjects",
+                "armi.life_generations",
+                "armi.runtime_bundle_activations",
+                "armi.parties",
+                "armi.prompt_documents",
+                "armi.prompt_revisions",
+                "armi.subject_component_heads",
+                "armi.subject_component_revisions",
             ],
         )
         self.assertNotIn("manifest_sha256", manifest)
@@ -183,6 +191,32 @@ class SchemaArtifactTests(unittest.TestCase):
                 r"(?i)\b(?:effect_id|subject[s]?\\b|"
                 r"CREATE\\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
                 r"ALTER\\s+DEFAULT\\s+PRIVILEGES|SECURITY\\s+DEFINER)\b"
+            ),
+        )
+
+    def test_unique_birth_migration_is_the_only_s015_surface(self) -> None:
+        sql = Path("schema/migrations/0006_unique_birth.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(sql.count("CREATE TABLE"), 8)
+        for table in (
+            "subjects",
+            "life_generations",
+            "runtime_bundle_activations",
+            "parties",
+            "prompt_documents",
+            "prompt_revisions",
+            "subject_component_heads",
+            "subject_component_revisions",
+        ):
+            self.assertIn(f"CREATE TABLE armi.{table}", sql)
+        self.assertIn("ADD CONSTRAINT durable_work_subject_fk", sql)
+        self.assertNotRegex(
+            sql,
+            re.compile(
+                r"(?i)\b(?:runtime_instances|authority_lease|birth_records|"
+                r"CREATE\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
+                r"ALTER\s+DEFAULT\s+PRIVILEGES|SECURITY\s+DEFINER)\b"
             ),
         )
 

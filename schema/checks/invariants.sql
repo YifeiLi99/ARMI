@@ -30,7 +30,7 @@ FROM (
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
                   AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-            ) <> 5
+            ) <> 13
         ),
         (
             'DB-SCHEMA-MISSING',
@@ -79,6 +79,27 @@ FROM (
                   AND relation.relname = 'outbox_items'
                   AND relation.relkind = 'r'
             )
+        ),
+        (
+            'DB-SCHEMA-MISSING',
+            (
+                SELECT count(*)
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind = 'r'
+                  AND relation.relname IN (
+                      'subjects',
+                      'life_generations',
+                      'runtime_bundle_activations',
+                      'parties',
+                      'prompt_documents',
+                      'prompt_revisions',
+                      'subject_component_heads',
+                      'subject_component_revisions'
+                  )
+            ) <> 8
         )
 ) AS checks(violation_code, violated)
 WHERE violated

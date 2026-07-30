@@ -59,6 +59,15 @@
       "module": "armi_runtime.adapters.persistence.outbox",
       "owner": "durable-work",
       "allowed_callers": []
+    },
+    {
+      "id": "unique-birth",
+      "module": "armi_runtime.adapters.persistence.birth",
+      "owner": "subject-continuity",
+      "allowed_callers": [
+        "armi_runtime.composition.birth",
+        "armi_runtime.composition.database"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -86,6 +95,16 @@
       "module": "armi_runtime.adapters.persistence.outbox",
       "owner": "durable-work",
       "allowed_write_surfaces": ["internal-outbox", "normal-audit"]
+    },
+    {
+      "id": "unique-birth-transaction",
+      "module": "armi_runtime.composition.birth",
+      "owner": "subject-continuity",
+      "allowed_write_surfaces": [
+        "unique-birth",
+        "artifact-catalog",
+        "normal-audit"
+      ]
     }
   ],
   "named_coordinators_not_applicable_reason": "",

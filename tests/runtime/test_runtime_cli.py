@@ -8,7 +8,10 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
+from uuid import UUID
 
+from armi_kernel.application import BirthResult
+from armi_kernel.contracts import Digest
 from armi_runtime.cli import main
 from armi_runtime.composition.environment import prepare_environment
 
@@ -100,6 +103,39 @@ class RuntimeCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(output.getvalue(), "")
         runner.assert_called_once()
+
+    def test_birth_command_is_explicit_and_returns_only_stable_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            result = BirthResult(
+                UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234568"),
+                UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234569"),
+                UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234570"),
+                Digest.from_bytes(b"request"),
+                True,
+            )
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "armi_runtime.cli.execute_birth",
+                    return_value=result,
+                ) as birth,
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    (
+                        "bootstrap",
+                        "birth",
+                        "--environment-root",
+                        str(root.resolve()),
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "applied")
+        birth.assert_called_once()
 
 
 if __name__ == "__main__":

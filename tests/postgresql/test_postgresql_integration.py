@@ -22,16 +22,21 @@ from typing import Any, LiteralString, cast
 from uuid import UUID
 
 import psycopg
+import rfc8785
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_kernel.application import (
     ArtifactPolicy,
     ArtifactPrivacyScope,
     ArtifactViolation,
     AuditQuery,
+    BirthManifest,
+    BirthResult,
+    BirthViolation,
     CasStatus,
     LockPlan,
     LockTarget,
     LockTargetKind,
+    PersonalityAnchor,
     PostCommitAction,
     WorkDraft,
     WorkId,
@@ -49,6 +54,11 @@ from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )
 from armi_runtime.adapters.persistence.audit_events import AuditEventRepository
+from armi_runtime.adapters.persistence.birth import (
+    BirthRepository,
+    ContinuityState,
+    probe_continuity,
+)
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
 )
@@ -75,6 +85,8 @@ from armi_runtime.composition.artifacts import (
     ContentAddressedArtifactCoordinator,
 )
 from armi_runtime.composition.audit import AuditQueryGateway
+from armi_runtime.composition.birth import BirthTransaction
+from armi_runtime.composition.birth_manifest import packaged_birth_digests
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -258,7 +270,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {5})
+        self.assertEqual({result.applied_version for result in results}, {6})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -325,7 +337,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 5)
+        self.assertEqual(result.applied_version, 6)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -387,7 +399,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 5)
+        self.assertEqual(result.applied_version, 6)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -447,7 +459,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(6,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(7,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -506,7 +518,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (5,),
+                    (6,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -875,6 +887,223 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     artifact_summary,
                     sort_keys=True,
                     separators=(",", ":"),
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+
+    def test_unique_birth_is_atomic_concurrent_and_idempotent(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="约 16 岁少女口吻",
+            traits=("坦率", "好奇"),
+        )
+        anchor_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                {
+                    "schema_version": anchor.schema_version,
+                    "voice_style": anchor.voice_style,
+                    "traits": list(anchor.traits),
+                }
+            )
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="s015-concurrent-birth",
+            personality_anchor=anchor,
+            personality_anchor_digest=anchor_digest,
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            schema_manifest_digest=packaged["schema_manifest_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"s015-birth-request"),
+        )
+
+        async def reject_unexpected_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("birth must use only its fixed advisory lock")
+
+        async def exercise(root: Path) -> tuple[BirthResult, BirthResult]:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_unexpected_lock,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+            )
+            transaction = BirthTransaction(
+                ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                ArtifactCatalogRepository(),
+                BirthRepository(),
+                factory,
+            )
+            await factory.open()
+            try:
+                first, replay = await asyncio.gather(
+                    transaction.birth(manifest),
+                    transaction.birth(manifest),
+                )
+                self.assertEqual(first.subject_id, replay.subject_id)
+                self.assertEqual(first.life_generation_id, replay.life_generation_id)
+                self.assertEqual(
+                    first.bundle_activation_id,
+                    replay.bundle_activation_id,
+                )
+                self.assertEqual({first.created, replay.created}, {True, False})
+                exact_replay = await transaction.birth(manifest)
+                self.assertFalse(exact_replay.created)
+                with self.assertRaisesRegex(
+                    BirthViolation,
+                    "BIRTH-IDEMPOTENCY-CONFLICT",
+                ):
+                    await transaction.birth(
+                        replace(
+                            manifest,
+                            request_digest=Digest.from_bytes(b"changed-request"),
+                        )
+                    )
+                with self.assertRaisesRegex(
+                    BirthViolation,
+                    "BIRTH-ALREADY-BORN",
+                ):
+                    await transaction.birth(
+                        replace(
+                            manifest,
+                            birth_request_id=_uuid7(),
+                            idempotency_key="s015-second-birth",
+                            request_digest=Digest.from_bytes(b"second-request"),
+                        )
+                    )
+                return first, replay
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            first, _ = asyncio.run(
+                exercise(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT count(*) FROM armi.subjects),
+                    (SELECT count(*) FROM armi.life_generations),
+                    (SELECT count(*) FROM armi.runtime_bundle_activations),
+                    (SELECT count(*) FROM armi.parties),
+                    (SELECT count(*) FROM armi.prompt_documents),
+                    (SELECT count(*) FROM armi.prompt_revisions),
+                    (SELECT count(*) FROM armi.subject_component_heads),
+                    (SELECT count(*) FROM armi.subject_component_revisions),
+                    (SELECT count(*) FROM armi.artifacts),
+                    (SELECT count(*) FROM armi.audit_events)
+                """
+            ).fetchone()
+            self.assertEqual(counts, (1, 1, 1, 2, 3, 1, 3, 3, 2, 3))
+            self_payload = connection.execute(
+                """
+                SELECT semantic_payload
+                FROM armi.subject_component_revisions
+                WHERE subject_id = %s AND component_kind = 'self'
+                """,
+                (first.subject_id,),
+            ).fetchone()
+            assert self_payload is not None
+            self.assertIsNone(self_payload[0]["name"])
+            self.assertEqual(self_payload[0]["interests"], [])
+            self.assertEqual(self_payload[0]["goals"], [])
+            identity_semantics = connection.execute(
+                """
+                SELECT
+                    subject.singleton_key,
+                    subject.subject_version,
+                    subject.state_epoch,
+                    subject.status,
+                    generation.generation_no,
+                    generation.status,
+                    activation.bundle_version,
+                    activation.status
+                FROM armi.subjects AS subject
+                JOIN armi.life_generations AS generation
+                  ON generation.life_generation_id =
+                     subject.current_generation_id
+                JOIN armi.runtime_bundle_activations AS activation
+                  ON activation.bundle_activation_id =
+                     subject.current_bundle_activation_id
+                """
+            ).fetchone()
+            component_semantics = connection.execute(
+                """
+                SELECT component_kind, component_version, semantic_payload
+                FROM armi.subject_component_revisions
+                ORDER BY component_kind
+                """
+            ).fetchall()
+            audit_operations = connection.execute(
+                """
+                SELECT operation
+                FROM armi.audit_events
+                ORDER BY operation
+                """
+            ).fetchall()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("DELETE FROM armi.subjects")
+            connection.rollback()
+
+        self.assertEqual(
+            probe_continuity(
+                fixture.runtime_dsn,
+                composition_digest=packaged["composition_digest"],
+                schema_manifest_digest=packaged["schema_manifest_digest"],
+                birth_contract_digest=packaged["birth_contract_digest"],
+                creator_asset_digest=packaged["creator_asset_manifest_digest"],
+            ),
+            ContinuityState.BORN,
+        )
+        for denied_dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
+            with psycopg.connect(denied_dsn) as connection:
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    connection.execute("SELECT * FROM armi.subjects")
+                connection.rollback()
+
+        birth_summary_file = os.environ.get("S015_BIRTH_SUMMARY_FILE")
+        if birth_summary_file is not None:
+            assert identity_semantics is not None
+            Path(birth_summary_file).write_text(
+                json.dumps(
+                    {
+                        "schema_version": "armi.s015-birth-summary.v1",
+                        "counts": counts,
+                        "identity_semantics": identity_semantics,
+                        "component_semantics": component_semantics,
+                        "audit_operations": audit_operations,
+                        "anchor_digest": anchor_digest.value,
+                        "package_digests": {
+                            name: digest.value
+                            for name, digest in sorted(packaged.items())
+                        },
+                    },
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
                 )
                 + "\n",
                 encoding="utf-8",
@@ -1457,7 +1686,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(len(claimed), 1)
                 first_lease = claimed[0].lease
                 assert first_lease is not None
-                await asyncio.sleep(1.1)
+                # Either concurrent claimant may win; wait beyond both lease
+                # durations before asserting takeover.
+                await asyncio.sleep(2.5)
                 reclaimed_after_expiry = (
                     await gateway.claim(
                         lease_owner=_uuid7(),

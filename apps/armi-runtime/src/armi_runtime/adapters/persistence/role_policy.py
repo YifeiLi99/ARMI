@@ -107,13 +107,216 @@ class PostgreSQLRolePolicyGateway:
         self._verify_memberships(connection, environment_id)
         self._verify_database_grants(connection, environment_id)
         if require_objects:
-            self._verify_object_policy(connection)
+            self._verify_manifest_object_policy(connection)
         digest = self._privilege_catalog_digest(
             connection,
             environment_id=environment_id,
             include_objects=require_objects,
         )
         return RolePolicyStatus(self.role_policy_sha256, digest)
+
+    def _verify_manifest_object_policy(
+        self,
+        connection: psycopg.Connection[tuple[Any, ...]],
+    ) -> None:
+        manifest_objects = cast(
+            list[dict[str, Any]],
+            self._policy.manifest["objects"],
+        )
+        table_objects = [
+            entry for entry in manifest_objects if entry["kind"] == "table"
+        ]
+        expected_tables = sorted(
+            str(entry["name"]).removeprefix("armi.") for entry in table_objects
+        )
+        try:
+            owners = connection.execute(
+                """
+                SELECT
+                    bool_and(relation.relowner = owner_role.oid),
+                    array_agg(relation.relname ORDER BY relation.relname)
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                JOIN pg_catalog.pg_roles AS owner_role
+                  ON owner_role.rolname = 'armi_owner'
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind IN ('r', 'p')
+                """
+            ).fetchone()
+            table_grants = connection.execute(
+                """
+                SELECT relation.relname, acl.privilege_type, grantee.rolname
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                CROSS JOIN LATERAL
+                    pg_catalog.aclexplode(relation.relacl) AS acl
+                JOIN pg_catalog.pg_roles AS grantee
+                  ON grantee.oid = acl.grantee
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind IN ('r', 'p')
+                  AND grantee.rolname = ANY(%s)
+                ORDER BY relation.relname, acl.privilege_type, grantee.rolname
+                """,
+                (["armi_runtime", "armi_admin", "armi_migrator"],),
+            ).fetchall()
+            column_grants = connection.execute(
+                """
+                SELECT relation.relname, attribute.attname,
+                       acl.privilege_type, grantee.rolname
+                FROM pg_catalog.pg_attribute AS attribute
+                JOIN pg_catalog.pg_class AS relation
+                  ON relation.oid = attribute.attrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                CROSS JOIN LATERAL
+                    pg_catalog.aclexplode(attribute.attacl) AS acl
+                JOIN pg_catalog.pg_roles AS grantee
+                  ON grantee.oid = acl.grantee
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind IN ('r', 'p')
+                  AND attribute.attnum > 0
+                  AND NOT attribute.attisdropped
+                  AND grantee.rolname = ANY(%s)
+                ORDER BY relation.relname, attribute.attname,
+                         acl.privilege_type, grantee.rolname
+                """,
+                (["armi_runtime", "armi_admin", "armi_migrator"],),
+            ).fetchall()
+            public_count = connection.execute(
+                """
+                SELECT (
+                    SELECT count(*)
+                    FROM pg_catalog.pg_namespace AS namespace
+                    CROSS JOIN LATERAL
+                        pg_catalog.aclexplode(namespace.nspacl) AS acl
+                    WHERE namespace.nspname = 'armi'
+                      AND acl.grantee = 0
+                ) + (
+                    SELECT count(*)
+                    FROM pg_catalog.pg_class AS relation
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    CROSS JOIN LATERAL
+                        pg_catalog.aclexplode(relation.relacl) AS acl
+                    WHERE namespace.nspname = 'armi'
+                      AND relation.relkind IN ('r', 'p')
+                      AND acl.grantee = 0
+                ) + (
+                    SELECT count(*)
+                    FROM pg_catalog.pg_attribute AS attribute
+                    JOIN pg_catalog.pg_class AS relation
+                      ON relation.oid = attribute.attrelid
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    CROSS JOIN LATERAL
+                        pg_catalog.aclexplode(attribute.attacl) AS acl
+                    WHERE namespace.nspname = 'armi'
+                      AND relation.relkind IN ('r', 'p')
+                      AND attribute.attnum > 0
+                      AND NOT attribute.attisdropped
+                      AND acl.grantee = 0
+                )
+                """
+            ).fetchone()
+            definers = connection.execute(
+                """
+                SELECT count(*)
+                FROM pg_catalog.pg_proc AS procedure
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = procedure.pronamespace
+                WHERE namespace.nspname = 'armi'
+                  AND procedure.prosecdef
+                """
+            ).fetchone()
+        except psycopg.Error:
+            raise DatabaseViolation(
+                "DB-ROLE-GRANT",
+                "database object grants are unavailable",
+            ) from None
+        if owners != (True, expected_tables):
+            raise DatabaseViolation(
+                "DB-ROLE-OWNER",
+                "database object ownership has drifted",
+            )
+        if public_count != (0,):
+            raise DatabaseViolation(
+                "DB-ROLE-PUBLIC-PRIVILEGE",
+                "PUBLIC object privileges are unsafe",
+            )
+        expected_table_grants = {
+            (
+                str(entry["name"]).removeprefix("armi."),
+                str(privilege),
+                str(role),
+            )
+            for entry in table_objects
+            for role, privileges in cast(
+                dict[str, list[str]],
+                entry["grants"],
+            ).items()
+            for privilege in privileges
+        }
+        actual_table_grants = {
+            (str(table), str(privilege), str(grantee))
+            for table, privilege, grantee in table_grants
+        }
+        if actual_table_grants != expected_table_grants:
+            raise DatabaseViolation(
+                "DB-ROLE-GRANT",
+                "database table grants have drifted",
+            )
+        expected_column_grants = {
+            (
+                str(entry["name"]).removeprefix("armi."),
+                str(column),
+                str(privilege),
+                str(role),
+            )
+            for entry in table_objects
+            for role, grants in cast(
+                dict[str, dict[str, list[str]]],
+                entry.get("column_grants", {}),
+            ).items()
+            for privilege, columns in grants.items()
+            for column in columns
+        }
+        actual_column_grants = {
+            (str(table), str(column), str(privilege), str(grantee))
+            for table, column, privilege, grantee in column_grants
+        }
+        if actual_column_grants != expected_column_grants:
+            raise DatabaseViolation(
+                "DB-ROLE-GRANT",
+                "database column grants have drifted",
+            )
+        schema_entry = next(
+            entry for entry in manifest_objects if entry["kind"] == "schema"
+        )
+        for role, expected in cast(
+            dict[str, list[str]],
+            schema_entry["grants"],
+        ).items():
+            actual = {
+                privilege
+                for privilege in ("USAGE", "CREATE")
+                if connection.execute(
+                    "SELECT has_schema_privilege(%s, 'armi', %s)",
+                    (role, privilege),
+                ).fetchone()
+                == (True,)
+            }
+            if actual != set(expected):
+                raise DatabaseViolation(
+                    "DB-ROLE-GRANT",
+                    "database schema grants have drifted",
+                )
+        if definers != (0,):
+            raise DatabaseViolation(
+                "DB-ROLE-SECURITY-DEFINER",
+                "an unregistered security-definer entry exists",
+            )
 
     def _verify_session(
         self,

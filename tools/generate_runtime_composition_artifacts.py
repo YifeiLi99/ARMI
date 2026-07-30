@@ -32,6 +32,7 @@ _SCHEMA_FILES = (
     "migrations/0003_content_addressed_artifacts.sql",
     "migrations/0004_normal_audit_foundation.sql",
     "migrations/0005_durable_work_and_outbox.sql",
+    "migrations/0006_unique_birth.sql",
 )
 
 
@@ -44,6 +45,8 @@ def _generate(root: Path, output: Path) -> None:
         (output / target_name).write_bytes(value)
     creator_manifest = (root / _CREATOR / "manifest.json").read_bytes()
     creator_openapi = (root / _CREATOR / "openapi.json").read_bytes()
+    birth_contract = (root / _TARGET / "birth-contract.manifest.json").read_bytes()
+    (output / "birth-contract.manifest.json").write_bytes(birth_contract)
     schema_resources = {
         name: (root / _SCHEMA / name).read_bytes() for name in _SCHEMA_FILES
     }
@@ -51,6 +54,7 @@ def _generate(root: Path, output: Path) -> None:
         config_resources=config_resources,
         creator_manifest=creator_manifest,
         creator_openapi=creator_openapi,
+        birth_contract=birth_contract,
         schema_resources=schema_resources,
     )
     (output / "runtime-composition.manifest.json").write_bytes(
@@ -61,7 +65,11 @@ def _generate(root: Path, output: Path) -> None:
 def _files(root: Path) -> dict[str, bytes]:
     return {
         name: (root / name).read_bytes()
-        for name in (*_CONFIG, "runtime-composition.manifest.json")
+        for name in (
+            *_CONFIG,
+            "birth-contract.manifest.json",
+            "runtime-composition.manifest.json",
+        )
         if (root / name).is_file()
     }
 

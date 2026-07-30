@@ -15,7 +15,11 @@ import uvicorn
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.static_assets import AssetViolation, StaticAssetStore
 
-from .database import runtime_database_reason
+from .database import (
+    ContinuityState,
+    inspect_runtime_continuity,
+    runtime_database_reason,
+)
 from .diagnostics import StructuredDiagnosticLog
 from .environment import PreparedEnvironment
 from .lifecycle import RUNTIME_BLOCKING_REASONS, LifecycleController
@@ -67,13 +71,40 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         if diagnostic.status.reason_code is not None:
             lifecycle.add_degradation(diagnostic.status.reason_code)
         diagnostic.emit("runtime.lifecycle.starting", result_code="LIFE_STARTING")
-        snapshot = lifecycle.complete_startup(
-            (*RUNTIME_BLOCKING_REASONS, *database_reasons)
+        continuity = (
+            inspect_runtime_continuity(prepared)
+            if not database_reasons
+            else ContinuityState.INVALID
         )
+        if continuity is ContinuityState.UNBORN:
+            snapshot = lifecycle.mark_unborn()
+        else:
+            subject_reasons = (
+                ("RUNTIME_SUBJECT_STATE_INVALID",)
+                if continuity is ContinuityState.INVALID and not database_reasons
+                else ()
+            )
+            snapshot = lifecycle.complete_startup(
+                (
+                    *RUNTIME_BLOCKING_REASONS,
+                    *database_reasons,
+                    *subject_reasons,
+                )
+            )
         diagnostic.emit(
-            "runtime.lifecycle.blocked",
-            level=logging.WARNING,
-            result_code="LIFE_BLOCKED",
+            (
+                "runtime.lifecycle.unborn"
+                if snapshot.runtime_state.value == "unborn"
+                else "runtime.lifecycle.blocked"
+            ),
+            level=logging.INFO
+            if snapshot.runtime_state.value == "unborn"
+            else logging.WARNING,
+            result_code=(
+                "LIFE_UNBORN"
+                if snapshot.runtime_state.value == "unborn"
+                else "LIFE_BLOCKED"
+            ),
             reason_codes=snapshot.reason_codes,
         )
 

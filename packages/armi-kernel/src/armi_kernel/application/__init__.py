@@ -24,6 +24,13 @@ from .auditing import (
     AuditViolation,
     AuditWriter,
 )
+from .birth import (
+    BirthManifest,
+    BirthPort,
+    BirthResult,
+    BirthViolation,
+    PersonalityAnchor,
+)
 from .credentials import (
     CredentialLocator,
     CredentialPort,
@@ -75,6 +82,10 @@ __all__ = (
     "AuditViolation",
     "AuditWriter",
     "BeforeCommitHook",
+    "BirthManifest",
+    "BirthPort",
+    "BirthResult",
+    "BirthViolation",
     "CasStatus",
     "CredentialLocator",
     "CredentialPort",
@@ -84,6 +95,7 @@ __all__ = (
     "LockPlan",
     "LockTarget",
     "LockTargetKind",
+    "PersonalityAnchor",
     "PostCommitAction",
     "PublishedArtifact",
     "SecretHandle",

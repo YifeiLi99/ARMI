@@ -41,6 +41,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--summary-file", type=Path)
     parser.add_argument("--artifact-summary-file", type=Path)
     parser.add_argument("--work-summary-file", type=Path)
+    parser.add_argument("--birth-summary-file", type=Path)
     args = parser.parse_args(argv)
     root = args.root.resolve()
     tool_root = (root / args.tool_root).resolve()
@@ -110,6 +111,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.work_summary_file is not None:
                 environment["S014_WORK_SUMMARY_FILE"] = str(
                     args.work_summary_file.resolve()
+                )
+            if args.birth_summary_file is not None:
+                environment["S015_BIRTH_SUMMARY_FILE"] = str(
+                    args.birth_summary_file.resolve()
                 )
             completed = subprocess.run(
                 [

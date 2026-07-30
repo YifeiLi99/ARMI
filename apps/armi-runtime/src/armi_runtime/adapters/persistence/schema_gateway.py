@@ -123,6 +123,94 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("created_at", "timestamp(6) with time zone", True),
         ("updated_at", "timestamp(6) with time zone", True),
     ),
+    "subjects": (
+        ("subject_id", "uuid", True),
+        ("singleton_key", "smallint", True),
+        ("birth_request_id", "uuid", True),
+        ("birth_idempotency_key", "text", True),
+        ("birth_manifest_digest", "text", True),
+        ("current_generation_id", "uuid", True),
+        ("current_bundle_activation_id", "uuid", True),
+        ("subject_version", "bigint", True),
+        ("state_epoch", "bigint", True),
+        ("status", "text", True),
+        ("born_at", "timestamp(6) with time zone", True),
+    ),
+    "life_generations": (
+        ("life_generation_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("generation_no", "bigint", True),
+        ("status", "text", True),
+        ("opened_subject_version", "bigint", True),
+        ("closed_subject_version", "bigint", False),
+        ("activation_reason", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+    ),
+    "parties": (
+        ("party_id", "uuid", True),
+        ("party_kind", "text", True),
+        ("represented_subject_id", "uuid", False),
+        ("display_label", "text", False),
+        ("creator_role", "text", False),
+        ("status", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+    ),
+    "runtime_bundle_activations": (
+        ("bundle_activation_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("bundle_version", "text", True),
+        ("bundle_digest", "text", True),
+        ("manifest_artifact_id", "uuid", True),
+        ("schema_baseline_digest", "text", True),
+        ("fixed_policy_digest", "text", True),
+        ("fixed_prompt_set_digest", "text", True),
+        ("creator_asset_digest", "text", True),
+        ("model_binding", "text", False),
+        ("status", "text", True),
+        ("activated_at", "timestamp(6) with time zone", True),
+        ("deactivated_at", "timestamp(6) with time zone", False),
+        ("activated_by_party_id", "uuid", True),
+    ),
+    "prompt_documents": (
+        ("prompt_document_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("prompt_kind", "text", True),
+        ("write_authority", "text", True),
+        ("current_revision_id", "uuid", False),
+        ("status", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+    ),
+    "prompt_revisions": (
+        ("prompt_revision_id", "uuid", True),
+        ("prompt_document_id", "uuid", True),
+        ("revision_no", "bigint", True),
+        ("previous_revision_id", "uuid", False),
+        ("content_artifact_id", "uuid", True),
+        ("content_digest", "text", True),
+        ("author_party_id", "uuid", True),
+        ("subject_commit_id", "uuid", False),
+        ("change_reason", "text", True),
+        ("activated_at", "timestamp(6) with time zone", True),
+    ),
+    "subject_component_revisions": (
+        ("component_revision_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("component_kind", "text", True),
+        ("component_version", "bigint", True),
+        ("previous_revision_id", "uuid", False),
+        ("origin_kind", "text", True),
+        ("origin_ref", "uuid", True),
+        ("subject_commit_id", "uuid", False),
+        ("semantic_payload", "jsonb", True),
+        ("privacy_scope", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+    ),
+    "subject_component_heads": (
+        ("subject_id", "uuid", True),
+        ("component_kind", "text", True),
+        ("current_revision_id", "uuid", True),
+        ("component_version", "bigint", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
@@ -130,6 +218,26 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     "audit_events": tuple(sorted((*("c",) * 27, *("n",) * 12, "p"))),
     "durable_work": tuple(sorted((*("c",) * 26, *("n",) * 17, "p", "u"))),
     "outbox_items": tuple(sorted((*("c",) * 14, *("n",) * 13, "f", "p", "u"))),
+    "subjects": tuple(
+        sorted((*("c",) * 10, *("n",) * 11, *("f",) * 2, "p", *("u",) * 3))
+    ),
+    "life_generations": tuple(sorted((*("c",) * 6, *("n",) * 7, "f", "p", "u"))),
+    "parties": tuple(sorted((*("c",) * 5, *("n",) * 4, "f", "p"))),
+    "runtime_bundle_activations": tuple(
+        sorted((*("c",) * 10, *("n",) * 12, *("f",) * 3, "p"))
+    ),
+    "prompt_documents": tuple(
+        sorted((*("c",) * 6, *("n",) * 6, *("f",) * 2, "p", "u"))
+    ),
+    "prompt_revisions": tuple(
+        sorted((*("c",) * 6, *("n",) * 8, *("f",) * 3, "p", "u"))
+    ),
+    "subject_component_revisions": tuple(
+        sorted((*("c",) * 9, *("n",) * 9, "f", "p", "u"))
+    ),
+    "subject_component_heads": tuple(
+        sorted((*("c",) * 2, *("n",) * 4, *("f",) * 2, "p"))
+    ),
 }
 
 
@@ -478,6 +586,21 @@ class PostgreSQLSchemaGateway:
             expected_objects.insert(3, ("outbox_items", "r"))
             expected_tables.insert(2, "durable_work")
             expected_tables.insert(3, "outbox_items")
+        if applied_version >= 6:
+            birth_tables = (
+                "life_generations",
+                "parties",
+                "prompt_documents",
+                "prompt_revisions",
+                "runtime_bundle_activations",
+                "subject_component_heads",
+                "subject_component_revisions",
+                "subjects",
+            )
+            expected_objects.extend((name, "r") for name in birth_tables)
+            expected_tables.extend(birth_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -565,9 +688,14 @@ class PostgreSQLSchemaGateway:
         for table_name, kind in constraint_kinds:
             actual_constraints.setdefault(str(table_name), []).append(str(kind))
         for table_name in table_names:
-            if tuple(actual_constraints.get(table_name, ())) != (
-                _EXPECTED_CONSTRAINT_KINDS.get(table_name)
-            ):
+            actual = tuple(actual_constraints.get(table_name, ()))
+            expected = _EXPECTED_CONSTRAINT_KINDS.get(table_name)
+            durable_with_subject = (
+                tuple(sorted((*expected, "f")))
+                if table_name == "durable_work" and expected is not None
+                else None
+            )
+            if actual != expected and actual != durable_with_subject:
                 raise DatabaseViolation(
                     "DB-SCHEMA-DIRTY", "a manifest table constraint set has drifted"
                 )

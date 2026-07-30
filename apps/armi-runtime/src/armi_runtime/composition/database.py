@@ -6,12 +6,17 @@ from typing import Final
 
 from armi_kernel.application import CredentialPort, CredentialPurpose
 
+from armi_runtime.adapters.persistence.birth import (
+    ContinuityState,
+    probe_continuity,
+)
 from armi_runtime.adapters.persistence.schema_gateway import (
     DatabaseViolation,
     PostgreSQLSchemaGateway,
     SchemaStatus,
 )
 
+from .birth_manifest import packaged_birth_digests
 from .configuration import ConfigurationViolation
 from .environment import PreparedEnvironment
 
@@ -137,11 +142,42 @@ def runtime_database_reason(prepared: PreparedEnvironment) -> tuple[str, ...]:
     return ()
 
 
+def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState:
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        return ContinuityState.INVALID
+    digests = packaged_birth_digests()
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def invoke(value: memoryview) -> ContinuityState:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    return ContinuityState.INVALID
+                return probe_continuity(
+                    conninfo,
+                    composition_digest=digests["composition_digest"],
+                    schema_manifest_digest=digests["schema_manifest_digest"],
+                    birth_contract_digest=digests["birth_contract_digest"],
+                    creator_asset_digest=digests["creator_asset_manifest_digest"],
+                )
+
+            return handle.consume(invoke)
+    except ConfigurationViolation:
+        return ContinuityState.INVALID
+
+
 __all__ = (
     "MIGRATOR_LOCATOR_NAME",
     "RUNTIME_LOCATOR_NAME",
+    "ContinuityState",
     "DatabaseViolation",
     "inspect_operator_schema",
+    "inspect_runtime_continuity",
     "inspect_runtime_schema",
     "runtime_database_reason",
     "upgrade_operator_schema",

@@ -24,8 +24,14 @@ _REASON = re.compile(r"^[A-Z][A-Z0-9_]{2,127}$", re.ASCII)
 _ALLOWED_TRANSITIONS = {
     RuntimeState.STOPPED: frozenset({RuntimeState.STARTING}),
     RuntimeState.STARTING: frozenset(
-        {RuntimeState.READY, RuntimeState.DEGRADED, RuntimeState.BLOCKED}
+        {
+            RuntimeState.UNBORN,
+            RuntimeState.READY,
+            RuntimeState.DEGRADED,
+            RuntimeState.BLOCKED,
+        }
     ),
+    RuntimeState.UNBORN: frozenset({RuntimeState.DRAINING}),
     RuntimeState.READY: frozenset({RuntimeState.DEGRADED, RuntimeState.DRAINING}),
     RuntimeState.DEGRADED: frozenset({RuntimeState.DRAINING}),
     RuntimeState.BLOCKED: frozenset({RuntimeState.DRAINING}),
@@ -82,6 +88,9 @@ class LifecycleController:
         reasons: tuple[str, ...] = RUNTIME_BLOCKING_REASONS,
     ) -> RuntimeSnapshot:
         return self.complete_startup(reasons)
+
+    def mark_unborn(self) -> RuntimeSnapshot:
+        return self._transition(RuntimeState.UNBORN, ())
 
     def add_degradation(self, reason: str) -> RuntimeSnapshot:
         if type(reason) is not str or _REASON.fullmatch(reason) is None:

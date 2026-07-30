@@ -40,6 +40,19 @@ class LifecycleTests(unittest.TestCase):
             lifecycle.block()
         self.assertEqual(raised.exception.code, "LIFE-TRANSITION")
 
+    def test_unborn_is_explicitly_not_ready_and_can_stop(self) -> None:
+        lifecycle = LifecycleController(environment_id=ENVIRONMENT_ID)
+        lifecycle.start()
+        unborn = lifecycle.mark_unborn()
+
+        self.assertEqual(unborn.runtime_state, RuntimeState.UNBORN)
+        self.assertEqual(unborn.readiness, Readiness.NOT_READY)
+        self.assertEqual(unborn.reason_codes, ())
+        self.assertEqual(
+            lifecycle.drain().runtime_state,
+            RuntimeState.DRAINING,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

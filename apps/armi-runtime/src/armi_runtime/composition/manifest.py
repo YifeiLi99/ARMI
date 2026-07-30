@@ -39,6 +39,7 @@ _CONFIG_FILES: Final = (
     "runtime.schema.json",
     "runtime-config-manifest.json",
 )
+_BIRTH_CONTRACT_FILE: Final = "birth-contract.manifest.json"
 _SCHEMA_FILES: Final = (
     "checks/invariants.sql",
     "manifests/database-role-manifest.json",
@@ -48,6 +49,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0003_content_addressed_artifacts.sql",
     "migrations/0004_normal_audit_foundation.sql",
     "migrations/0005_durable_work_and_outbox.sql",
+    "migrations/0006_unique_birth.sql",
 )
 
 
@@ -60,6 +62,7 @@ def build_composition_manifest(
     config_resources: dict[str, bytes],
     creator_manifest: bytes,
     creator_openapi: bytes,
+    birth_contract: bytes,
     schema_resources: dict[str, bytes],
 ) -> dict[str, object]:
     """Return the only allowed S008 composition declaration."""
@@ -100,6 +103,7 @@ def build_composition_manifest(
             },
             "creator/manifest.json": _sha256(creator_manifest),
             "creator/openapi.json": _sha256(creator_openapi),
+            f"bootstrap/{_BIRTH_CONTRACT_FILE}": _sha256(birth_contract),
             **{
                 f"schema/{name}": _sha256(value)
                 for name, value in sorted(schema_resources.items())
@@ -133,6 +137,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         }
         creator_manifest = creator.joinpath("manifest.json").read_bytes()
         creator_openapi = creator.joinpath("openapi.json").read_bytes()
+        birth_contract = resources.joinpath(_BIRTH_CONTRACT_FILE).read_bytes()
         committed = resources.joinpath("runtime-composition.manifest.json").read_bytes()
         schema_resources = {
             name: schema.joinpath(name).read_bytes() for name in _SCHEMA_FILES
@@ -146,6 +151,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         config_resources=config_resources,
         creator_manifest=creator_manifest,
         creator_openapi=creator_openapi,
+        birth_contract=birth_contract,
         schema_resources=schema_resources,
     )
     expected_bytes = canonical_manifest_bytes(expected)
