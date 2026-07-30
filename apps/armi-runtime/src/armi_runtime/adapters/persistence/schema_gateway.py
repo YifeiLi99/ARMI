@@ -1,4 +1,4 @@
-"""PostgreSQL 18.4 schema-governance gateway for the fixed S009 manifest."""
+"""PostgreSQL 18.4 schema-governance gateway for the append-only manifest."""
 
 from __future__ import annotations
 
@@ -76,11 +76,60 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("schema_version", "smallint", True),
         ("occurred_at", "timestamp(6) with time zone", True),
     ),
+    "durable_work": (
+        ("work_id", "uuid", True),
+        ("work_kind", "text", True),
+        ("owner_kind", "text", True),
+        ("owner_ref", "uuid", True),
+        ("subject_id", "uuid", False),
+        ("idempotency_key", "text", True),
+        ("payload_kind", "text", False),
+        ("payload_ref", "uuid", False),
+        ("payload_digest", "text", True),
+        ("priority", "smallint", True),
+        ("not_before", "timestamp(6) with time zone", True),
+        ("deadline_at", "timestamp(6) with time zone", True),
+        ("status", "text", True),
+        ("max_attempts", "smallint", True),
+        ("attempt_count", "smallint", True),
+        ("current_attempt_id", "uuid", False),
+        ("lease_owner", "uuid", False),
+        ("lease_expires_at", "timestamp(6) with time zone", False),
+        ("lease_token", "bigint", True),
+        ("result_kind", "text", False),
+        ("result_ref", "uuid", False),
+        ("last_error_code", "text", False),
+        ("trace_id", "text", True),
+        ("schema_version", "smallint", True),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("updated_at", "timestamp(6) with time zone", True),
+    ),
+    "outbox_items": (
+        ("outbox_item_id", "uuid", True),
+        ("work_id", "uuid", True),
+        ("message_kind", "text", True),
+        ("payload_digest", "text", True),
+        ("status", "text", True),
+        ("available_at", "timestamp(6) with time zone", True),
+        ("claimed_by", "uuid", False),
+        ("claim_expires_at", "timestamp(6) with time zone", False),
+        ("claim_token", "bigint", True),
+        ("attempt_count", "smallint", True),
+        ("max_attempts", "smallint", True),
+        ("last_error_code", "text", False),
+        ("delivered_at", "timestamp(6) with time zone", False),
+        ("trace_id", "text", True),
+        ("schema_version", "smallint", True),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("updated_at", "timestamp(6) with time zone", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
     "artifacts": tuple(sorted((*("c",) * 13, *("n",) * 13, "p", "u", "u"))),
     "audit_events": tuple(sorted((*("c",) * 27, *("n",) * 12, "p"))),
+    "durable_work": tuple(sorted((*("c",) * 26, *("n",) * 17, "p", "u"))),
+    "outbox_items": tuple(sorted((*("c",) * 14, *("n",) * 13, "f", "p", "u"))),
 }
 
 
@@ -424,6 +473,11 @@ class PostgreSQLSchemaGateway:
         if applied_version >= 4:
             expected_objects.insert(1, ("audit_events", "r"))
             expected_tables.insert(1, "audit_events")
+        if applied_version >= 5:
+            expected_objects.insert(2, ("durable_work", "r"))
+            expected_objects.insert(3, ("outbox_items", "r"))
+            expected_tables.insert(2, "durable_work")
+            expected_tables.insert(3, "outbox_items")
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",

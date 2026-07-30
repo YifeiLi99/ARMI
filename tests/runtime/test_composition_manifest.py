@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from importlib.resources import files
+from pathlib import Path
 
 from armi_runtime.composition.lifecycle import RUNTIME_BLOCKING_REASONS
 from armi_runtime.composition.manifest import (
@@ -40,6 +41,24 @@ class CompositionManifestTests(unittest.TestCase):
             all(not seam["runtime_discovery"] for seam in manifest["seams"])
         )
         self.assertFalse(manifest["runtime_business_contract"])
+
+    def test_s014_custody_is_not_an_active_worker_binding(self) -> None:
+        verified = verify_packaged_composition()
+        bindings = dict(verified.active_bindings)
+        self.assertIsNone(bindings["M0-SEAM-WORK-SELECTION"])
+        self.assertEqual(
+            set(verified.readiness_blockers),
+            {
+                "CREATOR_SESSION_NOT_IMPLEMENTED",
+                "RUNTIME_AUTHORITY_NOT_IMPLEMENTED",
+                "RUNTIME_RECOVERY_NOT_IMPLEMENTED",
+            },
+        )
+        runtime_source = Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("OutboxDispatcher", runtime_source)
+        self.assertNotIn("PostgreSQLDurableWorkGateway", runtime_source)
 
 
 if __name__ == "__main__":

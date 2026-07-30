@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from .auditing import AuditWriter
+from .durable_work import DurableWorkWriter
 
 _ACTION_KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
@@ -137,6 +138,11 @@ class UnitOfWork(Protocol):
     @property
     def audit(self) -> AuditWriter:
         """Return the writer bound to this Unit of Work transaction."""
+        ...
+
+    @property
+    def work(self) -> DurableWorkWriter:
+        """Return the durable-work writer bound to this transaction."""
         ...
 
     @property

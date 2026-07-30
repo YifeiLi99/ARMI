@@ -15,7 +15,8 @@ import unittest
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, LiteralString, cast
 from uuid import UUID
@@ -32,9 +33,15 @@ from armi_kernel.application import (
     LockTarget,
     LockTargetKind,
     PostCommitAction,
+    WorkDraft,
+    WorkId,
+    WorkOwner,
+    WorkPayloadRef,
+    WorkResultRef,
+    WorkViolation,
     classify_cas_rows,
 )
-from armi_kernel.contracts import TraceId
+from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -42,6 +49,14 @@ from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )
 from armi_runtime.adapters.persistence.audit_events import AuditEventRepository
+from armi_runtime.adapters.persistence.durable_work import (
+    PostgreSQLDurableWorkGateway,
+)
+from armi_runtime.adapters.persistence.outbox import (
+    OutboxDispatcher,
+    OutboxEnvelope,
+    PostgreSQLOutboxGateway,
+)
 from armi_runtime.adapters.persistence.role_policy import (
     RoleBoundConnectionPool,
     physical_role_name,
@@ -243,7 +258,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {4})
+        self.assertEqual({result.applied_version for result in results}, {5})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -310,7 +325,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 4)
+        self.assertEqual(result.applied_version, 5)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -372,7 +387,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 4)
+        self.assertEqual(result.applied_version, 5)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -432,7 +447,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(5,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(6,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -491,7 +506,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (4,),
+                    (5,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1361,6 +1376,335 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertNotEqual(exit_code, 0)
             self.assertIn("DB-ROLE-IDENTITY", error_output.getvalue())
             self.assertNotIn(fixture.database, error_output.getvalue())
+
+    def test_durable_work_attempt_expiry_idempotency_and_outbox(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+
+        async def reject_unexpected_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("durable work must not invent business lock targets")
+
+        async def exercise() -> dict[str, object]:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_unexpected_lock,
+                pool_min=1,
+                pool_max=3,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+            )
+            gateway = PostgreSQLDurableWorkGateway(factory)
+            outbox_gateway = PostgreSQLOutboxGateway(factory)
+            now = datetime.now(UTC)
+            draft = WorkDraft(
+                work_id=WorkId(_uuid7()),
+                work_kind="work.conformance",
+                owner=WorkOwner("environment", fixture.environment_id),
+                idempotency_key=IdempotencyKey("s014-stable-work"),
+                payload=WorkPayloadRef("artifact", _uuid7()),
+                payload_digest=Digest.from_bytes(b"s014-work"),
+                priority=100,
+                not_before=Instant(now - timedelta(seconds=1)),
+                deadline_at=Instant(now + timedelta(seconds=30)),
+                max_attempts=3,
+                trace_id=TraceId("1" + ("4" * 31)),
+            )
+            await factory.open()
+            try:
+                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                    first = await unit_of_work.work.enqueue(draft)
+                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                    duplicate = await unit_of_work.work.enqueue(
+                        replace(draft, work_id=WorkId(_uuid7()))
+                    )
+                self.assertEqual(first, duplicate)
+                with self.assertRaises(WorkViolation) as conflict:
+                    async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                        await unit_of_work.work.enqueue(
+                            replace(
+                                draft,
+                                work_id=WorkId(_uuid7()),
+                                payload_digest=Digest.from_bytes(b"conflict"),
+                            )
+                        )
+                self.assertEqual(
+                    conflict.exception.code,
+                    "WORK-IDEMPOTENCY-CONFLICT",
+                )
+
+                owner_a = _uuid7()
+                claims = await asyncio.gather(
+                    gateway.claim(
+                        lease_owner=owner_a,
+                        lease_seconds=1,
+                        limit=1,
+                    ),
+                    gateway.claim(
+                        lease_owner=_uuid7(),
+                        lease_seconds=2,
+                        limit=1,
+                    ),
+                )
+                claimed = [record for batch in claims for record in batch]
+                self.assertEqual(len(claimed), 1)
+                first_lease = claimed[0].lease
+                assert first_lease is not None
+                await asyncio.sleep(1.1)
+                reclaimed_after_expiry = (
+                    await gateway.claim(
+                        lease_owner=_uuid7(),
+                        lease_seconds=2,
+                        limit=1,
+                    )
+                )[0]
+                expiry_lease = reclaimed_after_expiry.lease
+                assert expiry_lease is not None
+                self.assertEqual(reclaimed_after_expiry.attempt_count, 2)
+                self.assertGreater(expiry_lease.token, first_lease.token)
+                with self.assertRaises(WorkViolation) as stale:
+                    await gateway.renew(first_lease, lease_seconds=2)
+                self.assertEqual(stale.exception.code, "WORK-LEASE-STALE")
+                released = await gateway.release(
+                    expiry_lease,
+                    not_before=Instant(datetime.now(UTC)),
+                    error_code="WORK-RETRY",
+                )
+                self.assertEqual(released.status.value, "ready")
+
+                reclaimed = (
+                    await gateway.claim(
+                        lease_owner=_uuid7(),
+                        lease_seconds=2,
+                        limit=1,
+                    )
+                )[0]
+                second_lease = reclaimed.lease
+                assert second_lease is not None
+                self.assertEqual(reclaimed.attempt_count, 3)
+                self.assertGreater(second_lease.token, expiry_lease.token)
+                self.assertNotEqual(second_lease.attempt_id, expiry_lease.attempt_id)
+                with self.assertRaises(WorkViolation) as stale_completion:
+                    await gateway.complete(
+                        expiry_lease,
+                        WorkResultRef("artifact", _uuid7()),
+                    )
+                self.assertEqual(
+                    stale_completion.exception.code,
+                    "WORK-LEASE-STALE",
+                )
+                completed = await gateway.complete(
+                    second_lease,
+                    WorkResultRef("artifact", _uuid7()),
+                )
+                self.assertEqual(completed.status.value, "completed")
+
+                deliveries: list[UUID] = []
+
+                async def conformance_handler(envelope: OutboxEnvelope) -> None:
+                    deliveries.append(envelope.work_id.value)
+
+                dispatcher = OutboxDispatcher(
+                    outbox_gateway,
+                    {"work.available": conformance_handler},
+                )
+                dispatched = await dispatcher.dispatch_once(
+                    claim_owner=_uuid7(),
+                    lease_seconds=2,
+                    limit=10,
+                )
+                self.assertEqual(dispatched, 1)
+                self.assertEqual(deliveries, [draft.work_id.value])
+
+                unavailable = WorkDraft(
+                    work_id=WorkId(_uuid7()),
+                    work_kind="work.unavailable",
+                    owner=WorkOwner("environment", fixture.environment_id),
+                    idempotency_key=IdempotencyKey("s014-unavailable-work"),
+                    payload_digest=Digest.from_bytes(b"unavailable"),
+                    priority=0,
+                    not_before=Instant(datetime.now(UTC) - timedelta(seconds=1)),
+                    deadline_at=Instant(datetime.now(UTC) + timedelta(seconds=30)),
+                    max_attempts=1,
+                    trace_id=TraceId("2" + ("4" * 31)),
+                )
+                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                    await unit_of_work.work.enqueue(unavailable)
+                unavailable_dispatcher = OutboxDispatcher(outbox_gateway, {})
+                self.assertEqual(
+                    await unavailable_dispatcher.dispatch_once(
+                        claim_owner=_uuid7(),
+                        lease_seconds=2,
+                        limit=10,
+                    ),
+                    1,
+                )
+                cancelled_unavailable = await gateway.cancel_ready(unavailable.work_id)
+                self.assertEqual(cancelled_unavailable.status.value, "cancelled")
+
+                exhausted = replace(
+                    draft,
+                    work_id=WorkId(_uuid7()),
+                    idempotency_key=IdempotencyKey("s014-exhausted-work"),
+                    payload=None,
+                    payload_digest=Digest.from_bytes(b"exhausted"),
+                    not_before=Instant(datetime.now(UTC) - timedelta(seconds=1)),
+                    deadline_at=Instant(datetime.now(UTC) + timedelta(seconds=30)),
+                    max_attempts=1,
+                )
+                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                    await unit_of_work.work.enqueue(exhausted)
+                exhausted_claim = (
+                    await gateway.claim(
+                        lease_owner=_uuid7(),
+                        lease_seconds=1,
+                        limit=1,
+                    )
+                )[0]
+                self.assertEqual(exhausted_claim.attempt_count, 1)
+                await asyncio.sleep(1.1)
+                self.assertEqual(
+                    await gateway.claim(
+                        lease_owner=_uuid7(),
+                        lease_seconds=1,
+                        limit=1,
+                    ),
+                    (),
+                )
+
+                deadline = replace(
+                    draft,
+                    work_id=WorkId(_uuid7()),
+                    idempotency_key=IdempotencyKey("s014-deadline-work"),
+                    payload=None,
+                    payload_digest=Digest.from_bytes(b"deadline"),
+                    not_before=Instant(datetime.now(UTC) - timedelta(seconds=2)),
+                    deadline_at=Instant(datetime.now(UTC) - timedelta(seconds=1)),
+                    max_attempts=1,
+                )
+                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                    await unit_of_work.work.enqueue(deadline)
+                self.assertEqual(
+                    await gateway.claim(
+                        lease_owner=_uuid7(),
+                        lease_seconds=1,
+                        limit=1,
+                    ),
+                    (),
+                )
+
+                with psycopg.connect(fixture.provisioner_dsn) as connection:
+                    counts = connection.execute(
+                        """
+                        SELECT
+                            (SELECT count(*) FROM armi.durable_work),
+                            (SELECT count(*) FROM armi.outbox_items),
+                            (
+                                SELECT count(*)
+                                FROM armi.audit_events
+                                WHERE target_ref = %s
+                            )
+                        """,
+                        (draft.work_id.value,),
+                    ).fetchone()
+                    unavailable_outbox = connection.execute(
+                        """
+                        SELECT status, last_error_code
+                        FROM armi.outbox_items
+                        WHERE work_id = %s
+                        """,
+                        (unavailable.work_id.value,),
+                    ).fetchone()
+                    failures = connection.execute(
+                        """
+                        SELECT work_id, status, last_error_code
+                        FROM armi.durable_work
+                        WHERE work_id = ANY(%s)
+                        ORDER BY last_error_code
+                        """,
+                        (
+                            [
+                                exhausted.work_id.value,
+                                deadline.work_id.value,
+                            ],
+                        ),
+                    ).fetchall()
+                assert counts is not None
+                return {
+                    "work_count": counts[0],
+                    "outbox_count": counts[1],
+                    "work_audit_count": counts[2],
+                    "attempt_count": reclaimed.attempt_count,
+                    "lease_token": second_lease.token,
+                    "deliveries": len(deliveries),
+                    "unavailable_outbox": unavailable_outbox,
+                    "failures": tuple((str(row[1]), str(row[2])) for row in failures),
+                }
+            finally:
+                await factory.close()
+
+        result = asyncio.run(
+            exercise(),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
+        self.assertEqual(
+            result,
+            {
+                "work_count": 4,
+                "outbox_count": 4,
+                "work_audit_count": 6,
+                "attempt_count": 3,
+                "lease_token": 3,
+                "deliveries": 1,
+                "unavailable_outbox": (
+                    "dead",
+                    "OUTBOX-HANDLER-UNAVAILABLE",
+                ),
+                "failures": (
+                    ("failed", "WORK-ATTEMPTS-EXHAUSTED"),
+                    ("failed", "WORK-DEADLINE"),
+                ),
+            },
+        )
+        work_summary_file = os.environ.get("S014_WORK_SUMMARY_FILE")
+        if work_summary_file is not None:
+            Path(work_summary_file).write_text(
+                json.dumps(
+                    result,
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            for table in ("durable_work", "outbox_items"):
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    connection.execute(
+                        sql.SQL("DELETE FROM armi.{}").format(sql.Identifier(table))
+                    )
+                connection.rollback()
+
+        for dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
+            with psycopg.connect(dsn) as connection:
+                for table in ("durable_work", "outbox_items"):
+                    with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                        connection.execute(
+                            sql.SQL("SELECT * FROM armi.{}").format(
+                                sql.Identifier(table)
+                            )
+                        )
+                    connection.rollback()
 
 
 if __name__ == "__main__":

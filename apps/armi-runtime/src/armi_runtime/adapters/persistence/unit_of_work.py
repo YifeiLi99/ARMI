@@ -14,6 +14,7 @@ import psycopg
 from armi_kernel.application import (
     AuditWriter,
     BeforeCommitHook,
+    DurableWorkWriter,
     LockPlan,
     LockTarget,
     PostCommitAction,
@@ -32,6 +33,7 @@ from armi_runtime.adapters.transaction_errors import (
 )
 
 from .audit_events import PostgreSQLAuditWriter
+from .durable_work import PostgreSQLDurableWorkWriter
 
 _SEARCH_PATH = "pg_catalog, armi"
 _ACTIVE_UOW: ContextVar[PostgreSQLUnitOfWork | None] = ContextVar(
@@ -187,6 +189,7 @@ class PostgreSQLUnitOfWorkFactory:
     ) -> PostgreSQLUnitOfWork:
         return PostgreSQLUnitOfWork(
             self._pool,
+            environment_id=self._environment_id,
             expected_role=self._expected_role,
             lock_plan=lock_plan,
             lock_acquirer=self._lock_acquirer,
@@ -208,6 +211,7 @@ class PostgreSQLUnitOfWork:
         "_committed_actions",
         "_connection",
         "_deferred_actions",
+        "_environment_id",
         "_expected_role",
         "_isolation",
         "_lock_acquirer",
@@ -218,12 +222,14 @@ class PostgreSQLUnitOfWork:
         "_state",
         "_statement_timeout_milliseconds",
         "_transaction",
+        "_work",
     )
 
     def __init__(
         self,
         pool: AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]],
         *,
+        environment_id: UUID,
         expected_role: str,
         lock_plan: LockPlan,
         lock_acquirer: LockAcquirer,
@@ -239,6 +245,7 @@ class PostgreSQLUnitOfWork:
         if type(read_only) is not bool:
             raise TypeError("read_only must be bool")
         self._pool = pool
+        self._environment_id = environment_id
         self._expected_role = expected_role
         self._lock_plan = lock_plan
         self._lock_acquirer = lock_acquirer
@@ -248,6 +255,7 @@ class PostgreSQLUnitOfWork:
         self._acquire_timeout_seconds = acquire_timeout_seconds
         self._state = _State.NEW
         self._audit: PostgreSQLAuditWriter | None = None
+        self._work: PostgreSQLDurableWorkWriter | None = None
         self._connection: psycopg.AsyncConnection[tuple[Any, ...]] | None = None
         self._transaction: Any = None
         self._active_token: Token[PostgreSQLUnitOfWork | None] | None = None
@@ -261,6 +269,16 @@ class PostgreSQLUnitOfWork:
         self._require_active()
         assert self._audit is not None
         return self._audit
+
+    @property
+    def work(self) -> DurableWorkWriter:
+        self._require_active()
+        assert self._work is not None
+        return self._work
+
+    @property
+    def environment_id(self) -> UUID:
+        return self._environment_id
 
     @property
     def lock_plan(self) -> LockPlan:
@@ -300,6 +318,11 @@ class PostgreSQLUnitOfWork:
             await self._transaction.__aenter__()
             await self._set_transaction_characteristics()
             self._audit = PostgreSQLAuditWriter(self._connection)
+            self._work = PostgreSQLDurableWorkWriter(
+                self._connection,
+                self._audit,
+                self._environment_id,
+            )
             for target in self._lock_plan.targets:
                 await self._lock_acquirer(self._connection, target)
         except BaseException as error:
@@ -431,6 +454,7 @@ class PostgreSQLUnitOfWork:
             connection = self._connection
             self._connection = None
             self._audit = None
+            self._work = None
             await self._pool.putconn(connection)
 
     def _connection_for_repository(

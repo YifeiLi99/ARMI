@@ -45,6 +45,20 @@
         "armi_runtime.adapters.persistence.unit_of_work",
         "armi_runtime.composition.audit"
       ]
+    },
+    {
+      "id": "durable-work",
+      "module": "armi_runtime.adapters.persistence.durable_work",
+      "owner": "durable-work",
+      "allowed_callers": [
+        "armi_runtime.adapters.persistence.unit_of_work"
+      ]
+    },
+    {
+      "id": "internal-outbox",
+      "module": "armi_runtime.adapters.persistence.outbox",
+      "owner": "durable-work",
+      "allowed_callers": []
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -53,13 +67,25 @@
       "id": "runtime-unit-of-work",
       "module": "armi_runtime.adapters.persistence.unit_of_work",
       "owner": "transaction-coordination",
-      "allowed_write_surfaces": ["normal-audit"]
+      "allowed_write_surfaces": ["normal-audit", "durable-work"]
     },
     {
       "id": "artifact-registration",
       "module": "armi_runtime.composition.artifacts",
       "owner": "artifact-catalog",
       "allowed_write_surfaces": ["artifact-catalog", "normal-audit"]
+    },
+    {
+      "id": "durable-work-custody",
+      "module": "armi_runtime.adapters.persistence.durable_work",
+      "owner": "durable-work",
+      "allowed_write_surfaces": ["durable-work", "normal-audit"]
+    },
+    {
+      "id": "internal-outbox-dispatch",
+      "module": "armi_runtime.adapters.persistence.outbox",
+      "owner": "durable-work",
+      "allowed_write_surfaces": ["internal-outbox", "normal-audit"]
     }
   ],
   "named_coordinators_not_applicable_reason": "",

@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 4})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 5})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3, 4],
+            [1, 2, 3, 4, 5],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -71,7 +71,13 @@ class SchemaArtifactTests(unittest.TestCase):
         )
         self.assertEqual(
             [item["name"] for item in manifest["allowed_objects"]],
-            ["armi.schema_migrations", "armi.artifacts", "armi.audit_events"],
+            [
+                "armi.schema_migrations",
+                "armi.artifacts",
+                "armi.audit_events",
+                "armi.durable_work",
+                "armi.outbox_items",
+            ],
         )
         self.assertNotIn("manifest_sha256", manifest)
 
@@ -157,6 +163,28 @@ class SchemaArtifactTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn("upgrade_operator_schema", source)
         self.assertNotIn(".upgrade(", source)
+
+    def test_durable_work_migration_is_the_only_s014_surface(self) -> None:
+        sql = Path("schema/migrations/0005_durable_work_and_outbox.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(sql.count("CREATE TABLE"), 2)
+        self.assertIn("CREATE TABLE armi.durable_work", sql)
+        self.assertIn("CREATE TABLE armi.outbox_items", sql)
+        self.assertIn(
+            "FOR UPDATE",
+            Path(
+                "apps/armi-runtime/src/armi_runtime/adapters/persistence/durable_work.py"
+            ).read_text(encoding="utf-8"),
+        )
+        self.assertNotRegex(
+            sql,
+            re.compile(
+                r"(?i)\b(?:effect_id|subject[s]?\\b|"
+                r"CREATE\\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
+                r"ALTER\\s+DEFAULT\\s+PRIVILEGES|SECURITY\\s+DEFINER)\b"
+            ),
+        )
 
 
 if __name__ == "__main__":

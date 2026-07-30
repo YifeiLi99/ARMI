@@ -389,6 +389,18 @@ class PostgreSQLRolePolicyGateway:
                     has_table_privilege(
                         'armi_runtime', 'armi.audit_events', 'DELETE'
                     ),
+                    has_table_privilege(
+                        'armi_runtime', 'armi.durable_work', 'SELECT'
+                    ),
+                    has_table_privilege(
+                        'armi_runtime', 'armi.durable_work', 'DELETE'
+                    ),
+                    has_table_privilege(
+                        'armi_runtime', 'armi.outbox_items', 'SELECT'
+                    ),
+                    has_table_privilege(
+                        'armi_runtime', 'armi.outbox_items', 'DELETE'
+                    ),
                     has_schema_privilege('armi_admin', 'armi', 'USAGE'),
                     has_schema_privilege('armi_admin', 'armi', 'CREATE'),
                     has_table_privilege(
@@ -400,6 +412,12 @@ class PostgreSQLRolePolicyGateway:
                     has_table_privilege(
                         'armi_admin', 'armi.audit_events', 'SELECT'
                     ),
+                    has_table_privilege(
+                        'armi_admin', 'armi.durable_work', 'SELECT'
+                    ),
+                    has_table_privilege(
+                        'armi_admin', 'armi.outbox_items', 'SELECT'
+                    ),
                     has_schema_privilege('armi_migrator', 'armi', 'USAGE'),
                     has_schema_privilege('armi_migrator', 'armi', 'CREATE'),
                     has_table_privilege(
@@ -410,6 +428,12 @@ class PostgreSQLRolePolicyGateway:
                     ),
                     has_table_privilege(
                         'armi_migrator', 'armi.audit_events', 'SELECT'
+                    ),
+                    has_table_privilege(
+                        'armi_migrator', 'armi.durable_work', 'SELECT'
+                    ),
+                    has_table_privilege(
+                        'armi_migrator', 'armi.outbox_items', 'SELECT'
                     )
                 """
             ).fetchone()
@@ -429,7 +453,12 @@ class PostgreSQLRolePolicyGateway:
                 LEFT JOIN pg_catalog.pg_roles AS grantee_role
                   ON grantee_role.oid = acl.grantee
                 WHERE namespace.nspname = 'armi'
-                  AND relation.relname IN ('artifacts', 'audit_events')
+                  AND relation.relname IN (
+                      'artifacts',
+                      'audit_events',
+                      'durable_work',
+                      'outbox_items'
+                  )
                   AND attribute.attnum > 0
                   AND NOT attribute.attisdropped
                 ORDER BY relation.relname, attribute.attname, acl.privilege_type,
@@ -453,7 +482,13 @@ class PostgreSQLRolePolicyGateway:
         if owners != (
             True,
             True,
-            ["artifacts", "audit_events", "schema_migrations"],
+            [
+                "artifacts",
+                "audit_events",
+                "durable_work",
+                "outbox_items",
+                "schema_migrations",
+            ],
         ):
             raise DatabaseViolation(
                 "DB-ROLE-OWNER", "database object ownership has drifted"
@@ -476,10 +511,18 @@ class PostgreSQLRolePolicyGateway:
             False,
             True,
             False,
+            True,
+            False,
+            True,
+            False,
+            False,
+            False,
             False,
             True,
             False,
             True,
+            False,
+            False,
             False,
             False,
         ):
@@ -532,6 +575,83 @@ class PostgreSQLRolePolicyGateway:
                     "target_kind",
                     "target_ref",
                     "trace_id",
+                )
+            }
+        )
+        expected_column_grants.update(
+            {
+                ("durable_work", column, "INSERT", "armi_runtime")
+                for column in (
+                    "attempt_count",
+                    "deadline_at",
+                    "idempotency_key",
+                    "lease_token",
+                    "max_attempts",
+                    "not_before",
+                    "owner_kind",
+                    "owner_ref",
+                    "payload_digest",
+                    "payload_kind",
+                    "payload_ref",
+                    "priority",
+                    "schema_version",
+                    "status",
+                    "subject_id",
+                    "trace_id",
+                    "work_id",
+                    "work_kind",
+                )
+            }
+        )
+        expected_column_grants.update(
+            {
+                ("durable_work", column, "UPDATE", "armi_runtime")
+                for column in (
+                    "attempt_count",
+                    "current_attempt_id",
+                    "last_error_code",
+                    "lease_expires_at",
+                    "lease_owner",
+                    "lease_token",
+                    "not_before",
+                    "result_kind",
+                    "result_ref",
+                    "status",
+                    "updated_at",
+                )
+            }
+        )
+        expected_column_grants.update(
+            {
+                ("outbox_items", column, "INSERT", "armi_runtime")
+                for column in (
+                    "attempt_count",
+                    "available_at",
+                    "claim_token",
+                    "max_attempts",
+                    "message_kind",
+                    "outbox_item_id",
+                    "payload_digest",
+                    "schema_version",
+                    "status",
+                    "trace_id",
+                    "work_id",
+                )
+            }
+        )
+        expected_column_grants.update(
+            {
+                ("outbox_items", column, "UPDATE", "armi_runtime")
+                for column in (
+                    "attempt_count",
+                    "available_at",
+                    "claim_expires_at",
+                    "claim_token",
+                    "claimed_by",
+                    "delivered_at",
+                    "last_error_code",
+                    "status",
+                    "updated_at",
                 )
             }
         )
