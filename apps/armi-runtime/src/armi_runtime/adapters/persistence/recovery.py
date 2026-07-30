@@ -1,0 +1,696 @@
+"""Fenced PostgreSQL startup recovery for currently manifested responsibilities."""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, cast
+from uuid import UUID, uuid7
+
+import psycopg
+import rfc8785
+from armi_kernel.application import (
+    ArtifactId,
+    ArtifactIntegrityStatus,
+    ArtifactPrivacyScope,
+    ArtifactRef,
+    ArtifactViolation,
+    AuditDraft,
+    AuditEventId,
+    AuditReference,
+    AuditResultStatus,
+    AuditSensitivity,
+    RecoveryDecision,
+    RecoveryFinding,
+    RecoveryRunId,
+    RecoveryStatus,
+    RecoverySummary,
+    RecoveryViolation,
+    RuntimeAuthorityViolation,
+    RuntimeFence,
+)
+from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from psycopg.pq import TransactionStatus
+from psycopg_pool import AsyncConnectionPool, PoolTimeout
+
+from armi_runtime.adapters.artifacts.content_store import (
+    ContentAddressedArtifactStore,
+)
+from armi_runtime.adapters.persistence.role_policy import physical_role_name
+
+from .audit_events import PostgreSQLAuditWriter
+from .recovery_responsibilities import repair_outbox, repair_work
+
+_SEARCH_PATH = "pg_catalog, armi"
+
+
+@dataclass(frozen=True, slots=True)
+class _Scan:
+    recovery_run_id: UUID
+    findings: tuple[RecoveryFinding, ...]
+    critical_artifacts: tuple[ArtifactRef, ...]
+    requeued_work: int
+    terminal_work: int
+    requeued_outbox: int
+    dead_outbox: int
+
+
+async def _configure(
+    connection: psycopg.AsyncConnection[tuple[Any, ...]],
+) -> None:
+    await connection.set_autocommit(True)
+    await connection.execute("SET search_path TO pg_catalog, armi")
+
+
+async def _reset(
+    connection: psycopg.AsyncConnection[tuple[Any, ...]],
+) -> None:
+    if connection.info.transaction_status != TransactionStatus.IDLE:
+        await connection.rollback()
+    await connection.execute("RESET ROLE")
+    await connection.execute("RESET ALL")
+    await connection.execute("SET search_path TO pg_catalog, armi")
+
+
+class PostgreSQLRuntimeRecovery:
+    """Classify and repair startup responsibility under one current fence."""
+
+    __slots__ = (
+        "_admission",
+        "_environment_id",
+        "_expected_role",
+        "_pool",
+        "_pool_timeout_seconds",
+        "_storage",
+    )
+
+    def __init__(
+        self,
+        conninfo: str,
+        *,
+        environment_id: UUID,
+        data_root: Path,
+        max_object_bytes: int,
+        pool_timeout_seconds: int,
+        authority_admission: Callable[[], RuntimeFence],
+    ) -> None:
+        if environment_id.version != 7 or not data_root.is_absolute():
+            raise ValueError("recovery environment declaration is invalid")
+        if (
+            type(pool_timeout_seconds) is not int
+            or pool_timeout_seconds <= 0
+            or not callable(authority_admission)
+        ):
+            raise ValueError("recovery pool declaration is invalid")
+        self._environment_id = environment_id
+        self._expected_role = physical_role_name(environment_id, "runtime")
+        self._pool_timeout_seconds = pool_timeout_seconds
+        self._admission = authority_admission
+        self._storage = ContentAddressedArtifactStore(
+            data_root / "artifacts",
+            max_object_bytes=max_object_bytes,
+        )
+
+        async def check(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        ) -> None:
+            row = await (
+                await connection.execute(
+                    "SELECT session_user, current_user, current_setting('search_path')"
+                )
+            ).fetchone()
+            if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
+                raise RecoveryViolation("REC-ROLE-IDENTITY")
+
+        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
+            conninfo,
+            min_size=1,
+            max_size=1,
+            open=False,
+            configure=_configure,
+            check=check,
+            reset=_reset,
+            timeout=float(pool_timeout_seconds),
+            name="armi-runtime-recovery",
+        )
+
+    async def open(self) -> None:
+        try:
+            await self._pool.open(wait=True)
+            await self._storage.prepare()
+        except psycopg.Error, PoolTimeout, ArtifactViolation:
+            raise RecoveryViolation("REC-DEPENDENCY") from None
+
+    async def close(self) -> None:
+        await self._pool.close()
+
+    async def recover(self) -> RecoverySummary:
+        fence = self._require_fence()
+        try:
+            scan = await self._start_and_repair(fence)
+            artifact_findings = await self._verify_artifacts(scan.critical_artifacts)
+            return await self._finalize(
+                fence,
+                scan,
+                (*scan.findings, *artifact_findings),
+            )
+        except RecoveryViolation:
+            raise
+        except psycopg.Error, PoolTimeout:
+            raise RecoveryViolation("REC-DATABASE") from None
+
+    async def _start_and_repair(self, fence: RuntimeFence) -> _Scan:
+        async with (
+            self._pool.connection(
+                timeout=float(self._pool_timeout_seconds)
+            ) as connection,
+            connection.transaction(),
+        ):
+            await self._verify_fence(connection, fence)
+            writer = PostgreSQLAuditWriter(connection)
+            await self._abandon_old_runs(connection, writer, fence)
+            run_id, inserted = await self._running_row(connection, fence)
+            if inserted:
+                await writer.append(_audit(fence, "runtime.recovery.started", run_id))
+            findings: list[RecoveryFinding] = []
+            continuity, artifacts = await self._continuity(connection, fence)
+            findings.extend(continuity)
+            work = await repair_work(connection, writer, fence, _audit)
+            findings.extend(work[0])
+            outbox = await repair_outbox(connection, writer, fence, _audit)
+            findings.extend(outbox[0])
+            await self._verify_fence(connection, fence)
+            return _Scan(
+                recovery_run_id=run_id,
+                findings=tuple(sorted(findings, key=_finding_key)),
+                critical_artifacts=artifacts,
+                requeued_work=work[1],
+                terminal_work=work[2],
+                requeued_outbox=outbox[1],
+                dead_outbox=outbox[2],
+            )
+
+    async def _abandon_old_runs(
+        self,
+        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        writer: PostgreSQLAuditWriter,
+        fence: RuntimeFence,
+    ) -> None:
+        rows = await (
+            await connection.execute(
+                """
+                SELECT run.recovery_run_id
+                FROM armi.runtime_recovery_runs AS run
+                JOIN armi.runtime_instances AS instance
+                  ON instance.runtime_instance_id = run.runtime_instance_id
+                WHERE run.status = 'running'
+                  AND run.runtime_instance_id <> %s
+                  AND instance.status IN ('fenced', 'stopped')
+                FOR UPDATE OF run
+                """,
+                (fence.runtime_instance_id.value,),
+            )
+        ).fetchall()
+        for row in rows:
+            digest = _summary_digest(
+                {
+                    "status": "abandoned",
+                    "reason": "superseded_runtime_instance",
+                }
+            )
+            await connection.execute(
+                """
+                UPDATE armi.runtime_recovery_runs
+                SET status = 'abandoned',
+                    completed_at = statement_timestamp(),
+                    blocker_count = 1,
+                    summary_digest = %s
+                WHERE recovery_run_id = %s
+                  AND status = 'running'
+                """,
+                (digest.value, row[0]),
+            )
+            await writer.append(_audit(fence, "runtime.recovery.abandoned", row[0]))
+
+    async def _running_row(
+        self,
+        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        fence: RuntimeFence,
+    ) -> tuple[UUID, bool]:
+        existing = await (
+            await connection.execute(
+                """
+                SELECT recovery_run_id, status
+                FROM armi.runtime_recovery_runs
+                WHERE runtime_instance_id = %s
+                FOR UPDATE
+                """,
+                (fence.runtime_instance_id.value,),
+            )
+        ).fetchone()
+        if existing is not None:
+            if str(existing[1]) != "running":
+                raise RecoveryViolation("REC-ALREADY-COMPLETED")
+            return existing[0], False
+        run_id = uuid7()
+        await connection.execute(
+            """
+            INSERT INTO armi.runtime_recovery_runs (
+                recovery_run_id,
+                runtime_instance_id,
+                subject_id,
+                life_generation_id,
+                bundle_activation_id,
+                fence_token,
+                status,
+                schema_version
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, 'running', 1)
+            """,
+            (
+                run_id,
+                fence.runtime_instance_id.value,
+                fence.subject_id,
+                fence.life_generation_id,
+                fence.bundle_activation_id,
+                fence.fence_token,
+            ),
+        )
+        return run_id, True
+
+    async def _continuity(
+        self,
+        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        fence: RuntimeFence,
+    ) -> tuple[tuple[RecoveryFinding, ...], tuple[ArtifactRef, ...]]:
+        findings: list[RecoveryFinding] = []
+        row = await (
+            await connection.execute(
+                """
+                SELECT
+                    subject.subject_id,
+                    subject.current_generation_id,
+                    subject.current_bundle_activation_id,
+                    activation.manifest_artifact_id,
+                    prompt_revision.content_artifact_id,
+                    (
+                        SELECT count(*)
+                        FROM armi.subject_component_heads AS head
+                        WHERE head.subject_id = subject.subject_id
+                          AND head.component_kind IN ('self', 'mind', 'life_mode')
+                    )
+                FROM armi.subjects AS subject
+                JOIN armi.runtime_bundle_activations AS activation
+                  ON activation.bundle_activation_id
+                    = subject.current_bundle_activation_id
+                 AND activation.status = 'current'
+                JOIN armi.prompt_documents AS prompt
+                  ON prompt.subject_id = subject.subject_id
+                 AND prompt.prompt_kind = 'personality_anchor'
+                 AND prompt.write_authority = 'fixed'
+                JOIN armi.prompt_revisions AS prompt_revision
+                  ON prompt_revision.prompt_revision_id = prompt.current_revision_id
+                WHERE subject.singleton_key = 1
+                  AND subject.status = 'active'
+                """
+            )
+        ).fetchone()
+        if (
+            row is None
+            or row[0] != fence.subject_id
+            or row[1] != fence.life_generation_id
+            or row[2] != fence.bundle_activation_id
+            or int(row[5]) != 3
+        ):
+            findings.append(
+                RecoveryFinding(
+                    "subject_continuity",
+                    RecoveryDecision.BLOCKED,
+                    "REC-SUBJECT-INVALID",
+                )
+            )
+            return tuple(findings), ()
+        refs: list[ArtifactRef] = []
+        for artifact_id in (row[3], row[4]):
+            artifact_row = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        artifact_id,
+                        content_digest,
+                        byte_size,
+                        media_type,
+                        logical_kind,
+                        privacy_scope,
+                        integrity_status,
+                        schema_version
+                    FROM armi.artifacts
+                    WHERE artifact_id = %s
+                    """,
+                    (artifact_id,),
+                )
+            ).fetchone()
+            if artifact_row is None:
+                findings.append(
+                    RecoveryFinding(
+                        "critical_artifact",
+                        RecoveryDecision.BLOCKED,
+                        "REC-ARTIFACT-MISSING",
+                        artifact_id,
+                    )
+                )
+                continue
+            try:
+                refs.append(_artifact_ref(artifact_row))
+            except ArtifactViolation:
+                findings.append(
+                    RecoveryFinding(
+                        "critical_artifact",
+                        RecoveryDecision.BLOCKED,
+                        "REC-ARTIFACT-INVALID",
+                        artifact_id,
+                    )
+                )
+        return tuple(findings), tuple(refs)
+
+    async def _verify_artifacts(
+        self,
+        refs: tuple[ArtifactRef, ...],
+    ) -> tuple[RecoveryFinding, ...]:
+        findings: list[RecoveryFinding] = []
+        for ref in refs:
+            if ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED:
+                findings.append(
+                    RecoveryFinding(
+                        "critical_artifact",
+                        RecoveryDecision.BLOCKED,
+                        "REC-ARTIFACT-INVALID",
+                        ref.artifact_id.value,
+                    )
+                )
+                continue
+            try:
+                stream = await self._storage.open_verified(ref)
+                await stream.close()
+            except ArtifactViolation as error:
+                reason = (
+                    "REC-ARTIFACT-MISSING"
+                    if error.code == "ART-MISSING"
+                    else "REC-ARTIFACT-CORRUPT"
+                )
+                findings.append(
+                    RecoveryFinding(
+                        "critical_artifact",
+                        RecoveryDecision.BLOCKED,
+                        reason,
+                        ref.artifact_id.value,
+                    )
+                )
+            else:
+                findings.append(
+                    RecoveryFinding(
+                        "critical_artifact",
+                        RecoveryDecision.VERIFIED,
+                        "REC-ARTIFACT-VERIFIED",
+                        ref.artifact_id.value,
+                    )
+                )
+        return tuple(findings)
+
+    async def _finalize(
+        self,
+        fence: RuntimeFence,
+        scan: _Scan,
+        findings: tuple[RecoveryFinding, ...],
+    ) -> RecoverySummary:
+        sorted_findings = tuple(sorted(findings, key=_finding_key))
+        blockers = sum(
+            value.decision is RecoveryDecision.BLOCKED for value in sorted_findings
+        )
+        critical = sum(
+            value.kind == "critical_artifact"
+            and value.decision is RecoveryDecision.VERIFIED
+            for value in sorted_findings
+        )
+        async with (
+            self._pool.connection(
+                timeout=float(self._pool_timeout_seconds)
+            ) as connection,
+            connection.transaction(),
+        ):
+            await self._verify_fence(connection, fence)
+            await self._record_artifact_failures(connection, fence, sorted_findings)
+            counts = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        count(*) FILTER (
+                            WHERE status = 'ready'
+                              AND deadline_at > statement_timestamp()
+                              AND attempt_count < max_attempts
+                        ),
+                        (
+                            SELECT count(*)
+                            FROM armi.outbox_items
+                            WHERE status = 'ready'
+                              AND attempt_count < max_attempts
+                        )
+                    FROM armi.durable_work
+                    """
+                )
+            ).fetchone()
+            assert counts is not None
+            status = (
+                RecoveryStatus.SAFE
+                if blockers == 0 and critical == 2
+                else RecoveryStatus.BLOCKED
+            )
+            if critical != 2 and blockers == 0:
+                blockers = 1
+                sorted_findings = (
+                    *sorted_findings,
+                    RecoveryFinding(
+                        "critical_artifact",
+                        RecoveryDecision.BLOCKED,
+                        "REC-ARTIFACT-COUNT",
+                    ),
+                )
+            semantic = {
+                "status": status.value,
+                "requeued_work": scan.requeued_work,
+                "terminal_work": scan.terminal_work,
+                "requeued_outbox": scan.requeued_outbox,
+                "dead_outbox": scan.dead_outbox,
+                "resumable_work": int(counts[0]),
+                "resumable_outbox": int(counts[1]),
+                "critical_artifacts": critical,
+                "blockers": blockers,
+                "findings": [
+                    {
+                        "kind": value.kind,
+                        "decision": value.decision.value,
+                        "reason": value.reason_code,
+                        "reference": (
+                            None if value.reference is None else str(value.reference)
+                        ),
+                    }
+                    for value in sorted_findings
+                ],
+            }
+            digest = _summary_digest(semantic)
+            await connection.execute(
+                """
+                UPDATE armi.runtime_recovery_runs
+                SET status = %s,
+                    completed_at = statement_timestamp(),
+                    requeued_work_count = %s,
+                    terminal_work_count = %s,
+                    requeued_outbox_count = %s,
+                    dead_outbox_count = %s,
+                    resumable_work_count = %s,
+                    resumable_outbox_count = %s,
+                    critical_artifact_count = %s,
+                    blocker_count = %s,
+                    summary_digest = %s
+                WHERE recovery_run_id = %s
+                  AND status = 'running'
+                """,
+                (
+                    status.value,
+                    scan.requeued_work,
+                    scan.terminal_work,
+                    scan.requeued_outbox,
+                    scan.dead_outbox,
+                    int(counts[0]),
+                    int(counts[1]),
+                    critical,
+                    blockers,
+                    digest.value,
+                    scan.recovery_run_id,
+                ),
+            )
+            await PostgreSQLAuditWriter(connection).append(
+                _audit(
+                    fence,
+                    f"runtime.recovery.{status.value}",
+                    scan.recovery_run_id,
+                )
+            )
+            await self._verify_fence(connection, fence)
+        return RecoverySummary(
+            recovery_run_id=RecoveryRunId(scan.recovery_run_id),
+            status=status,
+            requeued_work_count=scan.requeued_work,
+            terminal_work_count=scan.terminal_work,
+            requeued_outbox_count=scan.requeued_outbox,
+            dead_outbox_count=scan.dead_outbox,
+            resumable_work_count=int(counts[0]),
+            resumable_outbox_count=int(counts[1]),
+            critical_artifact_count=critical,
+            blocker_count=blockers,
+            summary_digest=digest,
+            findings=tuple(sorted_findings),
+        )
+
+    async def _record_artifact_failures(
+        self,
+        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        fence: RuntimeFence,
+        findings: tuple[RecoveryFinding, ...],
+    ) -> None:
+        writer = PostgreSQLAuditWriter(connection)
+        for finding in findings:
+            if (
+                finding.kind != "critical_artifact"
+                or finding.reference is None
+                or finding.reason_code
+                not in {"REC-ARTIFACT-MISSING", "REC-ARTIFACT-CORRUPT"}
+            ):
+                continue
+            status = (
+                "missing"
+                if finding.reason_code == "REC-ARTIFACT-MISSING"
+                else "corrupt"
+            )
+            row = await (
+                await connection.execute(
+                    """
+                    UPDATE armi.artifacts
+                    SET integrity_status = %s
+                    WHERE artifact_id = %s
+                      AND integrity_status = 'verified'
+                    RETURNING artifact_id
+                    """,
+                    (status, finding.reference),
+                )
+            ).fetchone()
+            if row is not None:
+                await writer.append(
+                    _audit(
+                        fence,
+                        f"artifact.integrity.{status}",
+                        finding.reference,
+                    )
+                )
+
+    async def _verify_fence(
+        self,
+        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        fence: RuntimeFence,
+    ) -> None:
+        row = await (
+            await connection.execute(
+                """
+                SELECT 1
+                FROM armi.runtime_instances AS instance
+                JOIN armi.subjects AS subject
+                  ON subject.subject_id = instance.subject_id
+                WHERE instance.runtime_instance_id = %s
+                  AND instance.fence_token = %s
+                  AND instance.status = 'active'
+                  AND instance.lease_expires_at > statement_timestamp()
+                  AND subject.singleton_key = 1
+                  AND subject.current_generation_id = instance.life_generation_id
+                  AND subject.current_bundle_activation_id
+                    = instance.bundle_activation_id
+                FOR UPDATE OF instance
+                """,
+                (fence.runtime_instance_id.value, fence.fence_token),
+            )
+        ).fetchone()
+        if row is None:
+            raise RecoveryViolation("REC-FENCE-STALE")
+
+    def _require_fence(self) -> RuntimeFence:
+        try:
+            fence = self._admission()
+        except RuntimeAuthorityViolation as error:
+            code = (
+                "REC-AUTHORITY-SUSPENDED"
+                if error.code == "AUTH-LOCAL-SUSPENDED"
+                else "REC-FENCE-STALE"
+            )
+            raise RecoveryViolation(code) from None
+        if type(fence) is not RuntimeFence:
+            raise RecoveryViolation("REC-FENCE-STALE")
+        return fence
+
+
+def _artifact_ref(row: tuple[Any, ...]) -> ArtifactRef:
+    return ArtifactRef(
+        artifact_id=ArtifactId(row[0]),
+        content_digest=Digest(str(row[1])),
+        byte_size=int(row[2]),
+        media_type=str(row[3]),
+        logical_kind=str(row[4]),
+        privacy_scope=ArtifactPrivacyScope(str(row[5])),
+        integrity_status=ArtifactIntegrityStatus(str(row[6])),
+        schema_version=int(row[7]),
+    )
+
+
+def _finding_key(value: RecoveryFinding) -> tuple[str, str, str, str]:
+    return (
+        value.kind,
+        value.decision.value,
+        value.reason_code,
+        "" if value.reference is None else str(value.reference),
+    )
+
+
+def _summary_digest(value: object) -> Digest:
+    return Digest(
+        "sha256:" + hashlib.sha256(rfc8785.dumps(cast(Any, value))).hexdigest()
+    )
+
+
+def _audit(
+    fence: RuntimeFence,
+    operation: str,
+    target_ref: UUID,
+) -> AuditDraft:
+    target_kind = (
+        "durable_work"
+        if operation.startswith("work.")
+        else "outbox"
+        if operation.startswith("outbox.")
+        else "artifact"
+        if operation.startswith("artifact.")
+        else "recovery"
+    )
+    return AuditDraft(
+        audit_event_id=AuditEventId(uuid7()),
+        actor=AuditReference("runtime", fence.runtime_instance_id.value),
+        purpose=Purpose("runtime.recovery"),
+        operation=operation,
+        target=AuditReference(target_kind, target_ref),
+        result_status=AuditResultStatus.APPLIED,
+        trace_id=TraceId(fence.runtime_instance_id.value.hex),
+        sensitivity=AuditSensitivity.INTERNAL,
+        subject_id=SubjectId(fence.subject_id),
+    )
+
+
+__all__ = ("PostgreSQLRuntimeRecovery",)

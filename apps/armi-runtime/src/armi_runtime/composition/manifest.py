@@ -29,10 +29,7 @@ _SEAMS: Final = (
         ("M0-S007", "M0-S022", "M0-S031", "M0-S043"),
     ),
 )
-_BLOCKERS: Final = (
-    ("CREATOR_SESSION_NOT_IMPLEMENTED", "M0-S018"),
-    ("RUNTIME_RECOVERY_NOT_IMPLEMENTED", "M0-S017"),
-)
+_BLOCKERS: Final = (("CREATOR_SESSION_NOT_IMPLEMENTED", "M0-S018"),)
 _CONFIG_FILES: Final = (
     "runtime.defaults.toml",
     "runtime.schema.json",
@@ -50,6 +47,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0005_durable_work_and_outbox.sql",
     "migrations/0006_unique_birth.sql",
     "migrations/0007_runtime_authority.sql",
+    "migrations/0008_runtime_recovery.sql",
 )
 
 

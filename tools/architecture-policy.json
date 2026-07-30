@@ -22,6 +22,7 @@
       "owner": "database-role-policy",
       "allowed_callers": [
         "armi_runtime.adapters.persistence.runtime_authority",
+        "armi_runtime.adapters.persistence.recovery",
         "armi_runtime.adapters.persistence.schema_gateway",
         "armi_runtime.adapters.persistence.unit_of_work"
       ]
@@ -78,6 +79,22 @@
       "allowed_callers": [
         "armi_runtime.composition.database"
       ]
+    },
+    {
+      "id": "runtime-recovery",
+      "module": "armi_runtime.adapters.persistence.recovery",
+      "owner": "runtime-recovery",
+      "allowed_callers": [
+        "armi_runtime.composition.database"
+      ]
+    },
+    {
+      "id": "runtime-recovery-responsibility-repair",
+      "module": "armi_runtime.adapters.persistence.recovery_responsibilities",
+      "owner": "runtime-recovery",
+      "allowed_callers": [
+        "armi_runtime.adapters.persistence.recovery"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -125,6 +142,20 @@
         "normal-audit",
         "database-role-policy-runtime"
       ]
+    },
+    {
+      "id": "runtime-startup-recovery",
+      "module": "armi_runtime.adapters.persistence.recovery",
+      "owner": "runtime-recovery",
+      "allowed_write_surfaces": [
+        "runtime-recovery",
+        "runtime-recovery-responsibility-repair",
+        "durable-work",
+        "internal-outbox",
+        "artifact-catalog",
+        "normal-audit",
+        "database-role-policy-runtime"
+      ]
     }
   ],
   "named_coordinators_not_applicable_reason": "",
@@ -148,6 +179,11 @@
       "id": "runtime-authority-control-transaction",
       "module": "armi_runtime.adapters.persistence.runtime_authority",
       "reason": "Authority acquire, heartbeat and release require explicit atomic control transactions."
+    },
+    {
+      "id": "runtime-recovery-control-transaction",
+      "module": "armi_runtime.adapters.persistence.recovery",
+      "reason": "Recovery repairs and their normal-audit facts require one current-fence transaction; artifact byte verification remains outside it."
     }
   ],
   "transaction_control_exemptions_not_applicable_reason": "",

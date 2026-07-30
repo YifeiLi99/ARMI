@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Final
 
-from armi_kernel.application import CredentialPort, CredentialPurpose
+from armi_kernel.application import (
+    CredentialPort,
+    CredentialPurpose,
+    RuntimeFence,
+)
 
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
+)
+from armi_runtime.adapters.persistence.recovery import (
+    PostgreSQLRuntimeRecovery,
 )
 from armi_runtime.adapters.persistence.runtime_authority import (
     PostgreSQLRuntimeAuthority,
@@ -221,12 +229,66 @@ def compose_runtime_authority(
         ) from None
 
 
+def compose_runtime_recovery(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+) -> PostgreSQLRuntimeRecovery:
+    """Resolve the Runtime credential for the fenced startup recovery gateway."""
+
+    if not callable(authority_admission):
+        raise TypeError("authority_admission must be callable")
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the required database credential locator is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLRuntimeRecovery:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-CONNECTION-UNAVAILABLE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
+                    ) from None
+                config = prepared.effective.config
+                return PostgreSQLRuntimeRecovery(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_timeout_seconds=(config.database.pool_acquire_timeout_seconds),
+                    authority_admission=authority_admission,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise DatabaseViolation(
+            "DB-ROLE-CREDENTIAL-SCOPE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
+
+
 __all__ = (
     "MIGRATOR_LOCATOR_NAME",
     "RUNTIME_LOCATOR_NAME",
     "ContinuityState",
     "DatabaseViolation",
     "compose_runtime_authority",
+    "compose_runtime_recovery",
     "inspect_operator_schema",
     "inspect_runtime_continuity",
     "inspect_runtime_schema",

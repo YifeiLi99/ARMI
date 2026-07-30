@@ -224,6 +224,27 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("stopped_at", "timestamp(6) with time zone", False),
         ("schema_version", "integer", True),
     ),
+    "runtime_recovery_runs": (
+        ("recovery_run_id", "uuid", True),
+        ("runtime_instance_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("life_generation_id", "uuid", True),
+        ("bundle_activation_id", "uuid", True),
+        ("fence_token", "bigint", True),
+        ("status", "text", True),
+        ("started_at", "timestamp(6) with time zone", True),
+        ("completed_at", "timestamp(6) with time zone", False),
+        ("requeued_work_count", "integer", True),
+        ("terminal_work_count", "integer", True),
+        ("requeued_outbox_count", "integer", True),
+        ("dead_outbox_count", "integer", True),
+        ("resumable_work_count", "integer", True),
+        ("resumable_outbox_count", "integer", True),
+        ("critical_artifact_count", "integer", True),
+        ("blocker_count", "integer", True),
+        ("summary_digest", "text", False),
+        ("schema_version", "smallint", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
@@ -253,6 +274,9 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     ),
     "runtime_instances": tuple(
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
+    ),
+    "runtime_recovery_runs": tuple(
+        sorted((*("c",) * 16, *("n",) * 17, *("f",) * 4, "p", "u"))
     ),
 }
 
@@ -620,6 +644,11 @@ class PostgreSQLSchemaGateway:
         if applied_version >= 7:
             expected_objects.append(("runtime_instances", "r"))
             expected_tables.append("runtime_instances")
+            expected_objects.sort()
+            expected_tables.sort()
+        if applied_version >= 8:
+            expected_objects.append(("runtime_recovery_runs", "r"))
+            expected_tables.append("runtime_recovery_runs")
             expected_objects.sort()
             expected_tables.sort()
         if objects != expected_objects:

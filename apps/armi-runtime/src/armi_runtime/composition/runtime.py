@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import selectors
 import signal
 import threading
 from collections.abc import Generator
@@ -12,6 +13,8 @@ from uuid import uuid7
 
 import uvicorn
 from armi_kernel.application import (
+    RecoveryStatus,
+    RecoveryViolation,
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
 )
@@ -27,6 +30,7 @@ from .database import (
     ContinuityState,
     DatabaseViolation,
     compose_runtime_authority,
+    compose_runtime_recovery,
     inspect_runtime_continuity,
     runtime_database_reason,
 )
@@ -34,6 +38,7 @@ from .diagnostics import StructuredDiagnosticLog
 from .environment import PreparedEnvironment
 from .lifecycle import RUNTIME_BLOCKING_REASONS, LifecycleController
 from .runtime_errors import RuntimeViolation
+from .supervisor import RuntimeSupervisor
 
 EXIT_GRACEFUL = 0
 EXIT_LISTENER_FAILURE = 3
@@ -75,6 +80,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         on_degraded=lifecycle.add_degradation,
     )
     assets = StaticAssetStore.load_packaged()
+    lifecycle.start()
+    diagnostic.emit("runtime.lifecycle.starting", result_code="LIFE_STARTING")
     database_reasons = runtime_database_reason(prepared)
     continuity = (
         inspect_runtime_continuity(prepared)
@@ -83,6 +90,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     )
     authority_port = None
     authority: RuntimeAuthorityController | None = None
+    recovery_port = None
+    recovery_reasons: tuple[str, ...] = ()
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -98,6 +107,31 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             )
             if acquired.fence.runtime_instance_id.value != instance_uuid:
                 raise RuntimeAuthorityViolation("AUTH-INSTANCE-MISMATCH")
+            await authority.heartbeat_once()
+            lifecycle.begin_recovery()
+            diagnostic.emit(
+                "runtime.lifecycle.recovering",
+                result_code="LIFE_RECOVERING",
+            )
+            recovery_port = compose_runtime_recovery(
+                prepared,
+                authority_admission=authority.require_writable,
+            )
+            await recovery_port.open()
+            recovery = await recovery_port.recover()
+            if recovery.status is RecoveryStatus.BLOCKED:
+                recovery_reasons = ("RUNTIME_RECOVERY_BLOCKED",)
+                diagnostic.emit(
+                    "runtime.recovery.blocked",
+                    level=logging.ERROR,
+                    result_code="REC_BLOCKED",
+                    reason_codes=recovery_reasons,
+                )
+            else:
+                diagnostic.emit(
+                    "runtime.recovery.safe",
+                    result_code="REC_SAFE",
+                )
         except DatabaseViolation, RuntimeAuthorityViolation:
             diagnostic.emit(
                 "runtime.authority.unavailable",
@@ -109,17 +143,28 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await authority_port.close()
             diagnostic.close()
             return EXIT_LISTENER_FAILURE
+        except RecoveryViolation:
+            recovery_reasons = ("RUNTIME_RECOVERY_BLOCKED",)
+            diagnostic.emit(
+                "runtime.recovery.failed",
+                level=logging.ERROR,
+                result_code="REC_FAILED",
+                reason_codes=recovery_reasons,
+            )
+        finally:
+            if recovery_port is not None:
+                await recovery_port.close()
+    elif continuity is ContinuityState.UNBORN:
+        lifecycle.mark_unborn()
 
-    heartbeat_task: asyncio.Task[None] | None = None
+    supervisor = RuntimeSupervisor(authority)
+    drain_timed_out = False
 
     async def started() -> None:
-        nonlocal heartbeat_task
-        lifecycle.start()
         if diagnostic.status.reason_code is not None:
             lifecycle.add_degradation(diagnostic.status.reason_code)
-        diagnostic.emit("runtime.lifecycle.starting", result_code="LIFE_STARTING")
         if continuity is ContinuityState.UNBORN:
-            snapshot = lifecycle.mark_unborn()
+            snapshot = lifecycle.snapshot()
         else:
             subject_reasons = (
                 ("RUNTIME_SUBJECT_STATE_INVALID",)
@@ -131,6 +176,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     *RUNTIME_BLOCKING_REASONS,
                     *database_reasons,
                     *subject_reasons,
+                    *recovery_reasons,
                 )
             )
         diagnostic.emit(
@@ -150,36 +196,30 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             reason_codes=snapshot.reason_codes,
         )
         if authority is not None:
-            heartbeat_task = asyncio.create_task(
+            supervisor.start(
                 heartbeat_loop(),
                 name="runtime-authority-heartbeat",
+                heartbeat=True,
             )
 
     async def stopping() -> None:
-        nonlocal heartbeat_task
+        nonlocal drain_timed_out
         lifecycle.drain()
         diagnostic.emit("runtime.lifecycle.draining", result_code="LIFE_DRAINING")
-        if heartbeat_task is not None:
-            heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
-            heartbeat_task = None
-        if authority is not None and authority.snapshot().state in {
-            LocalAuthorityState.ACTIVE,
-            LocalAuthorityState.SUSPENDED,
-        }:
-            try:
-                await authority.release()
-                diagnostic.emit(
-                    "runtime.authority.released",
-                    result_code="AUTH_RELEASED",
-                )
-            except RuntimeAuthorityViolation:
-                diagnostic.emit(
-                    "runtime.authority.release_failed",
-                    level=logging.WARNING,
-                    result_code="AUTH_RELEASE_FAILED",
-                )
+        released = await supervisor.drain(
+            deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
+        )
+        if authority is not None:
+            diagnostic.emit(
+                (
+                    "runtime.authority.released"
+                    if released
+                    else "runtime.authority.release_deferred"
+                ),
+                level=logging.INFO if released else logging.WARNING,
+                result_code=("AUTH_RELEASED" if released else "AUTH_RELEASE_DEFERRED"),
+            )
+        drain_timed_out = not released
         lifecycle.stop()
         diagnostic.emit("runtime.lifecycle.stopped", result_code="LIFE_STOPPED")
         diagnostic.close()
@@ -254,6 +294,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await authority_port.close()
     if server.force_exit:
         return EXIT_GRACEFUL_TIMEOUT
+    if drain_timed_out:
+        return EXIT_GRACEFUL_TIMEOUT
     if not server.started:
         return EXIT_LISTENER_FAILURE
     return EXIT_GRACEFUL
@@ -263,7 +305,10 @@ def run_runtime(prepared: PreparedEnvironment) -> int:
     """Run exactly one process-local Runtime; no reload or worker discovery."""
 
     try:
-        return asyncio.run(_serve(prepared))
+        return asyncio.run(
+            _serve(prepared),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
     except KeyboardInterrupt:
         return EXIT_GRACEFUL
     except RuntimeViolation:

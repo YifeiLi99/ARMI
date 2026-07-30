@@ -50,7 +50,6 @@ class CompositionManifestTests(unittest.TestCase):
             set(verified.readiness_blockers),
             {
                 "CREATOR_SESSION_NOT_IMPLEMENTED",
-                "RUNTIME_RECOVERY_NOT_IMPLEMENTED",
             },
         )
         runtime_source = Path(

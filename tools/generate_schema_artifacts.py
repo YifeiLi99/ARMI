@@ -174,6 +174,54 @@ def build_role_manifest() -> dict[str, object]:
             "armi_migrator": {},
         },
     }
+    recovery_object = {
+        "kind": "table",
+        "name": "armi.runtime_recovery_runs",
+        "owner": "armi_owner",
+        "public_privileges": [],
+        "grants": {
+            "armi_runtime": ["SELECT"],
+            "armi_admin": [],
+            "armi_migrator": [],
+        },
+        "column_grants": {
+            "armi_runtime": {
+                "INSERT": [
+                    "recovery_run_id",
+                    "runtime_instance_id",
+                    "subject_id",
+                    "life_generation_id",
+                    "bundle_activation_id",
+                    "fence_token",
+                    "status",
+                    "requeued_work_count",
+                    "terminal_work_count",
+                    "requeued_outbox_count",
+                    "dead_outbox_count",
+                    "resumable_work_count",
+                    "resumable_outbox_count",
+                    "critical_artifact_count",
+                    "blocker_count",
+                    "schema_version",
+                ],
+                "UPDATE": [
+                    "status",
+                    "completed_at",
+                    "requeued_work_count",
+                    "terminal_work_count",
+                    "requeued_outbox_count",
+                    "dead_outbox_count",
+                    "resumable_work_count",
+                    "resumable_outbox_count",
+                    "critical_artifact_count",
+                    "blocker_count",
+                    "summary_digest",
+                ],
+            },
+            "armi_admin": {},
+            "armi_migrator": {},
+        },
+    }
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -438,12 +486,13 @@ def build_role_manifest() -> dict[str, object]:
             },
             *birth_objects,
             authority_object,
+            recovery_object,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S016 has no business or administration function requiring "
+                "M0-S017 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -590,9 +639,18 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "logical_owner": "runtime-authority",
                 "activation_step": "M0-S016",
             },
+            {
+                "kind": "table",
+                "name": "armi.runtime_recovery_runs",
+                "logical_owner": "runtime-recovery",
+                "activation_step": "M0-S017",
+            },
         ],
         "deferred_objects": [
-            {"scope": "recovery_state", "activation_step": "M0-S017"},
+            {"scope": "episode_state", "activation_step": "M0-S020"},
+            {"scope": "cognition_attempt_state", "activation_step": "M0-S024"},
+            {"scope": "effect_state", "activation_step": "M0-S028"},
+            {"scope": "projection_state", "activation_step": "M0-S030"},
         ],
         "runtime_upgrade_allowed": False,
         "database_role_manifest": {

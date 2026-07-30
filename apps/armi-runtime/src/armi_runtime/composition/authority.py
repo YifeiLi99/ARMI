@@ -18,6 +18,7 @@ class LocalAuthorityState(StrEnum):
     INACTIVE = "inactive"
     ACTIVE = "active"
     SUSPENDED = "suspended"
+    DRAINING = "draining"
     LOST = "lost"
 
 
@@ -91,9 +92,12 @@ class RuntimeAuthorityController:
                 raise RuntimeAuthorityViolation("AUTH-HEARTBEAT-LOST") from None
             self._state = LocalAuthorityState.LOST
             raise
+        draining = self._state is LocalAuthorityState.DRAINING
         self._fence = record.fence
         self._connection_errors = 0
-        self._state = LocalAuthorityState.ACTIVE
+        self._state = (
+            LocalAuthorityState.DRAINING if draining else LocalAuthorityState.ACTIVE
+        )
         return self.snapshot()
 
     async def release(self) -> RuntimeAuthorityRecord:
@@ -109,6 +113,17 @@ class RuntimeAuthorityController:
         self._fence = None
         self._connection_errors = 0
         return record
+
+    def begin_drain(self) -> AuthorityControlSnapshot:
+        if self._state in {
+            LocalAuthorityState.ACTIVE,
+            LocalAuthorityState.SUSPENDED,
+        }:
+            self._state = LocalAuthorityState.DRAINING
+            return self.snapshot()
+        if self._state is LocalAuthorityState.DRAINING:
+            return self.snapshot()
+        raise RuntimeAuthorityViolation("AUTH-LOCAL-LOST")
 
     def require_writable(self) -> RuntimeFence:
         if self._state is LocalAuthorityState.SUSPENDED:

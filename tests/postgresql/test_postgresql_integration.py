@@ -7,10 +7,12 @@ import json
 import os
 import secrets
 import selectors
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
@@ -38,6 +40,7 @@ from armi_kernel.application import (
     LockTargetKind,
     PersonalityAnchor,
     PostCommitAction,
+    RecoveryStatus,
     RuntimeAuthorityRecord,
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
@@ -69,6 +72,9 @@ from armi_runtime.adapters.persistence.outbox import (
     OutboxDispatcher,
     OutboxEnvelope,
     PostgreSQLOutboxGateway,
+)
+from armi_runtime.adapters.persistence.recovery import (
+    PostgreSQLRuntimeRecovery,
 )
 from armi_runtime.adapters.persistence.role_policy import (
     RoleBoundConnectionPool,
@@ -276,7 +282,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {7})
+        self.assertEqual({result.applied_version for result in results}, {8})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -343,7 +349,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 7)
+        self.assertEqual(result.applied_version, 8)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -405,7 +411,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 7)
+        self.assertEqual(result.applied_version, 8)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -465,7 +471,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(8,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(9,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -524,7 +530,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (7,),
+                    (8,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1391,6 +1397,366 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertRaises(psycopg.errors.InsufficientPrivilege),
             ):
                 connection.execute("SELECT * FROM armi.runtime_instances")
+
+    def test_runtime_recovery_reaches_safe_without_starting_workers(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="约 16 岁少女口吻",
+            traits=("连续",),
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="s017-recovery-birth",
+            personality_anchor=anchor,
+            personality_anchor_digest=Digest.from_bytes(
+                rfc8785.dumps(
+                    {
+                        "schema_version": anchor.schema_version,
+                        "voice_style": anchor.voice_style,
+                        "traits": list(anchor.traits),
+                    }
+                )
+            ),
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            schema_manifest_digest=packaged["schema_manifest_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"s017-recovery-birth"),
+        )
+
+        async def reject_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("recovery conformance has no business lock target")
+
+        async def exercise(
+            root: Path,
+        ) -> tuple[str, int, int, int, tuple[str, ...]]:
+            birth_factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_lock,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+            )
+            birth = BirthTransaction(
+                ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                ArtifactCatalogRepository(),
+                BirthRepository(),
+                birth_factory,
+            )
+            await birth_factory.open()
+            try:
+                await birth.birth(manifest)
+            finally:
+                await birth_factory.close()
+
+            authorities = [
+                PostgreSQLRuntimeAuthority(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    expected_bundle_digest=packaged["composition_digest"].to_wire(),
+                    pool_timeout_seconds=2,
+                )
+                for _ in range(2)
+            ]
+            for authority in authorities:
+                await authority.open()
+            try:
+                old = await authorities[0].acquire(
+                    runtime_instance_id=RuntimeInstanceId(_uuid7()),
+                    lease_seconds=1,
+                )
+                work_id = _uuid7()
+                outbox_id = _uuid7()
+                with psycopg.connect(
+                    fixture.provisioner_dsn,
+                    autocommit=True,
+                ) as connection:
+                    connection.execute(
+                        """
+                        INSERT INTO armi.durable_work (
+                            work_id, work_kind, owner_kind, owner_ref,
+                            idempotency_key, payload_digest, priority,
+                            not_before, deadline_at, status, max_attempts,
+                            attempt_count, current_attempt_id, lease_owner,
+                            lease_expires_at, lease_token, trace_id
+                        )
+                        VALUES (
+                            %s, 'recovery_probe', 'runtime', %s,
+                            's017-recovery-work',
+                            'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+                            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                            0, statement_timestamp(),
+                            statement_timestamp() + interval '60 seconds',
+                            'leased', 3, 1, %s, %s,
+                            statement_timestamp() + interval '1 second',
+                            7, %s
+                        )
+                        """,
+                        (
+                            work_id,
+                            old.fence.runtime_instance_id.value,
+                            _uuid7(),
+                            old.fence.runtime_instance_id.value,
+                            old.fence.runtime_instance_id.value.hex,
+                        ),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO armi.outbox_items (
+                            outbox_item_id, work_id, message_kind,
+                            payload_digest, status, available_at,
+                            claimed_by, claim_expires_at, claim_token,
+                            attempt_count, max_attempts, trace_id
+                        )
+                        VALUES (
+                            %s, %s, 'work.available',
+                            'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+                            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                            'claimed', statement_timestamp(), %s,
+                            statement_timestamp() + interval '1 second',
+                            9, 1, 3, %s
+                        )
+                        """,
+                        (
+                            outbox_id,
+                            work_id,
+                            old.fence.runtime_instance_id.value,
+                            old.fence.runtime_instance_id.value.hex,
+                        ),
+                    )
+                await asyncio.sleep(1.1)
+                record = await authorities[1].acquire(
+                    runtime_instance_id=RuntimeInstanceId(_uuid7()),
+                    lease_seconds=30,
+                )
+                await authorities[1].heartbeat(record.fence, lease_seconds=30)
+                recovery = PostgreSQLRuntimeRecovery(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    data_root=root.parent,
+                    max_object_bytes=1024 * 1024,
+                    pool_timeout_seconds=2,
+                    authority_admission=lambda: record.fence,
+                )
+                await recovery.open()
+                try:
+                    summary = await recovery.recover()
+                finally:
+                    await recovery.close()
+                await authorities[1].release(record.fence)
+            finally:
+                for authority in authorities:
+                    await authority.close()
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                operations = tuple(
+                    row[0]
+                    for row in connection.execute(
+                        """
+                        SELECT operation
+                        FROM armi.audit_events
+                        WHERE operation LIKE 'runtime.recovery.%'
+                        ORDER BY occurred_at, audit_event_id
+                        """
+                    ).fetchall()
+                )
+            return (
+                summary.status.value,
+                summary.critical_artifact_count,
+                summary.requeued_work_count,
+                summary.requeued_outbox_count,
+                operations,
+            )
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            environment_root = Path(temporary).resolve()
+            data_root = environment_root / "data"
+            secrets_root = environment_root / "secrets"
+            data_root.mkdir()
+            secrets_root.mkdir()
+            artifact_root = data_root / "artifacts"
+            status, critical_count, requeued_work, requeued_outbox, operations = (
+                asyncio.run(
+                    exercise(artifact_root),
+                    loop_factory=lambda: asyncio.SelectorEventLoop(
+                        selectors.SelectSelector()
+                    ),
+                )
+            )
+            runtime_secret = secrets_root / "runtime"
+            runtime_secret.write_text(
+                fixture.runtime_dsn,
+                encoding="utf-8",
+                newline="\n",
+            )
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+                listener.bind(("127.0.0.1", 0))
+                runtime_port = int(listener.getsockname()[1])
+            (environment_root / "environment.toml").write_text(
+                "\n".join(
+                    (
+                        "[environment]",
+                        f'environment_id = "{fixture.environment_id}"',
+                        f'data_root = "{data_root.as_posix()}"',
+                        "",
+                        "[creator]",
+                        f"port = {runtime_port}",
+                        "",
+                        "[secret_locators]",
+                        f'"database.runtime" = "file:{runtime_secret.as_posix()}"',
+                        "",
+                    )
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
+            process = subprocess.Popen(
+                (
+                    str(Path(".venv/Scripts/armi.exe").resolve()),
+                    "runtime",
+                    "start",
+                    "--environment-root",
+                    str(environment_root),
+                ),
+                cwd=Path.cwd(),
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.startswith("ARMI_")
+                },
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+            try:
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        self.fail("born Runtime exited before listening")
+                    try:
+                        with socket.create_connection(
+                            ("127.0.0.1", runtime_port),
+                            timeout=0.2,
+                        ):
+                            break
+                    except OSError:
+                        time.sleep(0.05)
+                        continue
+                else:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+                    self.fail(
+                        "born Runtime did not listen; "
+                        f"stdout={stdout!r}; stderr={stderr!r}"
+                    )
+                process.send_signal(signal.CTRL_BREAK_EVENT)
+                stdout, stderr = process.communicate(timeout=35)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+            self.assertEqual(process.returncode, 0, stderr)
+            self.assertEqual(stdout, "")
+            log_events = [
+                json.loads(line)["event"]
+                for line in next((data_root / "logs").glob("runtime-*.jsonl"))
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertEqual(
+                log_events,
+                [
+                    "runtime.lifecycle.starting",
+                    "runtime.authority.acquired",
+                    "runtime.lifecycle.recovering",
+                    "runtime.recovery.safe",
+                    "runtime.lifecycle.blocked",
+                    "runtime.lifecycle.draining",
+                    "runtime.authority.released",
+                    "runtime.lifecycle.stopped",
+                ],
+            )
+        self.assertEqual(status, RecoveryStatus.SAFE.value)
+        self.assertEqual(critical_count, 2)
+        self.assertEqual((requeued_work, requeued_outbox), (1, 1))
+        self.assertEqual(
+            operations,
+            ("runtime.recovery.started", "runtime.recovery.safe"),
+        )
+        recovery_summary_file = os.environ.get("S017_RECOVERY_SUMMARY_FILE")
+        if recovery_summary_file is not None:
+            Path(recovery_summary_file).write_text(
+                json.dumps(
+                    {
+                        "schema_version": "armi.s017-recovery-summary.v1",
+                        "status": status,
+                        "critical_artifact_count": critical_count,
+                        "requeued_work_count": requeued_work,
+                        "requeued_outbox_count": requeued_outbox,
+                        "work_lease_token_preserved": 7,
+                        "outbox_claim_token_preserved": 9,
+                        "audit_operations": operations,
+                        "workers_started": False,
+                    },
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT status, blocker_count FROM armi.runtime_recovery_runs"
+                ).fetchone(),
+                ("safe", 0),
+            )
+            self.assertEqual(
+                connection.execute(
+                    """
+                    SELECT status, lease_token, current_attempt_id, lease_owner
+                    FROM armi.durable_work
+                    """
+                ).fetchone(),
+                ("ready", 7, None, None),
+            )
+            self.assertEqual(
+                connection.execute(
+                    """
+                    SELECT status, claim_token, claimed_by
+                    FROM armi.outbox_items
+                    """
+                ).fetchone(),
+                ("ready", 9, None),
+            )
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("DELETE FROM armi.runtime_recovery_runs")
+        for dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
+            with (
+                psycopg.connect(dsn) as connection,
+                self.assertRaises(psycopg.errors.InsufficientPrivilege),
+            ):
+                connection.execute("SELECT * FROM armi.runtime_recovery_runs")
 
     def _prepare_s011_schema(self, fixture: DatabaseFixture) -> None:
         PostgreSQLSchemaGateway().upgrade(

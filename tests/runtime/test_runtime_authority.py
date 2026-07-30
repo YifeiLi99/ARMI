@@ -163,6 +163,25 @@ class RuntimeAuthorityContractTests(unittest.TestCase):
         asyncio.run(connection_failures())
         asyncio.run(stale())
 
+    def test_drain_revokes_writes_but_heartbeat_and_release_remain_valid(self) -> None:
+        async def exercise() -> None:
+            port = _AuthorityPort()
+            controller = RuntimeAuthorityController(port, lease_seconds=30)
+            await controller.acquire(RuntimeInstanceId(uuid7()))
+
+            draining = controller.begin_drain()
+            self.assertEqual(draining.state, LocalAuthorityState.DRAINING)
+            self.assertFalse(draining.writable)
+            with self.assertRaises(RuntimeAuthorityViolation):
+                controller.require_writable()
+            heartbeat = await controller.heartbeat_once()
+            self.assertEqual(heartbeat.state, LocalAuthorityState.DRAINING)
+            released = await controller.release()
+            self.assertEqual(released.status, RuntimeAuthorityStatus.STOPPED)
+            self.assertEqual(controller.snapshot().state, LocalAuthorityState.INACTIVE)
+
+        asyncio.run(exercise())
+
 
 if __name__ == "__main__":
     unittest.main()

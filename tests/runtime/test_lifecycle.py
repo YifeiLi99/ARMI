@@ -40,6 +40,20 @@ class LifecycleTests(unittest.TestCase):
             lifecycle.block()
         self.assertEqual(raised.exception.code, "LIFE-TRANSITION")
 
+    def test_recovery_is_not_ready_and_only_s018_remains_blocking(self) -> None:
+        lifecycle = LifecycleController(environment_id=ENVIRONMENT_ID)
+        lifecycle.start()
+        recovering = lifecycle.begin_recovery()
+        blocked = lifecycle.complete_startup()
+
+        self.assertEqual(recovering.runtime_state, RuntimeState.RECOVERING)
+        self.assertEqual(recovering.readiness, Readiness.NOT_READY)
+        self.assertEqual(
+            RUNTIME_BLOCKING_REASONS,
+            ("CREATOR_SESSION_NOT_IMPLEMENTED",),
+        )
+        self.assertEqual(blocked.runtime_state, RuntimeState.BLOCKED)
+
     def test_unborn_is_explicitly_not_ready_and_can_stop(self) -> None:
         lifecycle = LifecycleController(environment_id=ENVIRONMENT_ID)
         lifecycle.start()

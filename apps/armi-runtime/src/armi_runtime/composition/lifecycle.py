@@ -14,10 +14,7 @@ from armi_runtime.interfaces.creator_contract import Readiness, RuntimeState
 
 from .runtime_errors import RuntimeViolation
 
-RUNTIME_BLOCKING_REASONS = (
-    "CREATOR_SESSION_NOT_IMPLEMENTED",
-    "RUNTIME_RECOVERY_NOT_IMPLEMENTED",
-)
+RUNTIME_BLOCKING_REASONS = ("CREATOR_SESSION_NOT_IMPLEMENTED",)
 _REASON = re.compile(r"^[A-Z][A-Z0-9_]{2,127}$", re.ASCII)
 
 _ALLOWED_TRANSITIONS = {
@@ -25,9 +22,18 @@ _ALLOWED_TRANSITIONS = {
     RuntimeState.STARTING: frozenset(
         {
             RuntimeState.UNBORN,
+            RuntimeState.RECOVERING,
             RuntimeState.READY,
             RuntimeState.DEGRADED,
             RuntimeState.BLOCKED,
+        }
+    ),
+    RuntimeState.RECOVERING: frozenset(
+        {
+            RuntimeState.READY,
+            RuntimeState.DEGRADED,
+            RuntimeState.BLOCKED,
+            RuntimeState.DRAINING,
         }
     ),
     RuntimeState.UNBORN: frozenset({RuntimeState.DRAINING}),
@@ -90,6 +96,9 @@ class LifecycleController:
 
     def mark_unborn(self) -> RuntimeSnapshot:
         return self._transition(RuntimeState.UNBORN, ())
+
+    def begin_recovery(self) -> RuntimeSnapshot:
+        return self._transition(RuntimeState.RECOVERING, ())
 
     def add_degradation(self, reason: str) -> RuntimeSnapshot:
         if type(reason) is not str or _REASON.fullmatch(reason) is None:

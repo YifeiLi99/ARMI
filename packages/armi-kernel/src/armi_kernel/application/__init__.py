@@ -51,6 +51,15 @@ from .durable_work import (
     WorkStatus,
     WorkViolation,
 )
+from .recovery import (
+    RecoveryDecision,
+    RecoveryFinding,
+    RecoveryPort,
+    RecoveryRunId,
+    RecoveryStatus,
+    RecoverySummary,
+    RecoveryViolation,
+)
 from .runtime_authority import (
     RuntimeAuthorityPort,
     RuntimeAuthorityRecord,
@@ -106,6 +115,13 @@ __all__ = (
     "PersonalityAnchor",
     "PostCommitAction",
     "PublishedArtifact",
+    "RecoveryDecision",
+    "RecoveryFinding",
+    "RecoveryPort",
+    "RecoveryRunId",
+    "RecoveryStatus",
+    "RecoverySummary",
+    "RecoveryViolation",
     "RuntimeAuthorityPort",
     "RuntimeAuthorityRecord",
     "RuntimeAuthorityStatus",

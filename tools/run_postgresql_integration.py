@@ -43,6 +43,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--work-summary-file", type=Path)
     parser.add_argument("--birth-summary-file", type=Path)
     parser.add_argument("--authority-summary-file", type=Path)
+    parser.add_argument("--recovery-summary-file", type=Path)
+    parser.add_argument("--test-expression")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     tool_root = (root / args.tool_root).resolve()
@@ -121,14 +123,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 environment["S016_AUTHORITY_SUMMARY_FILE"] = str(
                     args.authority_summary_file.resolve()
                 )
+            if args.recovery_summary_file is not None:
+                environment["S017_RECOVERY_SUMMARY_FILE"] = str(
+                    args.recovery_summary_file.resolve()
+                )
+            pytest_command = [
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/postgresql",
+                "-q",
+            ]
+            if args.test_expression is not None:
+                pytest_command.extend(("-k", args.test_expression))
             completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "pytest",
-                    "tests/postgresql",
-                    "-q",
-                ],
+                pytest_command,
                 cwd=root,
                 env=environment,
                 check=False,
