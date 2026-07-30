@@ -15,21 +15,21 @@ OBSERVED = datetime(2026, 7, 29, 1, 2, 3, 456789, tzinfo=UTC)
 
 
 class LifecycleTests(unittest.TestCase):
-    def test_fixed_s008_transition_path_remains_not_ready(self) -> None:
+    def test_explicit_blocker_still_prevents_readiness(self) -> None:
         lifecycle = LifecycleController(
             environment_id=ENVIRONMENT_ID,
             clock=lambda: OBSERVED,
         )
 
         starting = lifecycle.start()
-        blocked = lifecycle.block()
+        blocked = lifecycle.block(("TEST_BLOCKER",))
         draining = lifecycle.drain()
         stopped = lifecycle.stop()
 
         self.assertEqual(starting.runtime_state, RuntimeState.STARTING)
         self.assertEqual(blocked.runtime_state, RuntimeState.BLOCKED)
         self.assertEqual(blocked.readiness, Readiness.NOT_READY)
-        self.assertEqual(blocked.reason_codes, RUNTIME_BLOCKING_REASONS)
+        self.assertEqual(blocked.reason_codes, ("TEST_BLOCKER",))
         self.assertEqual(draining.runtime_state, RuntimeState.DRAINING)
         self.assertEqual(stopped.runtime_state, RuntimeState.STOPPED)
         self.assertEqual(stopped.observed_at, "2026-07-29T01:02:03.456789Z")
@@ -40,19 +40,17 @@ class LifecycleTests(unittest.TestCase):
             lifecycle.block()
         self.assertEqual(raised.exception.code, "LIFE-TRANSITION")
 
-    def test_recovery_is_not_ready_and_only_s018_remains_blocking(self) -> None:
+    def test_recovery_completes_ready_after_s018_capability_is_available(self) -> None:
         lifecycle = LifecycleController(environment_id=ENVIRONMENT_ID)
         lifecycle.start()
         recovering = lifecycle.begin_recovery()
-        blocked = lifecycle.complete_startup()
+        ready = lifecycle.complete_startup()
 
         self.assertEqual(recovering.runtime_state, RuntimeState.RECOVERING)
         self.assertEqual(recovering.readiness, Readiness.NOT_READY)
-        self.assertEqual(
-            RUNTIME_BLOCKING_REASONS,
-            ("CREATOR_SESSION_NOT_IMPLEMENTED",),
-        )
-        self.assertEqual(blocked.runtime_state, RuntimeState.BLOCKED)
+        self.assertEqual(RUNTIME_BLOCKING_REASONS, ())
+        self.assertEqual(ready.runtime_state, RuntimeState.READY)
+        self.assertEqual(ready.readiness, Readiness.READY)
 
     def test_unborn_is_explicitly_not_ready_and_can_stop(self) -> None:
         lifecycle = LifecycleController(environment_id=ENVIRONMENT_ID)

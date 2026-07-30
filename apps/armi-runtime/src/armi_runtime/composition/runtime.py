@@ -19,18 +19,25 @@ from armi_kernel.application import (
     RuntimeInstanceId,
 )
 
+from armi_runtime.interfaces.browser_sessions import (
+    BrowserSessionStore,
+    BrowserSessionViolation,
+)
 from armi_runtime.interfaces.creator_app import create_runtime_app
+from armi_runtime.interfaces.creator_contract import RuntimeStatusResponse
 from armi_runtime.interfaces.static_assets import AssetViolation, StaticAssetStore
 
 from .authority import (
     LocalAuthorityState,
     RuntimeAuthorityController,
 )
+from .creator_session import compose_browser_sessions
 from .database import (
     ContinuityState,
     DatabaseViolation,
     compose_runtime_authority,
     compose_runtime_recovery,
+    inspect_creator_party_id,
     inspect_runtime_continuity,
     runtime_database_reason,
 )
@@ -92,6 +99,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     authority: RuntimeAuthorityController | None = None
     recovery_port = None
     recovery_reasons: tuple[str, ...] = ()
+    browser_sessions: BrowserSessionStore | None = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -132,6 +140,16 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     "runtime.recovery.safe",
                     result_code="REC_SAFE",
                 )
+            creator_party_id = inspect_creator_party_id(prepared)
+            if creator_party_id is None:
+                raise BrowserSessionViolation(
+                    "SEC_CREATOR_IDENTITY_UNAVAILABLE",
+                    status_code=503,
+                )
+            browser_sessions = compose_browser_sessions(
+                prepared,
+                creator_party_id=creator_party_id,
+            )
         except DatabaseViolation, RuntimeAuthorityViolation:
             diagnostic.emit(
                 "runtime.authority.unavailable",
@@ -151,6 +169,19 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 result_code="REC_FAILED",
                 reason_codes=recovery_reasons,
             )
+        except BrowserSessionViolation:
+            diagnostic.emit(
+                "runtime.creator_session.unavailable",
+                level=logging.ERROR,
+                result_code="CREATOR_SESSION_UNAVAILABLE",
+                reason_codes=("RUNTIME_CREATOR_SESSION_UNAVAILABLE",),
+            )
+            if authority is not None:
+                await authority.release()
+            if authority_port is not None:
+                await authority_port.close()
+            diagnostic.close()
+            return EXIT_LISTENER_FAILURE
         finally:
             if recovery_port is not None:
                 await recovery_port.close()
@@ -179,20 +210,25 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     *recovery_reasons,
                 )
             )
+        event_by_state = {
+            "unborn": ("runtime.lifecycle.unborn", "LIFE_UNBORN", logging.INFO),
+            "ready": ("runtime.lifecycle.ready", "LIFE_READY", logging.INFO),
+            "degraded": (
+                "runtime.lifecycle.degraded",
+                "LIFE_DEGRADED",
+                logging.WARNING,
+            ),
+            "blocked": (
+                "runtime.lifecycle.blocked",
+                "LIFE_BLOCKED",
+                logging.WARNING,
+            ),
+        }
+        event, result_code, level = event_by_state[snapshot.runtime_state.value]
         diagnostic.emit(
-            (
-                "runtime.lifecycle.unborn"
-                if snapshot.runtime_state.value == "unborn"
-                else "runtime.lifecycle.blocked"
-            ),
-            level=logging.INFO
-            if snapshot.runtime_state.value == "unborn"
-            else logging.WARNING,
-            result_code=(
-                "LIFE_UNBORN"
-                if snapshot.runtime_state.value == "unborn"
-                else "LIFE_BLOCKED"
-            ),
+            event,
+            level=level,
+            result_code=result_code,
             reason_codes=snapshot.reason_codes,
         )
         if authority is not None:
@@ -206,6 +242,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         nonlocal drain_timed_out
         lifecycle.drain()
         diagnostic.emit("runtime.lifecycle.draining", result_code="LIFE_DRAINING")
+        if browser_sessions is not None:
+            browser_sessions.revoke_all()
+            diagnostic.emit(
+                "creator.session.revoked_all",
+                result_code="CREATOR_SESSION_REVOKED",
+            )
         released = await supervisor.drain(
             deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
         )
@@ -252,13 +294,30 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     result_code="AUTH_HEARTBEAT",
                 )
 
+    def runtime_status() -> RuntimeStatusResponse:
+        snapshot = lifecycle.snapshot()
+        return RuntimeStatusResponse(
+            contract_version="1.0",
+            environment_id=snapshot.environment_id,
+            runtime_state=snapshot.runtime_state,
+            readiness=snapshot.readiness,
+            reason_codes=list(snapshot.reason_codes),
+            observed_at=snapshot.observed_at,
+        )
+
+    def security_event(event: str) -> None:
+        diagnostic.emit(event, result_code="CREATOR_SECURITY_EVENT")
+
     app = create_runtime_app(
         readiness=lambda: lifecycle.snapshot().readiness,
+        runtime_status=runtime_status,
         assets=assets,
+        browser_sessions=browser_sessions,
         expected_authority=f"{config.creator.bind_host}:{config.creator.port}",
         request_body_max_bytes=config.creator.request_body_max_bytes,
         on_started=started,
         on_stopping=stopping,
+        on_security_event=security_event,
     )
     server = _RuntimeServer(
         uvicorn.Config(

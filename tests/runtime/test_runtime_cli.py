@@ -14,28 +14,41 @@ from armi_kernel.application import BirthResult
 from armi_kernel.contracts import Digest
 from armi_runtime.cli import main
 from armi_runtime.composition.environment import prepare_environment
+from armi_runtime.interfaces.creator_contract import BootstrapCodeResponse
 
 ENVIRONMENT_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"
 
 
-def make_environment(root: Path, *, port: int = 45678) -> None:
+def make_environment(
+    root: Path,
+    *,
+    port: int = 45678,
+    creator_locator: bool = False,
+) -> None:
     data = root / "data"
     secrets = root / "secrets"
     data.mkdir()
     secrets.mkdir()
     normalized_data = data.resolve().as_posix()
-    (root / "environment.toml").write_text(
-        "\n".join(
+    lines = [
+        "[environment]",
+        f'environment_id = "{ENVIRONMENT_ID}"',
+        f'data_root = "{normalized_data}"',
+        "",
+        "[creator]",
+        f"port = {port}",
+        "",
+    ]
+    if creator_locator:
+        lines.extend(
             (
-                "[environment]",
-                f'environment_id = "{ENVIRONMENT_ID}"',
-                f'data_root = "{normalized_data}"',
-                "",
-                "[creator]",
-                f"port = {port}",
+                "[secret_locators]",
+                '"creator.bearer" = "env:ARMI_SECRET_CREATOR"',
                 "",
             )
-        ),
+        )
+    (root / "environment.toml").write_text(
+        "\n".join(lines),
         encoding="utf-8",
         newline="\n",
     )
@@ -136,6 +149,61 @@ class RuntimeCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(json.loads(output.getvalue())["status"], "applied")
         birth.assert_called_once()
+
+    def test_creator_session_issue_requires_tty_and_prints_only_code(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root, creator_locator=True)
+            output = io.StringIO()
+            response = BootstrapCodeResponse(
+                contract_version="1.0",
+                bootstrap_code=f"bootstrap-v1.{'b' * 22}",
+                expires_at="2026-07-30T18:00:00.000000Z",
+            )
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch.object(output, "isatty", return_value=True),
+                patch(
+                    "armi_runtime.cli.issue_browser_bootstrap",
+                    return_value=response,
+                ) as issue,
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    (
+                        "creator-session",
+                        "issue",
+                        "--environment-root",
+                        str(root.resolve()),
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(output.getvalue().strip(), response.bootstrap_code)
+        issue.assert_called_once()
+
+    def test_creator_session_issue_rejects_redirected_stdout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root, creator_locator=True)
+            output = io.StringIO()
+            errors = io.StringIO()
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                redirect_stdout(output),
+                redirect_stderr(errors),
+            ):
+                exit_code = main(
+                    (
+                        "creator-session",
+                        "issue",
+                        "--environment-root",
+                        str(root.resolve()),
+                    )
+                )
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(json.loads(errors.getvalue())["code"], "CLI-CREATOR-TTY")
+        self.assertEqual(output.getvalue(), "")
 
 
 if __name__ == "__main__":

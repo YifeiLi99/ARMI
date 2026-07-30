@@ -1,4 +1,18 @@
 {
+  "credential_bindings": {
+    "creator.bearer": {
+      "credential_kind": "creator-v1",
+      "purposes": [
+        "creator.bootstrap.issue",
+        "creator.bootstrap.verify"
+      ],
+      "required_by": [
+        "creator-session issue",
+        "runtime start"
+      ],
+      "value_in_effective_digest": false
+    }
+  },
   "defaults": {
     "contains_secrets": false,
     "path": "config/runtime.defaults.toml",

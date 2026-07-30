@@ -29,7 +29,6 @@ _SEAMS: Final = (
         ("M0-S007", "M0-S022", "M0-S031", "M0-S043"),
     ),
 )
-_BLOCKERS: Final = (("CREATOR_SESSION_NOT_IMPLEMENTED", "M0-S018"),)
 _CONFIG_FILES: Final = (
     "runtime.defaults.toml",
     "runtime.schema.json",
@@ -91,9 +90,7 @@ def build_composition_manifest(
         "entry_point": "armi",
         "runtime_discovery": False,
         "seams": seams,
-        "readiness_blockers": [
-            {"reason_code": code, "activation_step": step} for code, step in _BLOCKERS
-        ],
+        "readiness_blockers": [],
         "resources": {
             **{
                 f"config/{name}": _sha256(value)

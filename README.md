@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S017，并按 S001 2.7 冻结了 S018 Creator 认证与浏览器会话契约；PostgreSQL schema 仍为 v8。S018 将使用互斥的长期 Creator bearer、一次性 bootstrap code 和短期 browser session bearer，严格限制于同源 loopback，不提前创建 scene 或业务页面。当前实现尚未完成 S018，系统仍因 browser session 缺失而保持 `blocked/not_ready`，仓库和长期环境也没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或后台 worker，不是可用产品版本。
+项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S018，当前设计基线为 S001 2.7，PostgreSQL schema 仍为 v8。born Runtime 现在可在取得 authority、完成恢复并接好 Creator credential 后进入 `ready`，并通过严格同源 loopback 提供一次性 bootstrap code、短期 browser session、安全运行状态和最小 Creator 会话壳；这些会话完全驻进程内存，drain、到期、注销或重启即失效。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据、scene、业务页面或后台 worker，仍不是可用产品版本；M0-S019 仅开放计划前置条件。
 
 ## 关于学习与参考
 

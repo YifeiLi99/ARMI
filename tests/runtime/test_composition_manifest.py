@@ -46,12 +46,7 @@ class CompositionManifestTests(unittest.TestCase):
         verified = verify_packaged_composition()
         bindings = dict(verified.active_bindings)
         self.assertIsNone(bindings["M0-SEAM-WORK-SELECTION"])
-        self.assertEqual(
-            set(verified.readiness_blockers),
-            {
-                "CREATOR_SESSION_NOT_IMPLEMENTED",
-            },
-        )
+        self.assertEqual(verified.readiness_blockers, ())
         runtime_source = Path(
             "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
         ).read_text(encoding="utf-8")

@@ -43,6 +43,17 @@ def render_manifest(schema: bytes) -> bytes:
             "enabled": ["env", "file"],
             "unsupported": ["command", "os-store"],
         },
+        "credential_bindings": {
+            "creator.bearer": {
+                "credential_kind": "creator-v1",
+                "required_by": ["creator-session issue", "runtime start"],
+                "purposes": [
+                    "creator.bootstrap.issue",
+                    "creator.bootstrap.verify",
+                ],
+                "value_in_effective_digest": False,
+            }
+        },
         "effective_digest": {
             "canonicalization": "RFC 8785",
             "algorithm": "sha256",

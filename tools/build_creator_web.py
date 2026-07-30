@@ -160,6 +160,9 @@ def validate_openapi(schema: dict[str, object]) -> None:
     if not isinstance(paths, dict) or set(paths) != {
         "/health/live",
         "/health/ready",
+        "/v1/browser-bootstrap-codes",
+        "/v1/browser-sessions",
+        "/v1/browser-sessions/current",
         "/v1/runtime/status",
     }:
         raise CreatorBuildError(
@@ -173,7 +176,15 @@ def validate_openapi(schema: dict[str, object]) -> None:
         for operation in item.values()
         if isinstance(operation, dict)
     }
-    if operation_ids != {"getHealthLive", "getHealthReady", "getRuntimeStatus"}:
+    if operation_ids != {
+        "createBrowserBootstrapCode",
+        "createBrowserSession",
+        "deleteCurrentBrowserSession",
+        "getCurrentBrowserSession",
+        "getHealthLive",
+        "getHealthReady",
+        "getRuntimeStatus",
+    }:
         raise CreatorBuildError(
             "CON-OPENAPI-OPERATION",
             "OpenAPI operation IDs do not match the frozen set",

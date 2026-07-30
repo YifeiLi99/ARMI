@@ -12,6 +12,8 @@ from armi_kernel.application import BirthViolation
 
 from armi_runtime.composition.bootstrap import execute_birth
 from armi_runtime.composition.configuration import ConfigurationViolation
+from armi_runtime.composition.creator_session import CREATOR_BEARER_LOCATOR
+from armi_runtime.composition.creator_session_cli import issue_browser_bootstrap
 from armi_runtime.composition.database import (
     DatabaseViolation,
     inspect_operator_schema,
@@ -20,6 +22,7 @@ from armi_runtime.composition.database import (
 from armi_runtime.composition.environment import prepare_environment
 from armi_runtime.composition.runtime import run_runtime
 from armi_runtime.composition.runtime_errors import RuntimeViolation
+from armi_runtime.interfaces.browser_sessions import BrowserSessionViolation
 
 EXIT_INVOCATION_REJECTED = 2
 
@@ -48,6 +51,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     bootstrap_birth = bootstrap_command.add_parser("birth")
     bootstrap_birth.add_argument("--environment-root", type=Path, required=True)
+    creator_session = command.add_parser("creator-session")
+    creator_session_command = creator_session.add_subparsers(
+        dest="creator_session_command",
+        required=True,
+    )
+    creator_session_issue = creator_session_command.add_parser("issue")
+    creator_session_issue.add_argument("--environment-root", type=Path, required=True)
     return parser
 
 
@@ -55,12 +65,16 @@ def _safe_failure(
     error: ConfigurationViolation
     | RuntimeViolation
     | DatabaseViolation
-    | BirthViolation,
+    | BirthViolation
+    | BrowserSessionViolation,
 ) -> None:
     status = error.status if isinstance(error, DatabaseViolation) else "rejected"
-    message = (
-        "birth operation failed" if isinstance(error, BirthViolation) else error.message
-    )
+    if isinstance(error, BirthViolation):
+        message = "birth operation failed"
+    elif isinstance(error, BrowserSessionViolation):
+        message = "creator session operation failed"
+    else:
+        message = error.message
     print(
         json.dumps(
             {"status": status, "code": error.code, "message": message},
@@ -83,8 +97,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {"database.migrator": "database.migrator"}
     elif args.command == "bootstrap":
         credential_scope = {"database.birth": "database.runtime"}
+    elif args.command == "creator-session":
+        credential_scope = {
+            "creator.bootstrap.issue": CREATOR_BEARER_LOCATOR,
+        }
     else:
-        credential_scope = {"database.runtime": "database.runtime"}
+        credential_scope = {
+            "database.runtime": "database.runtime",
+            "creator.bootstrap.verify": CREATOR_BEARER_LOCATOR,
+        }
     try:
         prepared = prepare_environment(
             args.environment_root,
@@ -143,6 +164,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 separators=(",", ":"),
             )
         )
+        return 0
+    if args.command == "creator-session":
+        if not sys.stdout.isatty():
+            _safe_failure(
+                RuntimeViolation(
+                    "CLI-CREATOR-TTY",
+                    "bootstrap code output requires an interactive terminal",
+                )
+            )
+            return EXIT_INVOCATION_REJECTED
+        try:
+            result = issue_browser_bootstrap(prepared)
+        except BrowserSessionViolation as error:
+            _safe_failure(error)
+            return 3 if error.status_code >= 500 else EXIT_INVOCATION_REJECTED
+        print(result.bootstrap_code)
         return 0
     return run_runtime(prepared)
 

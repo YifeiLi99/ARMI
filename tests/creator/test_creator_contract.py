@@ -8,6 +8,8 @@ import unittest
 from typing import Any, cast
 
 from armi_runtime.interfaces.creator_contract import (
+    BrowserSessionCurrentResponse,
+    BrowserSessionResponse,
     RejectedOutcomeResponse,
     RuntimeStatusResponse,
     build_creator_openapi,
@@ -51,7 +53,14 @@ class CreatorContractTests(unittest.TestCase):
         paths = cast(dict[str, Any], schema["paths"])
         self.assertEqual(
             set(paths),
-            {"/health/live", "/health/ready", "/v1/runtime/status"},
+            {
+                "/health/live",
+                "/health/ready",
+                "/v1/browser-bootstrap-codes",
+                "/v1/browser-sessions",
+                "/v1/browser-sessions/current",
+                "/v1/runtime/status",
+            },
         )
         self.assertEqual(
             paths["/health/live"]["get"]["operationId"],
@@ -65,6 +74,11 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(runtime["operationId"], "getRuntimeStatus")
         self.assertEqual(runtime["security"], [{"browserSessionBearer": []}])
         self.assertEqual(set(runtime["responses"]), {"200", "401", "403", "503"})
+        self.assertEqual(
+            paths["/v1/browser-bootstrap-codes"]["post"]["security"],
+            [{"creatorBearer": []}],
+        )
+        self.assertNotIn("security", paths["/v1/browser-sessions"]["post"])
         self.assertNotIn("security", paths["/health/live"]["get"])
         self.assertNotIn("security", paths["/health/ready"]["get"])
 
@@ -114,6 +128,29 @@ class CreatorContractTests(unittest.TestCase):
         model = RejectedOutcomeResponse.model_validate_json(json.dumps(rejected()))
         self.assertEqual(model.status, "rejected")
         self.assertEqual(model.error.code, "AUTH_BROWSER_SESSION_REQUIRED")
+
+    def test_session_responses_are_strict_and_have_no_scene_placeholder(self) -> None:
+        metadata = {
+            "contract_version": "1.0",
+            "environment_id": ENVIRONMENT_ID,
+            "creator_party_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ab",
+            "issued_at": INSTANT,
+            "expires_at": "2026-07-29T18:00:00.000000Z",
+        }
+        current = BrowserSessionCurrentResponse.model_validate(metadata)
+        created = BrowserSessionResponse.model_validate(
+            {
+                **metadata,
+                "browser_session_token": f"browser-v1.{'a' * 43}",
+            }
+        )
+        self.assertEqual(current.creator_party_id, metadata["creator_party_id"])
+        self.assertTrue(created.browser_session_token.startswith("browser-v1."))
+        self.assertNotIn("default_scene_key", current.model_dump())
+        with self.assertRaises(ValidationError):
+            BrowserSessionCurrentResponse.model_validate(
+                {**metadata, "default_scene_key": None}
+            )
 
     def test_error_category_prefix_mismatch_is_rejected(self) -> None:
         sample = copy.deepcopy(rejected())

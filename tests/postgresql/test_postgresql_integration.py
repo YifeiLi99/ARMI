@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import http.client
 import io
 import json
 import os
@@ -1603,6 +1604,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
+            creator_bearer = "creator-v1." + secrets.token_urlsafe(32)
+            creator_secret = secrets_root / "creator"
+            creator_secret.write_text(
+                creator_bearer,
+                encoding="utf-8",
+                newline="\n",
+            )
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
                 listener.bind(("127.0.0.1", 0))
                 runtime_port = int(listener.getsockname()[1])
@@ -1618,6 +1626,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "",
                         "[secret_locators]",
                         f'"database.runtime" = "file:{runtime_secret.as_posix()}"',
+                        f'"creator.bearer" = "file:{creator_secret.as_posix()}"',
                         "",
                     )
                 ),
@@ -1667,6 +1676,87 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "born Runtime did not listen; "
                         f"stdout={stdout!r}; stderr={stderr!r}"
                     )
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1",
+                    runtime_port,
+                    timeout=5,
+                )
+                try:
+                    connection.request(
+                        "POST",
+                        "/v1/browser-bootstrap-codes",
+                        body=b"",
+                        headers={
+                            "Authorization": f"Bearer {creator_bearer}",
+                            "Content-Length": "0",
+                        },
+                    )
+                    issued_response = connection.getresponse()
+                    issued = json.loads(issued_response.read())
+                    self.assertEqual(issued_response.status, 200)
+                    code = issued["bootstrap_code"]
+                    body = json.dumps(
+                        {"bootstrap_code": code},
+                        separators=(",", ":"),
+                    ).encode()
+                    browser_boundary_headers = {
+                        "Origin": f"http://127.0.0.1:{runtime_port}",
+                        "Sec-Fetch-Site": "same-origin",
+                        "Sec-Fetch-Mode": "cors",
+                        "Sec-Fetch-Dest": "empty",
+                    }
+                    connection.request(
+                        "POST",
+                        "/v1/browser-sessions",
+                        body=body,
+                        headers={
+                            **browser_boundary_headers,
+                            "Content-Type": "application/json",
+                            "Content-Length": str(len(body)),
+                        },
+                    )
+                    session_response = connection.getresponse()
+                    established = json.loads(session_response.read())
+                    self.assertEqual(session_response.status, 200)
+                    browser_token = established["browser_session_token"]
+                    authenticated_headers = {
+                        **browser_boundary_headers,
+                        "Authorization": f"Bearer {browser_token}",
+                    }
+                    connection.request(
+                        "GET",
+                        "/v1/browser-sessions/current",
+                        headers=authenticated_headers,
+                    )
+                    current_response = connection.getresponse()
+                    current = json.loads(current_response.read())
+                    self.assertEqual(current_response.status, 200)
+                    self.assertEqual(
+                        current["creator_party_id"],
+                        established["creator_party_id"],
+                    )
+                    connection.request(
+                        "GET",
+                        "/v1/runtime/status",
+                        headers=authenticated_headers,
+                    )
+                    status_response = connection.getresponse()
+                    runtime_status = json.loads(status_response.read())
+                    self.assertEqual(status_response.status, 200)
+                    self.assertEqual(
+                        (runtime_status["runtime_state"], runtime_status["readiness"]),
+                        ("ready", "ready"),
+                    )
+                    connection.request(
+                        "DELETE",
+                        "/v1/browser-sessions/current",
+                        headers=authenticated_headers,
+                    )
+                    logout_response = connection.getresponse()
+                    logout_response.read()
+                    self.assertEqual(logout_response.status, 204)
+                finally:
+                    connection.close()
                 process.send_signal(signal.CTRL_BREAK_EVENT)
                 stdout, stderr = process.communicate(timeout=35)
             finally:
@@ -1688,12 +1778,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "runtime.authority.acquired",
                     "runtime.lifecycle.recovering",
                     "runtime.recovery.safe",
-                    "runtime.lifecycle.blocked",
+                    "runtime.lifecycle.ready",
+                    "creator.bootstrap.issued",
+                    "creator.session.established",
+                    "creator.session.revoked",
                     "runtime.lifecycle.draining",
+                    "creator.session.revoked_all",
                     "runtime.authority.released",
                     "runtime.lifecycle.stopped",
                 ],
             )
+            log_text = next((data_root / "logs").glob("runtime-*.jsonl")).read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn(creator_bearer, log_text)
+            self.assertNotIn(code, log_text)
+            self.assertNotIn(browser_token, log_text)
         self.assertEqual(status, RecoveryStatus.SAFE.value)
         self.assertEqual(critical_count, 2)
         self.assertEqual((requeued_work, requeued_outbox), (1, 1))

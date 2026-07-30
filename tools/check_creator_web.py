@@ -78,22 +78,13 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
         violations.append(
             Violation("ARC-WEB-POLICY", path, 1, "features must be an array")
         )
-    elif features:
+    elif features != ["session"]:
         violations.append(
             Violation(
-                "ARC-WEB-FUTURE",
+                "ARC-WEB-FEATURE",
                 path,
                 1,
-                "S007 must not register a business feature",
-            )
-        )
-    elif not str(creator.get("features_not_applicable_reason", "")).strip():
-        violations.append(
-            Violation(
-                "ARC-WEB-POLICY",
-                path,
-                1,
-                "empty features requires an explicit reason",
+                "S018 must register only the session feature",
             )
         )
     return violations
@@ -103,24 +94,38 @@ def analyze_source(source: str, *, path: str) -> list[Violation]:
     if ".test." in path:
         return []
     violations: list[Violation] = []
-    violations.extend(
-        _matches(
-            source,
-            path=path,
-            pattern=NETWORK_PATTERN,
-            code="SEC-WEB-NETWORK",
-            message="S007 production source must not perform network activity",
+    if path != "apps/armi-creator-web/src/api/client.ts":
+        violations.extend(
+            _matches(
+                source,
+                path=path,
+                pattern=NETWORK_PATTERN,
+                code="SEC-WEB-NETWORK",
+                message="network activity is allowed only in the explicit API client",
+            )
         )
-    )
-    violations.extend(
-        _matches(
-            source,
-            path=path,
-            pattern=STORAGE_PATTERN,
-            code="SEC-WEB-STORAGE",
-            message="S007 production source must not use browser storage",
+    if path != "apps/armi-creator-web/src/features/session/storage.ts":
+        violations.extend(
+            _matches(
+                source,
+                path=path,
+                pattern=STORAGE_PATTERN,
+                code="SEC-WEB-STORAGE",
+                message="browser storage is allowed only in the session storage adapter",
+            )
         )
-    )
+    elif re.search(
+        r"\b(?:localStorage|indexedDB|document\.cookie|serviceWorker)\b",
+        source,
+    ):
+        violations.append(
+            Violation(
+                "SEC-WEB-STORAGE",
+                path,
+                1,
+                "the session adapter may use sessionStorage only",
+            )
+        )
     violations.extend(
         _matches(
             source,
@@ -194,7 +199,7 @@ def check_repository(root: Path) -> list[Violation]:
             )
         )
 
-    allowed = {"app", "api", "styles", "main.tsx"}
+    allowed = {"app", "api", "features", "styles", "main.tsx"}
     if source_root.is_dir():
         for child in source_root.iterdir():
             if child.name not in allowed:
@@ -207,15 +212,21 @@ def check_repository(root: Path) -> list[Violation]:
                     )
                 )
         feature_root = source_root / "features"
-        if feature_root.exists():
-            violations.append(
-                Violation(
-                    "ARC-WEB-FUTURE",
-                    feature_root.relative_to(root).as_posix(),
-                    1,
-                    "S007 must not prebuild business features",
-                )
+        if feature_root.is_dir():
+            unexpected = sorted(
+                child.name
+                for child in feature_root.iterdir()
+                if child.name != "session"
             )
+            for name in unexpected:
+                violations.append(
+                    Violation(
+                        "ARC-WEB-FUTURE",
+                        (feature_root / name).relative_to(root).as_posix(),
+                        1,
+                        "S018 must not prebuild a future business feature",
+                    )
+                )
         for path in sorted(source_root.rglob("*")):
             if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
                 continue

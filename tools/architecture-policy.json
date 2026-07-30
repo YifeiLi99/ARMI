@@ -7,6 +7,11 @@
       "id": "transaction-error-mapping",
       "module": "armi_runtime.adapters.transaction_errors",
       "reason": "Maps PostgreSQL SQLSTATE and pool failures without owning writes."
+    },
+    {
+      "id": "creator-identity-read",
+      "module": "armi_runtime.adapters.creator_identity",
+      "reason": "Reads the existing unique Creator party without owning or mutating database facts."
     }
   ],
   "write_surfaces": [
@@ -199,8 +204,10 @@
     "source_root": "apps/armi-creator-web/src",
     "generated_file": "apps/armi-creator-web/src/api/generated/creator.ts",
     "static_resource_root": "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources",
-    "features": [],
-    "features_not_applicable_reason": "M0-S008 serves one honest blocked steel-frame shell; business features start in their owning vertical slices.",
+    "features": [
+      "session"
+    ],
+    "features_not_applicable_reason": "",
     "runtime_discovery": false
   },
   "runtime_composition": {

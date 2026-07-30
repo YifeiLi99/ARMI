@@ -94,3 +94,107 @@ h1 {
   color: #6d685f;
   line-height: 1.7;
 }
+
+.session-state,
+.session-form,
+.session-summary {
+  margin-top: clamp(2rem, 7vw, 4rem);
+}
+
+.session-state {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  color: #443f38;
+  font-weight: 620;
+}
+
+.session-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.session-form label,
+.session-summary h2 {
+  color: #443f38;
+  font-size: 1.05rem;
+  font-weight: 680;
+}
+
+.field-note,
+.session-message {
+  margin: 0;
+  color: #6d685f;
+  line-height: 1.55;
+}
+
+.session-form input {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgb(32 32 31 / 24%);
+  border-radius: 0.7rem;
+  background: #fff;
+  color: #20201f;
+  font: inherit;
+}
+
+button {
+  width: fit-content;
+  padding: 0.72rem 1rem;
+  border: 1px solid #443f38;
+  border-radius: 999px;
+  background: #443f38;
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: transparent;
+  color: #443f38;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid #b59b72;
+  outline-offset: 3px;
+}
+
+.status-marker.is-ready {
+  border-color: #3f7556;
+  background: #3f7556;
+}
+
+.session-summary h2 {
+  margin: 1.75rem 0 1rem;
+}
+
+.session-summary dl {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.session-summary dl div {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.45fr) 1fr;
+  gap: 1rem;
+}
+
+.session-summary dt {
+  color: #6d685f;
+}
+
+.session-summary dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}

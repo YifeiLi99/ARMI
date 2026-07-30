@@ -26,8 +26,78 @@ VIEWPORTS: tuple[ViewportSize, ...] = (
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    environment_id = "018f47a6-7b2d-7c35-8b18-684e38ab6ef7"
+    creator_party_id = "018f47a6-7b2d-7c35-8b18-684e38ab6ef8"
+    bootstrap_code = "bootstrap-v1." + ("b" * 22)
+    session_token = "browser-v1." + ("a" * 43)
+
     def log_message(self, format: str, *args: object) -> None:
         del format, args
+
+    def _json_response(self, status: int, value: dict[str, object]) -> None:
+        content = json.dumps(value, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
+    @classmethod
+    def _session_metadata(cls) -> dict[str, object]:
+        return {
+            "contract_version": "1.0",
+            "environment_id": cls.environment_id,
+            "creator_party_id": cls.creator_party_id,
+            "issued_at": "2026-07-30T10:00:00.000000Z",
+            "expires_at": "2026-07-30T18:00:00.000000Z",
+        }
+
+    def do_POST(self) -> None:
+        if self.path != "/v1/browser-sessions":
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            request = json.loads(self.rfile.read(length))
+        except ValueError, json.JSONDecodeError:
+            self.send_error(400)
+            return
+        if request != {"bootstrap_code": self.bootstrap_code}:
+            self.send_error(401)
+            return
+        self._json_response(
+            200,
+            {
+                **self._session_metadata(),
+                "browser_session_token": self.session_token,
+            },
+        )
+
+    def do_GET(self) -> None:
+        if self.path == "/v1/browser-sessions/current":
+            self._json_response(200, self._session_metadata())
+            return
+        if self.path == "/v1/runtime/status":
+            self._json_response(
+                200,
+                {
+                    "contract_version": "1.0",
+                    "environment_id": self.environment_id,
+                    "runtime_state": "ready",
+                    "readiness": "ready",
+                    "reason_codes": [],
+                    "observed_at": "2026-07-30T10:00:01.000000Z",
+                },
+            )
+            return
+        super().do_GET()
+
+    def do_DELETE(self) -> None:
+        if self.path != "/v1/browser-sessions/current":
+            self.send_error(404)
+            return
+        self.send_response(204)
+        self.end_headers()
 
 
 def sha256_file(path: Path) -> str:
@@ -102,18 +172,39 @@ def main() -> int:
                             "heading",
                             name="ARMI Creator",
                         )
-                        status = page.get_by_role("status")
-                        if not heading.is_visible() or not status.is_visible():
+                        code_input = page.get_by_label("Bootstrap code")
+                        if not heading.is_visible() or not code_input.is_visible():
                             raise RuntimeError(
-                                "WEB-BROWSER-VISIBLE: required status is hidden"
+                                "WEB-BROWSER-VISIBLE: session entry is hidden"
                             )
-                        if (
-                            "Runtime 钢架已启动，业务尚未就绪"  # noqa: RUF001
-                            not in status.inner_text()
-                        ):
+                        code_input.fill(QuietHandler.bootstrap_code)
+                        page.get_by_role(
+                            "button",
+                            name="建立浏览器会话",
+                        ).click()
+                        page.get_by_text("浏览器会话已建立").wait_for()
+                        if page.get_by_text("ready").count() != 2:
                             raise RuntimeError(
-                                "WEB-BROWSER-STATUS: honest state is missing"
+                                "WEB-BROWSER-STATUS: authenticated state is missing"
                             )
+                        storage = page.evaluate(
+                            "() => JSON.parse("
+                            "sessionStorage.getItem('armi.browser-session.v1'))"
+                        )
+                        if storage != {
+                            "token": QuietHandler.session_token,
+                            "expiresAt": "2026-07-30T18:00:00.000000Z",
+                            "environmentId": QuietHandler.environment_id,
+                        }:
+                            raise RuntimeError(
+                                "SEC-WEB-STORAGE: browser session storage drifted"
+                            )
+                        if QuietHandler.session_token in page.content():
+                            raise RuntimeError(
+                                "SEC-WEB-TOKEN-DOM: session token reached the DOM"
+                            )
+                        page.reload(wait_until="networkidle")
+                        page.get_by_text("浏览器会话已建立").wait_for()
                         overflow = page.evaluate(
                             "() => document.documentElement.scrollWidth > "
                             "document.documentElement.clientWidth"
@@ -126,12 +217,26 @@ def main() -> int:
                             raise RuntimeError(
                                 "SEC-WEB-REQUEST: external browser request detected"
                             )
+                        page.get_by_role("button", name="注销").click()
+                        code_input = page.get_by_label("Bootstrap code")
+                        code_input.wait_for()
+                        if (
+                            page.evaluate(
+                                "() => sessionStorage.getItem("
+                                "'armi.browser-session.v1')"
+                            )
+                            is not None
+                        ):
+                            raise RuntimeError(
+                                "SEC-WEB-LOGOUT: logout retained browser session"
+                            )
                         results.append(
                             {
                                 "width": viewport["width"],
                                 "height": viewport["height"],
                                 "requests": len(requests),
                                 "horizontal_overflow": False,
+                                "session_flow": "pass",
                             }
                         )
                         page.close()

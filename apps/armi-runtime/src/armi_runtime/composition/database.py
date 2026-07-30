@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Final
+from uuid import UUID
 
 from armi_kernel.application import (
     CredentialPort,
@@ -11,6 +12,7 @@ from armi_kernel.application import (
     RuntimeFence,
 )
 
+from armi_runtime.adapters.creator_identity import read_creator_party_id
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
@@ -182,6 +184,30 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
         return ContinuityState.INVALID
 
 
+def inspect_creator_party_id(prepared: PreparedEnvironment) -> UUID | None:
+    """Read the unique born Creator identity without creating session state."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        return None
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def invoke(value: memoryview) -> UUID | None:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    return None
+                return read_creator_party_id(conninfo)
+
+            return handle.consume(invoke)
+    except ConfigurationViolation:
+        return None
+
+
 def compose_runtime_authority(
     prepared: PreparedEnvironment,
 ) -> PostgreSQLRuntimeAuthority:
@@ -289,6 +315,7 @@ __all__ = (
     "DatabaseViolation",
     "compose_runtime_authority",
     "compose_runtime_recovery",
+    "inspect_creator_party_id",
     "inspect_operator_schema",
     "inspect_runtime_continuity",
     "inspect_runtime_schema",
