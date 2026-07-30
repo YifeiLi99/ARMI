@@ -31,7 +31,6 @@ _SEAMS: Final = (
 )
 _BLOCKERS: Final = (
     ("CREATOR_SESSION_NOT_IMPLEMENTED", "M0-S018"),
-    ("RUNTIME_AUDIT_NOT_IMPLEMENTED", "M0-S013"),
     ("RUNTIME_AUTHORITY_NOT_IMPLEMENTED", "M0-S016"),
     ("RUNTIME_RECOVERY_NOT_IMPLEMENTED", "M0-S017"),
 )
@@ -47,6 +46,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0001_m0_baseline.sql",
     "migrations/0002_database_permissions.sql",
     "migrations/0003_content_addressed_artifacts.sql",
+    "migrations/0004_normal_audit_foundation.sql",
 )
 
 

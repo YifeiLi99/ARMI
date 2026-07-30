@@ -26,6 +26,7 @@ from armi_kernel.application import (
     ArtifactPolicy,
     ArtifactPrivacyScope,
     ArtifactViolation,
+    AuditQuery,
     CasStatus,
     LockPlan,
     LockTarget,
@@ -40,6 +41,7 @@ from armi_runtime.adapters.artifacts.content_store import (
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )
+from armi_runtime.adapters.persistence.audit_events import AuditEventRepository
 from armi_runtime.adapters.persistence.role_policy import (
     RoleBoundConnectionPool,
     physical_role_name,
@@ -57,6 +59,7 @@ from armi_runtime.cli import main
 from armi_runtime.composition.artifacts import (
     ContentAddressedArtifactCoordinator,
 )
+from armi_runtime.composition.audit import AuditQueryGateway
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -240,7 +243,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {3})
+        self.assertEqual({result.applied_version for result in results}, {4})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -307,7 +310,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 3)
+        self.assertEqual(result.applied_version, 4)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -322,6 +325,67 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
             ).fetchone()
         self.assertEqual(owners, ("armi_owner", "armi_owner"))
+
+    def test_existing_version_three_upgrades_only_normal_audit(self) -> None:
+        database, provisioner_dsn = self._raw_database()
+        fixture = self._bootstrap(
+            database=database,
+            provisioner_dsn=provisioner_dsn,
+            environment_id=_uuid7(),
+        )
+        gateway = PostgreSQLSchemaGateway()
+        with psycopg.connect(fixture.migrator_dsn, autocommit=True) as connection:
+            for version, name, digest, migration in gateway._packaged.migrations[:3]:
+                with connection.transaction():
+                    connection.execute("SET LOCAL ROLE armi_owner")
+                    connection.execute(
+                        sql.SQL(cast(LiteralString, migration.decode("utf-8")))
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO armi.schema_migrations
+                            (version, name, sha256, application_version)
+                        VALUES (%s, %s, %s, '0.0.0')
+                        """,
+                        (version, name, digest),
+                    )
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            before = connection.execute(
+                """
+                SELECT version, applied_at
+                FROM armi.schema_migrations
+                ORDER BY version
+                """
+            ).fetchall()
+            self.assertEqual([row[0] for row in before], [1, 2, 3])
+            self.assertEqual(
+                connection.execute(
+                    """
+                    SELECT to_regclass('armi.audit_events')
+                    """
+                ).fetchone(),
+                (None,),
+            )
+
+        result = gateway.upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+
+        self.assertEqual(result.applied_version, 4)
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            after = connection.execute(
+                """
+                SELECT version, applied_at
+                FROM armi.schema_migrations
+                ORDER BY version
+                """
+            ).fetchall()
+            audit_table = connection.execute(
+                "SELECT to_regclass('armi.audit_events')::text"
+            ).fetchone()
+        self.assertEqual(after[:3], before)
+        self.assertEqual(audit_table, ("armi.audit_events",))
 
     def test_failed_migration_rolls_back_schema_and_ledger(self) -> None:
         fixture = self.create_database()
@@ -368,7 +432,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(4,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(5,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -427,7 +491,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (3,),
+                    (4,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -613,7 +677,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(duplicate, first)
 
-                stream = await coordinator.open_verified(first.artifact_id)
+                stream = await coordinator.open_verified(
+                    first.artifact_id,
+                    trace_id=policy.producer_trace_id,
+                )
                 async with stream:
                     self.assertEqual(await stream.read(), b"authoritative-bytes")
 
@@ -644,7 +711,52 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 object_path.unlink()
                 with self.assertRaisesRegex(ArtifactViolation, "ART-MISSING"):
-                    await coordinator.open_verified(first.artifact_id)
+                    await coordinator.open_verified(
+                        first.artifact_id,
+                        trace_id=policy.producer_trace_id,
+                    )
+                query_result = await AuditQueryGateway(
+                    AuditEventRepository(),
+                    factory,
+                ).query(AuditQuery(trace_id=policy.producer_trace_id, limit=100))
+                self.assertFalse(query_result.truncated)
+                self.assertEqual(
+                    [record.draft.operation for record in query_result.records],
+                    [
+                        "artifact.catalog.registered",
+                        "artifact.integrity.missing",
+                    ],
+                )
+
+                def rename_audit_table(source: str, target: str) -> None:
+                    with psycopg.connect(
+                        fixture.provisioner_dsn,
+                        autocommit=True,
+                    ) as connection:
+                        connection.execute(
+                            sql.SQL("ALTER TABLE armi.{} RENAME TO {}").format(
+                                sql.Identifier(source),
+                                sql.Identifier(target),
+                            )
+                        )
+
+                await asyncio.to_thread(
+                    rename_audit_table,
+                    "audit_events",
+                    "audit_events_unavailable",
+                )
+                try:
+                    with self.assertRaisesRegex(ArtifactViolation, "ART-AUDIT"):
+                        await coordinator.put(
+                            _artifact_chunks(b"audit-must-be-atomic"),
+                            policy,
+                        )
+                finally:
+                    await asyncio.to_thread(
+                        rename_audit_table,
+                        "audit_events_unavailable",
+                        "audit_events",
+                    )
                 report = await coordinator.report_orphans()
                 return {
                     "content_digest": first.content_digest.value,
@@ -676,6 +788,25 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchall()
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0][1:], ("missing", "retained", None))
+            audit_rows = connection.execute(
+                """
+                SELECT operation, result_status, target_ref, artifact_digest
+                FROM armi.audit_events
+                ORDER BY occurred_at, audit_event_id
+                """
+            ).fetchall()
+            self.assertEqual(
+                [row[0] for row in audit_rows],
+                [
+                    "artifact.catalog.registered",
+                    "artifact.integrity.missing",
+                ],
+            )
+            self.assertTrue(all(row[1] == "applied" for row in audit_rows))
+            self.assertTrue(all(row[2] == rows[0][0] for row in audit_rows))
+            self.assertTrue(
+                all(row[3] == artifact_summary["content_digest"] for row in audit_rows)
+            )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("DELETE FROM armi.artifacts")
             connection.rollback()
@@ -683,11 +814,45 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute(
                     "UPDATE armi.artifacts SET logical_kind = 'forbidden'"
                 )
+            connection.rollback()
+            for statement in (
+                "UPDATE armi.audit_events SET operation = 'forbidden'",
+                "DELETE FROM armi.audit_events",
+                "TRUNCATE armi.audit_events",
+            ):
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    connection.execute(cast(LiteralString, statement))
+                connection.rollback()
         with (
             psycopg.connect(fixture.admin_role_dsn) as connection,
             self.assertRaises(psycopg.errors.InsufficientPrivilege),
         ):
             connection.execute("SELECT * FROM armi.artifacts").fetchall()
+        for dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
+            with (
+                psycopg.connect(dsn) as connection,
+                self.assertRaises(psycopg.errors.InsufficientPrivilege),
+            ):
+                connection.execute("SELECT * FROM armi.audit_events").fetchall()
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            public_access = connection.execute(
+                """
+                SELECT count(*)
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                CROSS JOIN LATERAL pg_catalog.aclexplode(
+                    COALESCE(
+                        relation.relacl,
+                        pg_catalog.acldefault('r', relation.relowner)
+                    )
+                ) AS acl
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relname = 'audit_events'
+                  AND acl.grantee = 0
+                """
+            ).fetchone()
+        self.assertEqual(public_access, (0,))
         artifact_summary_file = os.environ.get("S012_ARTIFACT_SUMMARY_FILE")
         if artifact_summary_file is not None:
             Path(artifact_summary_file).write_text(

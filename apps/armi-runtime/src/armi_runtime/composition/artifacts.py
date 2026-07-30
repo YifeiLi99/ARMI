@@ -12,10 +12,18 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
     ArtifactPolicy,
+    ArtifactPrivacyScope,
     ArtifactRef,
     ArtifactViolation,
+    AuditDraft,
+    AuditEventId,
+    AuditReference,
+    AuditResultStatus,
+    AuditSensitivity,
+    AuditViolation,
     LockPlan,
 )
+from armi_kernel.contracts import Purpose, TraceId
 
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
@@ -87,13 +95,24 @@ class ContentAddressedArtifactCoordinator:
         published = await self._storage.publish(staged)
         try:
             async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
-                return await self._catalog.register(
+                registration = await self._catalog.register(
                     unit_of_work,
                     ArtifactId(uuid7()),
                     published,
                 )
+                if registration.inserted:
+                    await unit_of_work.audit.append(
+                        self._audit_draft(
+                            operation="artifact.catalog.registered",
+                            ref=registration.ref,
+                            trace_id=policy.producer_trace_id,
+                        )
+                    )
+                return registration.ref
         except ArtifactViolation:
             raise
+        except AuditViolation:
+            raise ArtifactViolation("ART-AUDIT") from None
         except DatabaseTransactionError as error:
             code = (
                 "ART-COMMIT-UNKNOWN"
@@ -102,7 +121,14 @@ class ContentAddressedArtifactCoordinator:
             )
             raise ArtifactViolation(code) from None
 
-    async def open_verified(self, artifact_id: ArtifactId) -> VerifiedFileStream:
+    async def open_verified(
+        self,
+        artifact_id: ArtifactId,
+        *,
+        trace_id: TraceId,
+    ) -> VerifiedFileStream:
+        if type(trace_id) is not TraceId:
+            raise ArtifactViolation("ART-DECLARATION")
         ref = await self._get(artifact_id)
         if ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED:
             raise ArtifactViolation(
@@ -122,11 +148,21 @@ class ContentAddressedArtifactCoordinator:
             )
             try:
                 async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
-                    await self._catalog.mark_integrity(
+                    changed = await self._catalog.mark_integrity(
                         unit_of_work,
                         artifact_id,
                         status,
                     )
+                    if changed:
+                        await unit_of_work.audit.append(
+                            self._audit_draft(
+                                operation=f"artifact.integrity.{status.value}",
+                                ref=ref,
+                                trace_id=trace_id,
+                            )
+                        )
+            except AuditViolation:
+                raise ArtifactViolation("ART-AUDIT") from None
             except DatabaseTransactionError:
                 raise ArtifactViolation("ART-DATABASE") from None
             raise
@@ -177,6 +213,29 @@ class ContentAddressedArtifactCoordinator:
             raise
         except DatabaseTransactionError:
             raise ArtifactViolation("ART-DATABASE") from None
+
+    def _audit_draft(
+        self,
+        *,
+        operation: str,
+        ref: ArtifactRef,
+        trace_id: TraceId,
+    ) -> AuditDraft:
+        sensitivity = {
+            ArtifactPrivacyScope.PRIVATE: AuditSensitivity.PRIVATE,
+            ArtifactPrivacyScope.RESTRICTED: AuditSensitivity.RESTRICTED,
+        }.get(ref.privacy_scope, AuditSensitivity.INTERNAL)
+        return AuditDraft(
+            audit_event_id=AuditEventId(uuid7()),
+            actor=AuditReference("runtime", self._uow_factory.environment_id),
+            purpose=Purpose("artifact.catalog"),
+            operation=operation,
+            target=AuditReference("artifact", ref.artifact_id.value),
+            result_status=AuditResultStatus.APPLIED,
+            trace_id=trace_id,
+            sensitivity=sensitivity,
+            artifact_digest=ref.content_digest,
+        )
 
 
 __all__ = (

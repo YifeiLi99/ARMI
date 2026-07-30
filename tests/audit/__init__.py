@@ -1,0 +1,1 @@
+"""Normal audit contract tests."""

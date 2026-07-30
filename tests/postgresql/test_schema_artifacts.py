@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 3})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 4})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3],
+            [1, 2, 3, 4],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -71,7 +71,7 @@ class SchemaArtifactTests(unittest.TestCase):
         )
         self.assertEqual(
             [item["name"] for item in manifest["allowed_objects"]],
-            ["armi.schema_migrations", "armi.artifacts"],
+            ["armi.schema_migrations", "armi.artifacts", "armi.audit_events"],
         )
         self.assertNotIn("manifest_sha256", manifest)
 
@@ -125,6 +125,31 @@ class SchemaArtifactTests(unittest.TestCase):
         )
         self.assertEqual(role_manifest["security_definer"]["entries"], [])
         self.assertEqual(role_manifest["default_privileges"], [])
+
+    def test_audit_migration_has_only_the_append_only_s013_surface(self) -> None:
+        sql = Path("schema/migrations/0004_normal_audit_foundation.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(sql.count("CREATE TABLE"), 1)
+        self.assertIn("CREATE TABLE armi.audit_events", sql)
+        self.assertNotIn("JSONB", sql.upper())
+        self.assertIn("GRANT INSERT (", sql)
+        self.assertIn("GRANT SELECT ON TABLE armi.audit_events TO armi_runtime", sql)
+        self.assertNotRegex(
+            sql,
+            re.compile(
+                r"(?i)\b(?:UPDATE|DELETE|TRUNCATE)\s+ON\s+(?:TABLE\s+)?"
+                r"armi\.audit_events\s+TO\s+armi_runtime\b"
+            ),
+        )
+        self.assertNotRegex(
+            sql,
+            re.compile(
+                r"(?i)\b(?:durable_work|outbox_items|"
+                r"CREATE\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
+                r"ALTER\s+DEFAULT\s+PRIVILEGES|SECURITY\s+DEFINER)\b"
+            ),
+        )
 
     def test_runtime_module_has_no_upgrade_reference(self) -> None:
         source = Path(

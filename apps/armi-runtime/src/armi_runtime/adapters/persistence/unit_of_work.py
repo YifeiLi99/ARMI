@@ -12,6 +12,7 @@ from uuid import UUID
 
 import psycopg
 from armi_kernel.application import (
+    AuditWriter,
     BeforeCommitHook,
     LockPlan,
     LockTarget,
@@ -29,6 +30,8 @@ from armi_runtime.adapters.transaction_errors import (
     DatabaseTransactionError,
     map_database_error,
 )
+
+from .audit_events import PostgreSQLAuditWriter
 
 _SEARCH_PATH = "pg_catalog, armi"
 _ACTIVE_UOW: ContextVar[PostgreSQLUnitOfWork | None] = ContextVar(
@@ -171,6 +174,10 @@ class PostgreSQLUnitOfWorkFactory:
     async def close(self) -> None:
         await self._pool.close()
 
+    @property
+    def environment_id(self) -> UUID:
+        return self._environment_id
+
     def unit_of_work(
         self,
         lock_plan: LockPlan,
@@ -196,6 +203,7 @@ class PostgreSQLUnitOfWork:
     __slots__ = (
         "_acquire_timeout_seconds",
         "_active_token",
+        "_audit",
         "_before_commit",
         "_committed_actions",
         "_connection",
@@ -239,6 +247,7 @@ class PostgreSQLUnitOfWork:
         self._statement_timeout_milliseconds = statement_timeout_milliseconds
         self._acquire_timeout_seconds = acquire_timeout_seconds
         self._state = _State.NEW
+        self._audit: PostgreSQLAuditWriter | None = None
         self._connection: psycopg.AsyncConnection[tuple[Any, ...]] | None = None
         self._transaction: Any = None
         self._active_token: Token[PostgreSQLUnitOfWork | None] | None = None
@@ -246,6 +255,12 @@ class PostgreSQLUnitOfWork:
         self._deferred_actions: list[PostCommitAction] = []
         self._committed_actions: tuple[PostCommitAction, ...] = ()
         self._rollback_requested = False
+
+    @property
+    def audit(self) -> AuditWriter:
+        self._require_active()
+        assert self._audit is not None
+        return self._audit
 
     @property
     def lock_plan(self) -> LockPlan:
@@ -284,6 +299,7 @@ class PostgreSQLUnitOfWork:
             self._transaction = self._connection.transaction()
             await self._transaction.__aenter__()
             await self._set_transaction_characteristics()
+            self._audit = PostgreSQLAuditWriter(self._connection)
             for target in self._lock_plan.targets:
                 await self._lock_acquirer(self._connection, target)
         except BaseException as error:
@@ -414,6 +430,7 @@ class PostgreSQLUnitOfWork:
         if self._connection is not None:
             connection = self._connection
             self._connection = None
+            self._audit = None
             await self._pool.putconn(connection)
 
     def _connection_for_repository(

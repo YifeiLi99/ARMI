@@ -30,6 +30,7 @@ _SCHEMA_FILES = (
     "migrations/0001_m0_baseline.sql",
     "migrations/0002_database_permissions.sql",
     "migrations/0003_content_addressed_artifacts.sql",
+    "migrations/0004_normal_audit_foundation.sql",
 )
 
 

@@ -84,6 +84,26 @@ class ArchitecturePolicyTests(unittest.TestCase):
         )
         self.assertIn("ARC-OWNER-TRANSACTION-CONTROL", codes)
 
+    def test_normal_audit_cannot_be_read_or_written_from_common_context(self) -> None:
+        policy = {
+            **BASE_POLICY,
+            "write_surfaces": [
+                {
+                    "id": "normal-audit",
+                    "module": "armi_runtime.adapters.persistence.audit_events",
+                    "owner": "normal-audit",
+                    "allowed_callers": ["armi_runtime.composition.audit"],
+                }
+            ],
+            "write_surfaces_not_applicable_reason": "",
+        }
+        codes = self.codes(
+            "from armi_runtime.adapters.persistence import audit_events\n",
+            module="armi_runtime.application.context_query",
+            policy=policy,
+        )
+        self.assertIn("ARC-OWNER-CROSS-WRITE", codes)
+
     def test_registered_coordinator_can_control_transaction(self) -> None:
         module = "armi_runtime.adapters.persistence.unit_of_work"
         policy = {

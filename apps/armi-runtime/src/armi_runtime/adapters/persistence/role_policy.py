@@ -380,6 +380,15 @@ class PostgreSQLRolePolicyGateway:
                     has_table_privilege(
                         'armi_runtime', 'armi.artifacts', 'DELETE'
                     ),
+                    has_table_privilege(
+                        'armi_runtime', 'armi.audit_events', 'SELECT'
+                    ),
+                    has_table_privilege(
+                        'armi_runtime', 'armi.audit_events', 'UPDATE'
+                    ),
+                    has_table_privilege(
+                        'armi_runtime', 'armi.audit_events', 'DELETE'
+                    ),
                     has_schema_privilege('armi_admin', 'armi', 'USAGE'),
                     has_schema_privilege('armi_admin', 'armi', 'CREATE'),
                     has_table_privilege(
@@ -388,6 +397,9 @@ class PostgreSQLRolePolicyGateway:
                     has_table_privilege(
                         'armi_admin', 'armi.artifacts', 'SELECT'
                     ),
+                    has_table_privilege(
+                        'armi_admin', 'armi.audit_events', 'SELECT'
+                    ),
                     has_schema_privilege('armi_migrator', 'armi', 'USAGE'),
                     has_schema_privilege('armi_migrator', 'armi', 'CREATE'),
                     has_table_privilege(
@@ -395,12 +407,16 @@ class PostgreSQLRolePolicyGateway:
                     ),
                     has_table_privilege(
                         'armi_migrator', 'armi.artifacts', 'SELECT'
+                    ),
+                    has_table_privilege(
+                        'armi_migrator', 'armi.audit_events', 'SELECT'
                     )
                 """
             ).fetchone()
             column_grants = connection.execute(
                 """
                 SELECT
+                    relation.relname,
                     attribute.attname,
                     acl.privilege_type,
                     COALESCE(grantee_role.rolname, 'PUBLIC')
@@ -413,10 +429,10 @@ class PostgreSQLRolePolicyGateway:
                 LEFT JOIN pg_catalog.pg_roles AS grantee_role
                   ON grantee_role.oid = acl.grantee
                 WHERE namespace.nspname = 'armi'
-                  AND relation.relname = 'artifacts'
+                  AND relation.relname IN ('artifacts', 'audit_events')
                   AND attribute.attnum > 0
                   AND NOT attribute.attisdropped
-                ORDER BY attribute.attname, acl.privilege_type,
+                ORDER BY relation.relname, attribute.attname, acl.privilege_type,
                          COALESCE(grantee_role.rolname, 'PUBLIC')
                 """
             ).fetchall()
@@ -434,7 +450,11 @@ class PostgreSQLRolePolicyGateway:
             raise DatabaseViolation(
                 "DB-ROLE-GRANT", "database object grants are unavailable"
             ) from None
-        if owners != (True, True, ["artifacts", "schema_migrations"]):
+        if owners != (
+            True,
+            True,
+            ["artifacts", "audit_events", "schema_migrations"],
+        ):
             raise DatabaseViolation(
                 "DB-ROLE-OWNER", "database object ownership has drifted"
             )
@@ -451,18 +471,23 @@ class PostgreSQLRolePolicyGateway:
             False,
             True,
             False,
-            True,
             False,
             True,
             False,
             True,
+            False,
+            False,
+            True,
+            False,
+            True,
+            False,
             False,
         ):
             raise DatabaseViolation(
                 "DB-ROLE-GRANT", "database object grants have drifted"
             )
         expected_column_grants = {
-            (column, "INSERT", "armi_runtime")
+            ("artifacts", column, "INSERT", "armi_runtime")
             for column in (
                 "artifact_id",
                 "byte_size",
@@ -476,10 +501,43 @@ class PostgreSQLRolePolicyGateway:
                 "storage_locator",
             )
         }
-        expected_column_grants.add(("integrity_status", "UPDATE", "armi_runtime"))
+        expected_column_grants.add(
+            ("artifacts", "integrity_status", "UPDATE", "armi_runtime")
+        )
+        expected_column_grants.update(
+            {
+                ("audit_events", column, "INSERT", "armi_runtime")
+                for column in (
+                    "actor_kind",
+                    "actor_ref",
+                    "after_version",
+                    "artifact_digest",
+                    "audit_event_id",
+                    "before_version",
+                    "bundle_digest",
+                    "details_digest",
+                    "error_category",
+                    "grant_ref",
+                    "operation",
+                    "policy_ref",
+                    "purpose",
+                    "request_digest",
+                    "request_kind",
+                    "request_ref",
+                    "response_digest",
+                    "result_status",
+                    "schema_version",
+                    "sensitivity",
+                    "subject_id",
+                    "target_kind",
+                    "target_ref",
+                    "trace_id",
+                )
+            }
+        )
         if {
-            (str(column), str(privilege), str(grantee))
-            for column, privilege, grantee in column_grants
+            (str(table), str(column), str(privilege), str(grantee))
+            for table, column, privilege, grantee in column_grants
         } != expected_column_grants:
             raise DatabaseViolation(
                 "DB-ROLE-GRANT", "artifact column grants have drifted"

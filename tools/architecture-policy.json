@@ -36,6 +36,15 @@
       "module": "armi_runtime.adapters.persistence.artifact_catalog",
       "owner": "artifact-catalog",
       "allowed_callers": ["armi_runtime.composition.artifacts"]
+    },
+    {
+      "id": "normal-audit",
+      "module": "armi_runtime.adapters.persistence.audit_events",
+      "owner": "normal-audit",
+      "allowed_callers": [
+        "armi_runtime.adapters.persistence.unit_of_work",
+        "armi_runtime.composition.audit"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -44,13 +53,13 @@
       "id": "runtime-unit-of-work",
       "module": "armi_runtime.adapters.persistence.unit_of_work",
       "owner": "transaction-coordination",
-      "allowed_write_surfaces": []
+      "allowed_write_surfaces": ["normal-audit"]
     },
     {
       "id": "artifact-registration",
       "module": "armi_runtime.composition.artifacts",
       "owner": "artifact-catalog",
-      "allowed_write_surfaces": ["artifact-catalog"]
+      "allowed_write_surfaces": ["artifact-catalog", "normal-audit"]
     }
   ],
   "named_coordinators_not_applicable_reason": "",

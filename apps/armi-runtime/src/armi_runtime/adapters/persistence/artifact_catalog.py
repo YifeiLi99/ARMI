@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from armi_kernel.application import (
@@ -29,6 +30,12 @@ _SELECT_COLUMNS = """
 """
 
 
+@dataclass(frozen=True, slots=True)
+class ArtifactRegistration:
+    ref: ArtifactRef
+    inserted: bool
+
+
 class ArtifactCatalogRepository:
     """Register and read immutable metadata through an existing UoW."""
 
@@ -39,7 +46,7 @@ class ArtifactCatalogRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         artifact_id: ArtifactId,
         published: PublishedArtifact,
-    ) -> ArtifactRef:
+    ) -> ArtifactRegistration:
         if (
             type(unit_of_work) is not PostgreSQLUnitOfWork
             or type(artifact_id) is not ArtifactId
@@ -81,6 +88,7 @@ class ArtifactCatalogRepository:
             ),
         )
         row = await cursor.fetchone()
+        inserted = row is not None
         if row is None:
             cursor = await connection.execute(
                 f"""
@@ -102,7 +110,7 @@ class ArtifactCatalogRepository:
             or ref.schema_version != published.policy.schema_version
         ):
             raise ArtifactViolation("ART-METADATA-CONFLICT")
-        return ref
+        return ArtifactRegistration(ref, inserted)
 
     async def get(
         self,
@@ -149,7 +157,7 @@ class ArtifactCatalogRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         artifact_id: ArtifactId,
         status: ArtifactIntegrityStatus,
-    ) -> None:
+    ) -> bool:
         if (
             type(unit_of_work) is not PostgreSQLUnitOfWork
             or type(artifact_id) is not ArtifactId
@@ -172,6 +180,7 @@ class ArtifactCatalogRepository:
         )
         if cursor.rowcount not in (0, 1):
             raise ArtifactViolation("ART-DATABASE")
+        return cursor.rowcount == 1
 
 
 def _row_to_ref(row: Sequence[Any]) -> ArtifactRef:
@@ -190,4 +199,7 @@ def _row_to_ref(row: Sequence[Any]) -> ArtifactRef:
         raise ArtifactViolation("ART-DATABASE") from None
 
 
-__all__ = ("ArtifactCatalogRepository",)
+__all__ = (
+    "ArtifactCatalogRepository",
+    "ArtifactRegistration",
+)

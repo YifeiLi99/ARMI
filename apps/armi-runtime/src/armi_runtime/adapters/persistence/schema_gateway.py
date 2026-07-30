@@ -49,10 +49,38 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("deleted_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
     ),
+    "audit_events": (
+        ("audit_event_id", "uuid", True),
+        ("actor_kind", "text", True),
+        ("actor_ref", "uuid", True),
+        ("purpose", "text", True),
+        ("operation", "text", True),
+        ("target_kind", "text", True),
+        ("target_ref", "uuid", True),
+        ("result_status", "text", True),
+        ("trace_id", "text", True),
+        ("sensitivity", "text", True),
+        ("subject_id", "uuid", False),
+        ("request_kind", "text", False),
+        ("request_ref", "uuid", False),
+        ("before_version", "bigint", False),
+        ("after_version", "bigint", False),
+        ("request_digest", "text", False),
+        ("response_digest", "text", False),
+        ("artifact_digest", "text", False),
+        ("details_digest", "text", False),
+        ("policy_ref", "uuid", False),
+        ("grant_ref", "uuid", False),
+        ("bundle_digest", "text", False),
+        ("error_category", "text", False),
+        ("schema_version", "smallint", True),
+        ("occurred_at", "timestamp(6) with time zone", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
     "artifacts": tuple(sorted((*("c",) * 13, *("n",) * 13, "p", "u", "u"))),
+    "audit_events": tuple(sorted((*("c",) * 27, *("n",) * 12, "p"))),
 }
 
 
@@ -393,6 +421,9 @@ class PostgreSQLSchemaGateway:
         if applied_version >= 3:
             expected_objects.insert(0, ("artifacts", "r"))
             expected_tables.insert(0, "artifacts")
+        if applied_version >= 4:
+            expected_objects.insert(1, ("audit_events", "r"))
+            expected_tables.insert(1, "audit_events")
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",

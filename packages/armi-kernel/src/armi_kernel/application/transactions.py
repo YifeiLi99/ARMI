@@ -8,6 +8,8 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from .auditing import AuditWriter
+
 _ACTION_KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
 
@@ -132,6 +134,11 @@ class PostCommitAction:
 
 @runtime_checkable
 class UnitOfWork(Protocol):
+    @property
+    def audit(self) -> AuditWriter:
+        """Return the writer bound to this Unit of Work transaction."""
+        ...
+
     @property
     def lock_plan(self) -> LockPlan:
         """Return the canonical lock plan selected before the transaction."""

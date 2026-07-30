@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,16 +14,20 @@ from armi_runtime.interfaces.creator_contract import Readiness, RuntimeState
 
 from .runtime_errors import RuntimeViolation
 
-S009_BLOCKING_REASONS = (
+RUNTIME_BLOCKING_REASONS = (
     "CREATOR_SESSION_NOT_IMPLEMENTED",
-    "RUNTIME_AUDIT_NOT_IMPLEMENTED",
     "RUNTIME_AUTHORITY_NOT_IMPLEMENTED",
     "RUNTIME_RECOVERY_NOT_IMPLEMENTED",
 )
+_REASON = re.compile(r"^[A-Z][A-Z0-9_]{2,127}$", re.ASCII)
 
 _ALLOWED_TRANSITIONS = {
     RuntimeState.STOPPED: frozenset({RuntimeState.STARTING}),
-    RuntimeState.STARTING: frozenset({RuntimeState.BLOCKED}),
+    RuntimeState.STARTING: frozenset(
+        {RuntimeState.READY, RuntimeState.DEGRADED, RuntimeState.BLOCKED}
+    ),
+    RuntimeState.READY: frozenset({RuntimeState.DEGRADED, RuntimeState.DRAINING}),
+    RuntimeState.DEGRADED: frozenset({RuntimeState.DRAINING}),
     RuntimeState.BLOCKED: frozenset({RuntimeState.DRAINING}),
     RuntimeState.DRAINING: frozenset({RuntimeState.STOPPED}),
 }
@@ -57,10 +62,35 @@ class LifecycleController:
     def start(self) -> RuntimeSnapshot:
         return self._transition(RuntimeState.STARTING, ())
 
-    def block(
-        self, reasons: tuple[str, ...] = S009_BLOCKING_REASONS
+    def complete_startup(
+        self,
+        blockers: tuple[str, ...] = RUNTIME_BLOCKING_REASONS,
     ) -> RuntimeSnapshot:
-        return self._transition(RuntimeState.BLOCKED, reasons)
+        with self._lock:
+            degradations = self._reasons
+        if blockers:
+            return self._transition(
+                RuntimeState.BLOCKED,
+                (*blockers, *degradations),
+            )
+        if degradations:
+            return self._transition(RuntimeState.DEGRADED, degradations)
+        return self._transition(RuntimeState.READY, ())
+
+    def block(
+        self,
+        reasons: tuple[str, ...] = RUNTIME_BLOCKING_REASONS,
+    ) -> RuntimeSnapshot:
+        return self.complete_startup(reasons)
+
+    def add_degradation(self, reason: str) -> RuntimeSnapshot:
+        if type(reason) is not str or _REASON.fullmatch(reason) is None:
+            raise RuntimeViolation("LIFE-REASON", "lifecycle reason is invalid")
+        with self._lock:
+            self._reasons = tuple(sorted({*self._reasons, reason}))
+            if self._state is RuntimeState.READY:
+                self._state = RuntimeState.DEGRADED
+            return self._snapshot_unlocked()
 
     def drain(self) -> RuntimeSnapshot:
         with self._lock:
@@ -111,7 +141,7 @@ class LifecycleController:
 
 
 __all__ = (
-    "S009_BLOCKING_REASONS",
+    "RUNTIME_BLOCKING_REASONS",
     "LifecycleController",
     "RuntimeSnapshot",
 )

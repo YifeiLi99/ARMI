@@ -30,7 +30,7 @@ FROM (
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
                   AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-            ) <> 2
+            ) <> 3
         ),
         (
             'DB-SCHEMA-MISSING',
@@ -41,6 +41,18 @@ FROM (
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
                   AND relation.relname = 'artifacts'
+                  AND relation.relkind = 'r'
+            )
+        ),
+        (
+            'DB-SCHEMA-MISSING',
+            NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relname = 'audit_events'
                   AND relation.relkind = 'r'
             )
         )
