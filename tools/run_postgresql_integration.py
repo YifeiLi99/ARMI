@@ -39,6 +39,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--tool-root", type=Path, default=Path(".armi-tools"))
     parser.add_argument("--summary-file", type=Path)
+    parser.add_argument("--artifact-summary-file", type=Path)
     args = parser.parse_args(argv)
     root = args.root.resolve()
     tool_root = (root / args.tool_root).resolve()
@@ -101,6 +102,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if args.summary_file is not None:
                 environment["S009_SUMMARY_FILE"] = str(args.summary_file.resolve())
+            if args.artifact_summary_file is not None:
+                environment["S012_ARTIFACT_SUMMARY_FILE"] = str(
+                    args.artifact_summary_file.resolve()
+                )
             completed = subprocess.run(
                 [
                     sys.executable,

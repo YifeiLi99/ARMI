@@ -8,6 +8,12 @@
           "exclusiveMinimum": 0,
           "title": "Max Object Bytes",
           "type": "integer"
+        },
+        "orphan_grace_seconds": {
+          "default": 86400,
+          "exclusiveMinimum": 0,
+          "title": "Orphan Grace Seconds",
+          "type": "integer"
         }
       },
       "title": "ArtifactsConfig",
@@ -264,7 +270,8 @@
     "artifacts": {
       "$ref": "#/$defs/ArtifactsConfig",
       "default": {
-        "max_object_bytes": 104857600
+        "max_object_bytes": 104857600,
+        "orphan_grace_seconds": 86400
       }
     },
     "codex": {

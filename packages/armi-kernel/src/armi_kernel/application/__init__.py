@@ -1,5 +1,17 @@
 """Application boundary for ARMI use cases and ports."""
 
+from .artifacts import (
+    ArtifactId,
+    ArtifactIntegrityStatus,
+    ArtifactPolicy,
+    ArtifactPort,
+    ArtifactPrivacyScope,
+    ArtifactRef,
+    ArtifactViolation,
+    PublishedArtifact,
+    StagedArtifact,
+    VerifiedByteStream,
+)
 from .credentials import (
     CredentialLocator,
     CredentialPort,
@@ -19,6 +31,13 @@ from .transactions import (
 )
 
 __all__ = (
+    "ArtifactId",
+    "ArtifactIntegrityStatus",
+    "ArtifactPolicy",
+    "ArtifactPort",
+    "ArtifactPrivacyScope",
+    "ArtifactRef",
+    "ArtifactViolation",
     "BeforeCommitHook",
     "CasStatus",
     "CredentialLocator",
@@ -28,8 +47,11 @@ __all__ = (
     "LockTarget",
     "LockTargetKind",
     "PostCommitAction",
+    "PublishedArtifact",
     "SecretHandle",
+    "StagedArtifact",
     "TransactionIsolation",
     "UnitOfWork",
+    "VerifiedByteStream",
     "classify_cas_rows",
 )

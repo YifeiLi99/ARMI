@@ -7,7 +7,7 @@ from contextlib import suppress
 from contextvars import ContextVar, Token
 from enum import StrEnum
 from types import TracebackType
-from typing import Any, Protocol, Self
+from typing import Any, Literal, Protocol, Self
 from uuid import UUID
 
 import psycopg
@@ -304,7 +304,7 @@ class PostgreSQLUnitOfWork:
         exception_type: type[BaseException] | None,
         exception: BaseException | None,
         traceback: TracebackType | None,
-    ) -> bool:
+    ) -> Literal[False]:
         if self._state is not _State.ACTIVE or self._connection is None:
             raise _transaction_error("DB-TX-STATE")
         try:

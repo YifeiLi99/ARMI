@@ -97,6 +97,10 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
         ("artifacts", "max_object_bytes"),
         "integer",
     ),
+    "ARMI_ARTIFACT_ORPHAN_GRACE_SECONDS": (
+        ("artifacts", "orphan_grace_seconds"),
+        "integer",
+    ),
     "ARMI_GRACEFUL_SHUTDOWN_SECONDS": (
         ("lifecycle", "graceful_shutdown_seconds"),
         "integer",

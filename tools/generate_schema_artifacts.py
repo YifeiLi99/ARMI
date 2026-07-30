@@ -150,12 +150,42 @@ def build_role_manifest() -> dict[str, object]:
                     "armi_migrator": ["SELECT"],
                 },
             },
+            {
+                "kind": "table",
+                "name": "armi.artifacts",
+                "owner": "armi_owner",
+                "public_privileges": [],
+                "grants": {
+                    "armi_runtime": ["SELECT"],
+                    "armi_admin": [],
+                    "armi_migrator": [],
+                },
+                "column_grants": {
+                    "armi_runtime": {
+                        "INSERT": [
+                            "artifact_id",
+                            "content_digest",
+                            "media_type",
+                            "byte_size",
+                            "storage_locator",
+                            "logical_kind",
+                            "producer_kind",
+                            "producer_trace_id",
+                            "privacy_scope",
+                            "schema_version",
+                        ],
+                        "UPDATE": ["integrity_status"],
+                    },
+                    "armi_admin": {},
+                    "armi_migrator": {},
+                },
+            },
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S010 has no business or administration function requiring "
+                "M0-S012 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -223,10 +253,15 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "name": "armi.schema_migrations",
                 "logical_owner": "schema-governance",
                 "activation_step": "M0-S009",
-            }
+            },
+            {
+                "kind": "table",
+                "name": "armi.artifacts",
+                "logical_owner": "artifact-catalog",
+                "activation_step": "M0-S012",
+            },
         ],
         "deferred_objects": [
-            {"scope": "artifacts", "activation_step": "M0-S012"},
             {"scope": "audit_events", "activation_step": "M0-S013"},
             {"scope": "durable_work", "activation_step": "M0-S014"},
             {"scope": "outbox_items", "activation_step": "M0-S015"},

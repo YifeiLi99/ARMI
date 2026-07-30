@@ -1,4 +1,4 @@
-"""Verify that a Runtime wheel contains the generated S009 schema mirror."""
+"""Verify that a Runtime wheel contains the generated schema mirror."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ _FILES = (
     "manifests/schema-manifest.json",
     "migrations/0001_m0_baseline.sql",
     "migrations/0002_database_permissions.sql",
+    "migrations/0003_content_addressed_artifacts.sql",
 )
 
 

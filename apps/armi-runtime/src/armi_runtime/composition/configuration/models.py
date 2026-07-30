@@ -173,6 +173,7 @@ class CreatorConfig(_FrozenModel):
 
 class ArtifactsConfig(_FrozenModel):
     max_object_bytes: PositiveInt = 104_857_600
+    orphan_grace_seconds: PositiveInt = 86_400
 
 
 class LifecycleConfig(_FrozenModel):

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
@@ -22,12 +23,22 @@ from uuid import UUID
 import psycopg
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_kernel.application import (
+    ArtifactPolicy,
+    ArtifactPrivacyScope,
+    ArtifactViolation,
     CasStatus,
     LockPlan,
     LockTarget,
     LockTargetKind,
     PostCommitAction,
     classify_cas_rows,
+)
+from armi_kernel.contracts import TraceId
+from armi_runtime.adapters.artifacts.content_store import (
+    ContentAddressedArtifactStore,
+)
+from armi_runtime.adapters.persistence.artifact_catalog import (
+    ArtifactCatalogRepository,
 )
 from armi_runtime.adapters.persistence.role_policy import (
     RoleBoundConnectionPool,
@@ -43,6 +54,9 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 from armi_runtime.cli import main
+from armi_runtime.composition.artifacts import (
+    ContentAddressedArtifactCoordinator,
+)
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -55,6 +69,11 @@ def _uuid7() -> UUID:
     value[6] = (value[6] & 0x0F) | 0x70
     value[8] = (value[8] & 0x3F) | 0x80
     return UUID(bytes=bytes(value))
+
+
+async def _artifact_chunks(*values: bytes) -> AsyncIterator[bytes]:
+    for value in values:
+        yield value
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +240,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {2})
+        self.assertEqual({result.applied_version for result in results}, {3})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -288,7 +307,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 2)
+        self.assertEqual(result.applied_version, 3)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -349,7 +368,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(3,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(4,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -408,7 +427,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (2,),
+                    (3,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -538,6 +557,149 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(raised.exception.code, "DB-PG-VERSION")
+
+    def test_artifact_registration_reuse_verified_read_and_role_grants(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+
+        async def reject_unexpected_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("artifact registration must not invent lock targets")
+
+        async def exercise(root: Path) -> dict[str, object]:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_unexpected_lock,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=1,
+                statement_timeout_seconds=5,
+            )
+            storage = ContentAddressedArtifactStore(
+                root,
+                max_object_bytes=1024,
+            )
+            coordinator = ContentAddressedArtifactCoordinator(
+                storage,
+                ArtifactCatalogRepository(),
+                factory,
+                orphan_grace_seconds=86_400,
+            )
+            policy = ArtifactPolicy(
+                media_type="application/octet-stream",
+                logical_kind="test.payload",
+                producer_kind="integration-test",
+                producer_trace_id=TraceId("1" + ("0" * 31)),
+                privacy_scope=ArtifactPrivacyScope.PRIVATE,
+            )
+            await factory.open()
+            try:
+                first, duplicate = await asyncio.gather(
+                    coordinator.put(
+                        _artifact_chunks(b"authoritative", b"-bytes"),
+                        policy,
+                    ),
+                    coordinator.put(
+                        _artifact_chunks(b"authoritative-bytes"),
+                        policy,
+                    ),
+                )
+                self.assertEqual(duplicate, first)
+
+                stream = await coordinator.open_verified(first.artifact_id)
+                async with stream:
+                    self.assertEqual(await stream.read(), b"authoritative-bytes")
+
+                conflicting = ArtifactPolicy(
+                    media_type=policy.media_type,
+                    logical_kind="test.other",
+                    producer_kind=policy.producer_kind,
+                    producer_trace_id=policy.producer_trace_id,
+                    privacy_scope=policy.privacy_scope,
+                )
+                with self.assertRaisesRegex(
+                    ArtifactViolation,
+                    "ART-METADATA-CONFLICT",
+                ):
+                    await coordinator.put(
+                        _artifact_chunks(b"authoritative-bytes"),
+                        conflicting,
+                    )
+
+                digest_hex = first.content_digest.value.removeprefix("sha256:")
+                object_path = (
+                    root
+                    / "objects"
+                    / "sha256"
+                    / digest_hex[:2]
+                    / digest_hex[2:4]
+                    / digest_hex
+                )
+                object_path.unlink()
+                with self.assertRaisesRegex(ArtifactViolation, "ART-MISSING"):
+                    await coordinator.open_verified(first.artifact_id)
+                report = await coordinator.report_orphans()
+                return {
+                    "content_digest": first.content_digest.value,
+                    "finding_categories": [
+                        finding.category for finding in report.findings
+                    ],
+                    "finding_digests": [
+                        finding.content_digest for finding in report.findings
+                    ],
+                    "finding_counts": dict(report.counts),
+                }
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            artifact_summary = asyncio.run(
+                exercise(Path(temporary).resolve() / "artifacts"),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            rows = connection.execute(
+                """
+                SELECT artifact_id, integrity_status, retention_status, deleted_at
+                FROM armi.artifacts
+                """
+            ).fetchall()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][1:], ("missing", "retained", None))
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("DELETE FROM armi.artifacts")
+            connection.rollback()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute(
+                    "UPDATE armi.artifacts SET logical_kind = 'forbidden'"
+                )
+        with (
+            psycopg.connect(fixture.admin_role_dsn) as connection,
+            self.assertRaises(psycopg.errors.InsufficientPrivilege),
+        ):
+            connection.execute("SELECT * FROM armi.artifacts").fetchall()
+        artifact_summary_file = os.environ.get("S012_ARTIFACT_SUMMARY_FILE")
+        if artifact_summary_file is not None:
+            Path(artifact_summary_file).write_text(
+                json.dumps(
+                    artifact_summary,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
 
     def _prepare_s011_schema(self, fixture: DatabaseFixture) -> None:
         PostgreSQLSchemaGateway().upgrade(

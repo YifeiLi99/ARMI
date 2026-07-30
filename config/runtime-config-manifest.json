@@ -2,7 +2,7 @@
   "defaults": {
     "contains_secrets": false,
     "path": "config/runtime.defaults.toml",
-    "sha256": "28b8206b35c80a19c25efdaaf2cb05cd39d87e183972ee1fa620c985c57e6cc5"
+    "sha256": "137d9d4cc56757da4adebf4b6aa1de2f7a2eda641f8ff79712ff2985304891cb"
   },
   "effective_digest": {
     "algorithm": "sha256",
@@ -20,6 +20,11 @@
     "ARMI_ARTIFACT_MAX_BYTES": {
       "env_overridable": true,
       "path": "artifacts.max_object_bytes",
+      "type": "integer"
+    },
+    "ARMI_ARTIFACT_ORPHAN_GRACE_SECONDS": {
+      "env_overridable": true,
+      "path": "artifacts.orphan_grace_seconds",
       "type": "integer"
     },
     "ARMI_CODEX_CONCURRENCY": {
@@ -166,7 +171,7 @@
   "runtime_business_contract": false,
   "schema": {
     "path": "config/runtime.schema.json",
-    "sha256": "e46db60556f8175fd31218dd66a189f4ae8fcc76b9f6559f6897646e9f33edde"
+    "sha256": "a2926e863c64f0f732962ed16e55fcc6672f61abbaa47052eff19c307a72e930"
   },
   "schema_version": "armi.runtime-config.v1",
   "secret_locator_schemes": {

@@ -65,10 +65,14 @@ class RuntimeConfigurationTests(unittest.TestCase):
             effective = self.load(
                 root,
                 extra="\n[database]\npool_max = 20\n",
-                environment={"ARMI_DB_POOL_MAX": "24"},
+                environment={
+                    "ARMI_DB_POOL_MAX": "24",
+                    "ARMI_ARTIFACT_ORPHAN_GRACE_SECONDS": "172800",
+                },
             )
         self.assertEqual(effective.config.database.pool_min, 2)
         self.assertEqual(effective.config.database.pool_max, 24)
+        self.assertEqual(effective.config.artifacts.orphan_grace_seconds, 172_800)
         self.assertEqual(
             effective.applied_sources,
             ("defaults.toml", "environment.toml", "explicit-environment"),

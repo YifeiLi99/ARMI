@@ -25,13 +25,35 @@ _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 _SCHEMA_RESOURCE = "schema"
 _APPLICATION_VERSION = "0.0.0"
 _ADVISORY_LOCK: Final = 4_701_932_009
-_EXPECTED_COLUMNS: Final = (
-    ("version", "bigint", True),
-    ("name", "text", True),
-    ("sha256", "text", True),
-    ("applied_at", "timestamp(6) with time zone", True),
-    ("application_version", "text", True),
-)
+_EXPECTED_TABLE_COLUMNS: Final = {
+    "schema_migrations": (
+        ("version", "bigint", True),
+        ("name", "text", True),
+        ("sha256", "text", True),
+        ("applied_at", "timestamp(6) with time zone", True),
+        ("application_version", "text", True),
+    ),
+    "artifacts": (
+        ("artifact_id", "uuid", True),
+        ("content_digest", "text", True),
+        ("media_type", "text", True),
+        ("byte_size", "bigint", True),
+        ("storage_locator", "text", True),
+        ("logical_kind", "text", True),
+        ("producer_kind", "text", True),
+        ("producer_trace_id", "text", True),
+        ("privacy_scope", "text", True),
+        ("integrity_status", "text", True),
+        ("retention_status", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("deleted_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
+}
+_EXPECTED_CONSTRAINT_KINDS: Final = {
+    "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
+    "artifacts": tuple(sorted((*("c",) * 13, *("n",) * 13, "p", "u", "u"))),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,12 +363,12 @@ class PostgreSQLSchemaGateway:
             raise DatabaseViolation(
                 "DB-SCHEMA-MISSING", "the required schema baseline is not installed"
             )
-        if objects != [("schema_migrations", "r")]:
+        if ("schema_migrations", "r") not in objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
                 "the schema contains an incomplete or unmanifested object set",
             )
-        self._verify_table_shape(connection)
+        self._verify_table_shapes(connection, ("schema_migrations",))
         applied = self._read_applied(connection)
         target = len(self._packaged.migrations)
         for expected, row in enumerate(applied, start=1):
@@ -365,11 +387,24 @@ class PostgreSQLSchemaGateway:
             raise DatabaseViolation(
                 "DB-SCHEMA-AHEAD", "the database schema is ahead of this Runtime"
             )
+        applied_version = len(applied)
+        expected_objects = [("schema_migrations", "r")]
+        expected_tables = ["schema_migrations"]
+        if applied_version >= 3:
+            expected_objects.insert(0, ("artifacts", "r"))
+            expected_tables.insert(0, "artifacts")
+        if objects != expected_objects:
+            raise DatabaseViolation(
+                "DB-SCHEMA-DIRTY",
+                "the schema contains an incomplete or unmanifested object set",
+            )
+        self._verify_table_shapes(connection, tuple(expected_tables))
         if not allow_empty and len(applied) < target:
             raise DatabaseViolation(
                 "DB-SCHEMA-MISSING", "the required schema target is not installed"
             )
-        self._run_invariants(connection)
+        if len(applied) == target:
+            self._run_invariants(connection)
         catalog = self._catalog_digest(connection)
         return SchemaStatus(
             "current" if len(applied) == target else "behind",
@@ -379,13 +414,16 @@ class PostgreSQLSchemaGateway:
             catalog,
         )
 
-    def _verify_table_shape(
-        self, connection: psycopg.Connection[tuple[Any, ...]]
+    def _verify_table_shapes(
+        self,
+        connection: psycopg.Connection[tuple[Any, ...]],
+        table_names: tuple[str, ...],
     ) -> None:
         try:
             columns = connection.execute(
                 """
                 SELECT
+                    relation.relname,
                     attribute.attname,
                     pg_catalog.format_type(attribute.atttypid, attribute.atttypmod),
                     attribute.attnotnull
@@ -395,53 +433,59 @@ class PostgreSQLSchemaGateway:
                 JOIN pg_catalog.pg_namespace AS namespace
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
-                  AND relation.relname = 'schema_migrations'
+                  AND relation.relname = ANY(%s)
                   AND attribute.attnum > 0
                   AND NOT attribute.attisdropped
-                ORDER BY attribute.attnum
-                """
+                ORDER BY relation.relname, attribute.attnum
+                """,
+                (list(table_names),),
             ).fetchall()
         except psycopg.Error:
             raise DatabaseViolation(
-                "DB-SCHEMA-INVARIANT", "the migration table could not be inspected"
+                "DB-SCHEMA-INVARIANT", "the manifest tables could not be inspected"
             ) from None
-        if tuple(columns) != _EXPECTED_COLUMNS:
-            raise DatabaseViolation(
-                "DB-SCHEMA-DIRTY", "the migration table shape has drifted"
+        actual_columns: dict[str, list[tuple[str, str, bool]]] = {}
+        for table_name, name, type_name, not_null in columns:
+            actual_columns.setdefault(str(table_name), []).append(
+                (str(name), str(type_name), bool(not_null))
             )
+        for table_name in table_names:
+            if tuple(actual_columns.get(table_name, ())) != _EXPECTED_TABLE_COLUMNS.get(
+                table_name
+            ):
+                raise DatabaseViolation(
+                    "DB-SCHEMA-DIRTY", "a manifest table shape has drifted"
+                )
         try:
             constraint_kinds = connection.execute(
                 """
-                SELECT constraint_value.contype
+                SELECT relation.relname, constraint_value.contype
                 FROM pg_catalog.pg_constraint AS constraint_value
                 JOIN pg_catalog.pg_class AS relation
                     ON relation.oid = constraint_value.conrelid
                 JOIN pg_catalog.pg_namespace AS namespace
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
-                  AND relation.relname = 'schema_migrations'
-                ORDER BY constraint_value.contype
-                """
+                  AND relation.relname = ANY(%s)
+                ORDER BY relation.relname, constraint_value.contype
+                """,
+                (list(table_names),),
             ).fetchall()
         except psycopg.Error:
             raise DatabaseViolation(
                 "DB-SCHEMA-INVARIANT",
-                "the migration constraints could not be inspected",
+                "the manifest table constraints could not be inspected",
             ) from None
-        if [str(row[0]) for row in constraint_kinds] != [
-            "c",
-            "c",
-            "c",
-            "n",
-            "n",
-            "n",
-            "n",
-            "n",
-            "p",
-        ]:
-            raise DatabaseViolation(
-                "DB-SCHEMA-DIRTY", "the migration table constraints have drifted"
-            )
+        actual_constraints: dict[str, list[str]] = {}
+        for table_name, kind in constraint_kinds:
+            actual_constraints.setdefault(str(table_name), []).append(str(kind))
+        for table_name in table_names:
+            if tuple(actual_constraints.get(table_name, ())) != (
+                _EXPECTED_CONSTRAINT_KINDS.get(table_name)
+            ):
+                raise DatabaseViolation(
+                    "DB-SCHEMA-DIRTY", "a manifest table constraint set has drifted"
+                )
 
     def _read_applied(
         self, connection: psycopg.Connection[tuple[Any, ...]]
@@ -485,6 +529,7 @@ class PostgreSQLSchemaGateway:
             columns = connection.execute(
                 """
                 SELECT
+                    relation.relname,
                     attribute.attname,
                     pg_catalog.format_type(attribute.atttypid, attribute.atttypmod),
                     attribute.attnotnull,
@@ -501,15 +546,16 @@ class PostgreSQLSchemaGateway:
                     ON default_value.adrelid = relation.oid
                    AND default_value.adnum = attribute.attnum
                 WHERE namespace.nspname = 'armi'
-                  AND relation.relname = 'schema_migrations'
+                  AND relation.relkind IN ('r', 'p')
                   AND attribute.attnum > 0
                   AND NOT attribute.attisdropped
-                ORDER BY attribute.attnum
+                ORDER BY relation.relname, attribute.attnum
                 """
             ).fetchall()
             constraints = connection.execute(
                 """
-                SELECT constraint_value.contype,
+                SELECT relation.relname,
+                       constraint_value.contype,
                        pg_catalog.pg_get_constraintdef(constraint_value.oid, false)
                 FROM pg_catalog.pg_constraint AS constraint_value
                 JOIN pg_catalog.pg_class AS relation
@@ -517,9 +563,21 @@ class PostgreSQLSchemaGateway:
                 JOIN pg_catalog.pg_namespace AS namespace
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
-                  AND relation.relname = 'schema_migrations'
-                ORDER BY constraint_value.contype,
+                  AND relation.relkind IN ('r', 'p')
+                ORDER BY relation.relname,
+                         constraint_value.contype,
                          pg_catalog.pg_get_constraintdef(constraint_value.oid, false)
+                """
+            ).fetchall()
+            objects = connection.execute(
+                """
+                SELECT relation.relname, relation.relkind
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind IN ('r', 'p')
+                ORDER BY relation.relname, relation.relkind
                 """
             ).fetchall()
         except psycopg.Error:
@@ -528,19 +586,26 @@ class PostgreSQLSchemaGateway:
             ) from None
         value = {
             "schema": "armi",
-            "objects": [{"kind": "table", "name": "schema_migrations"}],
+            "objects": [
+                {"kind": str(kind), "name": str(name)} for name, kind in objects
+            ],
             "columns": [
                 {
+                    "table": str(table_name),
                     "name": str(name),
                     "type": str(type_name),
                     "not_null": bool(not_null),
                     "default": str(default),
                 }
-                for name, type_name, not_null, default in columns
+                for table_name, name, type_name, not_null, default in columns
             ],
             "constraints": [
-                {"type": str(kind), "definition": str(definition)}
-                for kind, definition in constraints
+                {
+                    "table": str(table_name),
+                    "type": str(kind),
+                    "definition": str(definition),
+                }
+                for table_name, kind, definition in constraints
             ],
         }
         return _digest(rfc8785.dumps(cast(Any, value)))

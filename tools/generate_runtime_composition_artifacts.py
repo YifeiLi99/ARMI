@@ -25,8 +25,11 @@ _SCHEMA = Path(
 )
 _SCHEMA_FILES = (
     "checks/invariants.sql",
+    "manifests/database-role-manifest.json",
     "manifests/schema-manifest.json",
     "migrations/0001_m0_baseline.sql",
+    "migrations/0002_database_permissions.sql",
+    "migrations/0003_content_addressed_artifacts.sql",
 )
 
 

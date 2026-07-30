@@ -1,4 +1,4 @@
-"""Frozen, explicitly wired S008 Runtime composition manifest."""
+"""Frozen, explicitly wired Runtime composition manifest."""
 
 from __future__ import annotations
 
@@ -42,8 +42,11 @@ _CONFIG_FILES: Final = (
 )
 _SCHEMA_FILES: Final = (
     "checks/invariants.sql",
+    "manifests/database-role-manifest.json",
     "manifests/schema-manifest.json",
     "migrations/0001_m0_baseline.sql",
+    "migrations/0002_database_permissions.sql",
+    "migrations/0003_content_addressed_artifacts.sql",
 )
 
 

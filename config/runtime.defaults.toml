@@ -40,6 +40,7 @@ session_ttl_seconds = 28800
 
 [artifacts]
 max_object_bytes = 104857600
+orphan_grace_seconds = 86400
 
 [lifecycle]
 graceful_shutdown_seconds = 30

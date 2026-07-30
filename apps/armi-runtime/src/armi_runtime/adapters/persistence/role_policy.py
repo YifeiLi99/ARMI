@@ -321,15 +321,17 @@ class PostgreSQLRolePolicyGateway:
         try:
             owners = connection.execute(
                 """
-                SELECT namespace.nspowner = owner_role.oid,
-                       relation.relowner = owner_role.oid
+                SELECT
+                    bool_and(namespace.nspowner = owner_role.oid),
+                    bool_and(relation.relowner = owner_role.oid),
+                    array_agg(relation.relname ORDER BY relation.relname)
                 FROM pg_catalog.pg_namespace AS namespace
                 JOIN pg_catalog.pg_class AS relation
                   ON relation.relnamespace = namespace.oid
-                 AND relation.relname = 'schema_migrations'
                 JOIN pg_catalog.pg_roles AS owner_role
                   ON owner_role.rolname = 'armi_owner'
                 WHERE namespace.nspname = 'armi'
+                  AND relation.relkind IN ('r', 'p')
                 """
             ).fetchone()
             public_grants = connection.execute(
@@ -357,7 +359,7 @@ class PostgreSQLRolePolicyGateway:
                         )
                     ) AS acl
                     WHERE namespace.nspname = 'armi'
-                      AND relation.relname = 'schema_migrations'
+                      AND relation.relkind IN ('r', 'p')
                       AND acl.grantee = 0
                 ) AS public_acl
                 GROUP BY object_kind
@@ -372,18 +374,52 @@ class PostgreSQLRolePolicyGateway:
                     has_table_privilege(
                         'armi_runtime', 'armi.schema_migrations', 'SELECT'
                     ),
+                    has_table_privilege(
+                        'armi_runtime', 'armi.artifacts', 'SELECT'
+                    ),
+                    has_table_privilege(
+                        'armi_runtime', 'armi.artifacts', 'DELETE'
+                    ),
                     has_schema_privilege('armi_admin', 'armi', 'USAGE'),
                     has_schema_privilege('armi_admin', 'armi', 'CREATE'),
                     has_table_privilege(
                         'armi_admin', 'armi.schema_migrations', 'SELECT'
                     ),
+                    has_table_privilege(
+                        'armi_admin', 'armi.artifacts', 'SELECT'
+                    ),
                     has_schema_privilege('armi_migrator', 'armi', 'USAGE'),
                     has_schema_privilege('armi_migrator', 'armi', 'CREATE'),
                     has_table_privilege(
                         'armi_migrator', 'armi.schema_migrations', 'SELECT'
+                    ),
+                    has_table_privilege(
+                        'armi_migrator', 'armi.artifacts', 'SELECT'
                     )
                 """
             ).fetchone()
+            column_grants = connection.execute(
+                """
+                SELECT
+                    attribute.attname,
+                    acl.privilege_type,
+                    COALESCE(grantee_role.rolname, 'PUBLIC')
+                FROM pg_catalog.pg_attribute AS attribute
+                JOIN pg_catalog.pg_class AS relation
+                  ON relation.oid = attribute.attrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) AS acl
+                LEFT JOIN pg_catalog.pg_roles AS grantee_role
+                  ON grantee_role.oid = acl.grantee
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relname = 'artifacts'
+                  AND attribute.attnum > 0
+                  AND NOT attribute.attisdropped
+                ORDER BY attribute.attname, acl.privilege_type,
+                         COALESCE(grantee_role.rolname, 'PUBLIC')
+                """
+            ).fetchall()
             definers = connection.execute(
                 """
                 SELECT count(*)
@@ -398,7 +434,7 @@ class PostgreSQLRolePolicyGateway:
             raise DatabaseViolation(
                 "DB-ROLE-GRANT", "database object grants are unavailable"
             ) from None
-        if owners != (True, True):
+        if owners != (True, True, ["artifacts", "schema_migrations"]):
             raise DatabaseViolation(
                 "DB-ROLE-OWNER", "database object ownership has drifted"
             )
@@ -414,12 +450,39 @@ class PostgreSQLRolePolicyGateway:
             True,
             False,
             True,
+            False,
             True,
             False,
             True,
+            False,
+            True,
+            False,
         ):
             raise DatabaseViolation(
                 "DB-ROLE-GRANT", "database object grants have drifted"
+            )
+        expected_column_grants = {
+            (column, "INSERT", "armi_runtime")
+            for column in (
+                "artifact_id",
+                "byte_size",
+                "content_digest",
+                "logical_kind",
+                "media_type",
+                "privacy_scope",
+                "producer_kind",
+                "producer_trace_id",
+                "schema_version",
+                "storage_locator",
+            )
+        }
+        expected_column_grants.add(("integrity_status", "UPDATE", "armi_runtime"))
+        if {
+            (str(column), str(privilege), str(grantee))
+            for column, privilege, grantee in column_grants
+        } != expected_column_grants:
+            raise DatabaseViolation(
+                "DB-ROLE-GRANT", "artifact column grants have drifted"
             )
         if definers != (0,):
             raise DatabaseViolation(
@@ -478,10 +541,11 @@ class PostgreSQLRolePolicyGateway:
                       ON namespace_owner.oid = namespace.nspowner
                     JOIN pg_catalog.pg_class AS relation
                       ON relation.relnamespace = namespace.oid
-                     AND relation.relname = 'schema_migrations'
                     JOIN pg_catalog.pg_roles AS relation_owner
                       ON relation_owner.oid = relation.relowner
                     WHERE namespace.nspname = 'armi'
+                      AND relation.relkind IN ('r', 'p')
+                    ORDER BY relation.relname
                     """
                 ).fetchall()
                 if include_objects
@@ -540,7 +604,7 @@ class PostgreSQLRolePolicyGateway:
                             )
                         ) AS acl
                         WHERE namespace.nspname = 'armi'
-                          AND relation.relname = 'schema_migrations'
+                          AND relation.relkind IN ('r', 'p')
                     ) AS object_privilege
                     LEFT JOIN pg_catalog.pg_roles AS grantee_role
                       ON grantee_role.oid = object_privilege.grantee
@@ -549,6 +613,40 @@ class PostgreSQLRolePolicyGateway:
                     ORDER BY object_kind, object_name,
                              COALESCE(grantee_role.rolname, 'PUBLIC'),
                              privilege_type
+                    """,
+                    (roles,),
+                ).fetchall()
+                if include_objects
+                else []
+            )
+            column_acl = (
+                connection.execute(
+                    """
+                    SELECT namespace.nspname || '.' || relation.relname,
+                           attribute.attname,
+                           COALESCE(grantee_role.rolname, 'PUBLIC'),
+                           acl.privilege_type,
+                           acl.is_grantable
+                    FROM pg_catalog.pg_attribute AS attribute
+                    JOIN pg_catalog.pg_class AS relation
+                      ON relation.oid = attribute.attrelid
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) AS acl
+                    LEFT JOIN pg_catalog.pg_roles AS grantee_role
+                      ON grantee_role.oid = acl.grantee
+                    WHERE namespace.nspname = 'armi'
+                      AND relation.relkind IN ('r', 'p')
+                      AND attribute.attnum > 0
+                      AND NOT attribute.attisdropped
+                      AND (
+                          acl.grantee = 0
+                          OR grantee_role.rolname = ANY(%s)
+                      )
+                    ORDER BY namespace.nspname, relation.relname,
+                             attribute.attname,
+                             COALESCE(grantee_role.rolname, 'PUBLIC'),
+                             acl.privilege_type
                     """,
                     (roles,),
                 ).fetchall()
@@ -582,6 +680,7 @@ class PostgreSQLRolePolicyGateway:
             "owners": [list(row) for row in owners],
             "database_acl": [list(row) for row in database_acl],
             "object_acl": [list(row) for row in object_acl],
+            "column_acl": [list(row) for row in column_acl],
             "role_settings": [list(row) for row in role_settings],
             "role_policy_sha256": self.role_policy_sha256,
         }

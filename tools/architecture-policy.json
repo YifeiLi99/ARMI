@@ -30,6 +30,12 @@
       "module": "armi_admin.persistence.role_session",
       "owner": "database-role-policy",
       "allowed_callers": []
+    },
+    {
+      "id": "artifact-catalog",
+      "module": "armi_runtime.adapters.persistence.artifact_catalog",
+      "owner": "artifact-catalog",
+      "allowed_callers": ["armi_runtime.composition.artifacts"]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -39,6 +45,12 @@
       "module": "armi_runtime.adapters.persistence.unit_of_work",
       "owner": "transaction-coordination",
       "allowed_write_surfaces": []
+    },
+    {
+      "id": "artifact-registration",
+      "module": "armi_runtime.composition.artifacts",
+      "owner": "artifact-catalog",
+      "allowed_write_surfaces": ["artifact-catalog"]
     }
   ],
   "named_coordinators_not_applicable_reason": "",

@@ -16,6 +16,13 @@ PUBLIC_EXPORTS = {
     "armi_kernel": frozenset(),
     "armi_kernel.application": frozenset(
         {
+            "ArtifactId",
+            "ArtifactIntegrityStatus",
+            "ArtifactPolicy",
+            "ArtifactPort",
+            "ArtifactPrivacyScope",
+            "ArtifactRef",
+            "ArtifactViolation",
             "CredentialLocator",
             "CredentialPort",
             "CredentialPurpose",
@@ -25,9 +32,12 @@ PUBLIC_EXPORTS = {
             "LockTarget",
             "LockTargetKind",
             "PostCommitAction",
+            "PublishedArtifact",
             "SecretHandle",
+            "StagedArtifact",
             "TransactionIsolation",
             "UnitOfWork",
+            "VerifiedByteStream",
             "classify_cas_rows",
         }
     ),

@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 2})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 3})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2],
+            [1, 2, 3],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -71,7 +71,7 @@ class SchemaArtifactTests(unittest.TestCase):
         )
         self.assertEqual(
             [item["name"] for item in manifest["allowed_objects"]],
-            ["armi.schema_migrations"],
+            ["armi.schema_migrations", "armi.artifacts"],
         )
         self.assertNotIn("manifest_sha256", manifest)
 
@@ -91,6 +91,26 @@ class SchemaArtifactTests(unittest.TestCase):
         )
         self.assertIn("REVOKE ALL ON SCHEMA armi FROM PUBLIC", sql)
         self.assertIn("GRANT SELECT ON TABLE armi.schema_migrations", sql)
+
+    def test_artifact_migration_is_the_only_s012_object(self) -> None:
+        sql = Path("schema/migrations/0003_content_addressed_artifacts.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(sql.count("CREATE TABLE"), 1)
+        self.assertIn("CREATE TABLE armi.artifacts", sql)
+        self.assertIn("GRANT INSERT (", sql)
+        self.assertIn(
+            "GRANT UPDATE (integrity_status) ON armi.artifacts TO armi_runtime",
+            sql,
+        )
+        self.assertNotRegex(
+            sql,
+            re.compile(
+                r"(?i)\b(?:audit_events|durable_work|outbox_items|"
+                r"CREATE\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
+                r"ALTER\s+DEFAULT\s+PRIVILEGES|SECURITY\s+DEFINER)\b"
+            ),
+        )
 
     def test_database_role_manifest_is_current_and_has_no_definer(self) -> None:
         role_manifest = json.loads(
