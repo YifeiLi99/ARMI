@@ -31,7 +31,6 @@ _SEAMS: Final = (
 )
 _BLOCKERS: Final = (
     ("CREATOR_SESSION_NOT_IMPLEMENTED", "M0-S018"),
-    ("RUNTIME_AUTHORITY_NOT_IMPLEMENTED", "M0-S016"),
     ("RUNTIME_RECOVERY_NOT_IMPLEMENTED", "M0-S017"),
 )
 _CONFIG_FILES: Final = (
@@ -50,6 +49,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0004_normal_audit_foundation.sql",
     "migrations/0005_durable_work_and_outbox.sql",
     "migrations/0006_unique_birth.sql",
+    "migrations/0007_runtime_authority.sql",
 )
 
 

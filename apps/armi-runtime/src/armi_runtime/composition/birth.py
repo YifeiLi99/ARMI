@@ -165,8 +165,7 @@ class BirthTransaction:
         fixed_prompt_set_digest: Digest,
         trace_id: TraceId,
     ) -> BirthResult:
-        async with self._uow_factory.unit_of_work(
-            LockPlan(),
+        async with self._uow_factory.bootstrap_birth_unit_of_work(
             isolation=TransactionIsolation.SERIALIZABLE,
         ) as unit_of_work:
             await self._repository.lock_environment(

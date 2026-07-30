@@ -21,6 +21,7 @@
       "module": "armi_runtime.adapters.persistence.role_policy",
       "owner": "database-role-policy",
       "allowed_callers": [
+        "armi_runtime.adapters.persistence.runtime_authority",
         "armi_runtime.adapters.persistence.schema_gateway",
         "armi_runtime.adapters.persistence.unit_of_work"
       ]
@@ -42,6 +43,7 @@
       "module": "armi_runtime.adapters.persistence.audit_events",
       "owner": "normal-audit",
       "allowed_callers": [
+        "armi_runtime.adapters.persistence.runtime_authority",
         "armi_runtime.adapters.persistence.unit_of_work",
         "armi_runtime.composition.audit"
       ]
@@ -66,6 +68,14 @@
       "owner": "subject-continuity",
       "allowed_callers": [
         "armi_runtime.composition.birth",
+        "armi_runtime.composition.database"
+      ]
+    },
+    {
+      "id": "runtime-authority",
+      "module": "armi_runtime.adapters.persistence.runtime_authority",
+      "owner": "runtime-authority",
+      "allowed_callers": [
         "armi_runtime.composition.database"
       ]
     }
@@ -105,6 +115,16 @@
         "artifact-catalog",
         "normal-audit"
       ]
+    },
+    {
+      "id": "runtime-authority-control",
+      "module": "armi_runtime.adapters.persistence.runtime_authority",
+      "owner": "runtime-authority",
+      "allowed_write_surfaces": [
+        "runtime-authority",
+        "normal-audit",
+        "database-role-policy-runtime"
+      ]
     }
   ],
   "named_coordinators_not_applicable_reason": "",
@@ -123,6 +143,11 @@
       "id": "admin-pool-reset",
       "module": "armi_admin.persistence.role_session",
       "reason": "The role-bound pool must rollback and reset contaminated sessions."
+    },
+    {
+      "id": "runtime-authority-control-transaction",
+      "module": "armi_runtime.adapters.persistence.runtime_authority",
+      "reason": "Authority acquire, heartbeat and release require explicit atomic control transactions."
     }
   ],
   "transaction_control_exemptions_not_applicable_reason": "",

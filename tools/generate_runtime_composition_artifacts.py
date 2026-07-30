@@ -33,6 +33,7 @@ _SCHEMA_FILES = (
     "migrations/0004_normal_audit_foundation.sql",
     "migrations/0005_durable_work_and_outbox.sql",
     "migrations/0006_unique_birth.sql",
+    "migrations/0007_runtime_authority.sql",
 )
 
 

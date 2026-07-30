@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from contextlib import suppress
 from contextvars import ContextVar, Token
 from enum import StrEnum
@@ -18,6 +19,8 @@ from armi_kernel.application import (
     LockPlan,
     LockTarget,
     PostCommitAction,
+    RuntimeAuthorityViolation,
+    RuntimeFence,
     TransactionIsolation,
 )
 from psycopg import sql
@@ -114,10 +117,12 @@ class PostgreSQLUnitOfWorkFactory:
 
     __slots__ = (
         "_acquire_timeout_seconds",
+        "_authority_admission",
         "_environment_id",
         "_expected_role",
         "_lock_acquirer",
         "_pool",
+        "_require_runtime_fence",
         "_statement_timeout_milliseconds",
     )
 
@@ -131,6 +136,8 @@ class PostgreSQLUnitOfWorkFactory:
         pool_max: int,
         acquire_timeout_seconds: int,
         statement_timeout_seconds: int,
+        authority_admission: Callable[[], RuntimeFence] | None = None,
+        require_runtime_fence: bool = True,
     ) -> None:
         if environment_id.version != 7:
             raise ValueError("environment_id must be UUIDv7")
@@ -144,10 +151,16 @@ class PostgreSQLUnitOfWorkFactory:
                 raise ValueError(f"{name} must be a positive integer")
         if pool_min > pool_max:
             raise ValueError("pool_min must not exceed pool_max")
+        if type(require_runtime_fence) is not bool:
+            raise TypeError("require_runtime_fence must be bool")
+        if authority_admission is not None and not callable(authority_admission):
+            raise TypeError("authority_admission must be callable")
         self._environment_id = environment_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._acquire_timeout_seconds = acquire_timeout_seconds
         self._statement_timeout_milliseconds = statement_timeout_seconds * 1000
+        self._authority_admission = authority_admission
+        self._require_runtime_fence = require_runtime_fence
 
         async def check(
             connection: psycopg.AsyncConnection[tuple[Any, ...]],
@@ -187,6 +200,22 @@ class PostgreSQLUnitOfWorkFactory:
         isolation: TransactionIsolation = TransactionIsolation.READ_COMMITTED,
         read_only: bool = False,
     ) -> PostgreSQLUnitOfWork:
+        runtime_fence: RuntimeFence | None = None
+        if not read_only and self._authority_admission is not None:
+            try:
+                runtime_fence = self._authority_admission()
+            except RuntimeAuthorityViolation as error:
+                code = (
+                    "DB-TX-AUTHORITY-SUSPENDED"
+                    if error.code == "AUTH-LOCAL-SUSPENDED"
+                    else "DB-TX-FENCE-STALE"
+                )
+                raise _transaction_error(code, DatabaseFailureKind.INTEGRITY) from None
+        elif not read_only and self._require_runtime_fence:
+            raise _transaction_error(
+                "DB-TX-FENCE-REQUIRED",
+                DatabaseFailureKind.INTEGRITY,
+            )
         return PostgreSQLUnitOfWork(
             self._pool,
             environment_id=self._environment_id,
@@ -197,6 +226,36 @@ class PostgreSQLUnitOfWorkFactory:
             read_only=read_only,
             statement_timeout_milliseconds=self._statement_timeout_milliseconds,
             acquire_timeout_seconds=self._acquire_timeout_seconds,
+            authority_admission=self._authority_admission,
+            runtime_fence=runtime_fence,
+        )
+
+    def bootstrap_birth_unit_of_work(
+        self,
+        *,
+        isolation: TransactionIsolation = TransactionIsolation.SERIALIZABLE,
+        read_only: bool = False,
+    ) -> PostgreSQLUnitOfWork:
+        """Return the sole unfenced product-write exception for T-01 birth."""
+
+        if read_only:
+            return self.unit_of_work(
+                LockPlan(),
+                isolation=isolation,
+                read_only=True,
+            )
+        return PostgreSQLUnitOfWork(
+            self._pool,
+            environment_id=self._environment_id,
+            expected_role=self._expected_role,
+            lock_plan=LockPlan(),
+            lock_acquirer=self._lock_acquirer,
+            isolation=isolation,
+            read_only=False,
+            statement_timeout_milliseconds=self._statement_timeout_milliseconds,
+            acquire_timeout_seconds=self._acquire_timeout_seconds,
+            authority_admission=None,
+            runtime_fence=None,
         )
 
 
@@ -207,6 +266,7 @@ class PostgreSQLUnitOfWork:
         "_acquire_timeout_seconds",
         "_active_token",
         "_audit",
+        "_authority_admission",
         "_before_commit",
         "_committed_actions",
         "_connection",
@@ -219,6 +279,7 @@ class PostgreSQLUnitOfWork:
         "_pool",
         "_read_only",
         "_rollback_requested",
+        "_runtime_fence",
         "_state",
         "_statement_timeout_milliseconds",
         "_transaction",
@@ -237,6 +298,8 @@ class PostgreSQLUnitOfWork:
         read_only: bool,
         statement_timeout_milliseconds: int,
         acquire_timeout_seconds: int,
+        authority_admission: Callable[[], RuntimeFence] | None,
+        runtime_fence: RuntimeFence | None,
     ) -> None:
         if type(lock_plan) is not LockPlan:
             raise TypeError("lock_plan must be LockPlan")
@@ -251,6 +314,8 @@ class PostgreSQLUnitOfWork:
         self._lock_acquirer = lock_acquirer
         self._isolation = isolation
         self._read_only = read_only
+        self._authority_admission = authority_admission
+        self._runtime_fence = runtime_fence
         self._statement_timeout_milliseconds = statement_timeout_milliseconds
         self._acquire_timeout_seconds = acquire_timeout_seconds
         self._state = _State.NEW
@@ -285,6 +350,10 @@ class PostgreSQLUnitOfWork:
         return self._lock_plan
 
     @property
+    def runtime_fence(self) -> RuntimeFence | None:
+        return self._runtime_fence
+
+    @property
     def committed_actions(self) -> tuple[PostCommitAction, ...]:
         return self._committed_actions
 
@@ -310,6 +379,7 @@ class PostgreSQLUnitOfWork:
         if _ACTIVE_UOW.get() is not None:
             raise _transaction_error("DB-TX-NESTED")
         try:
+            self._check_local_admission()
             self._connection = await self._pool.getconn(
                 timeout=float(self._acquire_timeout_seconds)
             )
@@ -323,6 +393,9 @@ class PostgreSQLUnitOfWork:
                 self._audit,
                 self._environment_id,
             )
+            if self._runtime_fence is not None:
+                await self._acquire_runtime_fence_locks()
+                await self._verify_runtime_fence(lock_row=True)
             for target in self._lock_plan.targets:
                 await self._lock_acquirer(self._connection, target)
         except BaseException as error:
@@ -362,6 +435,9 @@ class PostgreSQLUnitOfWork:
                 return False
             for hook in self._before_commit:
                 await hook()
+            self._check_local_admission()
+            if self._runtime_fence is not None:
+                await self._verify_runtime_fence(lock_row=False)
             try:
                 await self._transaction.__aexit__(None, None, None)
             except BaseException as error:
@@ -396,6 +472,94 @@ class PostgreSQLUnitOfWork:
     def _require_active(self) -> None:
         if self._state is not _State.ACTIVE:
             raise _transaction_error("DB-TX-STATE")
+
+    def _check_local_admission(self) -> None:
+        if self._runtime_fence is None or self._authority_admission is None:
+            return
+        try:
+            current = self._authority_admission()
+        except RuntimeAuthorityViolation as error:
+            code = (
+                "DB-TX-AUTHORITY-SUSPENDED"
+                if error.code == "AUTH-LOCAL-SUSPENDED"
+                else "DB-TX-FENCE-STALE"
+            )
+            raise _transaction_error(code, DatabaseFailureKind.INTEGRITY) from None
+        if current != self._runtime_fence:
+            raise _transaction_error(
+                "DB-TX-FENCE-STALE",
+                DatabaseFailureKind.INTEGRITY,
+            )
+
+    async def _verify_runtime_fence(self, *, lock_row: bool) -> None:
+        assert self._connection is not None
+        assert self._runtime_fence is not None
+        if type(lock_row) is not bool:
+            raise TypeError("lock_row must be bool")
+        fence = self._runtime_fence
+        locking_clause = "FOR UPDATE OF instance" if lock_row else ""
+        row = await (
+            await self._connection.execute(
+                f"""
+                SELECT
+                    instance.status,
+                    instance.lease_expires_at > statement_timestamp()
+                FROM armi.subjects AS subject
+                JOIN armi.life_generations AS generation
+                  ON generation.life_generation_id
+                    = subject.current_generation_id
+                 AND generation.subject_id = subject.subject_id
+                 AND generation.status = 'active'
+                JOIN armi.runtime_instances AS instance
+                  ON instance.runtime_instance_id = %s
+                 AND instance.subject_id = subject.subject_id
+                 AND instance.life_generation_id
+                    = generation.life_generation_id
+                 AND instance.bundle_activation_id
+                    = subject.current_bundle_activation_id
+                 AND instance.fence_token = %s
+                WHERE subject.singleton_key = 1
+                  AND subject.subject_id = %s
+                  AND subject.current_generation_id = %s
+                  AND subject.current_bundle_activation_id = %s
+                {locking_clause}
+                """,
+                (
+                    fence.runtime_instance_id.value,
+                    fence.fence_token,
+                    fence.subject_id,
+                    fence.life_generation_id,
+                    fence.bundle_activation_id,
+                ),
+            )
+        ).fetchone()
+        if row is None or str(row[0]) != "active":
+            raise _transaction_error(
+                "DB-TX-FENCE-STALE",
+                DatabaseFailureKind.INTEGRITY,
+            )
+        if not bool(row[1]):
+            raise _transaction_error(
+                "DB-TX-FENCE-EXPIRED",
+                DatabaseFailureKind.INTEGRITY,
+            )
+
+    async def _acquire_runtime_fence_locks(self) -> None:
+        assert self._connection is not None
+        assert self._runtime_fence is not None
+        fence = self._runtime_fence
+        for kind, value in (
+            ("subject", fence.subject_id),
+            ("generation", fence.life_generation_id),
+        ):
+            await self._connection.execute(
+                """
+                SELECT pg_advisory_xact_lock(
+                    pg_catalog.hashtextextended(%s, 0)
+                )
+                """,
+                (f"armi.runtime-fence:{kind}:{value}",),
+            )
 
     async def _set_transaction_characteristics(self) -> None:
         assert self._connection is not None

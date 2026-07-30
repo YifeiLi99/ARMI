@@ -64,7 +64,7 @@ class DiagnosticTests(unittest.TestCase):
         lifecycle = LifecycleController(environment_id=_ENVIRONMENT)
         lifecycle.start()
         lifecycle.add_degradation(_REASON)
-        snapshot = lifecycle.complete_startup(("RUNTIME_AUTHORITY_NOT_IMPLEMENTED",))
+        snapshot = lifecycle.complete_startup(("RUNTIME_RECOVERY_NOT_IMPLEMENTED",))
         self.assertEqual(snapshot.runtime_state, RuntimeState.BLOCKED)
         self.assertIn(_REASON, snapshot.reason_codes)
 

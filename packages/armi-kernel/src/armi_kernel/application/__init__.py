@@ -51,6 +51,14 @@ from .durable_work import (
     WorkStatus,
     WorkViolation,
 )
+from .runtime_authority import (
+    RuntimeAuthorityPort,
+    RuntimeAuthorityRecord,
+    RuntimeAuthorityStatus,
+    RuntimeAuthorityViolation,
+    RuntimeFence,
+    RuntimeInstanceId,
+)
 from .transactions import (
     BeforeCommitHook,
     CasStatus,
@@ -98,6 +106,12 @@ __all__ = (
     "PersonalityAnchor",
     "PostCommitAction",
     "PublishedArtifact",
+    "RuntimeAuthorityPort",
+    "RuntimeAuthorityRecord",
+    "RuntimeAuthorityStatus",
+    "RuntimeAuthorityViolation",
+    "RuntimeFence",
+    "RuntimeInstanceId",
     "SecretHandle",
     "StagedArtifact",
     "TransactionIsolation",

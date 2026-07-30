@@ -141,6 +141,39 @@ def build_role_manifest() -> dict[str, object]:
         }
         for name, columns in birth_insert_columns.items()
     ]
+    authority_object = {
+        "kind": "table",
+        "name": "armi.runtime_instances",
+        "owner": "armi_owner",
+        "public_privileges": [],
+        "grants": {
+            "armi_runtime": ["SELECT"],
+            "armi_admin": [],
+            "armi_migrator": [],
+        },
+        "column_grants": {
+            "armi_runtime": {
+                "INSERT": [
+                    "runtime_instance_id",
+                    "subject_id",
+                    "life_generation_id",
+                    "bundle_activation_id",
+                    "fence_token",
+                    "status",
+                    "lease_expires_at",
+                    "schema_version",
+                ],
+                "UPDATE": [
+                    "status",
+                    "last_heartbeat_at",
+                    "lease_expires_at",
+                    "stopped_at",
+                ],
+            },
+            "armi_admin": {},
+            "armi_migrator": {},
+        },
+    }
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -404,12 +437,13 @@ def build_role_manifest() -> dict[str, object]:
                 },
             },
             *birth_objects,
+            authority_object,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S015 has no business or administration function requiring "
+                "M0-S016 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -550,9 +584,14 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "logical_owner": "subject-components",
                 "activation_step": "M0-S015",
             },
+            {
+                "kind": "table",
+                "name": "armi.runtime_instances",
+                "logical_owner": "runtime-authority",
+                "activation_step": "M0-S016",
+            },
         ],
         "deferred_objects": [
-            {"scope": "authority_state", "activation_step": "M0-S016"},
             {"scope": "recovery_state", "activation_step": "M0-S017"},
         ],
         "runtime_upgrade_allowed": False,

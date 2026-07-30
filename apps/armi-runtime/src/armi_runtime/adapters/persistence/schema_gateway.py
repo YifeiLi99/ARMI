@@ -211,6 +211,19 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("current_revision_id", "uuid", True),
         ("component_version", "bigint", True),
     ),
+    "runtime_instances": (
+        ("runtime_instance_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("life_generation_id", "uuid", True),
+        ("bundle_activation_id", "uuid", True),
+        ("fence_token", "bigint", True),
+        ("status", "text", True),
+        ("started_at", "timestamp(6) with time zone", True),
+        ("last_heartbeat_at", "timestamp(6) with time zone", True),
+        ("lease_expires_at", "timestamp(6) with time zone", True),
+        ("stopped_at", "timestamp(6) with time zone", False),
+        ("schema_version", "integer", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
@@ -237,6 +250,9 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     ),
     "subject_component_heads": tuple(
         sorted((*("c",) * 2, *("n",) * 4, *("f",) * 2, "p"))
+    ),
+    "runtime_instances": tuple(
+        sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
 }
 
@@ -599,6 +615,11 @@ class PostgreSQLSchemaGateway:
             )
             expected_objects.extend((name, "r") for name in birth_tables)
             expected_tables.extend(birth_tables)
+            expected_objects.sort()
+            expected_tables.sort()
+        if applied_version >= 7:
+            expected_objects.append(("runtime_instances", "r"))
+            expected_tables.append("runtime_instances")
             expected_objects.sort()
             expected_tables.sort()
         if objects != expected_objects:

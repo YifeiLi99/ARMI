@@ -16,7 +16,6 @@ from .runtime_errors import RuntimeViolation
 
 RUNTIME_BLOCKING_REASONS = (
     "CREATOR_SESSION_NOT_IMPLEMENTED",
-    "RUNTIME_AUTHORITY_NOT_IMPLEMENTED",
     "RUNTIME_RECOVERY_NOT_IMPLEMENTED",
 )
 _REASON = re.compile(r"^[A-Z][A-Z0-9_]{2,127}$", re.ASCII)

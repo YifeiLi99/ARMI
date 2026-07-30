@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S015，当前 S001 2.4 设计基线与 PostgreSQL schema v6 已冻结。S015 建立了私有出生 manifest、bootstrap activation、三个空白初始组件和显式 `armi bootstrap birth` 一次性事务；验收只在临时数据库与 data root 中完成，仓库和长期环境都没有默认人格或已出生主体，也不会在 Runtime 启动时自动出生。S016 已获准按短事务取得锁、数据库 lease 和单调 fence 的冻结契约实施；系统仍无恢复、浏览器会话或产品能力，因此不是可用产品版本。
+项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S016，当前 S001 2.4 设计基线与 PostgreSQL schema v7 已冻结。S016 建立了 Runtime authority 的短事务取得锁、数据库时间 lease、heartbeat 和单调 fence，并要求未来正常写事务在提交前重新验证资格；出生事务仍是唯一显式的 unfenced bootstrap 例外。验收只在临时数据库与 data root 中完成，仓库和长期环境都没有默认人格、已出生主体或活动 Runtime。系统仍缺少 S017 恢复与 S018 browser session，因此保持 `blocked/not_ready`，不是可用产品版本。
 
 ## 关于学习与参考
 

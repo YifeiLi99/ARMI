@@ -38,6 +38,9 @@ from armi_kernel.application import (
     LockTargetKind,
     PersonalityAnchor,
     PostCommitAction,
+    RuntimeAuthorityRecord,
+    RuntimeAuthorityViolation,
+    RuntimeInstanceId,
     WorkDraft,
     WorkId,
     WorkOwner,
@@ -70,6 +73,9 @@ from armi_runtime.adapters.persistence.outbox import (
 from armi_runtime.adapters.persistence.role_policy import (
     RoleBoundConnectionPool,
     physical_role_name,
+)
+from armi_runtime.adapters.persistence.runtime_authority import (
+    PostgreSQLRuntimeAuthority,
 )
 from armi_runtime.adapters.persistence.schema_gateway import (
     DatabaseViolation,
@@ -270,7 +276,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {6})
+        self.assertEqual({result.applied_version for result in results}, {7})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -337,7 +343,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 6)
+        self.assertEqual(result.applied_version, 7)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -399,7 +405,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 6)
+        self.assertEqual(result.applied_version, 7)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -459,7 +465,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(7,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(8,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -518,7 +524,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (6,),
+                    (7,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -672,6 +678,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=2,
                 acquire_timeout_seconds=1,
                 statement_timeout_seconds=5,
+                require_runtime_fence=False,
             )
             storage = ContentAddressedArtifactStore(
                 root,
@@ -1110,6 +1117,281 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 newline="\n",
             )
 
+    def test_runtime_authority_heartbeat_takeover_and_fence(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="约 16 岁少女口吻",
+            traits=("清醒",),
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="s016-authority-birth",
+            personality_anchor=anchor,
+            personality_anchor_digest=Digest.from_bytes(
+                rfc8785.dumps(
+                    {
+                        "schema_version": anchor.schema_version,
+                        "voice_style": anchor.voice_style,
+                        "traits": list(anchor.traits),
+                    }
+                )
+            ),
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            schema_manifest_digest=packaged["schema_manifest_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"s016-authority-birth"),
+        )
+
+        async def reject_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("authority conformance has no business lock target")
+
+        async def exercise(root: Path) -> tuple[int, int, tuple[str, ...]]:
+            birth_factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_lock,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+            )
+            birth = BirthTransaction(
+                ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                ArtifactCatalogRepository(),
+                BirthRepository(),
+                birth_factory,
+            )
+            await birth_factory.open()
+            try:
+                await birth.birth(manifest)
+            finally:
+                await birth_factory.close()
+
+            authorities = [
+                PostgreSQLRuntimeAuthority(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    expected_bundle_digest=packaged["composition_digest"].to_wire(),
+                    pool_timeout_seconds=2,
+                )
+                for _ in range(3)
+            ]
+            for authority in authorities:
+                await authority.open()
+            try:
+
+                async def attempt(
+                    authority: PostgreSQLRuntimeAuthority,
+                ) -> RuntimeAuthorityRecord | RuntimeAuthorityViolation:
+                    try:
+                        return await authority.acquire(
+                            runtime_instance_id=RuntimeInstanceId(_uuid7()),
+                            lease_seconds=3,
+                        )
+                    except RuntimeAuthorityViolation as error:
+                        return error
+
+                first_attempts = await asyncio.gather(
+                    attempt(authorities[0]),
+                    attempt(authorities[1]),
+                )
+                records = [
+                    item
+                    for item in first_attempts
+                    if isinstance(item, RuntimeAuthorityRecord)
+                ]
+                errors = [
+                    item
+                    for item in first_attempts
+                    if isinstance(item, RuntimeAuthorityViolation)
+                ]
+                self.assertEqual(len(records), 1)
+                self.assertEqual(
+                    [error.code for error in errors],
+                    ["AUTH-LEASE-HELD"],
+                )
+                first = records[0]
+                winner = (
+                    authorities[0]
+                    if isinstance(first_attempts[0], RuntimeAuthorityRecord)
+                    else authorities[1]
+                )
+                takeover = (
+                    authorities[1] if winner is authorities[0] else authorities[0]
+                )
+
+                uow_factory = PostgreSQLUnitOfWorkFactory(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    lock_acquirer=reject_lock,
+                    pool_min=1,
+                    pool_max=1,
+                    acquire_timeout_seconds=2,
+                    statement_timeout_seconds=10,
+                    authority_admission=lambda: first.fence,
+                    require_runtime_fence=True,
+                )
+                await uow_factory.open()
+                entered = asyncio.Event()
+
+                async def expire_open_transaction() -> str:
+                    try:
+                        async with uow_factory.unit_of_work(LockPlan()):
+                            entered.set()
+                            await asyncio.sleep(3.2)
+                    except DatabaseTransactionError as error:
+                        return error.code
+                    raise AssertionError("expired fenced transaction committed")
+
+                transaction_task = asyncio.create_task(expire_open_transaction())
+                await entered.wait()
+                takeover_task = asyncio.create_task(
+                    takeover.acquire(
+                        runtime_instance_id=RuntimeInstanceId(_uuid7()),
+                        lease_seconds=3,
+                    )
+                )
+                expired_code, second = await asyncio.gather(
+                    transaction_task,
+                    takeover_task,
+                )
+                await uow_factory.close()
+                self.assertEqual(expired_code, "DB-TX-FENCE-EXPIRED")
+                assert isinstance(second, RuntimeAuthorityRecord)
+                self.assertGreater(
+                    second.fence.fence_token,
+                    first.fence.fence_token,
+                )
+                with self.assertRaises(RuntimeAuthorityViolation):
+                    await winner.heartbeat(first.fence, lease_seconds=3)
+                with self.assertRaises(RuntimeAuthorityViolation):
+                    await winner.release(first.fence)
+                await takeover.release(second.fence)
+
+                default = await authorities[2].acquire(
+                    runtime_instance_id=RuntimeInstanceId(_uuid7()),
+                    lease_seconds=30,
+                )
+                await asyncio.sleep(10)
+                renewed = await authorities[2].heartbeat(
+                    default.fence,
+                    lease_seconds=30,
+                )
+                self.assertGreater(
+                    renewed.lease_expires_at,
+                    default.lease_expires_at,
+                )
+                await authorities[2].release(default.fence)
+
+                with psycopg.connect(
+                    fixture.provisioner_dsn,
+                    autocommit=True,
+                ) as provisioner:
+                    before_count = provisioner.execute(
+                        "SELECT count(*) FROM armi.runtime_instances"
+                    ).fetchone()
+                    provisioner.execute(
+                        "REVOKE INSERT (audit_event_id) "
+                        "ON armi.audit_events FROM armi_runtime"
+                    )
+                with self.assertRaises(RuntimeAuthorityViolation) as audit_denied:
+                    await authorities[0].acquire(
+                        runtime_instance_id=RuntimeInstanceId(_uuid7()),
+                        lease_seconds=3,
+                    )
+                self.assertEqual(audit_denied.exception.code, "AUTH-AUDIT")
+                with psycopg.connect(
+                    fixture.provisioner_dsn,
+                    autocommit=True,
+                ) as provisioner:
+                    after_count = provisioner.execute(
+                        "SELECT count(*) FROM armi.runtime_instances"
+                    ).fetchone()
+                    provisioner.execute(
+                        "GRANT INSERT (audit_event_id) "
+                        "ON armi.audit_events TO armi_runtime"
+                    )
+                self.assertEqual(before_count, after_count)
+            finally:
+                for authority in authorities:
+                    await authority.close()
+
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                operations = tuple(
+                    row[0]
+                    for row in connection.execute(
+                        """
+                        SELECT operation
+                        FROM armi.audit_events
+                        WHERE operation LIKE 'runtime.authority.%'
+                        ORDER BY occurred_at, audit_event_id
+                        """
+                    ).fetchall()
+                )
+            return first.fence.fence_token, second.fence.fence_token, operations
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            first_token, second_token, operations = asyncio.run(
+                exercise(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+        self.assertEqual((first_token, second_token), (1, 2))
+        self.assertEqual(operations.count("runtime.authority.fenced"), 1)
+        self.assertEqual(operations.count("runtime.authority.acquired"), 3)
+        self.assertEqual(operations.count("runtime.authority.released"), 2)
+        self.assertNotIn("runtime.authority.heartbeat", operations)
+        authority_summary_file = os.environ.get("S016_AUTHORITY_SUMMARY_FILE")
+        if authority_summary_file is not None:
+            Path(authority_summary_file).write_text(
+                json.dumps(
+                    {
+                        "schema_version": "armi.s016-authority-summary.v1",
+                        "first_fence_token": first_token,
+                        "takeover_fence_token": second_token,
+                        "operations": operations,
+                        "real_heartbeat_seconds": 10,
+                        "stale_writer_rejected": True,
+                        "expired_commit_rolled_back": True,
+                        "audit_atomic": True,
+                    },
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("DELETE FROM armi.runtime_instances")
+            connection.rollback()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("TRUNCATE armi.runtime_instances")
+        for dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
+            with (
+                psycopg.connect(dsn) as connection,
+                self.assertRaises(psycopg.errors.InsufficientPrivilege),
+            ):
+                connection.execute("SELECT * FROM armi.runtime_instances")
+
     def _prepare_s011_schema(self, fixture: DatabaseFixture) -> None:
         PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
@@ -1185,6 +1467,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             pool_max=pool_max,
             acquire_timeout_seconds=1,
             statement_timeout_seconds=statement_timeout_seconds,
+            require_runtime_fence=False,
         )
         await factory.open()
         return factory
@@ -1629,6 +1912,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=3,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=5,
+                require_runtime_fence=False,
             )
             gateway = PostgreSQLDurableWorkGateway(factory)
             outbox_gateway = PostgreSQLOutboxGateway(factory)

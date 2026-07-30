@@ -10,6 +10,7 @@ from uuid import UUID
 
 from .auditing import AuditWriter
 from .durable_work import DurableWorkWriter
+from .runtime_authority import RuntimeFence
 
 _ACTION_KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
@@ -148,6 +149,11 @@ class UnitOfWork(Protocol):
     @property
     def lock_plan(self) -> LockPlan:
         """Return the canonical lock plan selected before the transaction."""
+        ...
+
+    @property
+    def runtime_fence(self) -> RuntimeFence | None:
+        """Return the write fence, or ``None`` for read-only/bootstrap work."""
         ...
 
     @property

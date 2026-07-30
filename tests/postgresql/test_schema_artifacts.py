@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 6})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 7})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3, 4, 5, 6],
+            [1, 2, 3, 4, 5, 6, 7],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -85,6 +85,7 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.prompt_revisions",
                 "armi.subject_component_heads",
                 "armi.subject_component_revisions",
+                "armi.runtime_instances",
             ],
         )
         self.assertNotIn("manifest_sha256", manifest)
@@ -139,6 +140,27 @@ class SchemaArtifactTests(unittest.TestCase):
         )
         self.assertEqual(role_manifest["security_definer"]["entries"], [])
         self.assertEqual(role_manifest["default_privileges"], [])
+
+    def test_runtime_authority_migration_is_the_only_s016_object(self) -> None:
+        sql = Path("schema/migrations/0007_runtime_authority.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(sql.count("CREATE TABLE"), 1)
+        self.assertIn("CREATE TABLE armi.runtime_instances", sql)
+        self.assertNotIn("SESSION", sql.upper())
+        self.assertNotRegex(
+            sql,
+            re.compile(
+                r"(?i)\b(?:CREATE\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
+                r"ALTER\s+DEFAULT\s+PRIVILEGES|SECURITY\s+DEFINER)\b"
+            ),
+        )
+        source = Path(
+            "apps/armi-runtime/src/armi_runtime/adapters/persistence/"
+            "runtime_authority.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("pg_advisory_xact_lock", source)
+        self.assertNotIn("pg_advisory_lock(", source)
 
     def test_audit_migration_has_only_the_append_only_s013_surface(self) -> None:
         sql = Path("schema/migrations/0004_normal_audit_foundation.sql").read_text(
