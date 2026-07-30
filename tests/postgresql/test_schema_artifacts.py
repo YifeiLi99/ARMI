@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 9})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 10})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3, 4, 5, 6, 7, 8, 9],
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -89,6 +89,9 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.runtime_recovery_runs",
                 "armi.interaction_scenes",
                 "armi.scene_timeline_items",
+                "armi.creator_input_interactions",
+                "armi.external_evidence",
+                "armi.opportunities",
             ],
         )
         self.assertNotIn("manifest_sha256", manifest)
@@ -224,6 +227,37 @@ class SchemaArtifactTests(unittest.TestCase):
                 r"ALTER\s+DEFAULT\s+PRIVILEGES|SECURITY\s+DEFINER)\b"
             ),
         )
+
+    def test_creator_input_migration_has_only_the_s021_authority_surface(
+        self,
+    ) -> None:
+        sql = Path("schema/migrations/0010_creator_input_acceptance.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(sql.count("CREATE TABLE"), 3)
+        for table in (
+            "creator_input_interactions",
+            "external_evidence",
+            "opportunities",
+        ):
+            self.assertIn(f"CREATE TABLE armi.{table}", sql)
+        self.assertIn("ADD COLUMN resumable_opportunity_count", sql)
+        self.assertIn(
+            "interaction_scenes_input_identity_unique",
+            sql,
+        )
+        self.assertIn(
+            "FOREIGN KEY (\n        scene_id,\n        subject_id,\n"
+            "        creator_party_id\n    ) REFERENCES armi.interaction_scenes",
+            sql,
+        )
+        self.assertNotIn("JSONB", sql.upper())
+        scrubbed = sql.upper().replace(
+            "GRANT UPDATE (RESUMABLE_OPPORTUNITY_COUNT)",
+            "",
+        )
+        self.assertNotIn("GRANT UPDATE", scrubbed)
+        self.assertNotIn("GRANT DELETE", sql.upper())
 
     def test_runtime_module_has_no_upgrade_reference(self) -> None:
         source = Path(

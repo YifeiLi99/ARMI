@@ -61,7 +61,9 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/browser-sessions",
                 "/v1/browser-sessions/current",
                 "/v1/runtime/status",
+                "/v1/operations/{result_ref}",
                 "/v1/scenes/{scene_key}/events",
+                "/v1/scenes/{scene_key}/messages",
                 "/v1/scenes/{scene_key}/timeline",
             },
         )
@@ -103,6 +105,16 @@ class CreatorContractTests(unittest.TestCase):
             event_content["schema"]["x-event-data-schema"]["$ref"],
             "#/components/schemas/CreatorProjectionEventResponse",
         )
+        messages = paths["/v1/scenes/{scene_key}/messages"]["post"]
+        self.assertEqual(messages["operationId"], "acceptCreatorMessage")
+        self.assertEqual(messages["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(
+            set(messages["responses"]),
+            {"202", "400", "401", "403", "404", "409", "413", "503"},
+        )
+        operation = paths["/v1/operations/{result_ref}"]["get"]
+        self.assertEqual(operation["operationId"], "getCreatorOperation")
+        self.assertEqual(operation["security"], [{"browserSessionBearer": []}])
 
     def test_openapi_is_repeatable(self) -> None:
         first = json.dumps(

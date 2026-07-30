@@ -36,6 +36,7 @@ _SCHEMA_FILES = (
     "migrations/0007_runtime_authority.sql",
     "migrations/0008_runtime_recovery.sql",
     "migrations/0009_scene_timeline_query.sql",
+    "migrations/0010_creator_input_acceptance.sql",
 )
 
 

@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 import unittest
-from uuid import UUID
+from uuid import UUID, uuid7
 
-from armi_kernel.application import SceneTimelinePage, SceneTimelineQuery
+from armi_kernel.application import (
+    CreatorInputAcceptance,
+    CreatorInputCommand,
+    CreatorInteractionId,
+    EvidenceId,
+    OpportunityId,
+    SceneTimelinePage,
+    SceneTimelineQuery,
+)
+from armi_kernel.contracts import Digest
 from armi_runtime.composition.lifecycle import LifecycleController
 from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import create_runtime_app
@@ -25,6 +34,39 @@ CREATOR_BEARER = f"creator-v1.{'a' * 43}"
 class _SceneTimelineQuery:
     async def query(self, request: SceneTimelineQuery) -> SceneTimelinePage:
         return SceneTimelinePage(scene_key=request.scene_key, items=())
+
+
+class _CreatorInput:
+    def __init__(self) -> None:
+        self.acceptance = CreatorInputAcceptance(
+            CreatorInteractionId(uuid7()),
+            EvidenceId(uuid7()),
+            OpportunityId(uuid7()),
+            Digest.from_bytes(b"request"),
+            Digest.from_bytes(b"message"),
+            True,
+        )
+        self.commands: list[CreatorInputCommand] = []
+
+    async def accept(self, command: CreatorInputCommand) -> CreatorInputAcceptance:
+        self.commands.append(command)
+        return self.acceptance
+
+    async def get(self, opportunity_id: OpportunityId) -> CreatorInputAcceptance:
+        self.assert_opportunity(opportunity_id)
+        value = self.acceptance
+        return CreatorInputAcceptance(
+            value.interaction_id,
+            value.evidence_id,
+            value.opportunity_id,
+            value.request_digest,
+            value.content_digest,
+            False,
+        )
+
+    def assert_opportunity(self, opportunity_id: OpportunityId) -> None:
+        if opportunity_id != self.acceptance.opportunity_id:
+            raise AssertionError("unexpected opportunity")
 
 
 class CreatorRuntimeAppTests(unittest.TestCase):
@@ -52,6 +94,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             session_ttl_seconds=28_800,
         )
         self.events = CreatorEventBroker(epoch=b"\x06" * 16)
+        self.creator_input = _CreatorInput()
 
     def _status(self) -> RuntimeStatusResponse:
         snapshot = self.lifecycle.snapshot()
@@ -84,6 +127,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             on_stopping=stopping,
             scene_timeline_query=_SceneTimelineQuery(),
             creator_events=self.events,
+            creator_input=self.creator_input,
+            creator_operations=self.creator_input,
         )
 
     @staticmethod
@@ -197,6 +242,100 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 400)
         self.assertEqual(unrelated.status_code, 400)
+
+    def test_creator_message_acceptance_and_operation_are_authoritative(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            accepted = client.post(
+                "/v1/scenes/default/messages",
+                headers={
+                    **self._browser_headers(token),
+                    "Idempotency-Key": "request-1",
+                },
+                json={
+                    "contract_version": "1.0",
+                    "message": "  exact\r\ntext  ",
+                },
+            )
+            operation = client.get(
+                accepted.json()["details"]["operation_url"],
+                headers=self._browser_headers(token),
+            )
+            blank = client.post(
+                "/v1/scenes/default/messages",
+                headers={
+                    **self._browser_headers(token),
+                    "Idempotency-Key": "request-2",
+                },
+                json={"contract_version": "1.0", "message": " \r\n "},
+            )
+            duplicate = client.post(
+                "/v1/scenes/default/messages",
+                headers={
+                    **self._browser_headers(token),
+                    "Idempotency-Key": "request-3",
+                    "Content-Type": "application/json",
+                },
+                content=b'{"contract_version":"1.0","message":"a","message":"b"}',
+            )
+            duplicate_idempotency = client.post(
+                "/v1/scenes/default/messages",
+                headers=[
+                    *self._browser_headers(token).items(),
+                    ("Idempotency-Key", "request-4"),
+                    ("Idempotency-Key", "request-5"),
+                    ("Content-Type", "application/json"),
+                ],
+                content=b'{"contract_version":"1.0","message":"valid"}',
+            )
+            wrong_content_type = client.post(
+                "/v1/scenes/default/messages",
+                headers={
+                    **self._browser_headers(token),
+                    "Idempotency-Key": "request-6",
+                    "Content-Type": "text/plain",
+                },
+                content=b'{"contract_version":"1.0","message":"valid"}',
+            )
+            invalid_utf8 = client.post(
+                "/v1/scenes/default/messages",
+                headers={
+                    **self._browser_headers(token),
+                    "Idempotency-Key": "request-7",
+                    "Content-Type": "application/json",
+                },
+                content=b'{"contract_version":"1.0","message":"\xff"}',
+            )
+            query = client.post(
+                "/v1/scenes/default/messages?token=x",
+                headers={
+                    **self._browser_headers(token),
+                    "Idempotency-Key": "request-8",
+                },
+                json={"contract_version": "1.0", "message": "valid"},
+            )
+
+        self.assertEqual(accepted.status_code, 202)
+        self.assertEqual(accepted.json()["status"], "accepted")
+        self.assertEqual(accepted.json()["custodian"], "runtime")
+        self.assertEqual(operation.status_code, 200)
+        self.assertEqual(operation.json()["result_ref"], accepted.json()["result_ref"])
+        self.assertEqual(self.creator_input.commands[0].message, "  exact\r\ntext  ")
+        self.assertEqual(blank.status_code, 400)
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(duplicate_idempotency.status_code, 400)
+        self.assertEqual(wrong_content_type.status_code, 400)
+        self.assertEqual(invalid_utf8.status_code, 400)
+        self.assertEqual(query.status_code, 400)
 
     def test_replay_wrong_kind_and_boundary_requests_are_rejected(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

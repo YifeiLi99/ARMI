@@ -210,6 +210,7 @@ def build_role_manifest() -> dict[str, object]:
                     "dead_outbox_count",
                     "resumable_work_count",
                     "resumable_outbox_count",
+                    "resumable_opportunity_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -223,6 +224,7 @@ def build_role_manifest() -> dict[str, object]:
                     "dead_outbox_count",
                     "resumable_work_count",
                     "resumable_outbox_count",
+                    "resumable_opportunity_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -243,11 +245,111 @@ def build_role_manifest() -> dict[str, object]:
             "armi_migrator": [],
         },
         "column_grants": {
-            "armi_runtime": {},
+            "armi_runtime": {
+                "INSERT": [
+                    "timeline_item_id",
+                    "scene_id",
+                    "source_kind",
+                    "source_ref",
+                    "source_event_no",
+                    "result_status",
+                    "occurred_at",
+                    "schema_version",
+                ]
+            },
             "armi_admin": {},
             "armi_migrator": {},
         },
     }
+    creator_input_objects = [
+        {
+            "kind": "table",
+            "name": "armi.creator_input_interactions",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "creator_interaction_id",
+                        "subject_id",
+                        "scene_id",
+                        "creator_party_id",
+                        "purpose",
+                        "idempotency_key",
+                        "request_digest",
+                        "content_digest",
+                        "trace_id",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.external_evidence",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "evidence_id",
+                        "creator_interaction_id",
+                        "subject_id",
+                        "scene_id",
+                        "creator_party_id",
+                        "artifact_id",
+                        "source_kind",
+                        "trust_status",
+                        "privacy_scope",
+                        "acceptance_status",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.opportunities",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "opportunity_id",
+                        "evidence_id",
+                        "subject_id",
+                        "scene_id",
+                        "creator_party_id",
+                        "purpose",
+                        "eligibility_status",
+                        "current_disposition",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+    ]
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -514,12 +616,13 @@ def build_role_manifest() -> dict[str, object]:
             authority_object,
             recovery_object,
             timeline_object,
+            *creator_input_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S019 has no business or administration function requiring "
+                "M0-S021 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -684,9 +787,27 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "logical_owner": "creator-projection",
                 "activation_step": "M0-S019",
             },
+            {
+                "kind": "table",
+                "name": "armi.creator_input_interactions",
+                "logical_owner": "creator-input-intake",
+                "activation_step": "M0-S021",
+            },
+            {
+                "kind": "table",
+                "name": "armi.external_evidence",
+                "logical_owner": "external-evidence",
+                "activation_step": "M0-S021",
+            },
+            {
+                "kind": "table",
+                "name": "armi.opportunities",
+                "logical_owner": "opportunity-custody",
+                "activation_step": "M0-S021",
+            },
         ],
         "deferred_objects": [
-            {"scope": "episode_state", "activation_step": "M0-S020"},
+            {"scope": "episode_state", "activation_step": "M0-S023"},
             {"scope": "cognition_attempt_state", "activation_step": "M0-S024"},
             {"scope": "effect_state", "activation_step": "M0-S028"},
             {"scope": "business_projection_state", "activation_step": "M0-S030"},

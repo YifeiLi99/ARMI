@@ -9,20 +9,30 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
+from uuid import UUID
 
 from armi_kernel.application import (
+    CreatorInputAcceptance,
+    CreatorInputAcceptancePort,
+    CreatorInputCommand,
+    CreatorInputViolation,
+    CreatorOperationQueryPort,
+    OpportunityId,
     SceneKey,
     SceneQueryViolation,
     SceneTimelineQuery,
     SceneTimelineQueryPort,
 )
 from armi_kernel.contracts import (
+    AcceptedOutcome,
     ContractViolation,
     ErrorCategory,
     ErrorDescriptor,
+    IdempotencyKey,
     Instant,
     OpaqueCursor,
     RejectedOutcome,
+    ResultRef,
     TraceId,
     UnavailableOutcome,
 )
@@ -45,6 +55,7 @@ from .creator_contract import (
     BrowserSessionCreateRequest,
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
+    CreatorInputRequest,
     LiveResponse,
     Readiness,
     ReadyResponse,
@@ -201,6 +212,71 @@ async def _session_request(request: Request, maximum_bytes: int) -> str:
     return model.bootstrap_code
 
 
+def _single_header(request: Request, name: bytes) -> str | None:
+    values = [
+        value
+        for header_name, value in request.scope["headers"]
+        if header_name.lower() == name
+    ]
+    if len(values) != 1:
+        return None
+    try:
+        return values[0].decode("ascii")
+    except UnicodeDecodeError:
+        return None
+
+
+async def _creator_input_request(
+    request: Request,
+    maximum_bytes: int,
+) -> CreatorInputRequest:
+    if request.headers.get("content-type") != "application/json":
+        raise CreatorInputViolation("INPUT-CONTENT-TYPE")
+    body = await request.body()
+    if not body or len(body) > maximum_bytes:
+        raise CreatorInputViolation("INPUT-SIZE")
+    try:
+        value = json.loads(
+            body.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite JSON")
+            ),
+        )
+        return CreatorInputRequest.model_validate(value)
+    except UnicodeDecodeError, ValueError, ValidationError:
+        raise CreatorInputViolation("INPUT-BODY") from None
+
+
+def _accepted_wire(acceptance: CreatorInputAcceptance) -> dict[str, object]:
+    return AcceptedOutcome(
+        **_outcome_common(),
+        message="The Creator input is durably accepted.",
+        result_ref=ResultRef(acceptance.opportunity_id.value),
+        custodian="runtime",
+        details={
+            "interaction_id": str(acceptance.interaction_id),
+            "evidence_id": str(acceptance.evidence_id),
+            "opportunity_id": str(acceptance.opportunity_id),
+            "operation_url": f"/v1/operations/{acceptance.opportunity_id}",
+        },
+    ).to_wire()
+
+
+def _input_failure(error: CreatorInputViolation) -> tuple[int, dict[str, object]]:
+    if error.code == "IDEMPOTENCY-MISMATCH":
+        return 409, _rejected("IDEMPOTENCY_MISMATCH")
+    if error.code == "SCOPE-SCENE-NOT-VISIBLE":
+        return 404, _rejected("SCOPE_SCENE_NOT_VISIBLE")
+    if error.code == "SCOPE-OPERATION-NOT-VISIBLE":
+        return 404, _rejected("SCOPE_OPERATION_NOT_VISIBLE")
+    if error.code in {"CON-INPUT-SIZE", "INPUT-SIZE"}:
+        return 413, _rejected("INPUT_MESSAGE_TOO_LARGE")
+    if error.code.startswith(("CON-INPUT", "INPUT-")):
+        return 400, _rejected("INPUT_MESSAGE_INVALID")
+    return 503, _unavailable("DEPENDENCY_INPUT_ACCEPTANCE_UNAVAILABLE")
+
+
 def create_runtime_app(
     *,
     readiness: ReadinessProvider,
@@ -213,6 +289,8 @@ def create_runtime_app(
     on_stopping: AsyncCallback,
     scene_timeline_query: SceneTimelineQueryPort | None = None,
     creator_events: CreatorEventBroker | None = None,
+    creator_input: CreatorInputAcceptancePort | None = None,
+    creator_operations: CreatorOperationQueryPort | None = None,
     on_security_event: SecurityEvent | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
@@ -554,6 +632,112 @@ def create_runtime_app(
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
     del get_scene_timeline
+
+    @app.post("/v1/scenes/{scene_key}/messages")
+    async def accept_creator_message(
+        scene_key: str,
+        request: Request,
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_input is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = 403 if browser_sessions is not None else 503
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_INPUT_ACCEPTANCE_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            metadata = browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        if scene_key != metadata.default_scene_key:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+            )
+        idempotency_value = _single_header(request, b"idempotency-key")
+        if idempotency_value is None:
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_IDEMPOTENCY_KEY"),
+            )
+        try:
+            model = await _creator_input_request(request, request_body_max_bytes)
+            command = CreatorInputCommand(
+                scene_key=scene_key,
+                message=model.message,
+                idempotency_key=IdempotencyKey(idempotency_value),
+                trace_id=TraceId(secrets.token_hex(16)),
+            )
+            acceptance = await creator_input.accept(command)
+        except (ContractViolation, CreatorInputViolation) as error:
+            if isinstance(error, ContractViolation):
+                status, content = 400, _rejected("INPUT_IDEMPOTENCY_KEY")
+            else:
+                status, content = _input_failure(error)
+            emit("creator.input.rejected")
+            return JSONResponse(status_code=status, content=content)
+        emit(
+            "creator.input.accepted"
+            if acceptance.newly_accepted
+            else "creator.input.idempotent"
+        )
+        return JSONResponse(status_code=202, content=_accepted_wire(acceptance))
+
+    del accept_creator_message
+
+    @app.get("/v1/operations/{result_ref}")
+    async def get_creator_operation(
+        result_ref: str,
+        request: Request,
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_operations is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = 403 if browser_sessions is not None else 503
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_INPUT_ACCEPTANCE_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            operation_id = OpportunityId(UUID(result_ref))
+            acceptance = await creator_operations.get(operation_id)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except (ValueError, CreatorInputViolation) as error:
+            if isinstance(error, CreatorInputViolation):
+                status, content = _input_failure(error)
+            else:
+                status, content = 404, _rejected("SCOPE_OPERATION_NOT_VISIBLE")
+            return JSONResponse(status_code=status, content=content)
+        return JSONResponse(content=_accepted_wire(acceptance))
+
+    del get_creator_operation
 
     @app.get("/v1/scenes/{scene_key}/events")
     async def get_scene_events(

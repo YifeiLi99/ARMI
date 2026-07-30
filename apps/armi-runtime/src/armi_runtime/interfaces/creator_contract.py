@@ -9,6 +9,7 @@ from uuid import UUID
 
 from armi_kernel.contracts import (
     CONTRACT_VERSION,
+    AcceptedOutcome,
     ErrorDescriptor,
     ErrorInstanceId,
     Instant,
@@ -16,7 +17,7 @@ from armi_kernel.contracts import (
     TraceId,
     UnavailableOutcome,
 )
-from fastapi import FastAPI, Query, Security
+from fastapi import FastAPI, Header, Query, Security
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer
 from pydantic import (
@@ -41,6 +42,7 @@ _SESSION_TOKEN_PATTERN = r"browser-v1\.[A-Za-z0-9_-]{43}"
 _SCENE_KEY_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"
 _CURSOR_PATTERN = r"v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
 _EVENT_ID_PATTERN = r"sse-v1\.[A-Za-z0-9_-]{22}\.[1-9][0-9]*"
+_IDEMPOTENCY_KEY_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
 type ReasonCode = Annotated[str, Field(pattern=_ERROR_CODE_PATTERN)]
 type ErrorCategoryValue = Literal[
     "input",
@@ -209,6 +211,11 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         return value
 
 
+class CreatorInputRequest(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    message: Annotated[str, Field(min_length=1, max_length=262144)]
+
+
 class RuntimeStatusResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     environment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -267,13 +274,52 @@ class _CommonOutcomeResponse(_StrictWireModel):
     trace_id: Annotated[str, Field(pattern=_TRACE_PATTERN)]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     message: Annotated[str, Field(min_length=1, max_length=4096)]
-    details: dict[str, JsonValue] | None = None
 
     @field_validator("trace_id")
     @classmethod
     def validate_trace_id(cls, value: str) -> str:
         TraceId(value)
         return value
+
+
+class CreatorInputAcceptanceDetails(_StrictWireModel):
+    interaction_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    evidence_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    opportunity_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    operation_url: Annotated[
+        str,
+        Field(pattern=rf"^/v1/operations/{_UUIDV7_PATTERN}$"),
+    ]
+
+    @field_validator("interaction_id", "evidence_id", "opportunity_id")
+    @classmethod
+    def validate_uuid7(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-INPUT-ID: identity must be canonical UUIDv7")
+        return value
+
+    @model_validator(mode="after")
+    def validate_operation_url(self) -> CreatorInputAcceptanceDetails:
+        if self.operation_url != f"/v1/operations/{self.opportunity_id}":
+            raise ValueError(
+                "CON-INPUT-OPERATION: operation URL must match opportunity"
+            )
+        return self
+
+
+class AcceptedOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["accepted"]
+    result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    custodian: Literal["runtime"]
+    details: CreatorInputAcceptanceDetails
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> AcceptedOutcomeResponse:
+        if self.result_ref != self.details.opportunity_id:
+            raise ValueError("CON-INPUT-RESULT: result must identify the opportunity")
+        AcceptedOutcome.from_wire(self.model_dump(exclude_none=True))
+        return self
 
     @field_validator("occurred_at")
     @classmethod
@@ -287,6 +333,7 @@ class _CommonOutcomeResponse(_StrictWireModel):
 class RejectedOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["rejected"]
     error: ErrorDescriptorResponse
+    details: dict[str, JsonValue] | None = None
 
     @model_validator(mode="after")
     def validate_kernel_contract(self) -> RejectedOutcomeResponse:
@@ -297,6 +344,7 @@ class RejectedOutcomeResponse(_CommonOutcomeResponse):
 class UnavailableOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["unavailable"]
     error: ErrorDescriptorResponse
+    details: dict[str, JsonValue] | None = None
     recovery_hint: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
 
     @model_validator(mode="after")
@@ -431,6 +479,56 @@ def build_creator_openapi() -> dict[str, object]:
         del scene_key, limit, cursor
         raise NotImplementedError
 
+    @app.post(
+        "/v1/scenes/{scene_key}/messages",
+        operation_id="acceptCreatorMessage",
+        status_code=202,
+        response_model=AcceptedOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def accept_creator_message(
+        scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)],
+        _request: CreatorInputRequest,
+        _idempotency_key: Annotated[
+            str,
+            Header(
+                alias="Idempotency-Key",
+                pattern=_IDEMPOTENCY_KEY_PATTERN,
+                max_length=128,
+            ),
+        ],
+    ) -> AcceptedOutcomeResponse:
+        del scene_key, _request, _idempotency_key
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/operations/{result_ref}",
+        operation_id="getCreatorOperation",
+        response_model=AcceptedOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_operation(
+        result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+    ) -> AcceptedOutcomeResponse:
+        del result_ref
+        raise NotImplementedError
+
     @app.get(
         "/v1/scenes/{scene_key}/events",
         operation_id="streamSceneEvents",
@@ -477,6 +575,8 @@ def build_creator_openapi() -> dict[str, object]:
         delete_browser_session,
         runtime_status,
         scene_timeline,
+        accept_creator_message,
+        get_creator_operation,
         scene_events,
     )
     del schema_handlers
@@ -488,6 +588,10 @@ def build_creator_openapi() -> dict[str, object]:
     schema["paths"]["/v1/scenes/{scene_key}/events"]["get"]["responses"].pop(
         "422", None
     )
+    schema["paths"]["/v1/scenes/{scene_key}/messages"]["post"]["responses"].pop(
+        "422", None
+    )
+    schema["paths"]["/v1/operations/{result_ref}"]["get"]["responses"].pop("422", None)
     schemas = schema["components"]["schemas"]
     schemas["CreatorProjectionEventResponse"] = (
         CreatorProjectionEventResponse.model_json_schema(
@@ -498,10 +602,12 @@ def build_creator_openapi() -> dict[str, object]:
 
 
 __all__ = (
+    "AcceptedOutcomeResponse",
     "BootstrapCodeResponse",
     "BrowserSessionCreateRequest",
     "BrowserSessionCurrentResponse",
     "BrowserSessionResponse",
+    "CreatorInputRequest",
     "CreatorProjectionEventResponse",
     "ErrorDescriptorResponse",
     "LiveResponse",

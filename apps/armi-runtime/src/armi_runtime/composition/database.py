@@ -7,6 +7,7 @@ from typing import Final
 from uuid import UUID
 
 from armi_kernel.application import (
+    CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
     RuntimeFence,
@@ -34,6 +35,10 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 
 from .birth_manifest import packaged_birth_digests
 from .configuration import ConfigurationViolation
+from .creator_input import (
+    EvidenceAcceptanceTransaction,
+    build_evidence_acceptance_transaction,
+)
 from .environment import PreparedEnvironment
 
 RUNTIME_LOCATOR_NAME: Final = "database.runtime"
@@ -314,6 +319,70 @@ def compose_runtime_authority(
         ) from None
 
 
+def compose_creator_input(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+    authority_admission: Callable[[], RuntimeFence],
+    notifier: CreatorProjectionNotifier | None,
+    diagnostic: Callable[[str], None] | None = None,
+) -> EvidenceAcceptanceTransaction:
+    """Resolve the Runtime credential for the sole Creator input write owner."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the required database credential locator is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> EvidenceAcceptanceTransaction:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-CONNECTION-UNAVAILABLE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
+                    ) from None
+                config = prepared.effective.config
+                return build_evidence_acceptance_transaction(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    notifier=notifier,
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise DatabaseViolation(
+            "DB-ROLE-CREDENTIAL-SCOPE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
+
+
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
@@ -372,6 +441,7 @@ __all__ = (
     "RUNTIME_LOCATOR_NAME",
     "ContinuityState",
     "DatabaseViolation",
+    "compose_creator_input",
     "compose_runtime_authority",
     "compose_runtime_recovery",
     "compose_scene_timeline_query",

@@ -164,7 +164,9 @@ def validate_openapi(schema: dict[str, object]) -> None:
         "/v1/browser-sessions",
         "/v1/browser-sessions/current",
         "/v1/runtime/status",
+        "/v1/operations/{result_ref}",
         "/v1/scenes/{scene_key}/events",
+        "/v1/scenes/{scene_key}/messages",
         "/v1/scenes/{scene_key}/timeline",
     }:
         raise CreatorBuildError(
@@ -186,7 +188,9 @@ def validate_openapi(schema: dict[str, object]) -> None:
         "getHealthLive",
         "getHealthReady",
         "getRuntimeStatus",
+        "getCreatorOperation",
         "getSceneTimeline",
+        "acceptCreatorMessage",
         "streamSceneEvents",
     }:
         raise CreatorBuildError(

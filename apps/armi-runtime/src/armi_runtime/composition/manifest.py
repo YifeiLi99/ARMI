@@ -19,11 +19,14 @@ _SEAMS: Final = (
     ("M0-SEAM-CONTEXT", ("M0-S023",)),
     ("M0-SEAM-MODEL", ("M0-S024",)),
     ("M0-SEAM-COGNITIVE-CANDIDATE", ("M0-S025", "M0-S026")),
-    ("M0-SEAM-WORK-SELECTION", ("M0-S014", "M0-S023")),
+    ("M0-SEAM-WORK-SELECTION", ("M0-S023",)),
     ("M0-SEAM-POLICY", ("M0-S027—M0-S029",)),
     ("M0-SEAM-WEB", ("M0-S032—M0-S034",)),
     ("M0-SEAM-CODEX", ("M0-S038", "M0-S039")),
-    ("M0-SEAM-CREATOR-PROJECTION", ("M0-S019", "M0-S020", "M0-S031")),
+    (
+        "M0-SEAM-CREATOR-PROJECTION",
+        ("M0-S019", "M0-S020", "M0-S021", "M0-S031"),
+    ),
     (
         "M0-SEAM-CREATOR-UI",
         ("M0-S007", "M0-S020", "M0-S022", "M0-S031", "M0-S043"),
@@ -48,6 +51,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0007_runtime_authority.sql",
     "migrations/0008_runtime_recovery.sql",
     "migrations/0009_scene_timeline_query.sql",
+    "migrations/0010_creator_input_acceptance.sql",
 )
 
 
@@ -111,7 +115,7 @@ def build_composition_manifest(
                 for name, value in sorted(schema_resources.items())
             },
         },
-        "runtime_business_contract": False,
+        "runtime_business_contract": True,
     }
 
 

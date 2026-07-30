@@ -296,7 +296,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {9})
+        self.assertEqual({result.applied_version for result in results}, {10})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -363,7 +363,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 9)
+        self.assertEqual(result.applied_version, 10)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -425,7 +425,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 9)
+        self.assertEqual(result.applied_version, 10)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -485,7 +485,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(10,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(11,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -544,7 +544,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (9,),
+                    (10,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1030,14 +1030,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
         with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
             connection.execute(
+                """
+                DROP TABLE
+                    armi.opportunities,
+                    armi.external_evidence,
+                    armi.creator_input_interactions
+                """
+            )
+            connection.execute(
+                """
+                ALTER TABLE armi.runtime_recovery_runs
+                DROP COLUMN resumable_opportunity_count
+                """
+            )
+            connection.execute(
                 "DROP TABLE armi.scene_timeline_items, armi.interaction_scenes"
             )
-            connection.execute("DELETE FROM armi.schema_migrations WHERE version = 9")
+            connection.execute(
+                "DELETE FROM armi.schema_migrations WHERE version IN (9, 10)"
+            )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 9)
+        self.assertEqual(backfilled.applied_version, 10)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
@@ -1279,15 +1295,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute(
                     """
-                    INSERT INTO armi.scene_timeline_items (
-                        timeline_item_id, scene_id, source_kind, source_ref,
-                        source_event_no, result_status, occurred_at
-                    ) VALUES (
-                        %s, %s, 'creator.message', %s, 122, 'completed',
-                        statement_timestamp()
-                    )
+                    UPDATE armi.scene_timeline_items
+                    SET result_status = 'failed'
+                    WHERE scene_id = %s
                     """,
-                    (_uuid7(), scene[0], _uuid7()),
+                    (scene[0],),
                 )
             connection.rollback()
         for denied_dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
@@ -1949,23 +1961,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (runtime_status["runtime_state"], runtime_status["readiness"]),
                         ("ready", "ready"),
                     )
-                    connection.request(
-                        "GET",
-                        "/v1/scenes/default/timeline?limit=50",
-                        headers=authenticated_headers,
-                    )
-                    timeline_response = connection.getresponse()
-                    timeline = json.loads(timeline_response.read())
-                    self.assertEqual(timeline_response.status, 200)
-                    self.assertEqual(
-                        timeline,
-                        {
-                            "contract_version": "1.0",
-                            "projection_version": "scene-timeline.v1",
-                            "scene_key": "default",
-                            "items": [],
-                        },
-                    )
                     stream_connection = http.client.HTTPConnection(
                         "127.0.0.1",
                         runtime_port,
@@ -1988,6 +1983,115 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(stream_response.readline(), b"retry: 1000\n")
                     self.assertEqual(stream_response.readline(), b"\n")
+                    message = "  first creator input\nsecond line  "
+                    input_body = json.dumps(
+                        {
+                            "contract_version": "1.0",
+                            "message": message,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ).encode()
+                    input_headers = {
+                        **authenticated_headers,
+                        "Content-Type": "application/json",
+                        "Content-Length": str(len(input_body)),
+                        "Idempotency-Key": "s021-runtime-input",
+                    }
+                    connection.request(
+                        "POST",
+                        "/v1/scenes/default/messages",
+                        body=input_body,
+                        headers=input_headers,
+                    )
+                    accepted_response = connection.getresponse()
+                    accepted = json.loads(accepted_response.read())
+                    self.assertEqual(accepted_response.status, 202, accepted)
+                    self.assertEqual(accepted["status"], "accepted")
+                    self.assertEqual(accepted["custodian"], "runtime")
+                    self.assertEqual(
+                        accepted["result_ref"],
+                        accepted["details"]["opportunity_id"],
+                    )
+                    event_lines = [
+                        stream_response.readline(),
+                        stream_response.readline(),
+                        stream_response.readline(),
+                        stream_response.readline(),
+                    ]
+                    self.assertTrue(event_lines[0].startswith(b"id: sse-v1."))
+                    self.assertEqual(
+                        event_lines[1],
+                        b"event: scene.timeline.invalidated\n",
+                    )
+                    event_payload = json.loads(event_lines[2].removeprefix(b"data: "))
+                    self.assertEqual(
+                        (
+                            event_payload["event_kind"],
+                            event_payload["resource_kind"],
+                            event_payload["resource_ref"],
+                        ),
+                        (
+                            "scene.timeline.invalidated",
+                            "scene_timeline",
+                            "default",
+                        ),
+                    )
+                    self.assertEqual(event_lines[3], b"\n")
+                    connection.request(
+                        "POST",
+                        "/v1/scenes/default/messages",
+                        body=input_body,
+                        headers=input_headers,
+                    )
+                    replay_response = connection.getresponse()
+                    replay = json.loads(replay_response.read())
+                    self.assertEqual(replay_response.status, 202)
+                    self.assertEqual(
+                        (
+                            replay["status"],
+                            replay["result_ref"],
+                            replay["custodian"],
+                            replay["details"],
+                        ),
+                        (
+                            accepted["status"],
+                            accepted["result_ref"],
+                            accepted["custodian"],
+                            accepted["details"],
+                        ),
+                    )
+                    connection.request(
+                        "GET",
+                        accepted["details"]["operation_url"],
+                        headers=authenticated_headers,
+                    )
+                    operation_response = connection.getresponse()
+                    operation = json.loads(operation_response.read())
+                    self.assertEqual(operation_response.status, 200)
+                    self.assertEqual(operation["result_ref"], accepted["result_ref"])
+                    self.assertEqual(operation["details"], accepted["details"])
+                    connection.request(
+                        "GET",
+                        "/v1/scenes/default/timeline?limit=50",
+                        headers=authenticated_headers,
+                    )
+                    timeline_response = connection.getresponse()
+                    timeline = json.loads(timeline_response.read())
+                    self.assertEqual(timeline_response.status, 200)
+                    self.assertEqual(len(timeline["items"]), 1)
+                    self.assertEqual(
+                        (
+                            timeline["items"][0]["source_kind"],
+                            timeline["items"][0]["source_ref"],
+                            timeline["items"][0]["status"],
+                        ),
+                        (
+                            "creator_input",
+                            accepted["details"]["interaction_id"],
+                            "accepted",
+                        ),
+                    )
                     self.assertEqual(stream_response.readline(), b": keepalive\n")
                     self.assertEqual(stream_response.readline(), b"\n")
                     logout_connection = http.client.HTTPConnection(
@@ -2033,6 +2137,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "creator.bootstrap.issued",
                     "creator.session.established",
                     "creator.event_stream.connected",
+                    "creator.input.accepted",
+                    "creator.input.idempotent",
                     "runtime.authority.heartbeat",
                     "creator.event_stream.closed",
                     "creator.session.revoked",
@@ -2048,6 +2154,152 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertNotIn(creator_bearer, log_text)
             self.assertNotIn(code, log_text)
             self.assertNotIn(browser_token, log_text)
+            self.assertNotIn(message, log_text)
+            with psycopg.connect(fixture.runtime_dsn) as database:
+                fact_counts = database.execute(
+                    """
+                    SELECT
+                        (SELECT count(*) FROM armi.creator_input_interactions),
+                        (SELECT count(*) FROM armi.external_evidence),
+                        (SELECT count(*) FROM armi.opportunities),
+                        (
+                            SELECT count(*)
+                            FROM armi.scene_timeline_items
+                            WHERE source_kind = 'creator_input'
+                        ),
+                        (
+                            SELECT count(*)
+                            FROM armi.audit_events
+                            WHERE operation = 'creator.input.accepted'
+                        )
+                    """
+                ).fetchone()
+                self.assertEqual(fact_counts, (1, 1, 1, 1, 1))
+                artifact_identity = database.execute(
+                    """
+                    SELECT artifact.content_digest, artifact.storage_locator
+                    FROM armi.external_evidence AS evidence
+                    JOIN armi.artifacts AS artifact
+                      ON artifact.artifact_id = evidence.artifact_id
+                    """
+                ).fetchone()
+                assert artifact_identity is not None
+                self.assertEqual(
+                    artifact_identity[0],
+                    Digest.from_bytes(message.encode("utf-8")).value,
+                )
+                self.assertEqual(
+                    (artifact_root / artifact_identity[1]).read_bytes(),
+                    message.encode("utf-8"),
+                )
+                mismatched = database.execute(
+                    """
+                    SELECT scene.scene_id, scene.subject_id, party.party_id
+                    FROM armi.interaction_scenes AS scene
+                    JOIN armi.parties AS party
+                      ON party.represented_subject_id = scene.subject_id
+                     AND party.party_kind = 'subject'
+                    WHERE scene.scene_key = 'default'
+                    """
+                ).fetchone()
+                assert mismatched is not None
+                with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+                    database.execute(
+                        """
+                        INSERT INTO armi.creator_input_interactions (
+                            creator_interaction_id,
+                            subject_id,
+                            scene_id,
+                            creator_party_id,
+                            purpose,
+                            idempotency_key,
+                            request_digest,
+                            content_digest,
+                            trace_id
+                        ) VALUES (
+                            %s, %s, %s, %s, 'creator_message',
+                            's021-mismatched-identity',
+                            'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+                            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                            'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+                            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                            'cccccccccccccccccccccccccccccccc'
+                        )
+                        """,
+                        (_uuid7(), mismatched[1], mismatched[0], mismatched[2]),
+                    )
+                database.rollback()
+            restarted = subprocess.Popen(
+                (
+                    str(Path(".venv/Scripts/armi.exe").resolve()),
+                    "runtime",
+                    "start",
+                    "--environment-root",
+                    str(environment_root),
+                ),
+                cwd=Path.cwd(),
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.startswith("ARMI_")
+                },
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+            try:
+                restart_deadline = time.monotonic() + 30
+                while time.monotonic() < restart_deadline:
+                    if restarted.poll() is not None:
+                        self.fail("restarted Runtime exited before listening")
+                    try:
+                        with socket.create_connection(
+                            ("127.0.0.1", runtime_port),
+                            timeout=0.2,
+                        ):
+                            break
+                    except OSError:
+                        time.sleep(0.05)
+                else:
+                    self.fail("restarted Runtime did not listen")
+                restarted.send_signal(signal.CTRL_BREAK_EVENT)
+                restart_stdout, restart_stderr = restarted.communicate(timeout=35)
+            finally:
+                if restarted.poll() is None:
+                    restarted.kill()
+                    restarted.communicate()
+            self.assertEqual(restarted.returncode, 0, restart_stderr)
+            self.assertEqual(restart_stdout, "")
+            with psycopg.connect(fixture.runtime_dsn) as database:
+                recovery_count = database.execute(
+                    """
+                    SELECT resumable_opportunity_count
+                    FROM armi.runtime_recovery_runs
+                    ORDER BY started_at DESC, recovery_run_id DESC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                self.assertEqual(recovery_count, (1,))
+                self.assertEqual(
+                    database.execute(
+                        "SELECT count(*) FROM armi.durable_work"
+                    ).fetchone(),
+                    (1,),
+                )
+                self.assertEqual(
+                    database.execute(
+                        """
+                        SELECT count(*)
+                        FROM armi.scene_timeline_items
+                        WHERE source_kind = 'creator_input'
+                        """
+                    ).fetchone(),
+                    (1,),
+                )
         self.assertEqual(status, RecoveryStatus.SAFE.value)
         self.assertEqual(critical_count, 2)
         self.assertEqual((requeued_work, requeued_outbox), (1, 1))

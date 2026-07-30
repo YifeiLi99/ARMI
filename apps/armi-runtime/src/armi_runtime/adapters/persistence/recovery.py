@@ -472,12 +472,76 @@ class PostgreSQLRuntimeRecovery:
                             FROM armi.outbox_items
                             WHERE status = 'ready'
                               AND attempt_count < max_attempts
+                        ),
+                        (
+                            SELECT count(*)
+                            FROM armi.opportunities AS opportunity
+                            JOIN armi.external_evidence AS evidence
+                              ON evidence.evidence_id = opportunity.evidence_id
+                             AND evidence.subject_id = opportunity.subject_id
+                             AND evidence.scene_id = opportunity.scene_id
+                             AND evidence.creator_party_id
+                               = opportunity.creator_party_id
+                            JOIN armi.creator_input_interactions AS interaction
+                              ON interaction.creator_interaction_id
+                               = evidence.creator_interaction_id
+                             AND interaction.subject_id = evidence.subject_id
+                             AND interaction.scene_id = evidence.scene_id
+                             AND interaction.creator_party_id
+                               = evidence.creator_party_id
+                            WHERE opportunity.current_disposition = 'open'
+                              AND opportunity.eligibility_status = 'eligible'
+                              AND opportunity.available_after
+                                  <= statement_timestamp()
+                              AND opportunity.expires_at IS NULL
+                        ),
+                        (
+                            SELECT count(*)
+                            FROM armi.opportunities AS opportunity
+                            LEFT JOIN armi.external_evidence AS evidence
+                              ON evidence.evidence_id = opportunity.evidence_id
+                             AND evidence.subject_id = opportunity.subject_id
+                             AND evidence.scene_id = opportunity.scene_id
+                             AND evidence.creator_party_id
+                               = opportunity.creator_party_id
+                            LEFT JOIN armi.creator_input_interactions AS interaction
+                              ON interaction.creator_interaction_id
+                               = evidence.creator_interaction_id
+                             AND interaction.subject_id = evidence.subject_id
+                             AND interaction.scene_id = evidence.scene_id
+                             AND interaction.creator_party_id
+                               = evidence.creator_party_id
+                            WHERE evidence.evidence_id IS NULL
+                               OR interaction.creator_interaction_id IS NULL
+                               OR opportunity.current_disposition <> 'open'
+                               OR opportunity.eligibility_status <> 'eligible'
+                               OR opportunity.expires_at IS NOT NULL
+                               OR evidence.source_kind <> 'creator_input'
+                               OR evidence.trust_status <> 'external_claim'
+                               OR evidence.privacy_scope <> 'creator_visible'
+                               OR evidence.acceptance_status <> 'accepted'
+                               OR interaction.purpose <> 'creator_message'
                         )
                     FROM armi.durable_work
                     """
                 )
             ).fetchone()
             assert counts is not None
+            if int(counts[3]) > 0:
+                blockers += 1
+                sorted_findings = tuple(
+                    sorted(
+                        (
+                            *sorted_findings,
+                            RecoveryFinding(
+                                "opportunity",
+                                RecoveryDecision.BLOCKED,
+                                "REC-OPPORTUNITY-INVALID",
+                            ),
+                        ),
+                        key=_finding_key,
+                    )
+                )
             status = (
                 RecoveryStatus.SAFE
                 if blockers == 0 and critical == 2
@@ -501,6 +565,7 @@ class PostgreSQLRuntimeRecovery:
                 "dead_outbox": scan.dead_outbox,
                 "resumable_work": int(counts[0]),
                 "resumable_outbox": int(counts[1]),
+                "resumable_opportunity": int(counts[2]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -527,6 +592,7 @@ class PostgreSQLRuntimeRecovery:
                     dead_outbox_count = %s,
                     resumable_work_count = %s,
                     resumable_outbox_count = %s,
+                    resumable_opportunity_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -541,6 +607,7 @@ class PostgreSQLRuntimeRecovery:
                     scan.dead_outbox,
                     int(counts[0]),
                     int(counts[1]),
+                    int(counts[2]),
                     critical,
                     blockers,
                     digest.value,
@@ -564,6 +631,7 @@ class PostgreSQLRuntimeRecovery:
             dead_outbox_count=scan.dead_outbox,
             resumable_work_count=int(counts[0]),
             resumable_outbox_count=int(counts[1]),
+            resumable_opportunity_count=int(counts[2]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

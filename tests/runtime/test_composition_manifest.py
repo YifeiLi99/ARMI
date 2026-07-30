@@ -46,7 +46,7 @@ class CompositionManifestTests(unittest.TestCase):
         self.assertTrue(
             all(not seam["runtime_discovery"] for seam in manifest["seams"])
         )
-        self.assertFalse(manifest["runtime_business_contract"])
+        self.assertTrue(manifest["runtime_business_contract"])
 
     def test_s014_custody_is_not_an_active_worker_binding(self) -> None:
         verified = verify_packaged_composition()

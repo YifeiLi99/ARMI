@@ -1,0 +1,64 @@
+"""CON-INPUT checks for the technology-neutral Creator acceptance contract."""
+
+from __future__ import annotations
+
+import unittest
+from uuid import uuid7
+
+from armi_kernel.application import (
+    CreatorInputAcceptance,
+    CreatorInputCommand,
+    CreatorInputViolation,
+    CreatorInteractionId,
+    EvidenceId,
+    OpportunityId,
+)
+from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
+
+
+class CreatorInputContractTests(unittest.TestCase):
+    def test_command_preserves_exact_utf8_and_acceptance_is_stable(self) -> None:
+        command = CreatorInputCommand(
+            scene_key="default",
+            message="  第一行\r\n第二行  ",
+            idempotency_key=IdempotencyKey("request-1"),
+            trace_id=TraceId("1" * 32),
+        )
+        self.assertEqual(
+            command.message_bytes,
+            "  第一行\r\n第二行  ".encode(),
+        )
+        acceptance = CreatorInputAcceptance(
+            CreatorInteractionId(uuid7()),
+            EvidenceId(uuid7()),
+            OpportunityId(uuid7()),
+            Digest.from_bytes(b"request"),
+            Digest.from_bytes(command.message_bytes),
+            True,
+        )
+        self.assertTrue(acceptance.newly_accepted)
+
+    def test_message_boundaries_and_safe_error_are_strict(self) -> None:
+        common = {
+            "scene_key": "default",
+            "idempotency_key": IdempotencyKey("request-1"),
+            "trace_id": TraceId("1" * 32),
+        }
+        for message, code in (
+            (" \r\n\t", "CON-INPUT-MESSAGE"),
+            ("contains\x00nul", "CON-INPUT-MESSAGE"),
+            ("\ud800", "CON-INPUT-UNICODE"),
+            ("x" * (256 * 1024 + 1), "CON-INPUT-SIZE"),
+        ):
+            with (
+                self.subTest(code=code),
+                self.assertRaisesRegex(CreatorInputViolation, code),
+            ):
+                CreatorInputCommand(message=message, **common)
+        error = CreatorInputViolation("INPUT-MESSAGE")
+        self.assertNotIn("contains", str(error))
+        self.assertNotIn("path", str(error))
+
+
+if __name__ == "__main__":
+    unittest.main()

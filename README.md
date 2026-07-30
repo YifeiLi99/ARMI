@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S020，并把当前设计基线重冻为 S001 3.0。新基线冻结了 Creator 输入 wire、专用 interaction 真源、evidence/open opportunity 耐久保管、恢复计数、operation Query 与提交后 SSE 通知边界；S021 不预建没有 scheduler 的无期限 work，S023 激活选择器后才创建带 deadline 的工作。当前产品实现仍停在 schema v9 和 S020：born Runtime 可提供短期 browser session、安全状态、默认 scene 权威 timeline 与 authenticated SSE，但尚无生产输入接纳或 timeline writer，M0-A02 未完成。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务 timeline 数据，仍不是可用产品版本。
+项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S021，并把当前设计基线重冻为 S001 3.0。schema v10 已建立 Creator 输入 interaction、external evidence、open opportunity 与 timeline 的原子接纳路径；同一幂等请求复用唯一事实，提交后 SSE 只负责通知权威 Query 重新读取，重启恢复只核对机会责任而不提前创建无期限 work。Creator 尚无输入界面或正文展示，模型、Context、episode 与业务 worker 也未实现，M0-A02 仍未完成。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，仍不是可用产品版本；M0-S022 仅开放计划前置条件。
 
 ## 关于学习与参考
 

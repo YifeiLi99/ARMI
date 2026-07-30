@@ -34,7 +34,7 @@ KNOWN_DATABASE_CODES = frozenset(
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DatabaseViolation(RuntimeError):
     code: str
     message: str

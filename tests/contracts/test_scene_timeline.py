@@ -113,7 +113,9 @@ class SceneTimelineContractTests(unittest.TestCase):
                 limit=49,
             )
         self.assertEqual(wrong_limit.exception.code, "SCENE-CURSOR-INVALID")
-        tampered = type(cursor)(f"{cursor.value[:-1]}A")
+        prefix, payload, signature = cursor.value.split(".")
+        replacement = "A" if signature[0] != "A" else "B"
+        tampered = type(cursor)(f"{prefix}.{payload}.{replacement}{signature[1:]}")
         with self.assertRaises(SceneQueryViolation):
             codec.decode(
                 tampered,

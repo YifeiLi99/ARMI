@@ -13,6 +13,7 @@ from uuid import uuid7
 
 import uvicorn
 from armi_kernel.application import (
+    CreatorInputViolation,
     RecoveryStatus,
     RecoveryViolation,
     RuntimeAuthorityViolation,
@@ -37,6 +38,7 @@ from .creator_session import compose_browser_sessions, derive_timeline_cursor_ke
 from .database import (
     ContinuityState,
     DatabaseViolation,
+    compose_creator_input,
     compose_runtime_authority,
     compose_runtime_recovery,
     compose_scene_timeline_query,
@@ -105,6 +107,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     browser_sessions: BrowserSessionStore | None = None
     scene_timeline_query = None
     creator_events: CreatorEventBroker | None = None
+    creator_input = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -168,6 +171,17 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     result_code="CREATOR_EVENT_STREAM",
                 )
             )
+            creator_input = compose_creator_input(
+                prepared,
+                creator_party_id=creator_context.party_id,
+                authority_admission=authority.require_writable,
+                notifier=creator_events,
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="CREATOR_INPUT",
+                ),
+            )
+            await creator_input.open()
         except DatabaseViolation, RuntimeAuthorityViolation:
             diagnostic.emit(
                 "runtime.authority.unavailable",
@@ -187,7 +201,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 result_code="REC_FAILED",
                 reason_codes=recovery_reasons,
             )
-        except BrowserSessionViolation, SceneQueryViolation:
+        except BrowserSessionViolation, CreatorInputViolation, SceneQueryViolation:
             diagnostic.emit(
                 "runtime.creator_interface.unavailable",
                 level=logging.ERROR,
@@ -196,6 +210,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             )
             if scene_timeline_query is not None:
                 await scene_timeline_query.close()
+            if creator_input is not None:
+                await creator_input.close()
             if authority is not None:
                 await authority.release()
             if authority_port is not None:
@@ -272,6 +288,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             )
         if scene_timeline_query is not None:
             await scene_timeline_query.close()
+        if creator_input is not None:
+            await creator_input.close()
         released = await supervisor.drain(
             deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
         )
@@ -339,6 +357,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         browser_sessions=browser_sessions,
         scene_timeline_query=scene_timeline_query,
         creator_events=creator_events,
+        creator_input=creator_input,
+        creator_operations=creator_input,
         expected_authority=f"{config.creator.bind_host}:{config.creator.port}",
         request_body_max_bytes=config.creator.request_body_max_bytes,
         on_started=started,
@@ -377,6 +397,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     finally:
         if scene_timeline_query is not None:
             await scene_timeline_query.close()
+        if creator_input is not None:
+            await creator_input.close()
         if authority_port is not None:
             await authority_port.close()
     if server.force_exit:

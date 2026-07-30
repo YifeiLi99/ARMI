@@ -91,6 +91,7 @@ class RecoverySummary:
     dead_outbox_count: int
     resumable_work_count: int
     resumable_outbox_count: int
+    resumable_opportunity_count: int
     critical_artifact_count: int
     blocker_count: int
     summary_digest: Digest | None
@@ -108,6 +109,7 @@ class RecoverySummary:
             self.dead_outbox_count,
             self.resumable_work_count,
             self.resumable_outbox_count,
+            self.resumable_opportunity_count,
             self.critical_artifact_count,
             self.blocker_count,
         ):

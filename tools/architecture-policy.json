@@ -43,7 +43,10 @@
       "id": "artifact-catalog",
       "module": "armi_runtime.adapters.persistence.artifact_catalog",
       "owner": "artifact-catalog",
-      "allowed_callers": ["armi_runtime.composition.artifacts"]
+      "allowed_callers": [
+        "armi_runtime.composition.artifacts",
+        "armi_runtime.composition.creator_input"
+      ]
     },
     {
       "id": "normal-audit",
@@ -109,6 +112,14 @@
       "allowed_callers": [
         "armi_runtime.composition.database"
       ]
+    },
+    {
+      "id": "creator-input-intake",
+      "module": "armi_runtime.adapters.persistence.creator_input",
+      "owner": "creator-input-intake",
+      "allowed_callers": [
+        "armi_runtime.composition.creator_input"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -169,6 +180,16 @@
         "artifact-catalog",
         "normal-audit",
         "database-role-policy-runtime"
+      ]
+    },
+    {
+      "id": "creator-input-acceptance",
+      "module": "armi_runtime.composition.creator_input",
+      "owner": "creator-input-intake",
+      "allowed_write_surfaces": [
+        "creator-input-intake",
+        "artifact-catalog",
+        "normal-audit"
       ]
     }
   ],

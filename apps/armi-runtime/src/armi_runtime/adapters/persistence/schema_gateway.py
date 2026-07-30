@@ -244,6 +244,7 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("blocker_count", "integer", True),
         ("summary_digest", "text", False),
         ("schema_version", "smallint", True),
+        ("resumable_opportunity_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -267,6 +268,46 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("result_status", "text", True),
         ("occurred_at", "timestamp(6) with time zone", True),
         ("recorded_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "creator_input_interactions": (
+        ("creator_interaction_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("scene_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("purpose", "text", True),
+        ("idempotency_key", "text", True),
+        ("request_digest", "text", True),
+        ("content_digest", "text", True),
+        ("trace_id", "text", True),
+        ("received_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "external_evidence": (
+        ("evidence_id", "uuid", True),
+        ("creator_interaction_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("scene_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("artifact_id", "uuid", True),
+        ("source_kind", "text", True),
+        ("trust_status", "text", True),
+        ("privacy_scope", "text", True),
+        ("acceptance_status", "text", True),
+        ("received_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "opportunities": (
+        ("opportunity_id", "uuid", True),
+        ("evidence_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("scene_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("purpose", "text", True),
+        ("eligibility_status", "text", True),
+        ("current_disposition", "text", True),
+        ("available_after", "timestamp(6) with time zone", True),
+        ("expires_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
     ),
 }
@@ -300,12 +341,19 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 16, *("n",) * 17, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 17, *("n",) * 18, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
-        sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", "u"))
+        sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
     ),
     "scene_timeline_items": tuple(sorted((*("c",) * 6, *("n",) * 9, "f", "p", "u"))),
+    "creator_input_interactions": tuple(
+        sorted((*("c",) * 7, *("n",) * 11, "f", "p", *("u",) * 2))
+    ),
+    "external_evidence": tuple(
+        sorted((*("c",) * 6, *("n",) * 12, *("f",) * 2, "p", *("u",) * 2))
+    ),
+    "opportunities": tuple(sorted((*("c",) * 6, *("n",) * 10, "f", "p", "u"))),
 }
 
 
@@ -621,7 +669,11 @@ class PostgreSQLSchemaGateway:
                 "DB-SCHEMA-DIRTY",
                 "the schema contains an incomplete or unmanifested object set",
             )
-        self._verify_table_shapes(connection, ("schema_migrations",))
+        self._verify_table_shapes(
+            connection,
+            ("schema_migrations",),
+            applied_version=1,
+        )
         applied = self._read_applied(connection)
         target = len(self._packaged.migrations)
         for expected, row in enumerate(applied, start=1):
@@ -685,12 +737,26 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(scene_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 10:
+            input_tables = (
+                "creator_input_interactions",
+                "external_evidence",
+                "opportunities",
+            )
+            expected_objects.extend((name, "r") for name in input_tables)
+            expected_tables.extend(input_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
                 "the schema contains an incomplete or unmanifested object set",
             )
-        self._verify_table_shapes(connection, tuple(expected_tables))
+        self._verify_table_shapes(
+            connection,
+            tuple(expected_tables),
+            applied_version=applied_version,
+        )
         if not allow_empty and len(applied) < target:
             raise DatabaseViolation(
                 "DB-SCHEMA-MISSING", "the required schema target is not installed"
@@ -710,6 +776,8 @@ class PostgreSQLSchemaGateway:
         self,
         connection: psycopg.Connection[tuple[Any, ...]],
         table_names: tuple[str, ...],
+        *,
+        applied_version: int,
     ) -> None:
         try:
             columns = connection.execute(
@@ -742,11 +810,17 @@ class PostgreSQLSchemaGateway:
                 (str(name), str(type_name), bool(not_null))
             )
         for table_name in table_names:
-            if tuple(actual_columns.get(table_name, ())) != _EXPECTED_TABLE_COLUMNS.get(
-                table_name
+            expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
+            if (
+                table_name == "runtime_recovery_runs"
+                and applied_version < 10
+                and expected is not None
             ):
+                expected = expected[:-1]
+            if tuple(actual_columns.get(table_name, ())) != expected:
                 raise DatabaseViolation(
-                    "DB-SCHEMA-DIRTY", "a manifest table shape has drifted"
+                    "DB-SCHEMA-DIRTY",
+                    f"a manifest table shape has drifted: {table_name}",
                 )
         try:
             constraint_kinds = connection.execute(
@@ -774,6 +848,23 @@ class PostgreSQLSchemaGateway:
         for table_name in table_names:
             actual = tuple(actual_constraints.get(table_name, ()))
             expected = _EXPECTED_CONSTRAINT_KINDS.get(table_name)
+            if (
+                table_name == "runtime_recovery_runs"
+                and applied_version < 10
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                prior_kinds.remove("c")
+                prior_kinds.remove("n")
+                expected = tuple(prior_kinds)
+            if (
+                table_name == "interaction_scenes"
+                and applied_version < 10
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                prior_kinds.remove("u")
+                expected = tuple(prior_kinds)
             durable_with_subject = (
                 tuple(sorted((*expected, "f")))
                 if table_name == "durable_work" and expected is not None
@@ -781,7 +872,8 @@ class PostgreSQLSchemaGateway:
             )
             if actual != expected and actual != durable_with_subject:
                 raise DatabaseViolation(
-                    "DB-SCHEMA-DIRTY", "a manifest table constraint set has drifted"
+                    "DB-SCHEMA-DIRTY",
+                    f"a manifest table constraint set has drifted: {table_name}",
                 )
 
     def _read_applied(
