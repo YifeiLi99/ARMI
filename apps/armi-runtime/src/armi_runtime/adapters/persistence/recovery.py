@@ -300,6 +300,21 @@ class PostgreSQLRuntimeRecovery:
                         FROM armi.subject_component_heads AS head
                         WHERE head.subject_id = subject.subject_id
                           AND head.component_kind IN ('self', 'mind', 'life_mode')
+                    ),
+                    (
+                        SELECT count(*)
+                        FROM armi.interaction_scenes AS scene
+                        JOIN armi.parties AS creator
+                          ON creator.party_id = scene.primary_party_id
+                         AND creator.party_kind = 'creator'
+                         AND creator.creator_role = 'unique_primary_creator'
+                         AND creator.status = 'active'
+                        WHERE scene.subject_id = subject.subject_id
+                          AND scene.scene_key = 'default'
+                          AND scene.scene_kind = 'creator_dialogue'
+                          AND scene.audience_scope = 'creator'
+                          AND scene.current_status = 'open'
+                          AND scene.closed_at IS NULL
                     )
                 FROM armi.subjects AS subject
                 JOIN armi.runtime_bundle_activations AS activation
@@ -323,6 +338,7 @@ class PostgreSQLRuntimeRecovery:
             or row[1] != fence.life_generation_id
             or row[2] != fence.bundle_activation_id
             or int(row[5]) != 3
+            or int(row[6]) != 1
         ):
             findings.append(
                 RecoveryFinding(

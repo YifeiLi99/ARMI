@@ -164,10 +164,11 @@ def validate_openapi(schema: dict[str, object]) -> None:
         "/v1/browser-sessions",
         "/v1/browser-sessions/current",
         "/v1/runtime/status",
+        "/v1/scenes/{scene_key}/timeline",
     }:
         raise CreatorBuildError(
             "CON-OPENAPI-PATHS",
-            "OpenAPI must expose exactly the three frozen steel-frame paths",
+            "OpenAPI paths do not match the frozen Creator surface",
         )
     operation_ids = {
         str(operation.get("operationId"))
@@ -184,6 +185,7 @@ def validate_openapi(schema: dict[str, object]) -> None:
         "getHealthLive",
         "getHealthReady",
         "getRuntimeStatus",
+        "getSceneTimeline",
     }:
         raise CreatorBuildError(
             "CON-OPENAPI-OPERATION",

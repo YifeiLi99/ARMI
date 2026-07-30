@@ -60,6 +60,7 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/browser-sessions",
                 "/v1/browser-sessions/current",
                 "/v1/runtime/status",
+                "/v1/scenes/{scene_key}/timeline",
             },
         )
         self.assertEqual(
@@ -81,6 +82,13 @@ class CreatorContractTests(unittest.TestCase):
         self.assertNotIn("security", paths["/v1/browser-sessions"]["post"])
         self.assertNotIn("security", paths["/health/live"]["get"])
         self.assertNotIn("security", paths["/health/ready"]["get"])
+        timeline = paths["/v1/scenes/{scene_key}/timeline"]["get"]
+        self.assertEqual(timeline["operationId"], "getSceneTimeline")
+        self.assertEqual(timeline["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(
+            set(timeline["responses"]),
+            {"200", "400", "401", "403", "404", "409", "503"},
+        )
 
     def test_openapi_is_repeatable(self) -> None:
         first = json.dumps(
@@ -129,11 +137,12 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(model.status, "rejected")
         self.assertEqual(model.error.code, "AUTH_BROWSER_SESSION_REQUIRED")
 
-    def test_session_responses_are_strict_and_have_no_scene_placeholder(self) -> None:
+    def test_session_responses_require_the_authoritative_default_scene(self) -> None:
         metadata = {
             "contract_version": "1.0",
             "environment_id": ENVIRONMENT_ID,
             "creator_party_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ab",
+            "default_scene_key": "default",
             "issued_at": INSTANT,
             "expires_at": "2026-07-29T18:00:00.000000Z",
         }
@@ -146,7 +155,7 @@ class CreatorContractTests(unittest.TestCase):
         )
         self.assertEqual(current.creator_party_id, metadata["creator_party_id"])
         self.assertTrue(created.browser_session_token.startswith("browser-v1."))
-        self.assertNotIn("default_scene_key", current.model_dump())
+        self.assertEqual(current.default_scene_key, "default")
         with self.assertRaises(ValidationError):
             BrowserSessionCurrentResponse.model_validate(
                 {**metadata, "default_scene_key": None}

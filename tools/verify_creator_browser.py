@@ -48,6 +48,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             "contract_version": "1.0",
             "environment_id": cls.environment_id,
             "creator_party_id": cls.creator_party_id,
+            "default_scene_key": "default",
             "issued_at": "2026-07-30T10:00:00.000000Z",
             "expires_at": "2026-07-30T18:00:00.000000Z",
         }
@@ -87,6 +88,17 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "readiness": "ready",
                     "reason_codes": [],
                     "observed_at": "2026-07-30T10:00:01.000000Z",
+                },
+            )
+            return
+        if self.path == "/v1/scenes/default/timeline?limit=50":
+            self._json_response(
+                200,
+                {
+                    "contract_version": "1.0",
+                    "projection_version": "scene-timeline.v1",
+                    "scene_key": "default",
+                    "items": [],
                 },
             )
             return
@@ -183,6 +195,9 @@ def main() -> int:
                             name="建立浏览器会话",
                         ).click()
                         page.get_by_text("浏览器会话已建立").wait_for()
+                        page.get_by_text("尚无耐久可见记录").wait_for()
+                        page.get_by_role("button", name="刷新").click()
+                        page.wait_for_load_state("networkidle")
                         if page.get_by_text("ready").count() != 2:
                             raise RuntimeError(
                                 "WEB-BROWSER-STATUS: authenticated state is missing"
@@ -205,6 +220,7 @@ def main() -> int:
                             )
                         page.reload(wait_until="networkidle")
                         page.get_by_text("浏览器会话已建立").wait_for()
+                        page.get_by_text("尚无耐久可见记录").wait_for()
                         overflow = page.evaluate(
                             "() => document.documentElement.scrollWidth > "
                             "document.documentElement.clientWidth"

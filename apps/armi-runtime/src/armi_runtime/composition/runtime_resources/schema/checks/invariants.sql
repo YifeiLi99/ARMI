@@ -30,7 +30,7 @@ FROM (
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
                   AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-            ) <> 15
+            ) <> 17
         ),
         (
             'DB-SCHEMA-MISSING',
@@ -124,6 +124,21 @@ FROM (
                   AND relation.relname = 'runtime_recovery_runs'
                   AND relation.relkind = 'r'
             )
+        ),
+        (
+            'DB-SCHEMA-MISSING',
+            (
+                SELECT count(*)
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind = 'r'
+                  AND relation.relname IN (
+                      'interaction_scenes',
+                      'scene_timeline_items'
+                  )
+            ) <> 2
         )
 ) AS checks(violation_code, violated)
 WHERE violated

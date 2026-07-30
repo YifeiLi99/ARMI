@@ -45,6 +45,10 @@ from armi_kernel.application import (
     RuntimeAuthorityRecord,
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
+    SceneKey,
+    SceneQueryViolation,
+    SceneTimelinePage,
+    SceneTimelineQuery,
     WorkDraft,
     WorkId,
     WorkOwner,
@@ -53,7 +57,13 @@ from armi_kernel.application import (
     WorkViolation,
     classify_cas_rows,
 )
-from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
+from armi_kernel.contracts import (
+    Digest,
+    IdempotencyKey,
+    Instant,
+    OpaqueCursor,
+    TraceId,
+)
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -83,6 +93,9 @@ from armi_runtime.adapters.persistence.role_policy import (
 )
 from armi_runtime.adapters.persistence.runtime_authority import (
     PostgreSQLRuntimeAuthority,
+)
+from armi_runtime.adapters.persistence.scene_timeline import (
+    PostgreSQLSceneTimelineQuery,
 )
 from armi_runtime.adapters.persistence.schema_gateway import (
     DatabaseViolation,
@@ -283,7 +296,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {8})
+        self.assertEqual({result.applied_version for result in results}, {9})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -350,7 +363,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 8)
+        self.assertEqual(result.applied_version, 9)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -412,7 +425,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 8)
+        self.assertEqual(result.applied_version, 9)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -472,7 +485,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(9,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(10,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -531,7 +544,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (8,),
+                    (9,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1015,6 +1028,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
 
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute(
+                "DROP TABLE armi.scene_timeline_items, armi.interaction_scenes"
+            )
+            connection.execute("DELETE FROM armi.schema_migrations WHERE version = 9")
+        backfilled = PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        self.assertEqual(backfilled.applied_version, 9)
+
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
                 """
@@ -1027,11 +1051,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.prompt_revisions),
                     (SELECT count(*) FROM armi.subject_component_heads),
                     (SELECT count(*) FROM armi.subject_component_revisions),
+                    (SELECT count(*) FROM armi.interaction_scenes),
                     (SELECT count(*) FROM armi.artifacts),
                     (SELECT count(*) FROM armi.audit_events)
                 """
             ).fetchone()
-            self.assertEqual(counts, (1, 1, 1, 2, 3, 1, 3, 3, 2, 3))
+            self.assertEqual(counts, (1, 1, 1, 2, 3, 1, 3, 3, 1, 2, 3))
             self_payload = connection.execute(
                 """
                 SELECT semantic_payload
@@ -1092,10 +1117,186 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ),
             ContinuityState.BORN,
         )
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            scene = connection.execute(
+                """
+                SELECT scene_id, primary_party_id
+                FROM armi.interaction_scenes
+                WHERE subject_id = %s
+                  AND scene_key = 'default'
+                  AND scene_kind = 'creator_dialogue'
+                  AND audience_scope = 'creator'
+                  AND current_status = 'open'
+                """,
+                (first.subject_id,),
+            ).fetchone()
+            assert scene is not None
+            original_ids = [_uuid7() for _ in range(120)]
+            source_ids = [_uuid7() for _ in range(120)]
+            occurred = [
+                datetime(2026, 7, 30, 10, index // 40, tzinfo=UTC)
+                for index in range(120)
+            ]
+            connection.cursor().executemany(
+                """
+                INSERT INTO armi.scene_timeline_items (
+                    timeline_item_id, scene_id, source_kind, source_ref,
+                    source_event_no, result_status, occurred_at
+                ) VALUES (%s, %s, 'creator.message', %s, %s, 'completed', %s)
+                """,
+                [
+                    (
+                        original_ids[index],
+                        scene[0],
+                        source_ids[index],
+                        index + 1,
+                        occurred[index],
+                    )
+                    for index in range(120)
+                ],
+            )
+            connection.commit()
+
+        async def read_page(
+            cursor: OpaqueCursor | None,
+            scene_key: str = "default",
+        ) -> SceneTimelinePage:
+            gateway = PostgreSQLSceneTimelineQuery(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                creator_party_id=scene[1],
+                cursor_key=b"s" * 32,
+                pool_timeout_seconds=2,
+            )
+            await gateway.open()
+            try:
+                return await gateway.query(
+                    SceneTimelineQuery(SceneKey(scene_key), 50, cursor)
+                )
+            finally:
+                await gateway.close()
+
+        first_page = asyncio.run(
+            read_page(None),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
+        self.assertEqual(len(first_page.items), 50)
+        self.assertIsNotNone(first_page.next_cursor)
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute(
+                """
+                INSERT INTO armi.scene_timeline_items (
+                    timeline_item_id, scene_id, source_kind, source_ref,
+                    source_event_no, result_status, occurred_at
+                ) VALUES (
+                    %s, %s, 'creator.message', %s, 121, 'completed',
+                    '2026-07-30T11:00:00+00:00'
+                )
+                """,
+                (_uuid7(), scene[0], _uuid7()),
+            )
+        second_page = asyncio.run(
+            read_page(first_page.next_cursor),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
+        third_page = asyncio.run(
+            read_page(second_page.next_cursor),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
+        returned = {
+            item.timeline_item_id.value
+            for page in (first_page, second_page, third_page)
+            for item in page.items
+        }
+        self.assertEqual(returned, set(original_ids))
+        self.assertEqual(
+            (len(second_page.items), len(third_page.items), third_page.next_cursor),
+            (50, 20, None),
+        )
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            other_scene_id = _uuid7()
+            connection.execute(
+                """
+                INSERT INTO armi.interaction_scenes (
+                    scene_id, subject_id, scene_key, scene_kind,
+                    primary_party_id, audience_scope, current_status
+                ) VALUES (
+                    %s, %s, 'other', 'creator_dialogue',
+                    %s, 'creator', 'open'
+                )
+                """,
+                (other_scene_id, first.subject_id, scene[1]),
+            )
+        with self.assertRaises(SceneQueryViolation) as other_scene:
+            asyncio.run(
+                read_page(None, "other"),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+        self.assertEqual(other_scene.exception.code, "SCENE-NOT-VISIBLE")
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute(
+                """
+                UPDATE armi.interaction_scenes
+                SET current_status = 'closed',
+                    closed_at = statement_timestamp()
+                WHERE scene_id = %s
+                """,
+                (scene[0],),
+            )
+        with self.assertRaises(SceneQueryViolation) as closed_scene:
+            asyncio.run(
+                read_page(None),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+        self.assertEqual(closed_scene.exception.code, "SCENE-NOT-VISIBLE")
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute(
+                """
+                UPDATE armi.interaction_scenes
+                SET current_status = 'open', closed_at = NULL
+                WHERE scene_id = %s
+                """,
+                (scene[0],),
+            )
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                connection.execute(
+                    """
+                    INSERT INTO armi.interaction_scenes (
+                        scene_id, subject_id, scene_key, scene_kind,
+                        primary_party_id, audience_scope, current_status
+                    ) VALUES (
+                        %s, %s, 'invalid-audience', 'creator_dialogue',
+                        %s, 'private', 'open'
+                    )
+                    """,
+                    (_uuid7(), first.subject_id, scene[1]),
+                )
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute(
+                    """
+                    INSERT INTO armi.scene_timeline_items (
+                        timeline_item_id, scene_id, source_kind, source_ref,
+                        source_event_no, result_status, occurred_at
+                    ) VALUES (
+                        %s, %s, 'creator.message', %s, 122, 'completed',
+                        statement_timestamp()
+                    )
+                    """,
+                    (_uuid7(), scene[0], _uuid7()),
+                )
+            connection.rollback()
         for denied_dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
             with psycopg.connect(denied_dsn) as connection:
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                     connection.execute("SELECT * FROM armi.subjects")
+                connection.rollback()
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    connection.execute("SELECT * FROM armi.scene_timeline_items")
                 connection.rollback()
 
         birth_summary_file = os.environ.get("S015_BIRTH_SUMMARY_FILE")
@@ -1719,6 +1920,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     established = json.loads(session_response.read())
                     self.assertEqual(session_response.status, 200)
                     browser_token = established["browser_session_token"]
+                    self.assertEqual(established["default_scene_key"], "default")
                     authenticated_headers = {
                         **browser_boundary_headers,
                         "Authorization": f"Bearer {browser_token}",
@@ -1746,6 +1948,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(
                         (runtime_status["runtime_state"], runtime_status["readiness"]),
                         ("ready", "ready"),
+                    )
+                    connection.request(
+                        "GET",
+                        "/v1/scenes/default/timeline?limit=50",
+                        headers=authenticated_headers,
+                    )
+                    timeline_response = connection.getresponse()
+                    timeline = json.loads(timeline_response.read())
+                    self.assertEqual(timeline_response.status, 200)
+                    self.assertEqual(
+                        timeline,
+                        {
+                            "contract_version": "1.0",
+                            "projection_version": "scene-timeline.v1",
+                            "scene_key": "default",
+                            "items": [],
+                        },
                     )
                     connection.request(
                         "DELETE",

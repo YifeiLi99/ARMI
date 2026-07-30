@@ -36,6 +36,7 @@ class BrowserSessionViolation(RuntimeError):
 class SessionMetadata:
     environment_id: UUID
     creator_party_id: UUID
+    default_scene_key: str
     issued_at: datetime
     expires_at: datetime
 
@@ -85,6 +86,7 @@ class BrowserSessionStore:
         "_creator_digest",
         "_creator_failures",
         "_creator_party_id",
+        "_default_scene_key",
         "_environment_id",
         "_lock",
         "_monotonic",
@@ -102,6 +104,7 @@ class BrowserSessionStore:
         creator_party_id: UUID,
         bootstrap_ttl_seconds: int,
         session_ttl_seconds: int,
+        default_scene_key: str = "default",
         monotonic: Callable[[], float] = time.monotonic,
         now: Callable[[], datetime] | None = None,
     ) -> None:
@@ -116,6 +119,7 @@ class BrowserSessionStore:
         if (
             environment_id.version != 7
             or creator_party_id.version != 7
+            or default_scene_key != "default"
             or bootstrap_ttl_seconds <= 0
             or session_ttl_seconds <= 0
         ):
@@ -123,6 +127,7 @@ class BrowserSessionStore:
         self._creator_digest = _digest(b"armi.creator-bearer.v1", bearer)
         self._environment_id = environment_id
         self._creator_party_id = creator_party_id
+        self._default_scene_key = default_scene_key
         self._bootstrap_ttl = bootstrap_ttl_seconds
         self._session_ttl = session_ttl_seconds
         self._monotonic = monotonic
@@ -186,6 +191,7 @@ class BrowserSessionStore:
             metadata = SessionMetadata(
                 self._environment_id,
                 self._creator_party_id,
+                self._default_scene_key,
                 issued_at,
                 issued_at + timedelta(seconds=self._session_ttl),
             )

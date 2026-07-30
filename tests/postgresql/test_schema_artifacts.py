@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 8})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 9})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3, 4, 5, 6, 7, 8],
+            [1, 2, 3, 4, 5, 6, 7, 8, 9],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -87,6 +87,8 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.subject_component_revisions",
                 "armi.runtime_instances",
                 "armi.runtime_recovery_runs",
+                "armi.interaction_scenes",
+                "armi.scene_timeline_items",
             ],
         )
         self.assertNotIn("manifest_sha256", manifest)
@@ -176,6 +178,24 @@ class SchemaArtifactTests(unittest.TestCase):
             re.compile(
                 r"(?i)\b(?:effect|episode|projection|cognition_attempt|"
                 r"CREATE\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
+                r"ALTER\s+DEFAULT\s+PRIVILEGES|SECURITY\s+DEFINER)\b"
+            ),
+        )
+
+    def test_scene_timeline_migration_has_only_the_s019_query_surface(self) -> None:
+        sql = Path("schema/migrations/0009_scene_timeline_query.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(sql.count("CREATE TABLE"), 2)
+        self.assertIn("CREATE TABLE armi.interaction_scenes", sql)
+        self.assertIn("CREATE TABLE armi.scene_timeline_items", sql)
+        self.assertNotIn("JSONB", sql.upper())
+        self.assertNotIn("GRANT UPDATE", sql.upper())
+        self.assertNotIn("GRANT DELETE", sql.upper())
+        self.assertNotRegex(
+            sql,
+            re.compile(
+                r"(?i)\b(?:CREATE\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
                 r"ALTER\s+DEFAULT\s+PRIVILEGES|SECURITY\s+DEFINER)\b"
             ),
         )

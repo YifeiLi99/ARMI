@@ -12,7 +12,7 @@ from armi_kernel.application import (
     RuntimeFence,
 )
 
-from armi_runtime.adapters.creator_identity import read_creator_party_id
+from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
@@ -22,6 +22,9 @@ from armi_runtime.adapters.persistence.recovery import (
 )
 from armi_runtime.adapters.persistence.runtime_authority import (
     PostgreSQLRuntimeAuthority,
+)
+from armi_runtime.adapters.persistence.scene_timeline import (
+    PostgreSQLSceneTimelineQuery,
 )
 from armi_runtime.adapters.persistence.schema_gateway import (
     DatabaseViolation,
@@ -184,8 +187,8 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
         return ContinuityState.INVALID
 
 
-def inspect_creator_party_id(prepared: PreparedEnvironment) -> UUID | None:
-    """Read the unique born Creator identity without creating session state."""
+def inspect_creator_context(prepared: PreparedEnvironment) -> CreatorContext | None:
+    """Read the unique born Creator and default scene without session state."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
@@ -196,16 +199,72 @@ def inspect_creator_party_id(prepared: PreparedEnvironment) -> UUID | None:
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def invoke(value: memoryview) -> UUID | None:
+            def invoke(value: memoryview) -> CreatorContext | None:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     return None
-                return read_creator_party_id(conninfo)
+                return read_creator_context(conninfo)
 
             return handle.consume(invoke)
     except ConfigurationViolation:
         return None
+
+
+def inspect_creator_party_id(prepared: PreparedEnvironment) -> UUID | None:
+    context = inspect_creator_context(prepared)
+    return None if context is None else context.party_id
+
+
+def compose_scene_timeline_query(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+    cursor_key: bytes,
+) -> PostgreSQLSceneTimelineQuery:
+    """Resolve the Runtime credential for the dedicated read-only query pool."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the required database credential locator is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLSceneTimelineQuery:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-CONNECTION-UNAVAILABLE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
+                    ) from None
+                config = prepared.effective.config
+                return PostgreSQLSceneTimelineQuery(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    cursor_key=cursor_key,
+                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise DatabaseViolation(
+            "DB-ROLE-CREDENTIAL-SCOPE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
 
 
 def compose_runtime_authority(
@@ -315,6 +374,8 @@ __all__ = (
     "DatabaseViolation",
     "compose_runtime_authority",
     "compose_runtime_recovery",
+    "compose_scene_timeline_query",
+    "inspect_creator_context",
     "inspect_creator_party_id",
     "inspect_operator_schema",
     "inspect_runtime_continuity",

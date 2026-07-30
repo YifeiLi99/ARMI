@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from uuid import UUID
 
+from armi_kernel.application import SceneTimelinePage, SceneTimelineQuery
 from armi_runtime.composition.lifecycle import LifecycleController
 from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import create_runtime_app
@@ -18,6 +19,11 @@ ENVIRONMENT_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"
 CREATOR_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234568"
 AUTHORITY = "127.0.0.1:45678"
 CREATOR_BEARER = f"creator-v1.{'a' * 43}"
+
+
+class _SceneTimelineQuery:
+    async def query(self, request: SceneTimelineQuery) -> SceneTimelinePage:
+        return SceneTimelinePage(scene_key=request.scene_key, items=())
 
 
 class CreatorRuntimeAppTests(unittest.TestCase):
@@ -74,6 +80,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             request_body_max_bytes=1024,
             on_started=started,
             on_stopping=stopping,
+            scene_timeline_query=_SceneTimelineQuery(),
         )
 
     @staticmethod
@@ -122,7 +129,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             )
             self.assertEqual(established.status_code, 200)
             token = established.json()["browser_session_token"]
-            self.assertNotIn("default_scene_key", established.json())
+            self.assertEqual(established.json()["default_scene_key"], "default")
 
             current = client.get(
                 "/v1/browser-sessions/current",
@@ -143,11 +150,50 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
         self.assertEqual(current.status_code, 200)
         self.assertEqual(current.json()["creator_party_id"], CREATOR_ID)
+        self.assertEqual(current.json()["default_scene_key"], "default")
         self.assertNotIn("browser_session_token", current.json())
         self.assertEqual(status.status_code, 200)
         self.assertEqual(status.json()["runtime_state"], "blocked")
         self.assertEqual(logged_out.status_code, 204)
         self.assertEqual(stale.status_code, 401)
+
+    def test_timeline_is_authenticated_and_query_parameters_are_exact(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+                content=b"",
+            )
+            established = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = established.json()["browser_session_token"]
+            timeline = client.get(
+                "/v1/scenes/default/timeline?limit=50",
+                headers=self._browser_headers(token),
+            )
+            duplicate = client.get(
+                "/v1/scenes/default/timeline?limit=50&limit=51",
+                headers=self._browser_headers(token),
+            )
+            unrelated = client.get(
+                "/v1/runtime/status?limit=50",
+                headers=self._browser_headers(token),
+            )
+
+        self.assertEqual(
+            timeline.json(),
+            {
+                "contract_version": "1.0",
+                "projection_version": "scene-timeline.v1",
+                "scene_key": "default",
+                "items": [],
+            },
+        )
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(unrelated.status_code, 400)
 
     def test_replay_wrong_kind_and_boundary_requests_are_rejected(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

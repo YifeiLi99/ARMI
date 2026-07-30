@@ -78,13 +78,13 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
         violations.append(
             Violation("ARC-WEB-POLICY", path, 1, "features must be an array")
         )
-    elif features != ["session"]:
+    elif features != ["session", "scene"]:
         violations.append(
             Violation(
                 "ARC-WEB-FEATURE",
                 path,
                 1,
-                "S018 must register only the session feature",
+                "S019 must register only the session and scene features",
             )
         )
     return violations
@@ -216,7 +216,7 @@ def check_repository(root: Path) -> list[Violation]:
             unexpected = sorted(
                 child.name
                 for child in feature_root.iterdir()
-                if child.name != "session"
+                if child.name not in {"scene", "session"}
             )
             for name in unexpected:
                 violations.append(
@@ -224,7 +224,7 @@ def check_repository(root: Path) -> list[Violation]:
                         "ARC-WEB-FUTURE",
                         (feature_root / name).relative_to(root).as_posix(),
                         1,
-                        "S018 must not prebuild a future business feature",
+                        "S019 must not prebuild a future business feature",
                     )
                 )
         for path in sorted(source_root.rglob("*")):

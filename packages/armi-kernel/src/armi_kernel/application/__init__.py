@@ -68,6 +68,16 @@ from .runtime_authority import (
     RuntimeFence,
     RuntimeInstanceId,
 )
+from .scenes import (
+    PROJECTION_VERSION,
+    SceneKey,
+    SceneQueryViolation,
+    SceneTimelineItem,
+    SceneTimelinePage,
+    SceneTimelineQuery,
+    SceneTimelineQueryPort,
+    TimelineItemId,
+)
 from .transactions import (
     BeforeCommitHook,
     CasStatus,
@@ -81,6 +91,7 @@ from .transactions import (
 )
 
 __all__ = (
+    "PROJECTION_VERSION",
     "ArtifactId",
     "ArtifactIntegrityStatus",
     "ArtifactPolicy",
@@ -128,8 +139,15 @@ __all__ = (
     "RuntimeAuthorityViolation",
     "RuntimeFence",
     "RuntimeInstanceId",
+    "SceneKey",
+    "SceneQueryViolation",
+    "SceneTimelineItem",
+    "SceneTimelinePage",
+    "SceneTimelineQuery",
+    "SceneTimelineQueryPort",
     "SecretHandle",
     "StagedArtifact",
+    "TimelineItemId",
     "TransactionIsolation",
     "UnitOfWork",
     "VerifiedByteStream",

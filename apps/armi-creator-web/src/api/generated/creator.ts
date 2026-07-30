@@ -107,6 +107,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/scenes/{scene_key}/timeline": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Scene Timeline */
+    get: operations["getSceneTimeline"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -137,6 +154,8 @@ export interface components {
       contract_version: "1.0";
       /** Creator Party Id */
       creator_party_id: string;
+      /** Default Scene Key */
+      default_scene_key: string;
       /** Environment Id */
       environment_id: string;
       /** Expires At */
@@ -155,6 +174,8 @@ export interface components {
       contract_version: "1.0";
       /** Creator Party Id */
       creator_party_id: string;
+      /** Default Scene Key */
+      default_scene_key: string;
       /** Environment Id */
       environment_id: string;
       /** Expires At */
@@ -266,6 +287,47 @@ export interface components {
       reason_codes: components["schemas"]["ReasonCode"][];
       runtime_state: components["schemas"]["RuntimeState"];
     };
+    /** SceneTimelineItemResponse */
+    SceneTimelineItemResponse: {
+      /** Occurred At */
+      occurred_at: string;
+      /** Source Kind */
+      source_kind: string;
+      /** Source Ref */
+      source_ref: string;
+      status: components["schemas"]["TimelineStatus"];
+      /** Timeline Item Id */
+      timeline_item_id: string;
+    };
+    /** SceneTimelinePageResponse */
+    SceneTimelinePageResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["SceneTimelineItemResponse"][];
+      /** Next Cursor */
+      next_cursor?: string | null;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "scene-timeline.v1";
+      /** Scene Key */
+      scene_key: string;
+    };
+    /** @enum {string} */
+    TimelineStatus:
+      | "accepted"
+      | "applied"
+      | "waiting"
+      | "rejected"
+      | "unavailable"
+      | "failed"
+      | "unknown"
+      | "completed";
     /** UnavailableOutcomeResponse */
     UnavailableOutcomeResponse: {
       /**
@@ -582,6 +644,85 @@ export interface operations {
       };
       /** @description Forbidden */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getSceneTimeline: {
+    parameters: {
+      query: {
+        limit: number;
+        cursor?: string | null;
+      };
+      header?: never;
+      path: {
+        scene_key: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SceneTimelinePageResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
         headers: {
           [name: string]: unknown;
         };

@@ -4,7 +4,8 @@
       "credential_kind": "creator-v1",
       "purposes": [
         "creator.bootstrap.issue",
-        "creator.bootstrap.verify"
+        "creator.bootstrap.verify",
+        "creator.timeline.cursor"
       ],
       "required_by": [
         "creator-session issue",

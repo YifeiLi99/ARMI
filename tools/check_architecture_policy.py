@@ -117,6 +117,7 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
             "runtime_resources/runtime-composition.manifest.json"
         ),
         "active_bindings": {
+            "M0-SEAM-CREATOR-PROJECTION": "armi.scene-timeline-query.v1",
             "M0-SEAM-CREATOR-UI": "armi.creator-static.v1",
         },
         "runtime_discovery": False,
@@ -127,7 +128,7 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
                 "ARC-BINDING-MANIFEST",
                 path,
                 1,
-                "runtime composition policy must declare the exact S008 binding",
+                "runtime composition policy must declare the exact active bindings",
             )
         )
     return violations

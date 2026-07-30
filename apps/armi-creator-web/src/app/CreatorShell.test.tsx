@@ -22,6 +22,7 @@ function sessionResponse(includeToken: boolean): object {
     contract_version: "1.0",
     environment_id: ENVIRONMENT_ID,
     creator_party_id: CREATOR_ID,
+    default_scene_key: "default",
     issued_at: "2026-07-30T10:00:00.000000Z",
     expires_at: "2026-07-30T18:00:00.000000Z",
     ...(includeToken ? { browser_session_token: TOKEN } : {}),
@@ -63,6 +64,14 @@ describe("Creator browser session shell", () => {
           reason_codes: [],
           observed_at: "2026-07-30T10:00:01.000000Z",
         }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          contract_version: "1.0",
+          projection_version: "scene-timeline.v1",
+          scene_key: "default",
+          items: [],
+        }),
       );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -77,8 +86,8 @@ describe("Creator browser session shell", () => {
     expect(stored).toContain(TOKEN);
     expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
-    expect(document.body.textContent).not.toMatch(/scene|timeline/i);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("clears an invalid restored session after a 401", async () => {
@@ -131,5 +140,94 @@ describe("Creator browser session shell", () => {
     expect(
       screen.queryByRole("button", { name: "建立浏览器会话" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("loads older authoritative pages without inventing timeline content", async () => {
+    const cursor = `v1.${"c".repeat(32)}.${"d".repeat(43)}`;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
+      .mockResolvedValueOnce(jsonResponse(sessionResponse(false)))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          contract_version: "1.0",
+          environment_id: ENVIRONMENT_ID,
+          runtime_state: "ready",
+          readiness: "ready",
+          reason_codes: [],
+          observed_at: "2026-07-30T10:00:01.000000Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          contract_version: "1.0",
+          projection_version: "scene-timeline.v1",
+          scene_key: "default",
+          items: [
+            {
+              timeline_item_id: "018f47a6-7b2d-7c35-8b18-684e38ab6efa",
+              source_kind: "newer.event",
+              source_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
+              status: "completed",
+              occurred_at: "2026-07-30T10:01:00.000000Z",
+            },
+          ],
+          next_cursor: cursor,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          contract_version: "1.0",
+          projection_version: "scene-timeline.v1",
+          scene_key: "default",
+          items: [
+            {
+              timeline_item_id: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
+              source_kind: "older.event",
+              source_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef8",
+              status: "accepted",
+              occurred_at: "2026-07-30T10:00:00.000000Z",
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<CreatorShell />);
+
+    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
+    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
+    expect(await screen.findByText("newer.event")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "加载更早记录" }));
+    expect(await screen.findByText("older.event")).toBeInTheDocument();
+    expect(screen.getByText("newer.event")).toBeInTheDocument();
+  });
+
+  it("clears the whole session when the timeline rejects authentication", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
+      .mockResolvedValueOnce(jsonResponse(sessionResponse(false)))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          contract_version: "1.0",
+          environment_id: ENVIRONMENT_ID,
+          runtime_state: "ready",
+          readiness: "ready",
+          reason_codes: [],
+          observed_at: "2026-07-30T10:00:01.000000Z",
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<CreatorShell />);
+
+    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
+    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
+    expect(
+      await screen.findByText("会话已失效，请使用新的 bootstrap code。"),
+    ).toBeInTheDocument();
+    expect(sessionStorage.getItem("armi.browser-session.v1")).toBeNull();
   });
 });

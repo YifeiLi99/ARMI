@@ -28,6 +28,7 @@
       "allowed_callers": [
         "armi_runtime.adapters.persistence.runtime_authority",
         "armi_runtime.adapters.persistence.recovery",
+        "armi_runtime.adapters.persistence.scene_timeline",
         "armi_runtime.adapters.persistence.schema_gateway",
         "armi_runtime.adapters.persistence.unit_of_work"
       ]
@@ -99,6 +100,14 @@
       "owner": "runtime-recovery",
       "allowed_callers": [
         "armi_runtime.adapters.persistence.recovery"
+      ]
+    },
+    {
+      "id": "scene-timeline-query",
+      "module": "armi_runtime.adapters.persistence.scene_timeline",
+      "owner": "creator-projection",
+      "allowed_callers": [
+        "armi_runtime.composition.database"
       ]
     }
   ],
@@ -189,6 +198,11 @@
       "id": "runtime-recovery-control-transaction",
       "module": "armi_runtime.adapters.persistence.recovery",
       "reason": "Recovery repairs and their normal-audit facts require one current-fence transaction; artifact byte verification remains outside it."
+    },
+    {
+      "id": "scene-timeline-read-transaction",
+      "module": "armi_runtime.adapters.persistence.scene_timeline",
+      "reason": "The authority query uses a dedicated read-only transaction and cannot write or acquire a fence."
     }
   ],
   "transaction_control_exemptions_not_applicable_reason": "",
@@ -205,7 +219,8 @@
     "generated_file": "apps/armi-creator-web/src/api/generated/creator.ts",
     "static_resource_root": "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources",
     "features": [
-      "session"
+      "session",
+      "scene"
     ],
     "features_not_applicable_reason": "",
     "runtime_discovery": false
@@ -214,6 +229,7 @@
     "entry_point": "armi",
     "manifest": "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/runtime-composition.manifest.json",
     "active_bindings": {
+      "M0-SEAM-CREATOR-PROJECTION": "armi.scene-timeline-query.v1",
       "M0-SEAM-CREATOR-UI": "armi.creator-static.v1"
     },
     "runtime_discovery": false

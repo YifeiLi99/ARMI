@@ -47,6 +47,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0006_unique_birth.sql",
     "migrations/0007_runtime_authority.sql",
     "migrations/0008_runtime_recovery.sql",
+    "migrations/0009_scene_timeline_query.sql",
 )
 
 
@@ -76,7 +77,13 @@ def build_composition_manifest(
         )
     seams: list[dict[str, object]] = []
     for seam_id, activation_steps in _SEAMS:
-        active = "armi.creator-static.v1" if seam_id == "M0-SEAM-CREATOR-UI" else None
+        active = (
+            "armi.creator-static.v1"
+            if seam_id == "M0-SEAM-CREATOR-UI"
+            else "armi.scene-timeline-query.v1"
+            if seam_id == "M0-SEAM-CREATOR-PROJECTION"
+            else None
+        )
         seams.append(
             {
                 "seam_id": seam_id,

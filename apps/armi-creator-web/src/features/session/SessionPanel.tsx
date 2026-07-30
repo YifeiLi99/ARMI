@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiFailure,
@@ -15,6 +16,7 @@ import {
   saveStoredSession,
 } from "./storage";
 import type { StoredBrowserSession } from "./storage";
+import { TimelinePanel } from "../scene/TimelinePanel";
 
 type ViewState =
   | { kind: "bootstrap"; message?: string }
@@ -40,6 +42,7 @@ function safeMessage(error: unknown): string {
 }
 
 export function SessionPanel() {
+  const queryClient = useQueryClient();
   const [code, setCode] = useState("");
   const [view, setView] = useState<ViewState>({
     kind: "loading",
@@ -54,6 +57,7 @@ export function SessionPanel() {
       const session = await getCurrentBrowserSession(stored.token, signal);
       if (session.environment_id !== stored.environmentId) {
         clearStoredSession();
+        queryClient.clear();
         setView({
           kind: "bootstrap",
           message: "运行环境已变化，请重新建立会话。",
@@ -68,6 +72,7 @@ export function SessionPanel() {
       }
       if (error instanceof ApiFailure && error.status === 401) {
         clearStoredSession();
+        queryClient.clear();
         setView({ kind: "bootstrap", message: safeMessage(error) });
         return;
       }
@@ -106,6 +111,7 @@ export function SessionPanel() {
       await loadAuthenticated(stored);
     } catch (error) {
       clearStoredSession();
+      queryClient.clear();
       setView({
         kind: "bootstrap",
         message:
@@ -124,12 +130,22 @@ export function SessionPanel() {
     }
     const token = view.stored.token;
     clearStoredSession();
+    queryClient.clear();
     setView({ kind: "bootstrap", message: "浏览器会话已注销。" });
     try {
       await deleteCurrentBrowserSession(token);
     } catch {
       // Local credential removal is authoritative for this tab.
     }
+  }
+
+  function unauthorized() {
+    clearStoredSession();
+    queryClient.clear();
+    setView({
+      kind: "bootstrap",
+      message: "会话已失效，请使用新的 bootstrap code。",
+    });
   }
 
   if (view.kind === "loading") {
@@ -185,42 +201,53 @@ export function SessionPanel() {
   }
 
   return (
-    <section className="session-summary" aria-labelledby="session-heading">
-      <p className="runtime-status" role="status" aria-live="polite">
-        <span className="status-marker is-ready" aria-hidden="true" />
-        浏览器会话已建立
-      </p>
-      <h2 id="session-heading">本机 Runtime 状态</h2>
-      <dl>
-        <div>
-          <dt>生命周期</dt>
-          <dd>{view.runtime.runtime_state}</dd>
+    <div className="authenticated-view">
+      <section className="session-summary" aria-labelledby="session-heading">
+        <p className="runtime-status" role="status" aria-live="polite">
+          <span className="status-marker is-ready" aria-hidden="true" />
+          浏览器会话已建立
+        </p>
+        <h2 id="session-heading">本机 Runtime 状态</h2>
+        <dl>
+          <div>
+            <dt>生命周期</dt>
+            <dd>{view.runtime.runtime_state}</dd>
+          </div>
+          <div>
+            <dt>接纳状态</dt>
+            <dd>{view.runtime.readiness}</dd>
+          </div>
+          <div>
+            <dt>会话到期</dt>
+            <dd>{view.session.expires_at}</dd>
+          </div>
+        </dl>
+        <div className="session-actions">
+          <button
+            type="button"
+            onClick={() => void loadAuthenticated(view.stored)}
+          >
+            重新读取状态
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void logout()}
+          >
+            注销
+          </button>
         </div>
-        <div>
-          <dt>接纳状态</dt>
-          <dd>{view.runtime.readiness}</dd>
-        </div>
-        <div>
-          <dt>会话到期</dt>
-          <dd>{view.session.expires_at}</dd>
-        </div>
-      </dl>
-      <div className="session-actions">
-        <button
-          type="button"
-          onClick={() => void loadAuthenticated(view.stored)}
-        >
-          重新读取状态
-        </button>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => void logout()}
-        >
-          注销
-        </button>
-      </div>
-      <p className="boundary-note">当前只显示经认证的本机 Runtime 安全状态。</p>
-    </section>
+        <p className="boundary-note">
+          当前只显示经认证的本机 Runtime 安全状态。
+        </p>
+      </section>
+      <TimelinePanel
+        token={view.stored.token}
+        environmentId={view.session.environment_id}
+        creatorPartyId={view.session.creator_party_id}
+        sceneKey={view.session.default_scene_key}
+        onUnauthorized={unauthorized}
+      />
+    </div>
   );
 }

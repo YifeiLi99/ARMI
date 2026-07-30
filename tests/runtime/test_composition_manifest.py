@@ -13,7 +13,7 @@ from armi_runtime.composition.manifest import (
 
 
 class CompositionManifestTests(unittest.TestCase):
-    def test_packaged_manifest_has_one_explicit_active_binding(self) -> None:
+    def test_packaged_manifest_has_exact_explicit_active_bindings(self) -> None:
         verified = verify_packaged_composition()
         active = [
             (seam_id, binding)
@@ -25,7 +25,13 @@ class CompositionManifestTests(unittest.TestCase):
         self.assertEqual(len(verified.active_bindings), 9)
         self.assertEqual(
             active,
-            [("M0-SEAM-CREATOR-UI", "armi.creator-static.v1")],
+            [
+                (
+                    "M0-SEAM-CREATOR-PROJECTION",
+                    "armi.scene-timeline-query.v1",
+                ),
+                ("M0-SEAM-CREATOR-UI", "armi.creator-static.v1"),
+            ],
         )
         self.assertEqual(verified.readiness_blockers, RUNTIME_BLOCKING_REASONS)
         self.assertTrue(verified.digest.startswith("sha256:"))

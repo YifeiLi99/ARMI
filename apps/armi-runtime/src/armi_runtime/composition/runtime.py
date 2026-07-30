@@ -17,6 +17,7 @@ from armi_kernel.application import (
     RecoveryViolation,
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
+    SceneQueryViolation,
 )
 
 from armi_runtime.interfaces.browser_sessions import (
@@ -31,13 +32,14 @@ from .authority import (
     LocalAuthorityState,
     RuntimeAuthorityController,
 )
-from .creator_session import compose_browser_sessions
+from .creator_session import compose_browser_sessions, derive_timeline_cursor_key
 from .database import (
     ContinuityState,
     DatabaseViolation,
     compose_runtime_authority,
     compose_runtime_recovery,
-    inspect_creator_party_id,
+    compose_scene_timeline_query,
+    inspect_creator_context,
     inspect_runtime_continuity,
     runtime_database_reason,
 )
@@ -100,6 +102,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     recovery_port = None
     recovery_reasons: tuple[str, ...] = ()
     browser_sessions: BrowserSessionStore | None = None
+    scene_timeline_query = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -140,16 +143,23 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     "runtime.recovery.safe",
                     result_code="REC_SAFE",
                 )
-            creator_party_id = inspect_creator_party_id(prepared)
-            if creator_party_id is None:
+            creator_context = inspect_creator_context(prepared)
+            if creator_context is None:
                 raise BrowserSessionViolation(
                     "SEC_CREATOR_IDENTITY_UNAVAILABLE",
                     status_code=503,
                 )
             browser_sessions = compose_browser_sessions(
                 prepared,
-                creator_party_id=creator_party_id,
+                creator_party_id=creator_context.party_id,
+                default_scene_key=creator_context.default_scene_key,
             )
+            scene_timeline_query = compose_scene_timeline_query(
+                prepared,
+                creator_party_id=creator_context.party_id,
+                cursor_key=derive_timeline_cursor_key(prepared),
+            )
+            await scene_timeline_query.open()
         except DatabaseViolation, RuntimeAuthorityViolation:
             diagnostic.emit(
                 "runtime.authority.unavailable",
@@ -169,13 +179,15 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 result_code="REC_FAILED",
                 reason_codes=recovery_reasons,
             )
-        except BrowserSessionViolation:
+        except BrowserSessionViolation, SceneQueryViolation:
             diagnostic.emit(
-                "runtime.creator_session.unavailable",
+                "runtime.creator_interface.unavailable",
                 level=logging.ERROR,
-                result_code="CREATOR_SESSION_UNAVAILABLE",
-                reason_codes=("RUNTIME_CREATOR_SESSION_UNAVAILABLE",),
+                result_code="CREATOR_INTERFACE_UNAVAILABLE",
+                reason_codes=("RUNTIME_CREATOR_INTERFACE_UNAVAILABLE",),
             )
+            if scene_timeline_query is not None:
+                await scene_timeline_query.close()
             if authority is not None:
                 await authority.release()
             if authority_port is not None:
@@ -248,6 +260,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 "creator.session.revoked_all",
                 result_code="CREATOR_SESSION_REVOKED",
             )
+        if scene_timeline_query is not None:
+            await scene_timeline_query.close()
         released = await supervisor.drain(
             deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
         )
@@ -313,6 +327,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         runtime_status=runtime_status,
         assets=assets,
         browser_sessions=browser_sessions,
+        scene_timeline_query=scene_timeline_query,
         expected_authority=f"{config.creator.bind_host}:{config.creator.port}",
         request_body_max_bytes=config.creator.request_body_max_bytes,
         on_started=started,
@@ -349,6 +364,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await stopping()
         return EXIT_LISTENER_FAILURE
     finally:
+        if scene_timeline_query is not None:
+            await scene_timeline_query.close()
         if authority_port is not None:
             await authority_port.close()
     if server.force_exit:

@@ -95,6 +95,15 @@ def probe_continuity(
                     (
                         SELECT count(*) FROM armi.subject_component_revisions
                         WHERE subject_id = subject.subject_id
+                    ),
+                    (
+                        SELECT count(*) FROM armi.interaction_scenes
+                        WHERE subject_id = subject.subject_id
+                          AND scene_key = 'default'
+                          AND scene_kind = 'creator_dialogue'
+                          AND audience_scope = 'creator'
+                          AND current_status = 'open'
+                          AND closed_at IS NULL
                     )
                 FROM armi.subjects AS subject
                 JOIN armi.runtime_bundle_activations AS activation
@@ -114,6 +123,8 @@ def probe_continuity(
                       + (SELECT count(*) FROM armi.prompt_revisions)
                       + (SELECT count(*) FROM armi.subject_component_heads)
                       + (SELECT count(*) FROM armi.subject_component_revisions)
+                      + (SELECT count(*) FROM armi.interaction_scenes)
+                      + (SELECT count(*) FROM armi.scene_timeline_items)
                     """
                 ).fetchone()
                 return (
@@ -134,7 +145,7 @@ def probe_continuity(
     )
     if tuple(str(value) for value in row[1:5]) != expected:
         return ContinuityState.INVALID
-    if tuple(int(value) for value in row[5:]) != (1, 2, 3, 1, 3, 3):
+    if tuple(int(value) for value in row[5:]) != (1, 2, 3, 1, 3, 3, 1):
         return ContinuityState.INVALID
     return ContinuityState.BORN
 
@@ -216,6 +227,7 @@ class BirthRepository:
         generation_id = uuid7()
         activation_id = uuid7()
         subject_party_id = uuid7()
+        default_scene_id = uuid7()
         anchor_document_id = uuid7()
         creator_document_id = uuid7()
         subject_document_id = uuid7()
@@ -279,6 +291,18 @@ class BirthRepository:
                 manifest.creator_asset_manifest_digest.value,
                 manifest.creator_party_id,
             ),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.interaction_scenes (
+                scene_id, subject_id, scene_key, scene_kind,
+                primary_party_id, audience_scope, current_status, schema_version
+            ) VALUES (
+                %s, %s, 'default', 'creator_dialogue',
+                %s, 'creator', 'open', 1
+            )
+            """,
+            (default_scene_id, subject_id, manifest.creator_party_id),
         )
         await connection.execute(
             """

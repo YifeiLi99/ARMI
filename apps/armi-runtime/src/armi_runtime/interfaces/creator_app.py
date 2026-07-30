@@ -10,10 +10,18 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
 
+from armi_kernel.application import (
+    SceneKey,
+    SceneQueryViolation,
+    SceneTimelineQuery,
+    SceneTimelineQueryPort,
+)
 from armi_kernel.contracts import (
+    ContractViolation,
     ErrorCategory,
     ErrorDescriptor,
     Instant,
+    OpaqueCursor,
     RejectedOutcome,
     TraceId,
     UnavailableOutcome,
@@ -36,6 +44,8 @@ from .creator_contract import (
     Readiness,
     ReadyResponse,
     RuntimeStatusResponse,
+    SceneTimelineItemResponse,
+    SceneTimelinePageResponse,
 )
 from .static_assets import StaticAssetStore
 
@@ -81,6 +91,7 @@ class _SessionMetadataWire(TypedDict):
     contract_version: Literal["1.0"]
     environment_id: str
     creator_party_id: str
+    default_scene_key: str
     issued_at: str
     expires_at: str
 
@@ -95,7 +106,15 @@ def _outcome_common() -> _OutcomeArguments:
 def _rejected(
     code: str, message: str = "The request was rejected."
 ) -> dict[str, object]:
-    category = ErrorCategory.INPUT if code.startswith("INPUT_") else ErrorCategory.AUTH
+    category = (
+        ErrorCategory.INPUT
+        if code.startswith("INPUT_")
+        else ErrorCategory.SCOPE
+        if code.startswith("SCOPE_")
+        else ErrorCategory.CONFLICT
+        if code.startswith("CONFLICT_")
+        else ErrorCategory.AUTH
+    )
     return RejectedOutcome(
         **_outcome_common(),
         message=message,
@@ -106,7 +125,7 @@ def _rejected(
 def _unavailable(code: str) -> dict[str, object]:
     return UnavailableOutcome(
         **_outcome_common(),
-        message="The Creator session capability is unavailable.",
+        message="The requested local Runtime capability is unavailable.",
         error=ErrorDescriptor(ErrorCategory.DEPENDENCY, code),
     ).to_wire()
 
@@ -124,6 +143,7 @@ def _metadata_wire(metadata: SessionMetadata) -> _SessionMetadataWire:
         "contract_version": "1.0",
         "environment_id": str(metadata.environment_id),
         "creator_party_id": str(metadata.creator_party_id),
+        "default_scene_key": metadata.default_scene_key,
         "issued_at": Instant(metadata.issued_at).to_wire(),
         "expires_at": Instant(metadata.expires_at).to_wire(),
     }
@@ -180,6 +200,7 @@ def create_runtime_app(
     request_body_max_bytes: int,
     on_started: AsyncCallback,
     on_stopping: AsyncCallback,
+    scene_timeline_query: SceneTimelineQueryPort | None = None,
     on_security_event: SecurityEvent | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
@@ -220,7 +241,15 @@ def create_runtime_app(
         ):
             emit("creator.request.boundary_rejected")
             return Response(status_code=421, headers=_SECURITY_HEADERS)
-        if request.url.query and request.url.path.startswith("/v1/"):
+        timeline_path = re.fullmatch(
+            r"/v1/scenes/[^/]{1,256}/timeline",
+            request.url.path,
+        )
+        if (
+            request.url.query
+            and request.url.path.startswith("/v1/")
+            and timeline_path is None
+        ):
             emit("creator.request.url_token_rejected")
             return Response(status_code=400, headers=_SECURITY_HEADERS)
         if request.url.path.startswith("/v1/") and "cookie" in request.headers:
@@ -397,6 +426,118 @@ def create_runtime_app(
                 content=_rejected(error.code),
             )
         return JSONResponse(content=runtime_status().model_dump(mode="json"))
+
+    @app.get("/v1/scenes/{scene_key}/timeline")
+    async def get_scene_timeline(scene_key: str, request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or scene_timeline_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and scene_timeline_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        pairs = list(request.query_params.multi_items())
+        names = [name for name, _value in pairs]
+        if (
+            set(names) - {"limit", "cursor"}
+            or names.count("limit") != 1
+            or names.count("cursor") > 1
+        ):
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_PAGE_LIMIT"),
+            )
+        values = dict(pairs)
+        limit_text = values["limit"]
+        if not limit_text.isascii() or not limit_text.isdecimal():
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_PAGE_LIMIT"),
+            )
+        try:
+            parsed_scene_key = SceneKey(scene_key)
+        except SceneQueryViolation:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+            )
+        try:
+            query = SceneTimelineQuery(
+                scene_key=parsed_scene_key,
+                limit=int(limit_text),
+                cursor=(
+                    OpaqueCursor.from_wire(values["cursor"])
+                    if "cursor" in values
+                    else None
+                ),
+            )
+        except ContractViolation, SceneQueryViolation:
+            code = "INPUT_CURSOR_INVALID" if "cursor" in values else "INPUT_PAGE_LIMIT"
+            return JSONResponse(status_code=400, content=_rejected(code))
+        try:
+            page = await scene_timeline_query.query(query)
+        except SceneQueryViolation as error:
+            if error.code == "SCENE-NOT-VISIBLE":
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+                )
+            if error.code == "SCENE-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("CONFLICT_CURSOR_STALE"),
+                )
+            if error.code == "SCENE-CURSOR-INVALID":
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_CURSOR_INVALID"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE"),
+            )
+        response = SceneTimelinePageResponse(
+            contract_version="1.0",
+            projection_version="scene-timeline.v1",
+            scene_key=page.scene_key.value,
+            items=[
+                SceneTimelineItemResponse(
+                    timeline_item_id=str(item.timeline_item_id),
+                    source_kind=item.source_kind,
+                    source_ref=str(item.source_ref),
+                    status=item.status.value,
+                    occurred_at=item.occurred_at.to_wire(),
+                )
+                for item in page.items
+            ],
+            next_cursor=(
+                page.next_cursor.to_wire() if page.next_cursor is not None else None
+            ),
+        )
+        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
+
+    del get_scene_timeline
 
     @app.get("/ui", include_in_schema=False)
     async def creator_redirect() -> RedirectResponse:

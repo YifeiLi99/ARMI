@@ -245,6 +245,30 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("summary_digest", "text", False),
         ("schema_version", "smallint", True),
     ),
+    "interaction_scenes": (
+        ("scene_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("scene_key", "text", True),
+        ("scene_kind", "text", True),
+        ("primary_party_id", "uuid", True),
+        ("audience_scope", "text", True),
+        ("current_status", "text", True),
+        ("opened_at", "timestamp(6) with time zone", True),
+        ("closed_at", "timestamp(6) with time zone", False),
+        ("recent_context_boundary", "uuid", False),
+        ("schema_version", "smallint", True),
+    ),
+    "scene_timeline_items": (
+        ("timeline_item_id", "uuid", True),
+        ("scene_id", "uuid", True),
+        ("source_kind", "text", True),
+        ("source_ref", "uuid", True),
+        ("source_event_no", "bigint", True),
+        ("result_status", "text", True),
+        ("occurred_at", "timestamp(6) with time zone", True),
+        ("recorded_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
@@ -278,6 +302,10 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     "runtime_recovery_runs": tuple(
         sorted((*("c",) * 16, *("n",) * 17, *("f",) * 4, "p", "u"))
     ),
+    "interaction_scenes": tuple(
+        sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", "u"))
+    ),
+    "scene_timeline_items": tuple(sorted((*("c",) * 6, *("n",) * 9, "f", "p", "u"))),
 }
 
 
@@ -649,6 +677,12 @@ class PostgreSQLSchemaGateway:
         if applied_version >= 8:
             expected_objects.append(("runtime_recovery_runs", "r"))
             expected_tables.append("runtime_recovery_runs")
+            expected_objects.sort()
+            expected_tables.sort()
+        if applied_version >= 9:
+            scene_tables = ("interaction_scenes", "scene_timeline_items")
+            expected_objects.extend((name, "r") for name in scene_tables)
+            expected_tables.extend(scene_tables)
             expected_objects.sort()
             expected_tables.sort()
         if objects != expected_objects:

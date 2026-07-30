@@ -12,7 +12,10 @@ from armi_kernel.application import BirthViolation
 
 from armi_runtime.composition.bootstrap import execute_birth
 from armi_runtime.composition.configuration import ConfigurationViolation
-from armi_runtime.composition.creator_session import CREATOR_BEARER_LOCATOR
+from armi_runtime.composition.creator_session import (
+    CREATOR_BEARER_LOCATOR,
+    CREATOR_CURSOR_PURPOSE,
+)
 from armi_runtime.composition.creator_session_cli import issue_browser_bootstrap
 from armi_runtime.composition.database import (
     DatabaseViolation,
@@ -105,6 +108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {
             "database.runtime": "database.runtime",
             "creator.bootstrap.verify": CREATOR_BEARER_LOCATOR,
+            CREATOR_CURSOR_PURPOSE: CREATOR_BEARER_LOCATOR,
         }
     try:
         prepared = prepare_environment(

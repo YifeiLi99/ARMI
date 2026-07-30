@@ -97,7 +97,8 @@ h1 {
 
 .session-state,
 .session-form,
-.session-summary {
+.session-summary,
+.timeline-panel {
   margin-top: clamp(2rem, 7vw, 4rem);
 }
 
@@ -197,4 +198,54 @@ input:focus-visible {
   flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: 1.5rem;
+}
+
+.authenticated-view {
+  display: grid;
+  gap: 2rem;
+}
+
+.timeline-panel {
+  padding-top: 1.5rem;
+  border-top: 1px solid rgb(32 32 31 / 12%);
+}
+
+.timeline-heading-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.timeline-panel h2 {
+  margin: 0;
+  color: #443f38;
+  font-size: 1.05rem;
+}
+
+.timeline-empty {
+  margin: 1rem 0 0;
+  color: #6d685f;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 1rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid rgb(32 32 31 / 10%);
+}
+
+.timeline-list time {
+  grid-column: 1 / -1;
+  color: #6d685f;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
 }

@@ -50,6 +50,7 @@ def render_manifest(schema: bytes) -> bytes:
                 "purposes": [
                     "creator.bootstrap.issue",
                     "creator.bootstrap.verify",
+                    "creator.timeline.cursor",
                 ],
                 "value_in_effective_digest": False,
             }

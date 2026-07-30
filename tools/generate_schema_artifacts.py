@@ -121,6 +121,16 @@ def build_role_manifest() -> dict[str, object]:
             "semantic_payload",
             "privacy_scope",
         ],
+        "armi.interaction_scenes": [
+            "scene_id",
+            "subject_id",
+            "scene_key",
+            "scene_kind",
+            "primary_party_id",
+            "audience_scope",
+            "current_status",
+            "schema_version",
+        ],
     }
     birth_objects = [
         {
@@ -218,6 +228,22 @@ def build_role_manifest() -> dict[str, object]:
                     "summary_digest",
                 ],
             },
+            "armi_admin": {},
+            "armi_migrator": {},
+        },
+    }
+    timeline_object = {
+        "kind": "table",
+        "name": "armi.scene_timeline_items",
+        "owner": "armi_owner",
+        "public_privileges": [],
+        "grants": {
+            "armi_runtime": ["SELECT"],
+            "armi_admin": [],
+            "armi_migrator": [],
+        },
+        "column_grants": {
+            "armi_runtime": {},
             "armi_admin": {},
             "armi_migrator": {},
         },
@@ -487,12 +513,13 @@ def build_role_manifest() -> dict[str, object]:
             *birth_objects,
             authority_object,
             recovery_object,
+            timeline_object,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S017 has no business or administration function requiring "
+                "M0-S019 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -645,12 +672,24 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "logical_owner": "runtime-recovery",
                 "activation_step": "M0-S017",
             },
+            {
+                "kind": "table",
+                "name": "armi.interaction_scenes",
+                "logical_owner": "scene-authority",
+                "activation_step": "M0-S019",
+            },
+            {
+                "kind": "table",
+                "name": "armi.scene_timeline_items",
+                "logical_owner": "creator-projection",
+                "activation_step": "M0-S019",
+            },
         ],
         "deferred_objects": [
             {"scope": "episode_state", "activation_step": "M0-S020"},
             {"scope": "cognition_attempt_state", "activation_step": "M0-S024"},
             {"scope": "effect_state", "activation_step": "M0-S028"},
-            {"scope": "projection_state", "activation_step": "M0-S030"},
+            {"scope": "business_projection_state", "activation_step": "M0-S030"},
         ],
         "runtime_upgrade_allowed": False,
         "database_role_manifest": {

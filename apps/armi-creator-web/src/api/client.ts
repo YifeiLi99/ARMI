@@ -5,6 +5,8 @@ export type BrowserSession =
 export type BrowserSessionEstablished =
   components["schemas"]["BrowserSessionResponse"];
 export type RuntimeStatus = components["schemas"]["RuntimeStatusResponse"];
+export type SceneTimelinePage =
+  components["schemas"]["SceneTimelinePageResponse"];
 
 export class ApiFailure extends Error {
   constructor(readonly status: number) {
@@ -70,4 +72,26 @@ export async function deleteCurrentBrowserSession(
   if (!response.ok) {
     throw new ApiFailure(response.status);
   }
+}
+
+export async function getSceneTimeline(
+  token: string,
+  sceneKey: string,
+  limit: number,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<SceneTimelinePage> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) {
+    query.set("cursor", cursor);
+  }
+  const response = await fetch(
+    `/v1/scenes/${encodeURIComponent(sceneKey)}/timeline?${query.toString()}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
 }

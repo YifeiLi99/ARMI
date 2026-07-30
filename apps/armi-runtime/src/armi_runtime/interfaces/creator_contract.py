@@ -16,7 +16,7 @@ from armi_kernel.contracts import (
     TraceId,
     UnavailableOutcome,
 )
-from fastapi import FastAPI, Security
+from fastapi import FastAPI, Query, Security
 from fastapi.security import HTTPBearer
 from pydantic import (
     BaseModel,
@@ -37,6 +37,8 @@ _INSTANT_PATTERN = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5]\d\.\d{6}Z"
 _ERROR_CODE_PATTERN = r"[A-Z][A-Z0-9_]{2,127}"
 _BOOTSTRAP_CODE_PATTERN = r"bootstrap-v1\.[A-Za-z0-9_-]{22}"
 _SESSION_TOKEN_PATTERN = r"browser-v1\.[A-Za-z0-9_-]{43}"
+_SCENE_KEY_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"
+_CURSOR_PATTERN = r"v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
 type ReasonCode = Annotated[str, Field(pattern=_ERROR_CODE_PATTERN)]
 type ErrorCategoryValue = Literal[
     "input",
@@ -104,6 +106,7 @@ class _BrowserSessionMetadataResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     environment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     creator_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    default_scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
     issued_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     expires_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
@@ -137,6 +140,54 @@ class BrowserSessionResponse(_BrowserSessionMetadataResponse):
 
 class BrowserSessionCurrentResponse(_BrowserSessionMetadataResponse):
     pass
+
+
+type TimelineStatus = Literal[
+    "accepted",
+    "applied",
+    "waiting",
+    "rejected",
+    "unavailable",
+    "failed",
+    "unknown",
+    "completed",
+]
+
+
+class SceneTimelineItemResponse(_StrictWireModel):
+    timeline_item_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    source_kind: Annotated[
+        str,
+        Field(pattern=r"[a-z][a-z0-9._-]{0,63}"),
+    ]
+    source_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    status: TimelineStatus
+    occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("timeline_item_id", "source_ref")
+    @classmethod
+    def validate_uuid7(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-SCENE-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("occurred_at")
+    @classmethod
+    def validate_occurred_at(cls, value: str) -> str:
+        if Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-SCENE-TIME: instant must be canonical")
+        return value
+
+
+class SceneTimelinePageResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["scene-timeline.v1"]
+    scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
+    items: Annotated[list[SceneTimelineItemResponse], Field(max_length=100)]
+    next_cursor: (
+        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
+    ) = None
 
 
 class RuntimeStatusResponse(_StrictWireModel):
@@ -336,6 +387,31 @@ def build_creator_openapi() -> dict[str, object]:
     async def runtime_status() -> RuntimeStatusResponse:
         raise NotImplementedError
 
+    @app.get(
+        "/v1/scenes/{scene_key}/timeline",
+        operation_id="getSceneTimeline",
+        response_model=SceneTimelinePageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def scene_timeline(
+        scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)],
+        limit: Annotated[int, Query(ge=1, le=100)],
+        cursor: Annotated[
+            str | None,
+            Query(pattern=_CURSOR_PATTERN, max_length=2048),
+        ] = None,
+    ) -> SceneTimelinePageResponse:
+        del scene_key, limit, cursor
+        raise NotImplementedError
+
     schema_handlers = (
         health_live,
         health_ready,
@@ -344,10 +420,14 @@ def build_creator_openapi() -> dict[str, object]:
         current_browser_session,
         delete_browser_session,
         runtime_status,
+        scene_timeline,
     )
     del schema_handlers
     schema = app.openapi()
     schema.pop("servers", None)
+    schema["paths"]["/v1/scenes/{scene_key}/timeline"]["get"]["responses"].pop(
+        "422", None
+    )
     return schema
 
 
@@ -363,6 +443,8 @@ __all__ = (
     "RejectedOutcomeResponse",
     "RuntimeState",
     "RuntimeStatusResponse",
+    "SceneTimelineItemResponse",
+    "SceneTimelinePageResponse",
     "UnavailableOutcomeResponse",
     "build_creator_openapi",
 )
