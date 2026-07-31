@@ -109,6 +109,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "database.runtime": "database.runtime",
             "creator.bootstrap.verify": CREATOR_BEARER_LOCATOR,
             CREATOR_CURSOR_PURPOSE: CREATOR_BEARER_LOCATOR,
+            "model.request": "model.ark_api_key",
         }
     try:
         prepared = prepare_environment(

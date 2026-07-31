@@ -288,6 +288,10 @@ class CreatorInputRepository:
             phase = CreatorOperationPhase.CONTEXT_PREPARING
         elif disposition == "selected" and episode_status == "prepared":
             phase = CreatorOperationPhase.CONTEXT_PREPARED
+        elif disposition == "selected" and episode_status == "calling_model":
+            phase = CreatorOperationPhase.MODEL_CALLING
+        elif disposition == "selected" and episode_status == "model_returned":
+            phase = CreatorOperationPhase.MODEL_RETURNED
         elif disposition == "selected" and episode_status in {"failed", "cancelled"}:
             phase = CreatorOperationPhase.FAILED
         else:

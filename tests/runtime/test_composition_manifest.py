@@ -31,6 +31,10 @@ class CompositionManifestTests(unittest.TestCase):
                     "armi.context-compiler.deterministic-v1",
                 ),
                 (
+                    "M0-SEAM-MODEL",
+                    "armi.model-adapter.volcengine-ark-responses-v1",
+                ),
+                (
                     "M0-SEAM-WORK-SELECTION",
                     "armi.opportunity-selector.creator-fifo-v1",
                 ),

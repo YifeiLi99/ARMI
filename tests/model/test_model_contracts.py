@@ -1,0 +1,199 @@
+"""ADP-MODEL and EVO-CONTRACT-MODEL offline contract checks."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from armi_kernel.application import (
+    CredentialLocator,
+    ModelBinding,
+    ModelResultStatus,
+    ModelViolation,
+)
+from armi_kernel.contracts import Digest
+from armi_runtime.adapters.model.volcengine_ark import (
+    ArkTransport,
+    VolcengineArkModelAdapter,
+)
+from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
+from armi_runtime.composition.model_contract import (
+    ACTIVE_MODEL_ID,
+    ACTIVE_VERSION_POLICY,
+    build_request_bytes,
+    candidate_schema,
+    checked_model_request,
+    load_active_binding,
+    parse_candidate,
+)
+
+
+def _candidate() -> dict[str, object]:
+    return {
+        "schema_version": "armi.cognition-candidate.v1",
+        "disposition": "no_change",
+        "understanding": "The current external claim does not require a change.",
+        "experiences": [],
+        "component_changes": [],
+        "memory_changes": [],
+        "relationship_changes": [],
+        "activity_changes": [],
+        "capability_requests": [],
+        "action_intents": [],
+        "uncertainties": [],
+        "reason_summary": "No proposal is warranted by the provided context.",
+    }
+
+
+def _request(binding: ModelBinding):
+    context = b'{"schema_version":"armi.compiled-context.v1"}\n'
+    context_digest = Digest.from_bytes(context)
+    request_bytes = build_request_bytes(
+        binding=binding,
+        compiled_context=context,
+        context_digest=context_digest,
+        included_context_refs=(
+            {"ref": "ctx:1", "section": "evidence", "item_kind": "current_evidence"},
+        ),
+    )
+    return checked_model_request(
+        binding=binding,
+        request_bytes=request_bytes,
+        context_digest=context_digest,
+        input_tokens=128,
+    )
+
+
+def test_only_evolving_binding_is_active_and_digest_is_stable() -> None:
+    first = load_active_binding()
+    second = load_active_binding()
+    assert first.model_id == ACTIVE_MODEL_ID == "doubao-seed-evolving"
+    assert first.version_policy == ACTIVE_VERSION_POLICY
+    assert first.response_model_identity_required
+    assert first.input_microyuan_per_million == 6_000_000
+    assert first.output_microyuan_per_million == 30_000_000
+    assert first.digest == second.digest
+    assert _request(first).digest == _request(second).digest
+
+
+def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:
+    manifest = json.loads(
+        Path("model/model-bindings.manifest.json").read_text(encoding="utf-8")
+    )
+    manifest["bindings"].append(dict(manifest["bindings"][0]))
+    path = tmp_path / "model-bindings.manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ModelViolation, match="MODEL-BINDING-MANIFEST"):
+        load_active_binding(path)
+
+    manifest["bindings"] = [manifest["bindings"][0]]
+    manifest["bindings"][0]["model_id"] = "doubao-seed-2-1-turbo-260628"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ModelViolation, match="MODEL-BINDING-MANIFEST"):
+        load_active_binding(path)
+
+
+def test_candidate_rejects_unknown_or_unavailable_context_reference() -> None:
+    value = _candidate()
+    value["experiences"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "basis_refs": ["ctx:2"],
+            "payload": {
+                "proposal_kind": "experiences",
+                "summary": "An ungrounded proposal.",
+            },
+        }
+    ]
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-REFERENCE"):
+        parse_candidate(
+            json.dumps(value).encode(),
+            allowed_context_refs=frozenset({"ctx:1"}),
+        )
+
+
+class _Transport(ArkTransport):
+    def __init__(self, *, provider_model_id: str) -> None:
+        self.provider_model_id = provider_model_id
+        self.keys_seen: list[bytes] = []
+
+    async def tokenize(
+        self,
+        *,
+        api_key: memoryview,
+        binding: ModelBinding,
+        request_bytes: bytes,
+    ) -> int:
+        del binding, request_bytes
+        self.keys_seen.append(bytes(api_key))
+        return 128
+
+    async def invoke(
+        self,
+        *,
+        api_key: memoryview,
+        binding: ModelBinding,
+        request,
+    ) -> dict[str, object]:
+        del binding, request
+        self.keys_seen.append(bytes(api_key))
+        candidate = json.dumps(_candidate(), ensure_ascii=False)
+        return {
+            "provider_request_id": "req-safe-id",
+            "model_id": self.provider_model_id,
+            "output_text": candidate,
+            "usage": {
+                "input_tokens": 128,
+                "output_tokens": 64,
+                "cached_input_tokens": 0,
+            },
+            "raw": {
+                "output": [{"type": "message"}],
+            },
+        }
+
+
+@pytest.mark.asyncio
+async def test_adapter_records_provider_resolved_model_identity_without_fallback() -> (
+    None
+):
+    binding = load_active_binding()
+    transport = _Transport(provider_model_id="doubao-seed-evolving-20260731")
+    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
+    adapter = VolcengineArkModelAdapter(
+        binding=binding,
+        credential_port=EnvironmentFileCredentialPort(
+            environment={"ARMI_SECRET_MODEL_TEST": "test-" + "credential"},
+            secret_roots=(Path.cwd(),),
+        ),
+        locator=locator,
+        candidate_schema=candidate_schema(),
+        candidate_parser=parse_candidate,
+        transport=transport,
+    )
+    result = await adapter.invoke(_request(binding))
+    assert result.status is ModelResultStatus.SUCCEEDED
+    assert result.provider_model_id == "doubao-seed-evolving-20260731"
+    assert result.response_bytes is not None
+    assert b"credential" not in result.response_bytes
+    assert transport.keys_seen == [b"test-credential"]
+
+
+@pytest.mark.asyncio
+async def test_adapter_rejects_non_seed_provider_identity() -> None:
+    binding = load_active_binding()
+    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
+    adapter = VolcengineArkModelAdapter(
+        binding=binding,
+        credential_port=EnvironmentFileCredentialPort(
+            environment={"ARMI_SECRET_MODEL_TEST": "test-" + "credential"},
+            secret_roots=(Path.cwd(),),
+        ),
+        locator=locator,
+        candidate_schema=candidate_schema(),
+        candidate_parser=parse_candidate,
+        transport=_Transport(provider_model_id="foreign-model"),
+    )
+    with pytest.raises(ModelViolation, match="MODEL-PROVIDER-RESPONSE"):
+        await adapter.invoke(_request(binding))

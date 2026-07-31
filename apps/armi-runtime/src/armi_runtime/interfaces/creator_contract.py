@@ -346,7 +346,12 @@ class AcceptedOutcomeResponse(_CommonOutcomeResponse):
 class WaitingOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["waiting"]
     result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    waiting_for: Literal["context_preparation", "model_attempt"]
+    waiting_for: Literal[
+        "context_preparation",
+        "model_attempt",
+        "model_response",
+        "candidate_validation",
+    ]
     resume_condition: Literal["context_prepared", "model_step_available"]
 
     @model_validator(mode="after")
@@ -358,6 +363,8 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         ) not in {
             ("context_preparation", "context_prepared"),
             ("model_attempt", "model_step_available"),
+            ("model_response", "model_returned"),
+            ("candidate_validation", "candidate_validation_available"),
         }:
             raise ValueError("CON-INPUT-OPERATION: waiting state is inconsistent")
         return self

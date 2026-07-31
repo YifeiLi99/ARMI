@@ -46,7 +46,8 @@
       "allowed_callers": [
         "armi_runtime.composition.artifacts",
         "armi_runtime.composition.context_pipeline",
-        "armi_runtime.composition.creator_input"
+        "armi_runtime.composition.creator_input",
+        "armi_runtime.composition.model_pipeline"
       ]
     },
     {
@@ -65,7 +66,8 @@
       "owner": "durable-work",
       "allowed_callers": [
         "armi_runtime.adapters.persistence.unit_of_work",
-        "armi_runtime.composition.context_pipeline"
+        "armi_runtime.composition.context_pipeline",
+        "armi_runtime.composition.model_pipeline"
       ]
     },
     {
@@ -129,6 +131,14 @@
       "owner": "context-snapshot",
       "allowed_callers": [
         "armi_runtime.composition.context_pipeline"
+      ]
+    },
+    {
+      "id": "cognitive-model-attempt",
+      "module": "armi_runtime.adapters.persistence.cognitive_model",
+      "owner": "cognitive-model-attempt",
+      "allowed_callers": [
+        "armi_runtime.composition.model_pipeline"
       ]
     }
   ],
@@ -212,6 +222,17 @@
         "durable-work",
         "normal-audit"
       ]
+    },
+    {
+      "id": "model-attempt-execution",
+      "module": "armi_runtime.composition.model_pipeline",
+      "owner": "cognitive-model-attempt",
+      "allowed_write_surfaces": [
+        "cognitive-model-attempt",
+        "artifact-catalog",
+        "durable-work",
+        "normal-audit"
+      ]
     }
   ],
   "named_coordinators_not_applicable_reason": "",
@@ -280,6 +301,7 @@
     "manifest": "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/runtime-composition.manifest.json",
     "active_bindings": {
       "M0-SEAM-CONTEXT": "armi.context-compiler.deterministic-v1",
+      "M0-SEAM-MODEL": "armi.model-adapter.volcengine-ark-responses-v1",
       "M0-SEAM-WORK-SELECTION": "armi.opportunity-selector.creator-fifo-v1",
       "M0-SEAM-CREATOR-PROJECTION": "armi.scene-timeline-query.v2",
       "M0-SEAM-CREATOR-UI": "armi.creator-static.v1"

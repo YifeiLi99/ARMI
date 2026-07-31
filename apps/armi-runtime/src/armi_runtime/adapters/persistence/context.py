@@ -41,6 +41,7 @@ from .artifact_catalog import ArtifactCatalogRepository
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.context.prepare"
+_MODEL_WORK_KIND = "cognition.model.invoke"
 _MECHANISM = "armi.context-compiler.deterministic-v1"
 
 
@@ -418,7 +419,7 @@ class PostgreSQLContextRepository:
                     prepared_at = statement_timestamp()
                 WHERE cognitive_episode_id = %s
                   AND status = 'preparing'
-                RETURNING subject_id, trace_id
+                RETURNING subject_id, trace_id, statement_timestamp()
                 """,
                 (
                     manifest_artifact_id.value,
@@ -430,6 +431,23 @@ class PostgreSQLContextRepository:
         ).fetchone()
         if updated is None:
             raise ContextViolation("CTX-WORK-STALE")
+        model_now = Instant(updated[2])
+        await unit_of_work.work.enqueue(
+            WorkDraft(
+                WorkId(uuid7()),
+                _MODEL_WORK_KIND,
+                WorkOwner("cognitive_episode", episode_id),
+                IdempotencyKey(f"model:{episode_id}"),
+                result.manifest_digest,
+                50,
+                model_now,
+                Instant(model_now.value + timedelta(seconds=3600)),
+                2,
+                TraceId(str(updated[1])),
+                SubjectId(updated[0]),
+                WorkPayloadRef("cognitive_episode", episode_id),
+            )
+        )
         await unit_of_work.work.complete(
             lease,
             WorkResultRef("cognitive_episode", episode_id),
@@ -447,6 +465,20 @@ class PostgreSQLContextRepository:
                 subject_id=SubjectId(updated[0]),
                 response_digest=result.manifest_digest,
                 artifact_digest=result.compiled.digest,
+            )
+        )
+        await unit_of_work.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", unit_of_work.environment_id),
+                Purpose("cognition.model"),
+                "cognition.model.queued",
+                AuditReference("cognitive_episode", episode_id),
+                AuditResultStatus.WAITING,
+                TraceId(str(updated[1])),
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(updated[0]),
+                request_digest=result.manifest_digest,
             )
         )
 

@@ -552,7 +552,11 @@ export interface components {
        * Waiting For
        * @enum {string}
        */
-      waiting_for: "context_preparation" | "model_attempt";
+      waiting_for:
+        | "context_preparation"
+        | "model_attempt"
+        | "model_response"
+        | "candidate_validation";
     };
   };
   responses: never;

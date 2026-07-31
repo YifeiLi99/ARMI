@@ -12,6 +12,7 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
+    ModelViolation,
     RuntimeFence,
 )
 from armi_kernel.contracts import Digest
@@ -44,9 +45,11 @@ from .creator_input import (
     build_evidence_acceptance_transaction,
 )
 from .environment import PreparedEnvironment
+from .model_pipeline import ModelPipeline, build_model_pipeline
 
 RUNTIME_LOCATOR_NAME: Final = "database.runtime"
 MIGRATOR_LOCATOR_NAME: Final = "database.migrator"
+MODEL_LOCATOR_NAME: Final = "model.ark_api_key"
 
 _REASON_BY_CODE: Final = {
     "DB-CONNECTION-UNAVAILABLE": "RUNTIME_DATABASE_UNAVAILABLE",
@@ -456,6 +459,56 @@ def compose_context_pipeline(
         ) from None
 
 
+def compose_model_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    diagnostic: Callable[[str], None] | None = None,
+) -> ModelPipeline:
+    """Resolve the Runtime and model credentials for the active S024 worker."""
+
+    database_locator = prepared.effective.config.secret_locators.get(
+        RUNTIME_LOCATOR_NAME
+    )
+    model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
+    if database_locator is None or model_locator is None:
+        raise ModelViolation("MODEL-CREDENTIAL")
+    try:
+        with prepared.credential_port.resolve(
+            database_locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> ModelPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise ModelViolation("MODEL-DATABASE") from None
+                config = prepared.effective.config
+                return build_model_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    credential_port=prepared.credential_port,
+                    credential_locator=model_locator,
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise ModelViolation("MODEL-CREDENTIAL") from None
+
+
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
@@ -516,6 +569,7 @@ __all__ = (
     "DatabaseViolation",
     "compose_context_pipeline",
     "compose_creator_input",
+    "compose_model_pipeline",
     "compose_runtime_authority",
     "compose_runtime_recovery",
     "compose_scene_timeline_query",

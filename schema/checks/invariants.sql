@@ -30,7 +30,7 @@ FROM (
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
                   AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-            ) <> 22
+            ) <> 23
         ),
         (
             'DB-SCHEMA-MISSING',
@@ -167,9 +167,10 @@ FROM (
                   AND relation.relkind = 'r'
                   AND relation.relname IN (
                       'cognitive_episodes',
-                      'cognitive_context_items'
+                      'cognitive_context_items',
+                      'cognitive_attempts'
                   )
-            ) <> 2
+            ) <> 3
         )
 ) AS checks(violation_code, violated)
 WHERE violated

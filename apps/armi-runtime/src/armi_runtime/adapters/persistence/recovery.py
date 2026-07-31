@@ -458,6 +458,51 @@ class PostgreSQLRuntimeRecovery:
         ):
             await self._verify_fence(connection, fence)
             await self._record_artifact_failures(connection, fence, sorted_findings)
+            await connection.execute(
+                """
+                UPDATE armi.cognitive_attempts AS attempt
+                SET dispatch_status = 'settled',
+                    result_status = 'cancelled',
+                    error_code = 'MODEL-RECOVERY-PRE-DISPATCH',
+                    settled_at = statement_timestamp()
+                FROM armi.durable_work AS work
+                WHERE attempt.work_id = work.work_id
+                  AND attempt.dispatch_status = 'prepared'
+                  AND work.status = 'ready'
+                """
+            )
+            await connection.execute(
+                """
+                UPDATE armi.cognitive_attempts AS attempt
+                SET dispatch_status = 'settled',
+                    result_status = 'outcome_unknown',
+                    error_code = 'MODEL-OUTCOME-UNKNOWN',
+                    settled_at = statement_timestamp()
+                FROM armi.durable_work AS work
+                WHERE attempt.work_id = work.work_id
+                  AND attempt.dispatch_status = 'dispatched'
+                  AND work.status = 'ready'
+                """
+            )
+            await connection.execute(
+                """
+                UPDATE armi.cognitive_episodes AS episode
+                SET status = 'prepared'
+                FROM armi.durable_work AS work
+                WHERE work.owner_kind = 'cognitive_episode'
+                  AND work.owner_ref = episode.cognitive_episode_id
+                  AND work.work_kind = 'cognition.model.invoke'
+                  AND work.status = 'ready'
+                  AND episode.status = 'calling_model'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM armi.cognitive_attempts AS attempt
+                      WHERE attempt.cognitive_episode_id
+                          = episode.cognitive_episode_id
+                        AND attempt.dispatch_status <> 'settled'
+                  )
+                """
+            )
             counts = await (
                 await connection.execute(
                     """
@@ -519,6 +564,45 @@ class PostgreSQLRuntimeRecovery:
                         ),
                         (
                             SELECT count(*)
+                            FROM armi.cognitive_episodes AS episode
+                            JOIN armi.durable_work AS work
+                              ON work.owner_kind = 'cognitive_episode'
+                             AND work.owner_ref = episode.cognitive_episode_id
+                             AND work.work_kind = 'cognition.model.invoke'
+                            WHERE (
+                                episode.status = 'prepared'
+                                AND work.status IN ('ready', 'leased')
+                            )
+                            OR (
+                                episode.status = 'calling_model'
+                                AND work.status = 'leased'
+                                AND EXISTS (
+                                    SELECT 1
+                                    FROM armi.cognitive_attempts AS attempt
+                                    WHERE attempt.cognitive_episode_id
+                                        = episode.cognitive_episode_id
+                                      AND attempt.work_id = work.work_id
+                                      AND attempt.dispatch_status
+                                        IN ('prepared', 'dispatched')
+                                )
+                            )
+                            OR (
+                                episode.status = 'model_returned'
+                                AND work.status = 'completed'
+                                AND work.result_kind = 'model_attempt'
+                                AND EXISTS (
+                                    SELECT 1
+                                    FROM armi.cognitive_attempts AS attempt
+                                    WHERE attempt.model_attempt_id = work.result_ref
+                                      AND attempt.cognitive_episode_id
+                                        = episode.cognitive_episode_id
+                                      AND attempt.dispatch_status = 'settled'
+                                      AND attempt.result_status = 'succeeded'
+                                )
+                            )
+                        ),
+                        (
+                            SELECT count(*)
                             FROM armi.opportunities AS opportunity
                             LEFT JOIN armi.external_evidence AS evidence
                               ON evidence.evidence_id = opportunity.evidence_id
@@ -558,35 +642,90 @@ class PostgreSQLRuntimeRecovery:
                                    AND NOT EXISTS (
                                        SELECT 1
                                        FROM armi.cognitive_episodes AS episode
-                                       JOIN armi.durable_work AS work
-                                         ON work.owner_kind = 'cognitive_episode'
-                                        AND work.owner_ref
-                                          = episode.cognitive_episode_id
-                                        AND work.work_kind
-                                          = 'cognition.context.prepare'
                                        WHERE episode.opportunity_id
                                          = opportunity.opportunity_id
                                          AND (
                                              (
                                                  episode.status = 'preparing'
-                                                 AND work.status
-                                                   IN ('ready', 'leased')
+                                                 AND EXISTS (
+                                                     SELECT 1
+                                                     FROM armi.durable_work AS work
+                                                     WHERE work.owner_kind
+                                                         = 'cognitive_episode'
+                                                       AND work.owner_ref
+                                                         = episode.cognitive_episode_id
+                                                       AND work.work_kind
+                                                         = 'cognition.context.prepare'
+                                                       AND work.status
+                                                         IN ('ready', 'leased')
+                                                 )
                                              )
                                              OR (
-                                                 episode.status = 'prepared'
-                                                 AND work.status = 'completed'
-                                                 AND work.result_kind
-                                                   = 'cognitive_episode'
-                                                 AND work.result_ref
-                                                   = episode.cognitive_episode_id
+                                                 episode.status
+                                                   IN ('prepared', 'calling_model')
+                                                 AND EXISTS (
+                                                     SELECT 1
+                                                     FROM armi.durable_work AS work
+                                                     WHERE work.owner_kind
+                                                         = 'cognitive_episode'
+                                                       AND work.owner_ref
+                                                         = episode.cognitive_episode_id
+                                                       AND work.work_kind
+                                                         = 'cognition.context.prepare'
+                                                       AND work.status = 'completed'
+                                                 )
+                                                 AND EXISTS (
+                                                     SELECT 1
+                                                     FROM armi.durable_work AS work
+                                                     WHERE work.owner_kind
+                                                         = 'cognitive_episode'
+                                                       AND work.owner_ref
+                                                         = episode.cognitive_episode_id
+                                                       AND work.work_kind
+                                                         = 'cognition.model.invoke'
+                                                       AND work.status
+                                                         IN ('ready', 'leased')
+                                                 )
+                                             )
+                                             OR (
+                                                 episode.status = 'model_returned'
+                                                 AND EXISTS (
+                                                     SELECT 1
+                                                     FROM armi.durable_work AS work
+                                                     WHERE work.owner_kind
+                                                         = 'cognitive_episode'
+                                                       AND work.owner_ref
+                                                         = episode.cognitive_episode_id
+                                                       AND work.work_kind
+                                                         = 'cognition.model.invoke'
+                                                       AND work.status = 'completed'
+                                                       AND work.result_kind
+                                                         = 'model_attempt'
+                                                 )
                                              )
                                              OR (
                                                  episode.status = 'failed'
-                                                 AND work.status = 'failed'
+                                                 AND EXISTS (
+                                                     SELECT 1
+                                                     FROM armi.durable_work AS work
+                                                     WHERE work.owner_kind
+                                                         = 'cognitive_episode'
+                                                       AND work.owner_ref
+                                                         = episode.cognitive_episode_id
+                                                       AND work.status = 'failed'
+                                                 )
                                              )
                                              OR (
                                                  episode.status = 'cancelled'
-                                                 AND work.status = 'cancelled'
+                                                 AND EXISTS (
+                                                     SELECT 1
+                                                     FROM armi.durable_work AS work
+                                                     WHERE work.owner_kind
+                                                         = 'cognitive_episode'
+                                                       AND work.owner_ref
+                                                         = episode.cognitive_episode_id
+                                                       AND work.status = 'cancelled'
+                                                 )
                                              )
                                          )
                                    )
@@ -597,7 +736,7 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert counts is not None
-            if int(counts[4]) > 0:
+            if int(counts[5]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
                     sorted(
@@ -637,6 +776,7 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_outbox": int(counts[1]),
                 "resumable_opportunity": int(counts[2]),
                 "resumable_cognitive_episode": int(counts[3]),
+                "resumable_model_attempt": int(counts[4]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -665,6 +805,7 @@ class PostgreSQLRuntimeRecovery:
                     resumable_outbox_count = %s,
                     resumable_opportunity_count = %s,
                     resumable_cognitive_episode_count = %s,
+                    resumable_model_attempt_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -681,6 +822,7 @@ class PostgreSQLRuntimeRecovery:
                     int(counts[1]),
                     int(counts[2]),
                     int(counts[3]),
+                    int(counts[4]),
                     critical,
                     blockers,
                     digest.value,
@@ -706,6 +848,7 @@ class PostgreSQLRuntimeRecovery:
             resumable_outbox_count=int(counts[1]),
             resumable_opportunity_count=int(counts[2]),
             resumable_cognitive_episode_count=int(counts[3]),
+            resumable_model_attempt_count=int(counts[4]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

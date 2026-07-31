@@ -287,12 +287,28 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
             waiting_for="model_attempt",
             resume_condition="model_step_available",
         ).to_wire()
+    if operation.phase is CreatorOperationPhase.MODEL_CALLING:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The model attempt is awaiting a provider response.",
+            result_ref=result_ref,
+            waiting_for="model_response",
+            resume_condition="model_returned",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.MODEL_RETURNED:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The model response is waiting for candidate validation.",
+            result_ref=result_ref,
+            waiting_for="candidate_validation",
+            resume_condition="candidate_validation_available",
+        ).to_wire()
     return FailedOutcome(
         **_outcome_common(),
-        message="Context preparation failed.",
+        message="Cognition preparation failed.",
         error=ErrorDescriptor(
             ErrorCategory.INTERNAL,
-            "INTERNAL_CONTEXT_PREPARATION_FAILED",
+            "INTERNAL_COGNITION_PREPARATION_FAILED",
         ),
         retryable=False,
     ).to_wire()

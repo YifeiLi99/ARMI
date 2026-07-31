@@ -15,6 +15,7 @@ import uvicorn
 from armi_kernel.application import (
     ContextViolation,
     CreatorInputViolation,
+    ModelViolation,
     RecoveryStatus,
     RecoveryViolation,
     RuntimeAuthorityViolation,
@@ -41,6 +42,7 @@ from .database import (
     DatabaseViolation,
     compose_context_pipeline,
     compose_creator_input,
+    compose_model_pipeline,
     compose_runtime_authority,
     compose_runtime_recovery,
     compose_scene_timeline_query,
@@ -111,6 +113,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     creator_events: CreatorEventBroker | None = None
     creator_input = None
     context_pipeline = None
+    model_pipeline = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -194,6 +197,28 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 ),
             )
             await context_pipeline.open()
+            if "model.ark_api_key" in config.secret_locators:
+                try:
+                    model_pipeline = compose_model_pipeline(
+                        prepared,
+                        authority_admission=authority.require_writable,
+                        diagnostic=lambda event: diagnostic.emit(
+                            event,
+                            result_code="MODEL_PIPELINE",
+                        ),
+                    )
+                    await model_pipeline.open()
+                except ModelViolation:
+                    model_pipeline = None
+                    lifecycle.add_degradation("RUNTIME_MODEL_UNAVAILABLE")
+                    diagnostic.emit(
+                        "runtime.model.unavailable",
+                        level=logging.WARNING,
+                        result_code="MODEL_UNAVAILABLE",
+                        reason_codes=("RUNTIME_MODEL_UNAVAILABLE",),
+                    )
+            else:
+                lifecycle.add_degradation("RUNTIME_MODEL_UNAVAILABLE")
         except DatabaseViolation, RuntimeAuthorityViolation:
             diagnostic.emit(
                 "runtime.authority.unavailable",
@@ -301,6 +326,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 context_pipeline.run_worker(),
                 name="context-prepare-worker",
             )
+        if model_pipeline is not None:
+            for index in range(config.model.concurrency):
+                supervisor.start(
+                    model_pipeline.run_worker(),
+                    name=f"model-invoke-worker-{index + 1}",
+                )
 
     async def stopping() -> None:
         nonlocal drain_timed_out
@@ -320,11 +351,15 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_input.close()
         if context_pipeline is not None:
             context_pipeline.stop()
+        if model_pipeline is not None:
+            model_pipeline.stop()
         released = await supervisor.drain(
             deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
         )
         if context_pipeline is not None:
             await context_pipeline.close()
+        if model_pipeline is not None:
+            await model_pipeline.close()
         if authority is not None:
             diagnostic.emit(
                 (

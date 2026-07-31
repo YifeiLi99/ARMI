@@ -133,6 +133,8 @@ class CreatorOperationPhase(StrEnum):
     ACCEPTED = "accepted"
     CONTEXT_PREPARING = "context_preparing"
     CONTEXT_PREPARED = "context_prepared"
+    MODEL_CALLING = "model_calling"
+    MODEL_RETURNED = "model_returned"
     FAILED = "failed"
 
 
@@ -151,7 +153,7 @@ class CreatorOperation:
         if self.phase is CreatorOperationPhase.FAILED:
             if (
                 type(self.failure_code) is not str
-                or re.fullmatch(r"CTX-[A-Z0-9-]+", self.failure_code) is None
+                or re.fullmatch(r"(?:CTX|MODEL)-[A-Z0-9-]+", self.failure_code) is None
             ):
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
         elif self.failure_code is not None:

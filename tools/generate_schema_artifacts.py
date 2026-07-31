@@ -212,6 +212,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_outbox_count",
                     "resumable_opportunity_count",
                     "resumable_cognitive_episode_count",
+                    "resumable_model_attempt_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -227,6 +228,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_outbox_count",
                     "resumable_opportunity_count",
                     "resumable_cognitive_episode_count",
+                    "resumable_model_attempt_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -390,6 +392,7 @@ def build_role_manifest() -> dict[str, object]:
                         "context_digest",
                         "failure_code",
                         "prepared_at",
+                        "model_returned_at",
                     ],
                 },
                 "armi_admin": {},
@@ -431,6 +434,57 @@ def build_role_manifest() -> dict[str, object]:
             },
         },
     ]
+    model_attempt_object = {
+        "kind": "table",
+        "name": "armi.cognitive_attempts",
+        "owner": "armi_owner",
+        "public_privileges": [],
+        "grants": {
+            "armi_runtime": ["SELECT"],
+            "armi_admin": [],
+            "armi_migrator": [],
+        },
+        "column_grants": {
+            "armi_runtime": {
+                "INSERT": [
+                    "model_attempt_id",
+                    "cognitive_episode_id",
+                    "work_id",
+                    "work_attempt_id",
+                    "attempt_no",
+                    "binding_digest",
+                    "provider",
+                    "model_id",
+                    "version_policy",
+                    "profile",
+                    "request_schema_version",
+                    "candidate_schema_version",
+                    "pricing_snapshot_id",
+                    "credential_identity",
+                    "request_artifact_id",
+                    "request_digest",
+                    "dispatch_status",
+                    "schema_version",
+                ],
+                "UPDATE": [
+                    "dispatch_status",
+                    "provider_request_id",
+                    "provider_model_id",
+                    "response_artifact_id",
+                    "input_tokens",
+                    "output_tokens",
+                    "cached_input_tokens",
+                    "estimated_cost_microyuan",
+                    "result_status",
+                    "error_code",
+                    "dispatched_at",
+                    "settled_at",
+                ],
+            },
+            "armi_admin": {},
+            "armi_migrator": {},
+        },
+    }
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -699,12 +753,13 @@ def build_role_manifest() -> dict[str, object]:
             timeline_object,
             *creator_input_objects,
             *context_objects,
+            model_attempt_object,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S023 has no business or administration function requiring "
+                "M0-S024 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -899,9 +954,14 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "logical_owner": "context-snapshot",
                 "activation_step": "M0-S023",
             },
+            {
+                "kind": "table",
+                "name": "armi.cognitive_attempts",
+                "logical_owner": "cognitive-model-attempt",
+                "activation_step": "M0-S024",
+            },
         ],
         "deferred_objects": [
-            {"scope": "cognition_attempt_state", "activation_step": "M0-S024"},
             {"scope": "effect_state", "activation_step": "M0-S028"},
             {"scope": "business_projection_state", "activation_step": "M0-S030"},
         ],

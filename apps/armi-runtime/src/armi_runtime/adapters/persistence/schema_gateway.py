@@ -246,6 +246,7 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("schema_version", "smallint", True),
         ("resumable_opportunity_count", "integer", True),
         ("resumable_cognitive_episode_count", "integer", True),
+        ("resumable_model_attempt_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -334,6 +335,7 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("created_at", "timestamp(6) with time zone", True),
         ("prepared_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
+        ("model_returned_at", "timestamp(6) with time zone", False),
     ),
     "cognitive_context_items": (
         ("context_item_id", "uuid", True),
@@ -350,6 +352,38 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("disposition", "text", True),
         ("reason_code", "text", False),
         ("content_bytes", "integer", True),
+        ("schema_version", "smallint", True),
+    ),
+    "cognitive_attempts": (
+        ("model_attempt_id", "uuid", True),
+        ("cognitive_episode_id", "uuid", True),
+        ("work_id", "uuid", True),
+        ("work_attempt_id", "uuid", True),
+        ("attempt_no", "smallint", True),
+        ("binding_digest", "text", True),
+        ("provider", "text", True),
+        ("model_id", "text", True),
+        ("version_policy", "text", True),
+        ("profile", "text", True),
+        ("request_schema_version", "text", True),
+        ("candidate_schema_version", "text", True),
+        ("pricing_snapshot_id", "text", True),
+        ("credential_identity", "text", True),
+        ("request_artifact_id", "uuid", True),
+        ("request_digest", "text", True),
+        ("dispatch_status", "text", True),
+        ("provider_request_id", "text", False),
+        ("provider_model_id", "text", False),
+        ("response_artifact_id", "uuid", False),
+        ("input_tokens", "integer", False),
+        ("output_tokens", "integer", False),
+        ("cached_input_tokens", "integer", False),
+        ("estimated_cost_microyuan", "bigint", False),
+        ("result_status", "text", False),
+        ("error_code", "text", False),
+        ("prepared_at", "timestamp(6) with time zone", True),
+        ("dispatched_at", "timestamp(6) with time zone", False),
+        ("settled_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
     ),
 }
@@ -383,7 +417,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 18, *("n",) * 19, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 19, *("n",) * 20, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
         sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
@@ -401,6 +435,9 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     ),
     "cognitive_context_items": tuple(
         sorted((*("c",) * 16, *("n",) * 11, "f", "p", "u"))
+    ),
+    "cognitive_attempts": tuple(
+        sorted((*("c",) * 23, *("n",) * 19, *("f",) * 4, "p", *("u",) * 2))
     ),
 }
 
@@ -801,6 +838,11 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(context_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 12:
+            expected_objects.append(("cognitive_attempts", "r"))
+            expected_tables.append("cognitive_attempts")
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -867,12 +909,20 @@ class PostgreSQLSchemaGateway:
             expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
             if table_name == "runtime_recovery_runs" and expected is not None:
                 if applied_version < 10:
-                    expected = expected[:-2]
+                    expected = expected[:-3]
                 elif applied_version < 11:
+                    expected = expected[:-2]
+                elif applied_version < 12:
                     expected = expected[:-1]
             if (
                 table_name == "opportunities"
                 and applied_version < 11
+                and expected is not None
+            ):
+                expected = expected[:-1]
+            if (
+                table_name == "cognitive_episodes"
+                and applied_version < 12
                 and expected is not None
             ):
                 expected = expected[:-1]
@@ -910,10 +960,14 @@ class PostgreSQLSchemaGateway:
             if table_name == "runtime_recovery_runs" and expected is not None:
                 prior_kinds = list(expected)
                 if applied_version < 10:
-                    for _ in range(2):
+                    for _ in range(3):
                         prior_kinds.remove("c")
                         prior_kinds.remove("n")
                 elif applied_version < 11:
+                    for _ in range(2):
+                        prior_kinds.remove("c")
+                        prior_kinds.remove("n")
+                elif applied_version < 12:
                     prior_kinds.remove("c")
                     prior_kinds.remove("n")
                 expected = tuple(prior_kinds)

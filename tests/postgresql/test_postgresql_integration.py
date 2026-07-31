@@ -296,7 +296,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {11})
+        self.assertEqual({result.applied_version for result in results}, {12})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -363,7 +363,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 11)
+        self.assertEqual(result.applied_version, 12)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -425,7 +425,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 11)
+        self.assertEqual(result.applied_version, 12)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -485,7 +485,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(12,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(13,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -544,7 +544,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (11,),
+                    (12,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1032,6 +1032,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 DROP TABLE
+                    armi.cognitive_attempts,
                     armi.cognitive_context_items,
                     armi.cognitive_episodes,
                     armi.opportunities,
@@ -1043,20 +1044,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 ALTER TABLE armi.runtime_recovery_runs
                 DROP COLUMN resumable_opportunity_count,
-                DROP COLUMN resumable_cognitive_episode_count
+                DROP COLUMN resumable_cognitive_episode_count,
+                DROP COLUMN resumable_model_attempt_count
                 """
             )
             connection.execute(
                 "DROP TABLE armi.scene_timeline_items, armi.interaction_scenes"
             )
             connection.execute(
-                "DELETE FROM armi.schema_migrations WHERE version IN (9, 10, 11)"
+                "DELETE FROM armi.schema_migrations WHERE version IN (9, 10, 11, 12)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 11)
+        self.assertEqual(backfilled.applied_version, 12)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
@@ -1962,7 +1964,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(status_response.status, 200)
                     self.assertEqual(
                         (runtime_status["runtime_state"], runtime_status["readiness"]),
-                        ("ready", "ready"),
+                        ("degraded", "ready"),
+                    )
+                    self.assertEqual(
+                        runtime_status["reason_codes"],
+                        ["RUNTIME_MODEL_UNAVAILABLE"],
                     )
                     stream_connection = http.client.HTTPConnection(
                         "127.0.0.1",
@@ -2164,7 +2170,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "runtime.authority.acquired",
                     "runtime.lifecycle.recovering",
                     "runtime.recovery.safe",
-                    "runtime.lifecycle.ready",
+                    "runtime.lifecycle.degraded",
                     "creator.bootstrap.issued",
                     "creator.session.established",
                     "creator.event_stream.connected",
@@ -2341,18 +2347,34 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                     SELECT
                         resumable_opportunity_count,
-                        resumable_cognitive_episode_count
+                        resumable_cognitive_episode_count,
+                        resumable_model_attempt_count
                     FROM armi.runtime_recovery_runs
                     ORDER BY started_at DESC, recovery_run_id DESC
                     LIMIT 1
                     """
                 ).fetchone()
-                self.assertEqual(recovery_count, (0, 1))
+                self.assertEqual(recovery_count, (0, 1, 1))
                 self.assertEqual(
                     database.execute(
-                        "SELECT count(*) FROM armi.durable_work"
+                        """
+                        SELECT work_kind, count(*)
+                        FROM armi.durable_work
+                        GROUP BY work_kind
+                        ORDER BY work_kind
+                        """
+                    ).fetchall(),
+                    [
+                        ("cognition.context.prepare", 1),
+                        ("cognition.model.invoke", 1),
+                        ("recovery_probe", 1),
+                    ],
+                )
+                self.assertEqual(
+                    database.execute(
+                        "SELECT count(*) FROM armi.cognitive_attempts"
                     ).fetchone(),
-                    (2,),
+                    (0,),
                 )
                 self.assertEqual(
                     database.execute(

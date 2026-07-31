@@ -9,6 +9,13 @@ type OperationPanelProps = {
   onUnauthorized: () => void;
 };
 
+const waitingLabels = {
+  context_preparation: "正在准备 Context",
+  model_attempt: "Context 已准备，等待模型步骤",
+  model_response: "正在等待模型响应",
+  candidate_validation: "模型响应已返回，等待候选校验",
+} as const;
+
 export function OperationPanel({
   token,
   operationRef,
@@ -70,11 +77,7 @@ export function OperationPanel({
         <dl>
           <div>
             <dt>状态</dt>
-            <dd>
-              {operation.data.waiting_for === "context_preparation"
-                ? "正在准备 Context"
-                : "Context 已准备，等待模型步骤"}
-            </dd>
+            <dd>{waitingLabels[operation.data.waiting_for]}</dd>
           </div>
           <div>
             <dt>责任引用</dt>
@@ -85,7 +88,7 @@ export function OperationPanel({
         <dl>
           <div>
             <dt>状态</dt>
-            <dd>Context 准备失败</dd>
+            <dd>认知准备失败</dd>
           </div>
           <div>
             <dt>安全错误码</dt>

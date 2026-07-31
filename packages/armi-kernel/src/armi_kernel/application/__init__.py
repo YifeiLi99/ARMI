@@ -85,6 +85,16 @@ from .durable_work import (
     WorkStatus,
     WorkViolation,
 )
+from .model import (
+    ModelAttemptId,
+    ModelBinding,
+    ModelInvocationResult,
+    ModelPort,
+    ModelRequest,
+    ModelResultStatus,
+    ModelUsage,
+    ModelViolation,
+)
 from .recovery import (
     RecoveryDecision,
     RecoveryFinding,
@@ -183,6 +193,14 @@ __all__ = (
     "LockPlan",
     "LockTarget",
     "LockTargetKind",
+    "ModelAttemptId",
+    "ModelBinding",
+    "ModelInvocationResult",
+    "ModelPort",
+    "ModelRequest",
+    "ModelResultStatus",
+    "ModelUsage",
+    "ModelViolation",
     "OpportunityId",
     "OpportunitySelector",
     "PersonalityAnchor",
