@@ -21,6 +21,11 @@ from armi_kernel.application import (
     CandidateValidationResult,
     CandidateValidationStatus,
     CandidateViolation,
+    CapabilityKind,
+    CapabilityOperation,
+    CapabilityRequestDraft,
+    CodexDelegatedWorkScope,
+    CreatorSceneReplyScope,
     ModelViolation,
     SubjectChangeSet,
 )
@@ -35,7 +40,7 @@ from .model_contract import (
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v1"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-CHANGE_SET_VERSION = "armi.subject-change-set.v1"
+CHANGE_SET_VERSION = "armi.subject-change-set.v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +53,8 @@ class CandidateValidationContext:
     base_state_epoch: int
     bundle_activation_id: UUID
     context_digest: Digest
+    scene_id: UUID
+    creator_party_id: UUID
     current_components: tuple[tuple[CandidateOwner, int, bytes], ...]
 
     def __post_init__(self) -> None:
@@ -59,6 +66,8 @@ class CandidateValidationContext:
                 self.episode_id,
                 self.model_attempt_id,
                 self.bundle_activation_id,
+                self.scene_id,
+                self.creator_party_id,
             )
         ):
             raise CandidateViolation("CON-CANDIDATE-CONTEXT")
@@ -73,7 +82,7 @@ class CandidateValidationContext:
 
 
 class DeterministicCandidateValidator:
-    """Validate candidate v2 into a canonical, not-yet-effective change set."""
+    """Validate candidate v3 into a canonical, not-yet-effective change set."""
 
     __slots__ = ("_context",)
 
@@ -104,7 +113,8 @@ class DeterministicCandidateValidator:
             code = (
                 "CANDIDATE-CONTRACT-OBSOLETE"
                 if isinstance(raw, dict)
-                and raw.get("schema_version") == "armi.cognition-candidate.v1"
+                and raw.get("schema_version")
+                in {"armi.cognition-candidate.v1", "armi.cognition-candidate.v2"}
                 else "CANDIDATE-CONTRACT"
             )
             return _rejected(code)
@@ -127,7 +137,10 @@ class DeterministicCandidateValidator:
             owner: (version, canonical)
             for owner, version, canonical in self._context.current_components
         }
-        accepted: dict[str, CandidateExperienceDraft | CandidateComponentDraft] = {}
+        accepted: dict[
+            str,
+            CandidateExperienceDraft | CandidateComponentDraft | CapabilityRequestDraft,
+        ] = {}
         rejected: dict[str, CandidateRejection] = {}
         group_members: dict[str, list[str]] = defaultdict(list)
         group_experiences: set[str] = set()
@@ -171,6 +184,36 @@ class DeterministicCandidateValidator:
                         Digest.from_bytes(next_bytes),
                     )
                     continue
+            if failure is None and owner is CandidateOwner.CAPABILITY:
+                capability = proposal
+                failure = _capability_failure(
+                    capability,
+                    proposal_bases,
+                    context=self._context,
+                )
+                if failure is None:
+                    payload = capability.payload
+                    scope = (
+                        CreatorSceneReplyScope(
+                            UUID(payload.subject_id),
+                            UUID(payload.scene_id),
+                            UUID(payload.creator_party_id),
+                            payload.valid_for_seconds,
+                            payload.max_uses,
+                            payload.max_payload_bytes,
+                        )
+                        if payload.capability_kind == "creator.scene.reply"
+                        else CodexDelegatedWorkScope(payload.valid_for_seconds)
+                    )
+                    accepted[proposal.proposal_ref] = CapabilityRequestDraft(
+                        proposal.proposal_ref,
+                        proposal.atomic_group_ref,
+                        tuple(basis.ordinal for basis in proposal_bases),
+                        CapabilityKind(payload.capability_kind),
+                        CapabilityOperation(payload.operation),
+                        scope,
+                    )
+                    continue
             if failure is None:
                 failure = "CANDIDATE-OWNER-NOT-ACTIVE"
             rejected[proposal.proposal_ref] = CandidateRejection(
@@ -206,7 +249,7 @@ class DeterministicCandidateValidator:
                         proposal_ref,
                         group,
                         draft.basis_ordinals,
-                        draft.fact_class,
+                        _draft_fact_class(draft),
                         _draft_owner(draft),
                         "CANDIDATE-ATOMIC-GROUP",
                     )
@@ -231,6 +274,11 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateComponentDraft)
         )
+        capability_requests = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, CapabilityRequestDraft)
+        )
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
         change_set_value = {
@@ -249,6 +297,9 @@ class DeterministicCandidateValidator:
             "disposition": disposition.value,
             "experiences": [_experience_wire(item) for item in experiences],
             "components": [_component_wire(item) for item in components],
+            "capability_requests": [
+                _capability_wire(item) for item in capability_requests
+            ],
             "rejections": [_rejection_wire(item) for item in rejections],
         }
         canonical = rfc8785.dumps(cast(Any, change_set_value))
@@ -267,6 +318,7 @@ class DeterministicCandidateValidator:
             disposition,
             experiences,
             components,
+            capability_requests,
             rejections,
         )
         status = (
@@ -380,6 +432,45 @@ def _component_failure(
     return None
 
 
+def _capability_failure(
+    proposal: Any,
+    bases: tuple[CandidateBasis, ...],
+    *,
+    context: CandidateValidationContext,
+) -> str | None:
+    payload = proposal.payload
+    if payload.fact_class not in {"subjective_understanding", "inference"}:
+        return "CANDIDATE-CAPABILITY-FACT"
+    if not any(
+        basis.section == "capability"
+        and basis.item_kind == "capability_catalog"
+        and basis.trust_class == "policy"
+        for basis in bases
+    ):
+        return "CANDIDATE-CAPABILITY-BASIS"
+    if not any(
+        basis.item_kind == "current_scene" and basis.source_ref == context.scene_id
+        for basis in bases
+    ):
+        return "CANDIDATE-CAPABILITY-SCENE-BASIS"
+    if not any(
+        basis.item_kind == "current_evidence" and basis.trust_class == "external_claim"
+        for basis in bases
+    ):
+        return "CANDIDATE-CAPABILITY-EVIDENCE-BASIS"
+    if payload.capability_kind == "creator.scene.reply":
+        if (
+            UUID(payload.subject_id) != context.subject_id
+            or UUID(payload.scene_id) != context.scene_id
+            or UUID(payload.creator_party_id) != context.creator_party_id
+        ):
+            return "CANDIDATE-CAPABILITY-SCOPE"
+        return None
+    if payload.capability_kind == "codex.delegated-work":
+        return None
+    return "CANDIDATE-CAPABILITY-UNKNOWN"
+
+
 def _rejected(code: str) -> CandidateValidationResult:
     return CandidateValidationResult(
         CandidateValidationId(uuid7()),
@@ -400,13 +491,21 @@ def _primary_rejection(rejected: dict[str, CandidateRejection]) -> str:
 
 
 def _draft_owner(
-    draft: CandidateExperienceDraft | CandidateComponentDraft,
+    draft: CandidateExperienceDraft | CandidateComponentDraft | CapabilityRequestDraft,
 ) -> CandidateOwner:
-    return (
-        CandidateOwner.EXPERIENCE
-        if isinstance(draft, CandidateExperienceDraft)
-        else draft.owner
-    )
+    if isinstance(draft, CandidateExperienceDraft):
+        return CandidateOwner.EXPERIENCE
+    if isinstance(draft, CapabilityRequestDraft):
+        return CandidateOwner.CAPABILITY
+    return draft.owner
+
+
+def _draft_fact_class(
+    draft: CandidateExperienceDraft | CandidateComponentDraft | CapabilityRequestDraft,
+) -> CandidateFactClass:
+    if isinstance(draft, CapabilityRequestDraft):
+        return CandidateFactClass.INFERENCE
+    return draft.fact_class
 
 
 def _experience_wire(value: CandidateExperienceDraft) -> dict[str, object]:
@@ -431,6 +530,38 @@ def _component_wire(value: CandidateComponentDraft) -> dict[str, object]:
         "expected_version": value.expected_version,
         "next_state": json.loads(value.canonical_next_state),
         "next_state_digest": value.next_state_digest.value,
+    }
+
+
+def _capability_wire(value: CapabilityRequestDraft) -> dict[str, object]:
+    scope = value.scope
+    if isinstance(scope, CreatorSceneReplyScope):
+        scope_value: dict[str, object] = {
+            "subject_id": str(scope.subject_id),
+            "scene_id": str(scope.scene_id),
+            "creator_party_id": str(scope.creator_party_id),
+            "audience_scope": scope.audience_scope,
+            "data_scope": scope.data_scope,
+            "purpose": scope.purpose,
+            "valid_for_seconds": scope.valid_for_seconds,
+            "max_uses": scope.max_uses,
+            "max_payload_bytes": scope.max_payload_bytes,
+        }
+    else:
+        scope_value = {
+            "workspace_scope": scope.workspace_scope,
+            "artifact_scope": scope.artifact_scope,
+            "network_access": scope.network_access,
+            "max_uses": scope.max_uses,
+            "valid_for_seconds": scope.valid_for_seconds,
+        }
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "capability_kind": value.capability.value,
+        "operation": value.operation.value,
+        "scope": scope_value,
     }
 
 

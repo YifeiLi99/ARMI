@@ -470,6 +470,123 @@ class SubjectSummaryResponse(_StrictWireModel):
         return self
 
 
+class CapabilityRequestItemResponse(_StrictWireModel):
+    capability_request_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
+    operation: Literal["send", "execute"]
+    subject_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    scene_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    purpose: Literal["respond_to_creator", "delegate_codex_work"]
+    audience_scope: Literal["creator"] | None = None
+    data_scope: Literal["creator_visible_response"] | None = None
+    workspace_scope: Literal["isolated_ephemeral"] | None = None
+    artifact_scope: Literal["explicit_only"] | None = None
+    network_access: Literal[False] | None = None
+    valid_for_seconds: Annotated[int, Field(ge=60, le=604800)]
+    max_uses: Annotated[int, Field(ge=1, le=16)]
+    max_payload_bytes: Annotated[int, Field(ge=1, le=65536)] | None = None
+    status: Literal["pending", "granted", "limited", "denied", "revoked", "expired"]
+    request_version: Annotated[int, Field(ge=1)]
+    created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+
+    @field_validator("capability_request_id", "subject_id", "scene_id", "grant_ref")
+    @classmethod
+    def validate_identity(cls, value: str | None) -> str | None:
+        if value is not None:
+            parsed = UUID(value)
+            if parsed.version != 7 or str(parsed) != value:
+                raise ValueError("CON-CAPABILITY-ID: identity must be UUIDv7")
+        return value
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> CapabilityRequestItemResponse:
+        if Instant.from_wire(self.created_at).to_wire() != self.created_at:
+            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
+        if self.capability_kind == "creator.scene.reply":
+            if (
+                self.operation != "send"
+                or self.purpose != "respond_to_creator"
+                or self.max_payload_bytes is None
+                or self.audience_scope != "creator"
+                or self.data_scope != "creator_visible_response"
+                or any(
+                    value is not None
+                    for value in (
+                        self.workspace_scope,
+                        self.artifact_scope,
+                        self.network_access,
+                    )
+                )
+            ):
+                raise ValueError("CON-CAPABILITY-SCOPE: reply scope is invalid")
+        elif (
+            self.operation != "execute"
+            or self.purpose != "delegate_codex_work"
+            or self.max_uses != 1
+            or self.max_payload_bytes is not None
+            or self.valid_for_seconds > 3600
+            or self.audience_scope is not None
+            or self.data_scope is not None
+            or self.workspace_scope != "isolated_ephemeral"
+            or self.artifact_scope != "explicit_only"
+            or self.network_access is not False
+        ):
+            raise ValueError("CON-CAPABILITY-SCOPE: Codex scope is invalid")
+        if self.status in {"granted", "limited"} and self.grant_ref is None:
+            raise ValueError("CON-CAPABILITY-STATE: grant reference is missing")
+        if self.status in {"pending", "denied"} and self.grant_ref is not None:
+            raise ValueError("CON-CAPABILITY-STATE: grant reference is inconsistent")
+        return self
+
+
+class CapabilityRequestPageResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["capability-request.v1"]
+    items: Annotated[list[CapabilityRequestItemResponse], Field(max_length=100)]
+    next_cursor: (
+        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
+    ) = None
+
+
+class CapabilityRequestDecisionRequest(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    decision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    expected_request_version: Annotated[int, Field(ge=1)]
+    decision: Literal["grant", "limit", "deny", "revoke"]
+    valid_for_seconds: Annotated[int, Field(ge=60, le=604800)] | None = None
+    max_uses: Annotated[int, Field(ge=1, le=16)] | None = None
+    max_payload_bytes: Annotated[int, Field(ge=1, le=65536)] | None = None
+    reason_code: (
+        Annotated[
+            str,
+            Field(pattern=r"(?:CON|CAPABILITY|POLICY|CONFLICT|SCOPE)-[A-Z0-9-]{1,96}"),
+        ]
+        | None
+    ) = None
+
+    @field_validator("decision_id")
+    @classmethod
+    def validate_decision_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-CAPABILITY-ID: decision identity must be UUIDv7")
+        return value
+
+    @model_validator(mode="after")
+    def validate_decision_scope(self) -> CapabilityRequestDecisionRequest:
+        limits = (
+            self.valid_for_seconds,
+            self.max_uses,
+            self.max_payload_bytes,
+        )
+        if self.decision == "limit" and all(value is None for value in limits):
+            raise ValueError("CON-CAPABILITY-LIMIT: limit must narrow scope")
+        if self.decision != "limit" and any(value is not None for value in limits):
+            raise ValueError("CON-CAPABILITY-LIMIT: only limit accepts scope fields")
+        return self
+
+
 class UnavailableOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["unavailable"]
     error: ErrorDescriptorResponse
@@ -598,6 +715,51 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/capability-requests",
+        operation_id="listCapabilityRequests",
+        response_model=CapabilityRequestPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def list_capability_requests(
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        cursor: Annotated[
+            str | None,
+            Query(pattern=_CURSOR_PATTERN, max_length=2048),
+        ] = None,
+    ) -> CapabilityRequestPageResponse:
+        del limit, cursor
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/capability-requests/{capability_request_id}/decision",
+        operation_id="decideCapabilityRequest",
+        response_model=AppliedOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def decide_capability_request(
+        capability_request_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+        _request: CapabilityRequestDecisionRequest,
+    ) -> AppliedOutcomeResponse:
+        del capability_request_id, _request
+        raise NotImplementedError
+
+    @app.get(
         "/v1/scenes/{scene_key}/timeline",
         operation_id="getSceneTimeline",
         response_model=SceneTimelinePageResponse,
@@ -718,6 +880,8 @@ def build_creator_openapi() -> dict[str, object]:
         delete_browser_session,
         runtime_status,
         subject_summary,
+        list_capability_requests,
+        decide_capability_request,
         scene_timeline,
         accept_creator_message,
         get_creator_operation,
@@ -736,6 +900,10 @@ def build_creator_openapi() -> dict[str, object]:
         "422", None
     )
     schema["paths"]["/v1/operations/{result_ref}"]["get"]["responses"].pop("422", None)
+    schema["paths"]["/v1/capability-requests"]["get"]["responses"].pop("422", None)
+    schema["paths"]["/v1/capability-requests/{capability_request_id}/decision"]["post"][
+        "responses"
+    ].pop("422", None)
     schemas = schema["components"]["schemas"]
     schemas["CreatorProjectionEventResponse"] = (
         CreatorProjectionEventResponse.model_json_schema(
@@ -752,6 +920,9 @@ __all__ = (
     "BrowserSessionCreateRequest",
     "BrowserSessionCurrentResponse",
     "BrowserSessionResponse",
+    "CapabilityRequestDecisionRequest",
+    "CapabilityRequestItemResponse",
+    "CapabilityRequestPageResponse",
     "CompletedOutcomeResponse",
     "CreatorInputRequest",
     "CreatorProjectionEventResponse",

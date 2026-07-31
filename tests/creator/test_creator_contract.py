@@ -67,6 +67,8 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/runtime/status",
                 "/v1/operations/{result_ref}",
                 "/v1/subject/summary",
+                "/v1/capability-requests",
+                "/v1/capability-requests/{capability_request_id}/decision",
                 "/v1/scenes/{scene_key}/events",
                 "/v1/scenes/{scene_key}/messages",
                 "/v1/scenes/{scene_key}/timeline",

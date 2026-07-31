@@ -148,6 +148,8 @@ class CandidateValidationPipeline:
                     snapshot.base_state_epoch,
                     snapshot.bundle_activation_id,
                     snapshot.context_digest,
+                    snapshot.scene_id,
+                    snapshot.creator_party_id,
                     snapshot.current_components,
                 )
             )

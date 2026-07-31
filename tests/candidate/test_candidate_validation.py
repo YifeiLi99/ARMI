@@ -57,7 +57,7 @@ def _life_mode_state() -> dict[str, object]:
 
 
 def _fixture():
-    ids = tuple(uuid7() for _ in range(8))
+    ids = tuple(uuid7() for _ in range(10))
     context_digest = Digest.from_bytes(b"context")
     context = CandidateValidationContext(
         ids[0],
@@ -68,6 +68,8 @@ def _fixture():
         0,
         ids[4],
         context_digest,
+        ids[5],
+        ids[6],
         (
             (CandidateOwner.SELF, 1, rfc8785.dumps(cast(Any, _self_state()))),
             (CandidateOwner.MIND, 1, rfc8785.dumps(cast(Any, _mind_state()))),
@@ -83,7 +85,7 @@ def _fixture():
             1,
             "self",
             "self",
-            ids[5],
+            ids[7],
             1,
             Digest.from_bytes(rfc8785.dumps(cast(Any, _self_state()))),
             "subjective_state",
@@ -93,7 +95,7 @@ def _fixture():
             2,
             "current_evidence",
             "current_evidence",
-            ids[6],
+            ids[8],
             1,
             Digest.from_bytes(b"creator evidence"),
             "external_claim",
@@ -103,7 +105,7 @@ def _fixture():
             3,
             "mind_life_mode",
             "mind",
-            ids[7],
+            ids[9],
             1,
             Digest.from_bytes(rfc8785.dumps(cast(Any, _mind_state()))),
             "subjective_state",
@@ -115,7 +117,7 @@ def _fixture():
 
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v2",
+        "schema_version": "armi.cognition-candidate.v3",
         "base": {
             "subject_version": context.base_subject_version,
             "state_epoch": context.base_state_epoch,
@@ -251,3 +253,67 @@ def test_external_claim_cannot_be_declared_objective_fact() -> None:
         bases=bases,
     )
     assert result.error_code == "CANDIDATE-FACT-CLASS"
+
+
+def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = _candidate(context)
+    candidate["experiences"] = []
+    candidate["component_changes"] = []
+    candidate["capability_requests"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2", "ctx:4", "ctx:5"],
+            "payload": {
+                "proposal_kind": "capability_requests",
+                "fact_class": "subjective_understanding",
+                "capability_kind": "creator.scene.reply",
+                "operation": "send",
+                "subject_id": str(context.subject_id),
+                "scene_id": str(context.scene_id),
+                "creator_party_id": str(context.creator_party_id),
+                "audience_scope": "creator",
+                "data_scope": "creator_visible_response",
+                "purpose": "respond_to_creator",
+                "valid_for_seconds": 60,
+                "max_uses": 1,
+                "max_payload_bytes": 1024,
+            },
+        }
+    ]
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert len(result.change_set.capability_requests) == 1
+
+    candidate["capability_requests"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
+    rejected = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert rejected.error_code == "CANDIDATE-CAPABILITY-BASIS"

@@ -59,6 +59,8 @@ class CandidateEpisodeSnapshot:
     base_subject_version: int
     base_state_epoch: int
     context_digest: Digest
+    scene_id: UUID
+    creator_party_id: UUID
     response_artifact: ArtifactRef
     candidate_contract_version: str
     trace_id: TraceId
@@ -90,6 +92,8 @@ class PostgreSQLCandidateValidationRepository:
                     episode.base_subject_version,
                     episode.base_state_epoch,
                     episode.context_digest,
+                    episode.scene_id,
+                    episode.creator_party_id,
                     attempt.response_artifact_id,
                     attempt.candidate_schema_version,
                     episode.trace_id
@@ -206,9 +210,11 @@ class PostgreSQLCandidateValidationRepository:
             int(row[5]),
             int(row[6]),
             Digest(str(row[7])),
-            await _artifact_ref(connection, row[8]),
-            str(row[9]),
-            TraceId(str(row[10])),
+            row[8],
+            row[9],
+            await _artifact_ref(connection, row[10]),
+            str(row[11]),
+            TraceId(str(row[12])),
             tuple(bases),
             tuple(basis_item_ids),
             components,

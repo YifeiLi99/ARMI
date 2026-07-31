@@ -41,11 +41,14 @@ _SCHEMA_FILES = (
     "migrations/0012_real_model_attempts.sql",
     "migrations/0013_cognition_candidate_validation.sql",
     "migrations/0014_t03_subject_commit.sql",
+    "migrations/0015_minimal_capability_grants.sql",
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")
 _CANDIDATE_POLICY = Path("model/candidate-validation-policy.manifest.json")
 _SUBJECT_COMMIT_POLICY = Path("model/subject-commit-policy.manifest.json")
+_CAPABILITY_CATALOG = Path("model/capability-catalog.manifest.json")
+_CREATOR_GRANT_POLICY = Path("model/creator-grant-policy.manifest.json")
 
 
 def _generate(root: Path, output: Path) -> None:
@@ -67,6 +70,10 @@ def _generate(root: Path, output: Path) -> None:
     (output / "candidate-validation-policy.manifest.json").write_bytes(candidate_policy)
     subject_commit_policy = (root / _SUBJECT_COMMIT_POLICY).read_bytes()
     (output / "subject-commit-policy.manifest.json").write_bytes(subject_commit_policy)
+    capability_catalog = (root / _CAPABILITY_CATALOG).read_bytes()
+    (output / "capability-catalog.manifest.json").write_bytes(capability_catalog)
+    creator_grant_policy = (root / _CREATOR_GRANT_POLICY).read_bytes()
+    (output / "creator-grant-policy.manifest.json").write_bytes(creator_grant_policy)
     schema_resources = {
         name: (root / _SCHEMA / name).read_bytes() for name in _SCHEMA_FILES
     }
@@ -79,6 +86,8 @@ def _generate(root: Path, output: Path) -> None:
         model_binding=model_binding,
         candidate_policy=candidate_policy,
         subject_commit_policy=subject_commit_policy,
+        capability_catalog=capability_catalog,
+        creator_grant_policy=creator_grant_policy,
         schema_resources=schema_resources,
     )
     (output / "runtime-composition.manifest.json").write_bytes(
@@ -96,6 +105,8 @@ def _files(root: Path) -> dict[str, bytes]:
             "model-bindings.manifest.json",
             "candidate-validation-policy.manifest.json",
             "subject-commit-policy.manifest.json",
+            "capability-catalog.manifest.json",
+            "creator-grant-policy.manifest.json",
             "runtime-composition.manifest.json",
         )
         if (root / name).is_file()

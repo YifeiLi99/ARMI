@@ -226,6 +226,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_model_attempt_count",
                     "resumable_candidate_validation_count",
                     "resumable_subject_commit_count",
+                    "resumable_capability_request_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -244,6 +245,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_model_attempt_count",
                     "resumable_candidate_validation_count",
                     "resumable_subject_commit_count",
+                    "resumable_capability_request_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -561,6 +563,152 @@ def build_role_manifest() -> dict[str, object]:
             "armi.cognitive_candidate_applications",
         )
     ]
+    capability_objects = [
+        {
+            "kind": "table",
+            "name": "armi.capabilities",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.capability_request_basis_links",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "capability_request_id",
+                        "context_item_id",
+                        "ordinal",
+                    ],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.capability_request_decisions",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "capability_decision_id",
+                        "capability_request_id",
+                        "creator_party_id",
+                        "expected_request_version",
+                        "resulting_request_version",
+                        "decision_kind",
+                        "command_digest",
+                        "scope_digest",
+                        "reason_code",
+                        "schema_version",
+                    ],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.capability_requests",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "capability_request_id",
+                        "subject_commit_id",
+                        "proposal_ref",
+                        "subject_id",
+                        "interaction_scene_id",
+                        "creator_party_id",
+                        "capability_id",
+                        "capability_kind",
+                        "operation_class",
+                        "audience_scope",
+                        "data_scope",
+                        "purpose",
+                        "workspace_scope",
+                        "artifact_scope",
+                        "network_access",
+                        "requested_valid_for_seconds",
+                        "requested_max_uses",
+                        "requested_max_payload_bytes",
+                        "request_digest",
+                        "schema_version",
+                    ],
+                    "UPDATE": [
+                        "current_status",
+                        "request_version",
+                        "resolved_by_party_id",
+                        "resolution_reason_class",
+                        "resolved_at",
+                    ],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.permission_grants",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "grant_id",
+                        "capability_request_id",
+                        "creator_party_id",
+                        "capability_id",
+                        "subject_id",
+                        "interaction_scene_id",
+                        "operation_class",
+                        "audience_scope",
+                        "data_scope",
+                        "purpose",
+                        "valid_from",
+                        "valid_until",
+                        "max_uses",
+                        "max_payload_bytes",
+                        "scope_digest",
+                        "schema_version",
+                    ],
+                    "UPDATE": ["status", "revoked_at"],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+    ]
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -832,12 +980,13 @@ def build_role_manifest() -> dict[str, object]:
             model_attempt_object,
             *candidate_validation_objects,
             *subject_commit_objects,
+            *capability_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S026 has no business or administration function requiring "
+                "M0-S027 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -1080,9 +1229,24 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "logical_owner": "subject-commit",
                 "activation_step": "M0-S026",
             },
+            *[
+                {
+                    "kind": "table",
+                    "name": name,
+                    "logical_owner": owner,
+                    "activation_step": "M0-S027",
+                }
+                for name, owner in (
+                    ("armi.capabilities", "capability-catalog"),
+                    ("armi.capability_requests", "capability-policy"),
+                    ("armi.capability_request_basis_links", "capability-policy"),
+                    ("armi.capability_request_decisions", "capability-policy"),
+                    ("armi.permission_grants", "capability-policy"),
+                )
+            ],
         ],
         "deferred_objects": [
-            {"scope": "effect_state", "activation_step": "M0-S028"},
+            {"scope": "effect_state", "activation_step": "M0-S029"},
             {"scope": "business_projection_state", "activation_step": "M0-S030"},
         ],
         "runtime_upgrade_allowed": False,

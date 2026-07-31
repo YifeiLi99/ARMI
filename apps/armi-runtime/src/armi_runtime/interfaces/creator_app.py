@@ -8,10 +8,16 @@ import secrets
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal, Protocol, TypedDict, cast
 from uuid import UUID
 
 from armi_kernel.application import (
+    CapabilityDecisionId,
+    CapabilityRequestId,
+    CapabilityViolation,
+    CreatorGrantCommand,
+    CreatorGrantDecision,
+    CreatorGrantResult,
     CreatorInputAcceptance,
     CreatorInputAcceptancePort,
     CreatorInputCommand,
@@ -62,6 +68,9 @@ from .creator_contract import (
     BrowserSessionCreateRequest,
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
+    CapabilityRequestDecisionRequest,
+    CapabilityRequestItemResponse,
+    CapabilityRequestPageResponse,
     CreatorInputRequest,
     LiveResponse,
     Readiness,
@@ -112,6 +121,18 @@ ReadinessProvider = Callable[[], Readiness]
 RuntimeStatusProvider = Callable[[], RuntimeStatusResponse]
 SubjectSummaryProvider = Callable[[], Awaitable[SubjectSummary]]
 SecurityEvent = Callable[[str], None]
+
+
+class CapabilityPolicyPort(Protocol):
+    async def list_requests(
+        self,
+        *,
+        creator_party_id: UUID,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, object]: ...
+
+    async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult: ...
 
 
 class _OutcomeArguments(TypedDict):
@@ -256,6 +277,28 @@ async def _creator_input_request(
         return CreatorInputRequest.model_validate(value)
     except UnicodeDecodeError, ValueError, ValidationError:
         raise CreatorInputViolation("INPUT-BODY") from None
+
+
+async def _capability_decision_request(
+    request: Request,
+    maximum_bytes: int,
+) -> CapabilityRequestDecisionRequest:
+    if request.headers.get("content-type") != "application/json":
+        raise CapabilityViolation("CON-CAPABILITY-CONTENT-TYPE")
+    body = await request.body()
+    if not body or len(body) > maximum_bytes:
+        raise CapabilityViolation("CON-CAPABILITY-BODY")
+    try:
+        value = json.loads(
+            body.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite JSON")
+            ),
+        )
+        return CapabilityRequestDecisionRequest.model_validate(value)
+    except UnicodeDecodeError, ValueError, ValidationError:
+        raise CapabilityViolation("CON-CAPABILITY-BODY") from None
 
 
 def _accepted_wire(acceptance: CreatorInputAcceptance) -> dict[str, object]:
@@ -423,6 +466,7 @@ def create_runtime_app(
     creator_input: CreatorInputAcceptancePort | None = None,
     creator_operations: CreatorOperationQueryPort | None = None,
     subject_summary: SubjectSummaryProvider | None = None,
+    capability_policy: CapabilityPolicyPort | None = None,
     on_security_event: SecurityEvent | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
@@ -471,6 +515,7 @@ def create_runtime_app(
             request.url.query
             and request.url.path.startswith("/v1/")
             and timeline_path is None
+            and request.url.path != "/v1/capability-requests"
         ):
             emit("creator.request.url_token_rejected")
             return Response(status_code=400, headers=_SECURITY_HEADERS)
@@ -711,6 +756,168 @@ def create_runtime_app(
                 observed_at=Instant(summary.observed_at).to_wire(),
             ).model_dump(mode="json", exclude_none=True)
         )
+
+    @app.get("/v1/capability-requests")
+    async def list_capability_requests(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or capability_policy is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = 403 if browser_sessions is not None else 503
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_CAPABILITY_POLICY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            metadata = browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        pairs = list(request.query_params.multi_items())
+        names = [name for name, _value in pairs]
+        if set(names) - {"limit", "cursor"} or any(
+            names.count(name) > 1 for name in {"limit", "cursor"}
+        ):
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_PAGE_LIMIT"),
+            )
+        values = dict(pairs)
+        limit_text = values.get("limit", "50")
+        if not limit_text.isascii() or not limit_text.isdecimal():
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_PAGE_LIMIT"),
+            )
+        limit = int(limit_text)
+        if not 1 <= limit <= 100:
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_PAGE_LIMIT"),
+            )
+        try:
+            page = await capability_policy.list_requests(
+                creator_party_id=metadata.creator_party_id,
+                limit=limit,
+                cursor=values.get("cursor"),
+            )
+        except CapabilityViolation as error:
+            if error.code == "CON-CAPABILITY-CURSOR":
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_CURSOR_INVALID"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_CAPABILITY_POLICY_UNAVAILABLE"),
+            )
+        raw_items = cast(list[dict[str, object]], page["items"])
+        response = CapabilityRequestPageResponse(
+            contract_version="1.0",
+            projection_version="capability-request.v1",
+            items=[
+                CapabilityRequestItemResponse.model_validate(
+                    {
+                        **item,
+                        "created_at": Instant(
+                            cast(datetime, item["created_at"])
+                        ).to_wire(),
+                    }
+                )
+                for item in raw_items
+            ],
+            next_cursor=cast(str | None, page["next_cursor"]),
+        )
+        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
+
+    @app.post("/v1/capability-requests/{capability_request_id}/decision")
+    async def decide_capability_request(
+        capability_request_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or capability_policy is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = 403 if browser_sessions is not None else 503
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_CAPABILITY_POLICY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            body = await _capability_decision_request(
+                request,
+                request_body_max_bytes,
+            )
+            command = CreatorGrantCommand(
+                CapabilityDecisionId(UUID(body.decision_id)),
+                CapabilityRequestId(UUID(capability_request_id)),
+                body.expected_request_version,
+                CreatorGrantDecision(body.decision),
+                body.valid_for_seconds,
+                body.max_uses,
+                body.max_payload_bytes,
+                body.reason_code,
+            )
+            result = await capability_policy.decide(command)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except (CapabilityViolation, ValueError) as error:
+            code = (
+                error.code
+                if isinstance(error, CapabilityViolation)
+                else "CON-CAPABILITY-REQUEST-ID"
+            )
+            if code == "SCOPE-CAPABILITY-REQUEST":
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_CAPABILITY_REQUEST_NOT_VISIBLE"),
+                )
+            if code.startswith(("CONFLICT-", "POLICY-", "CAPABILITY-")):
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("CONFLICT_CAPABILITY_DECISION"),
+                )
+            if code.startswith("CON-CAPABILITY"):
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_CAPABILITY_DECISION_INVALID"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_CAPABILITY_POLICY_UNAVAILABLE"),
+            )
+        applied = AppliedOutcome(
+            **_outcome_common(),
+            message="The Creator capability decision was applied.",
+            result_ref=ResultRef(result.request_id.value),
+            state_version=result.request_version,
+        )
+        return JSONResponse(content=applied.to_wire())
+
+    del list_capability_requests, decide_capability_request
 
     @app.get("/v1/scenes/{scene_key}/timeline")
     async def get_scene_timeline(scene_key: str, request: Request) -> JSONResponse:

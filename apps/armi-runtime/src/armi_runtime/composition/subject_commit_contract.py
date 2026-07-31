@@ -15,12 +15,17 @@ from armi_kernel.application import (
     CandidateOwner,
     CandidateRejection,
     CandidateViolation,
+    CapabilityKind,
+    CapabilityOperation,
+    CapabilityRequestDraft,
+    CodexDelegatedWorkScope,
+    CreatorSceneReplyScope,
     SubjectChangeSet,
     SubjectCommitViolation,
 )
 from armi_kernel.contracts import ContractViolation, Digest
 
-_TOP_KEYS = {
+_TOP_KEYS_V1 = {
     "schema_version",
     "subject_id",
     "generation_id",
@@ -33,6 +38,7 @@ _TOP_KEYS = {
     "components",
     "rejections",
 }
+_TOP_KEYS_V2 = {*_TOP_KEYS_V1, "capability_requests"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -41,10 +47,13 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         if type(raw) is not dict:
             raise ValueError
         document = cast(dict[str, Any], raw)
-        if (
-            set(document) != _TOP_KEYS
-            or document["schema_version"] != "armi.subject-change-set.v1"
-        ):
+        if document.get("schema_version") not in {
+            "armi.subject-change-set.v1",
+            "armi.subject-change-set.v2",
+        }:
+            raise ValueError
+        version = document["schema_version"]
+        if set(document) != (_TOP_KEYS_V1 if version.endswith(".v1") else _TOP_KEYS_V2):
             raise ValueError
         canonical = rfc8785.dumps(cast(Any, document))
         if canonical != value:
@@ -64,6 +73,10 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         components = tuple(
             _component(item) for item in _array(document["components"], 12)
         )
+        capability_requests = tuple(
+            _capability(item)
+            for item in _array(document.get("capability_requests", []), 4)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -82,15 +95,17 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             CandidateDisposition(_text(document["disposition"])),
             experiences,
             components,
+            capability_requests,
             rejections,
         )
         proposal_refs = [
-            item.proposal_ref for item in (*experiences, *components, *rejections)
+            item.proposal_ref
+            for item in (*experiences, *components, *capability_requests, *rejections)
         ]
         if len(proposal_refs) != len(set(proposal_refs)):
             raise ValueError
         if result.disposition is not CandidateDisposition.CHANGE and (
-            result.experiences or result.components
+            result.experiences or result.components or result.capability_requests
         ):
             raise ValueError
         return result
@@ -155,6 +170,76 @@ def _component(value: object) -> CandidateComponentDraft:
         _positive(item["expected_version"]),
         next_state,
         Digest(_text(item["next_state_digest"])),
+    )
+
+
+def _capability(value: object) -> CapabilityRequestDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "capability_kind",
+            "operation",
+            "scope",
+        },
+    )
+    capability = CapabilityKind(_text(item["capability_kind"]))
+    operation = CapabilityOperation(_text(item["operation"]))
+    if capability is CapabilityKind.CREATOR_SCENE_REPLY:
+        scope = _object(
+            item["scope"],
+            {
+                "subject_id",
+                "scene_id",
+                "creator_party_id",
+                "audience_scope",
+                "data_scope",
+                "purpose",
+                "valid_for_seconds",
+                "max_uses",
+                "max_payload_bytes",
+            },
+        )
+        parsed_scope = CreatorSceneReplyScope(
+            _uuid7(scope["subject_id"]),
+            _uuid7(scope["scene_id"]),
+            _uuid7(scope["creator_party_id"]),
+            _positive(scope["valid_for_seconds"]),
+            _positive(scope["max_uses"]),
+            _positive(scope["max_payload_bytes"]),
+            _text(scope["audience_scope"]),
+            _text(scope["data_scope"]),
+            _text(scope["purpose"]),
+        )
+    else:
+        scope = _object(
+            item["scope"],
+            {
+                "workspace_scope",
+                "artifact_scope",
+                "network_access",
+                "max_uses",
+                "valid_for_seconds",
+            },
+        )
+        if type(scope["network_access"]) is not bool:
+            raise ValueError
+        parsed_scope = CodexDelegatedWorkScope(
+            _positive(scope["valid_for_seconds"]),
+            _text(scope["workspace_scope"]),
+            _text(scope["artifact_scope"]),
+            scope["network_access"],
+            _positive(scope["max_uses"]),
+        )
+    return CapabilityRequestDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        capability,
+        operation,
+        parsed_scope,
     )
 
 

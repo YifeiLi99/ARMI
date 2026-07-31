@@ -43,6 +43,10 @@ class CompositionManifestTests(unittest.TestCase):
                     "armi.opportunity-selector.creator-fifo-v1",
                 ),
                 (
+                    "M0-SEAM-POLICY",
+                    "armi.policy-engine.deterministic-v1",
+                ),
+                (
                     "M0-SEAM-CREATOR-PROJECTION",
                     "armi.scene-timeline-query.v2",
                 ),

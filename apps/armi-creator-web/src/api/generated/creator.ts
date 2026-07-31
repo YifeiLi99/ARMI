@@ -90,6 +90,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/capability-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Capability Requests */
+    get: operations["listCapabilityRequests"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/capability-requests/{capability_request_id}/decision": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Decide Capability Request */
+    post: operations["decideCapabilityRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/operations/{result_ref}": {
     parameters: {
       query?: never;
@@ -300,6 +334,100 @@ export interface components {
       expires_at: string;
       /** Issued At */
       issued_at: string;
+    };
+    /** CapabilityRequestDecisionRequest */
+    CapabilityRequestDecisionRequest: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /**
+       * Decision
+       * @enum {string}
+       */
+      decision: "grant" | "limit" | "deny" | "revoke";
+      /** Decision Id */
+      decision_id: string;
+      /** Expected Request Version */
+      expected_request_version: number;
+      /** Max Payload Bytes */
+      max_payload_bytes?: number | null;
+      /** Max Uses */
+      max_uses?: number | null;
+      /** Reason Code */
+      reason_code?: string | null;
+      /** Valid For Seconds */
+      valid_for_seconds?: number | null;
+    };
+    /** CapabilityRequestItemResponse */
+    CapabilityRequestItemResponse: {
+      /** Artifact Scope */
+      artifact_scope?: "explicit_only" | null;
+      /** Audience Scope */
+      audience_scope?: "creator" | null;
+      /**
+       * Capability Kind
+       * @enum {string}
+       */
+      capability_kind: "creator.scene.reply" | "codex.delegated-work";
+      /** Capability Request Id */
+      capability_request_id: string;
+      /** Created At */
+      created_at: string;
+      /** Data Scope */
+      data_scope?: "creator_visible_response" | null;
+      /** Grant Ref */
+      grant_ref?: string | null;
+      /** Max Payload Bytes */
+      max_payload_bytes?: number | null;
+      /** Max Uses */
+      max_uses: number;
+      /** Network Access */
+      network_access?: false | null;
+      /**
+       * Operation
+       * @enum {string}
+       */
+      operation: "send" | "execute";
+      /**
+       * Purpose
+       * @enum {string}
+       */
+      purpose: "respond_to_creator" | "delegate_codex_work";
+      /** Request Version */
+      request_version: number;
+      /** Scene Id */
+      scene_id: string;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status:
+        "pending" | "granted" | "limited" | "denied" | "revoked" | "expired";
+      /** Subject Id */
+      subject_id: string;
+      /** Valid For Seconds */
+      valid_for_seconds: number;
+      /** Workspace Scope */
+      workspace_scope?: "isolated_ephemeral" | null;
+    };
+    /** CapabilityRequestPageResponse */
+    CapabilityRequestPageResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["CapabilityRequestItemResponse"][];
+      /** Next Cursor */
+      next_cursor?: string | null;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "capability-request.v1";
     };
     /** CompletedOutcomeResponse */
     CompletedOutcomeResponse: {
@@ -915,6 +1043,163 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+    };
+  };
+  listCapabilityRequests: {
+    parameters: {
+      query?: {
+        limit?: number;
+        cursor?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CapabilityRequestPageResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  decideCapabilityRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        capability_request_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CapabilityRequestDecisionRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AppliedOutcomeResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Content Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
         };
       };
     };

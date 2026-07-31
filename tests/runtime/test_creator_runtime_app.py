@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
+    CapabilityRequestStatus,
+    CreatorGrantCommand,
+    CreatorGrantResult,
     CreatorInputAcceptance,
     CreatorInputCommand,
     CreatorInteractionId,
@@ -74,6 +78,56 @@ class _CreatorInput:
             raise AssertionError("unexpected opportunity")
 
 
+class _CapabilityPolicy:
+    def __init__(self) -> None:
+        self.request_id = uuid7()
+        self.commands: list[CreatorGrantCommand] = []
+
+    async def list_requests(
+        self,
+        *,
+        creator_party_id: UUID,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, object]:
+        del cursor
+        return {
+            "items": [
+                {
+                    "capability_request_id": str(self.request_id),
+                    "capability_kind": "creator.scene.reply",
+                    "operation": "send",
+                    "subject_id": ENVIRONMENT_ID,
+                    "scene_id": ENVIRONMENT_ID,
+                    "audience_scope": "creator",
+                    "data_scope": "creator_visible_response",
+                    "purpose": "respond_to_creator",
+                    "workspace_scope": None,
+                    "artifact_scope": None,
+                    "network_access": None,
+                    "valid_for_seconds": 60,
+                    "max_uses": 1,
+                    "max_payload_bytes": 1024,
+                    "status": "pending",
+                    "request_version": 1,
+                    "created_at": datetime.now(UTC),
+                    "grant_ref": None,
+                }
+            ][:limit],
+            "next_cursor": None,
+            "creator_party_id": str(creator_party_id),
+        }
+
+    async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult:
+        self.commands.append(command)
+        return CreatorGrantResult(
+            command.request_id,
+            command.expected_version + 1,
+            CapabilityRequestStatus.DENIED,
+            Digest.from_bytes(b"decision"),
+        )
+
+
 class CreatorRuntimeAppTests(unittest.TestCase):
     def setUp(self) -> None:
         self.lifecycle = LifecycleController(environment_id=ENVIRONMENT_ID)
@@ -100,6 +154,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         )
         self.events = CreatorEventBroker(epoch=b"\x06" * 16)
         self.creator_input = _CreatorInput()
+        self.capability_policy = _CapabilityPolicy()
 
     def _status(self) -> RuntimeStatusResponse:
         snapshot = self.lifecycle.snapshot()
@@ -134,6 +189,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_events=self.events,
             creator_input=self.creator_input,
             creator_operations=self.creator_input,
+            capability_policy=self.capability_policy,
         )
 
     @staticmethod
@@ -165,6 +221,51 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             self.assertEqual(client.get("/docs").status_code, 404)
             self.assertEqual(client.get("/openapi.json").status_code, 404)
         self.assertEqual(self.lifecycle.snapshot().runtime_state.value, "stopped")
+
+    def test_capability_request_list_and_decision_are_session_bound(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+                content=b"",
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            page = client.get(
+                "/v1/capability-requests?limit=50",
+                headers=self._browser_headers(token),
+            )
+            self.assertEqual(page.status_code, 200)
+            self.assertEqual(len(page.json()["items"]), 1)
+            decision = client.post(
+                f"/v1/capability-requests/{self.capability_policy.request_id}/decision",
+                headers=self._browser_headers(token),
+                json={
+                    "contract_version": "1.0",
+                    "decision_id": str(uuid7()),
+                    "expected_request_version": 1,
+                    "decision": "deny",
+                },
+            )
+            self.assertEqual(decision.status_code, 200)
+            self.assertEqual(decision.json()["status"], "applied")
+            self.assertEqual(decision.json()["state_version"], 2)
+            self.assertEqual(len(self.capability_policy.commands), 1)
+            rejected = client.post(
+                f"/v1/capability-requests/{self.capability_policy.request_id}/decision",
+                headers={**self._browser_headers(token), "Origin": "http://invalid"},
+                json={
+                    "contract_version": "1.0",
+                    "decision_id": str(uuid7()),
+                    "expected_request_version": 1,
+                    "decision": "deny",
+                },
+            )
+            self.assertEqual(rejected.status_code, 403)
 
     def test_full_issue_exchange_status_and_logout_flow(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 MODEL_BINDING_VERSION = "armi.model-bindings.v1"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
-CANDIDATE_VERSION = "armi.cognition-candidate.v2"
+CANDIDATE_VERSION = "armi.cognition-candidate.v3"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -146,10 +146,38 @@ class ActivityChangePayload(_StrictModel):
     summary: Summary
 
 
-class CapabilityRequestPayload(_StrictModel):
+class CreatorSceneReplyRequestPayload(_StrictModel):
     proposal_kind: Literal["capability_requests"]
     fact_class: FactClass
-    summary: Summary
+    capability_kind: Literal["creator.scene.reply"]
+    operation: Literal["send"]
+    subject_id: Uuid7Value
+    scene_id: Uuid7Value
+    creator_party_id: Uuid7Value
+    audience_scope: Literal["creator"]
+    data_scope: Literal["creator_visible_response"]
+    purpose: Literal["respond_to_creator"]
+    valid_for_seconds: Annotated[int, Field(ge=60, le=604800)]
+    max_uses: Annotated[int, Field(ge=1, le=16)]
+    max_payload_bytes: Annotated[int, Field(ge=1, le=65536)]
+
+
+class CodexDelegatedWorkRequestPayload(_StrictModel):
+    proposal_kind: Literal["capability_requests"]
+    fact_class: FactClass
+    capability_kind: Literal["codex.delegated-work"]
+    operation: Literal["execute"]
+    workspace_scope: Literal["isolated_ephemeral"]
+    artifact_scope: Literal["explicit_only"]
+    network_access: Literal[False]
+    max_uses: Literal[1]
+    valid_for_seconds: Annotated[int, Field(ge=60, le=3600)]
+
+
+type CapabilityRequestPayload = Annotated[
+    CreatorSceneReplyRequestPayload | CodexDelegatedWorkRequestPayload,
+    Field(discriminator="capability_kind"),
+]
 
 
 class ActionIntentPayload(_StrictModel):
@@ -215,7 +243,7 @@ class CandidateUncertainty(_StrictModel):
 
 
 class CognitionCandidate(_StrictModel):
-    schema_version: Literal["armi.cognition-candidate.v2"]
+    schema_version: Literal["armi.cognition-candidate.v3"]
     base: CandidateBase
     disposition: Literal[
         "change",

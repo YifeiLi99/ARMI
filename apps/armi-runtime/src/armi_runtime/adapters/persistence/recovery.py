@@ -941,6 +941,50 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert counts is not None
+            capability_counts = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        count(*) FILTER (
+                            WHERE request.current_status IN (
+                                'pending', 'granted', 'limited'
+                            )
+                        ),
+                        count(*) FILTER (
+                            WHERE capability.capability_id IS NULL
+                               OR commit.subject_commit_id IS NULL
+                               OR scene.scene_id IS NULL
+                               OR scene.subject_id <> request.subject_id
+                               OR scene.primary_party_id <> request.creator_party_id
+                               OR (
+                                   request.current_status IN ('granted', 'limited')
+                                   AND permission.grant_id IS NULL
+                               )
+                               OR (
+                                   request.current_status IN (
+                                       'pending', 'denied', 'revoked', 'expired'
+                                   )
+                                   AND permission.grant_id IS NOT NULL
+                                   AND permission.status = 'active'
+                               )
+                        )
+                    FROM armi.capability_requests AS request
+                    LEFT JOIN armi.capabilities AS capability
+                      ON capability.capability_id = request.capability_id
+                     AND capability.capability_kind = request.capability_kind
+                     AND capability.operation_class = request.operation_class
+                    LEFT JOIN armi.subject_commits AS commit
+                      ON commit.subject_commit_id = request.subject_commit_id
+                     AND commit.subject_id = request.subject_id
+                    LEFT JOIN armi.interaction_scenes AS scene
+                      ON scene.scene_id = request.interaction_scene_id
+                    LEFT JOIN armi.permission_grants AS permission
+                      ON permission.capability_request_id
+                       = request.capability_request_id
+                    """
+                )
+            ).fetchone()
+            assert capability_counts is not None
             if int(counts[7]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
@@ -951,6 +995,21 @@ class PostgreSQLRuntimeRecovery:
                                 "opportunity",
                                 RecoveryDecision.BLOCKED,
                                 "REC-OPPORTUNITY-INVALID",
+                            ),
+                        ),
+                        key=_finding_key,
+                    )
+                )
+            if int(capability_counts[1]) > 0:
+                blockers += 1
+                sorted_findings = tuple(
+                    sorted(
+                        (
+                            *sorted_findings,
+                            RecoveryFinding(
+                                "capability_request",
+                                RecoveryDecision.BLOCKED,
+                                "REC-CAPABILITY-REQUEST-INVALID",
                             ),
                         ),
                         key=_finding_key,
@@ -984,6 +1043,7 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_model_attempt": int(counts[5]),
                 "resumable_candidate_validation": int(counts[4]),
                 "resumable_subject_commit": int(counts[6]),
+                "resumable_capability_request": int(capability_counts[0]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -1015,6 +1075,7 @@ class PostgreSQLRuntimeRecovery:
                     resumable_model_attempt_count = %s,
                     resumable_candidate_validation_count = %s,
                     resumable_subject_commit_count = %s,
+                    resumable_capability_request_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -1034,6 +1095,7 @@ class PostgreSQLRuntimeRecovery:
                     int(counts[5]),
                     int(counts[4]),
                     int(counts[6]),
+                    int(capability_counts[0]),
                     critical,
                     blockers,
                     digest.value,
@@ -1062,6 +1124,7 @@ class PostgreSQLRuntimeRecovery:
             resumable_model_attempt_count=int(counts[5]),
             resumable_candidate_validation_count=int(counts[4]),
             resumable_subject_commit_count=int(counts[6]),
+            resumable_capability_request_count=int(capability_counts[0]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

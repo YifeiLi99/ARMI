@@ -251,6 +251,7 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("resumable_model_attempt_count", "integer", True),
         ("resumable_candidate_validation_count", "integer", True),
         ("resumable_subject_commit_count", "integer", True),
+        ("resumable_capability_request_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -501,6 +502,84 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("resolved_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
     ),
+    "capabilities": (
+        ("capability_id", "uuid", True),
+        ("capability_kind", "text", True),
+        ("adapter_kind", "text", True),
+        ("operation_class", "text", True),
+        ("scope_schema", "text", True),
+        ("availability_status", "text", True),
+        ("verification_capability", "text", True),
+        ("configuration_version", "bigint", True),
+        ("configuration_digest", "text", True),
+    ),
+    "capability_requests": (
+        ("capability_request_id", "uuid", True),
+        ("subject_commit_id", "uuid", True),
+        ("proposal_ref", "text", True),
+        ("subject_id", "uuid", True),
+        ("interaction_scene_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("capability_id", "uuid", True),
+        ("capability_kind", "text", True),
+        ("operation_class", "text", True),
+        ("audience_scope", "text", False),
+        ("data_scope", "text", False),
+        ("purpose", "text", True),
+        ("workspace_scope", "text", False),
+        ("artifact_scope", "text", False),
+        ("network_access", "boolean", False),
+        ("requested_valid_for_seconds", "integer", True),
+        ("requested_max_uses", "integer", True),
+        ("requested_max_payload_bytes", "integer", False),
+        ("request_digest", "text", True),
+        ("current_status", "text", True),
+        ("request_version", "bigint", True),
+        ("resolved_by_party_id", "uuid", False),
+        ("resolution_reason_class", "text", False),
+        ("resolved_at", "timestamp(6) with time zone", False),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "capability_request_basis_links": (
+        ("capability_request_id", "uuid", True),
+        ("context_item_id", "uuid", True),
+        ("ordinal", "smallint", True),
+    ),
+    "capability_request_decisions": (
+        ("capability_decision_id", "uuid", True),
+        ("capability_request_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("expected_request_version", "bigint", True),
+        ("resulting_request_version", "bigint", True),
+        ("decision_kind", "text", True),
+        ("command_digest", "text", True),
+        ("scope_digest", "text", False),
+        ("reason_code", "text", False),
+        ("decided_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "permission_grants": (
+        ("grant_id", "uuid", True),
+        ("capability_request_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("capability_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("interaction_scene_id", "uuid", True),
+        ("operation_class", "text", True),
+        ("audience_scope", "text", True),
+        ("data_scope", "text", True),
+        ("purpose", "text", True),
+        ("valid_from", "timestamp(6) with time zone", True),
+        ("valid_until", "timestamp(6) with time zone", True),
+        ("max_uses", "integer", True),
+        ("consumed_uses", "integer", True),
+        ("max_payload_bytes", "integer", True),
+        ("scope_digest", "text", True),
+        ("status", "text", True),
+        ("revoked_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
@@ -532,7 +611,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 21, *("n",) * 22, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 22, *("n",) * 23, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
         sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
@@ -576,6 +655,19 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     ),
     "cognitive_candidate_applications": tuple(
         sorted((*("c",) * 9, *("n",) * 12, *("f",) * 6, "p", *("u",) * 5))
+    ),
+    "capabilities": tuple(sorted((*("c",) * 6, *("n",) * 9, "p", "u"))),
+    "capability_requests": tuple(
+        sorted((*("c",) * 10, *("n",) * 17, *("f",) * 6, "p", "u"))
+    ),
+    "capability_request_basis_links": tuple(
+        sorted(("c", *("n",) * 3, *("f",) * 2, "p", "u"))
+    ),
+    "capability_request_decisions": tuple(
+        sorted((*("c",) * 6, *("n",) * 9, *("f",) * 2, "p", "u"))
+    ),
+    "permission_grants": tuple(
+        sorted((*("c",) * 6, *("n",) * 18, *("f",) * 5, "p", "u"))
     ),
 }
 
@@ -1002,6 +1094,18 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(subject_commit_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 15:
+            capability_tables = (
+                "capabilities",
+                "capability_request_basis_links",
+                "capability_request_decisions",
+                "capability_requests",
+                "permission_grants",
+            )
+            expected_objects.extend((name, "r") for name in capability_tables)
+            expected_tables.extend(capability_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -1067,7 +1171,7 @@ class PostgreSQLSchemaGateway:
         for table_name in table_names:
             expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
             if table_name == "runtime_recovery_runs" and expected is not None:
-                added_columns = max(0, 14 - max(applied_version, 9))
+                added_columns = max(0, 15 - max(applied_version, 9))
                 if added_columns:
                     expected = expected[:-added_columns]
             if table_name == "opportunities" and expected is not None:
@@ -1125,7 +1229,7 @@ class PostgreSQLSchemaGateway:
             expected = _EXPECTED_CONSTRAINT_KINDS.get(table_name)
             if table_name == "runtime_recovery_runs" and expected is not None:
                 prior_kinds = list(expected)
-                added_constraints = max(0, 14 - max(applied_version, 9))
+                added_constraints = max(0, 15 - max(applied_version, 9))
                 for _ in range(added_constraints):
                     prior_kinds.remove("c")
                     prior_kinds.remove("n")

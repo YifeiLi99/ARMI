@@ -10,6 +10,8 @@ from uuid import UUID
 
 from armi_kernel.contracts import Digest
 
+from .capability import CapabilityRequestDraft
+
 _CODE = re.compile(r"^(?:CON|CANDIDATE)-[A-Z0-9-]+$", re.ASCII)
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
@@ -216,6 +218,7 @@ class SubjectChangeSet:
     disposition: CandidateDisposition
     experiences: tuple[CandidateExperienceDraft, ...]
     components: tuple[CandidateComponentDraft, ...]
+    capability_requests: tuple[CapabilityRequestDraft, ...]
     rejections: tuple[CandidateRejection, ...]
 
     def __post_init__(self) -> None:

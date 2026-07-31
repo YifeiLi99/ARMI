@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
@@ -206,7 +207,8 @@ class ContextPipeline(OpportunitySelector):
             try:
                 selected = await self.select_once()
             except ContextViolation:
-                self._diagnostic("context.selector.failed")
+                if not self._stop.is_set():
+                    self._diagnostic("context.selector.failed")
                 selected = None
             await self._wait(0 if selected is not None else 1)
 
@@ -215,7 +217,8 @@ class ContextPipeline(OpportunitySelector):
             try:
                 worked = await self.prepare_once()
             except ContextViolation:
-                self._diagnostic("context.worker.failed")
+                if not self._stop.is_set():
+                    self._diagnostic("context.worker.failed")
                 worked = False
             await self._wait(0 if worked else 1)
 
@@ -373,7 +376,16 @@ def _context_request(
                 required=True,
                 relevance=100,
             ),
-            _unavailable(ContextSection.CAPABILITY, "capability"),
+            _item(
+                ContextSection.CAPABILITY,
+                "capability_catalog",
+                UUID("01985d00-0000-7000-8000-000000000027"),
+                1,
+                _capability_catalog_bytes(),
+                ContextTrustClass.POLICY,
+                required=True,
+                relevance=70,
+            ),
             _item(
                 ContextSection.PROMPT,
                 "fixed_prompt",
@@ -444,6 +456,17 @@ def _unavailable(section: ContextSection, kind: str) -> ContextItemCandidate:
         0,
         unavailable_reason="CTX-SOURCE-NOT-IMPLEMENTED",
     )
+
+
+def _capability_catalog_bytes() -> bytes:
+    try:
+        return (
+            files("armi_runtime.composition.runtime_resources")
+            .joinpath("capability-catalog.manifest.json")
+            .read_bytes()
+        )
+    except OSError:
+        raise ContextViolation("CTX-CAPABILITY-CATALOG") from None
 
 
 def _artifact_audit(

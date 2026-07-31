@@ -22,6 +22,9 @@ from armi_kernel.application import (
     CandidateApplicationStatus,
     CandidateDisposition,
     CandidateOwner,
+    CapabilityRequestDraft,
+    CodexDelegatedWorkScope,
+    CreatorSceneReplyScope,
     ExperienceId,
     SubjectChangeSet,
     SubjectCommitId,
@@ -269,7 +272,11 @@ class PostgreSQLSubjectCommitRepository:
                 status=status,
                 observed_version=change_set.base_subject_version,
             )
-        if not change_set.experiences and not change_set.components:
+        if (
+            not change_set.experiences
+            and not change_set.components
+            and not change_set.capability_requests
+        ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
         commit_id = SubjectCommitId(uuid7())
@@ -420,6 +427,13 @@ class PostgreSQLSubjectCommitRepository:
             ).fetchone()
             if updated is None:
                 raise SubjectCommitViolation("SUBJECT-HEAD-STALE")
+
+        await _insert_capability_requests(
+            unit_of_work,
+            snapshot=snapshot,
+            commit_id=commit_id,
+            requests=change_set.capability_requests,
+        )
 
         updated_subject = await (
             await connection.execute(
@@ -775,6 +789,164 @@ async def _evidence_links(
         )
     ).fetchall()
     return [(row[0], row[1], row[2]) for row in rows]
+
+
+async def _insert_capability_requests(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    requests: tuple[CapabilityRequestDraft, ...],
+) -> None:
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    for draft in requests:
+        catalog = await (
+            await connection.execute(
+                """
+                SELECT capability_id, operation_class
+                FROM armi.capabilities
+                WHERE capability_kind = %s
+                """,
+                (draft.capability.value,),
+            )
+        ).fetchone()
+        if catalog is None or str(catalog[1]) != draft.operation.value:
+            raise SubjectCommitViolation("SUBJECT-CAPABILITY-CATALOG")
+        request_id = uuid7()
+        scope = draft.scope
+        if isinstance(scope, CreatorSceneReplyScope):
+            if (
+                scope.subject_id != snapshot.subject_id
+                or scope.scene_id != snapshot.scene_id
+                or scope.creator_party_id != snapshot.creator_party_id
+            ):
+                raise SubjectCommitViolation("SUBJECT-CAPABILITY-SCOPE")
+            columns = (
+                scope.audience_scope,
+                scope.data_scope,
+                scope.purpose,
+                None,
+                None,
+                None,
+                scope.valid_for_seconds,
+                scope.max_uses,
+                scope.max_payload_bytes,
+            )
+        else:
+            columns = (
+                None,
+                None,
+                "delegate_codex_work",
+                scope.workspace_scope,
+                scope.artifact_scope,
+                scope.network_access,
+                scope.valid_for_seconds,
+                scope.max_uses,
+                None,
+            )
+        request_value = {
+            "schema_version": "armi.capability-request.v1",
+            "subject_commit_id": str(commit_id.value),
+            "proposal_ref": draft.proposal_ref,
+            "subject_id": str(snapshot.subject_id),
+            "scene_id": str(snapshot.scene_id),
+            "creator_party_id": str(snapshot.creator_party_id),
+            "capability_kind": draft.capability.value,
+            "operation": draft.operation.value,
+            "scope": json.loads(rfc8785.dumps(cast(Any, _scope_wire(scope)))),
+        }
+        request_digest = Digest.from_bytes(rfc8785.dumps(cast(Any, request_value)))
+        await connection.execute(
+            """
+            INSERT INTO armi.capability_requests (
+                capability_request_id, subject_commit_id, proposal_ref,
+                subject_id, interaction_scene_id, creator_party_id,
+                capability_id, capability_kind, operation_class,
+                audience_scope, data_scope, purpose, workspace_scope,
+                artifact_scope, network_access, requested_valid_for_seconds,
+                requested_max_uses, requested_max_payload_bytes,
+                request_digest, schema_version
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1
+            )
+            """,
+            (
+                request_id,
+                commit_id.value,
+                draft.proposal_ref,
+                snapshot.subject_id,
+                snapshot.scene_id,
+                snapshot.creator_party_id,
+                catalog[0],
+                draft.capability.value,
+                draft.operation.value,
+                *columns,
+                request_digest.value,
+            ),
+        )
+        rows = await (
+            await connection.execute(
+                """
+                SELECT basis.context_item_id
+                FROM armi.cognitive_candidate_basis_links AS basis
+                JOIN armi.cognitive_context_items AS item
+                  ON item.context_item_id = basis.context_item_id
+                 AND item.cognitive_episode_id = %s
+                 AND item.disposition = 'included'
+                WHERE basis.candidate_validation_id = %s
+                  AND basis.proposal_ref = %s
+                ORDER BY basis.ordinal
+                """,
+                (snapshot.episode_id, snapshot.validation_id, draft.proposal_ref),
+            )
+        ).fetchall()
+        if len(rows) != len(draft.basis_ordinals):
+            raise SubjectCommitViolation("SUBJECT-CAPABILITY-BASIS")
+        for ordinal, row in enumerate(rows, 1):
+            await connection.execute(
+                """
+                INSERT INTO armi.capability_request_basis_links (
+                    capability_request_id, context_item_id, ordinal
+                ) VALUES (%s, %s, %s)
+                """,
+                (request_id, row[0], ordinal),
+            )
+        await unit_of_work.audit.append(
+            _audit(
+                unit_of_work,
+                snapshot,
+                "capability.request.created",
+                "capability_request",
+                request_id,
+                AuditResultStatus.APPLIED,
+                request_digest,
+            )
+        )
+
+
+def _scope_wire(
+    scope: CreatorSceneReplyScope | CodexDelegatedWorkScope,
+) -> dict[str, object]:
+    if isinstance(scope, CreatorSceneReplyScope):
+        return {
+            "subject_id": str(scope.subject_id),
+            "scene_id": str(scope.scene_id),
+            "creator_party_id": str(scope.creator_party_id),
+            "audience_scope": scope.audience_scope,
+            "data_scope": scope.data_scope,
+            "purpose": scope.purpose,
+            "valid_for_seconds": scope.valid_for_seconds,
+            "max_uses": scope.max_uses,
+            "max_payload_bytes": scope.max_payload_bytes,
+        }
+    return {
+        "workspace_scope": scope.workspace_scope,
+        "artifact_scope": scope.artifact_scope,
+        "network_access": scope.network_access,
+        "valid_for_seconds": scope.valid_for_seconds,
+        "max_uses": scope.max_uses,
+    }
 
 
 async def _assert_lease(connection: Any, lease: WorkLease, episode_id: UUID) -> None:

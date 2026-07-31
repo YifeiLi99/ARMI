@@ -14,6 +14,7 @@ from uuid import uuid7
 import uvicorn
 from armi_kernel.application import (
     CandidateViolation,
+    CapabilityViolation,
     ContextViolation,
     CreatorInputViolation,
     ModelViolation,
@@ -43,6 +44,7 @@ from .database import (
     ContinuityState,
     DatabaseViolation,
     compose_candidate_validation_pipeline,
+    compose_capability_policy,
     compose_context_pipeline,
     compose_creator_input,
     compose_model_pipeline,
@@ -120,6 +122,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     model_pipeline = None
     candidate_pipeline = None
     subject_commit_pipeline = None
+    capability_policy = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -177,6 +180,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 cursor_key=derive_timeline_cursor_key(prepared),
             )
             await scene_timeline_query.open()
+            capability_policy = compose_capability_policy(
+                prepared,
+                authority_admission=authority.require_writable,
+                cursor_key=derive_timeline_cursor_key(prepared),
+            )
+            await capability_policy.open()
             creator_events = CreatorEventBroker(
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -266,6 +275,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         except (
             BrowserSessionViolation,
             CandidateViolation,
+            CapabilityViolation,
             ContextViolation,
             CreatorInputViolation,
             SceneQueryViolation,
@@ -287,6 +297,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await candidate_pipeline.close()
             if subject_commit_pipeline is not None:
                 await subject_commit_pipeline.close()
+            if capability_policy is not None:
+                await capability_policy.close()
             if authority is not None:
                 await authority.release()
             if authority_port is not None:
@@ -373,6 +385,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 subject_commit_pipeline.run_worker(),
                 name="subject-commit-worker",
             )
+        if capability_policy is not None:
+            supervisor.start(
+                capability_policy.run_expiry_reconciler(),
+                name="capability-grant-expiry",
+            )
 
     async def stopping() -> None:
         nonlocal drain_timed_out
@@ -398,6 +415,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             candidate_pipeline.stop()
         if subject_commit_pipeline is not None:
             subject_commit_pipeline.stop()
+        if capability_policy is not None:
+            capability_policy.stop()
         released = await supervisor.drain(
             deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
         )
@@ -409,6 +428,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await candidate_pipeline.close()
         if subject_commit_pipeline is not None:
             await subject_commit_pipeline.close()
+        if capability_policy is not None:
+            await capability_policy.close()
         if authority is not None:
             diagnostic.emit(
                 (
@@ -478,6 +499,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         subject_summary=(
             creator_input.get_subject_summary if creator_input is not None else None
         ),
+        capability_policy=capability_policy,
         expected_authority=f"{config.creator.bind_host}:{config.creator.port}",
         request_body_max_bytes=config.creator.request_body_max_bytes,
         on_started=started,
@@ -522,6 +544,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await context_pipeline.close()
         if candidate_pipeline is not None:
             await candidate_pipeline.close()
+        if capability_policy is not None:
+            await capability_policy.close()
         if authority_port is not None:
             await authority_port.close()
     if server.force_exit:

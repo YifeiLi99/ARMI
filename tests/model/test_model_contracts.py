@@ -34,7 +34,7 @@ _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v2",
+        "schema_version": "armi.cognition-candidate.v3",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,

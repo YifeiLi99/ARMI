@@ -9,6 +9,7 @@ from uuid import UUID
 
 from armi_kernel.application import (
     CandidateViolation,
+    CapabilityViolation,
     ContextViolation,
     CreatorProjectionNotifier,
     CredentialPort,
@@ -23,6 +24,9 @@ from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
+)
+from armi_runtime.adapters.persistence.capability_policy import (
+    PostgreSQLCreatorGrantPolicy,
 )
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
@@ -616,6 +620,44 @@ def compose_subject_commit_pipeline(
         raise SubjectCommitViolation("SUBJECT-DATABASE") from None
 
 
+def compose_capability_policy(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    cursor_key: bytes,
+) -> PostgreSQLCreatorGrantPolicy:
+    """Resolve the Runtime credential for the sole active T-04 policy."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise CapabilityViolation("POLICY-DATABASE")
+    try:
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.runtime")
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLCreatorGrantPolicy:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise CapabilityViolation("POLICY-DATABASE") from None
+                config = prepared.effective.config
+                return PostgreSQLCreatorGrantPolicy(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
+                    cursor_key=cursor_key,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise CapabilityViolation("POLICY-DATABASE") from None
+
+
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
@@ -675,6 +717,7 @@ __all__ = (
     "ContinuityState",
     "DatabaseViolation",
     "compose_candidate_validation_pipeline",
+    "compose_capability_policy",
     "compose_context_pipeline",
     "compose_creator_input",
     "compose_model_pipeline",
