@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 12})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 13})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -95,6 +95,9 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.cognitive_episodes",
                 "armi.cognitive_context_items",
                 "armi.cognitive_attempts",
+                "armi.cognitive_candidate_validations",
+                "armi.cognitive_candidate_validation_items",
+                "armi.cognitive_candidate_basis_links",
             ],
         )
         self.assertNotIn("manifest_sha256", manifest)
@@ -284,6 +287,29 @@ class SchemaArtifactTests(unittest.TestCase):
         self.assertNotIn("MODEL", sql.upper())
         self.assertNotIn("GRANT DELETE", sql.upper())
         self.assertNotIn("GRANT TRUNCATE", sql.upper())
+
+    def test_candidate_validation_migration_has_only_the_s025_surface(self) -> None:
+        sql = Path(
+            "schema/migrations/0013_cognition_candidate_validation.sql"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(sql.count("CREATE TABLE"), 3)
+        for table in (
+            "cognitive_candidate_validations",
+            "cognitive_candidate_validation_items",
+            "cognitive_candidate_basis_links",
+        ):
+            self.assertIn(f"CREATE TABLE armi.{table}", sql)
+        self.assertIn("armi.cognition-candidate.v2", sql)
+        self.assertIn("ADD COLUMN resumable_candidate_validation_count", sql)
+        self.assertNotIn("GRANT DELETE", sql.upper())
+        self.assertNotIn("GRANT TRUNCATE", sql.upper())
+        self.assertNotRegex(
+            sql,
+            re.compile(
+                r"(?i)\b(?:subject_commits|memory_items|relationships|"
+                r"activities|effects|action_intents)\b"
+            ),
+        )
 
     def test_durable_work_migration_is_the_only_s014_surface(self) -> None:
         sql = Path("schema/migrations/0005_durable_work_and_outbox.sql").read_text(

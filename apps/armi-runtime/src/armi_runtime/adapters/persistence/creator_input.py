@@ -292,6 +292,12 @@ class CreatorInputRepository:
             phase = CreatorOperationPhase.MODEL_CALLING
         elif disposition == "selected" and episode_status == "model_returned":
             phase = CreatorOperationPhase.MODEL_RETURNED
+        elif disposition == "selected" and episode_status == "validating":
+            phase = CreatorOperationPhase.CANDIDATE_VALIDATING
+        elif disposition == "selected" and episode_status == "candidate_validated":
+            phase = CreatorOperationPhase.CANDIDATE_VALIDATED
+        elif disposition == "selected" and episode_status == "candidate_rejected":
+            phase = CreatorOperationPhase.CANDIDATE_REJECTED
         elif disposition == "selected" and episode_status in {"failed", "cancelled"}:
             phase = CreatorOperationPhase.FAILED
         else:
@@ -299,7 +305,15 @@ class CreatorInputRepository:
         return CreatorOperation(
             acceptance,
             phase,
-            str(row[7]) if phase is CreatorOperationPhase.FAILED else None,
+            (
+                str(row[7])
+                if phase
+                in {
+                    CreatorOperationPhase.FAILED,
+                    CreatorOperationPhase.CANDIDATE_REJECTED,
+                }
+                else None
+            ),
         )
 
 

@@ -13,6 +13,7 @@ from uuid import uuid7
 
 import uvicorn
 from armi_kernel.application import (
+    CandidateViolation,
     ContextViolation,
     CreatorInputViolation,
     ModelViolation,
@@ -40,6 +41,7 @@ from .creator_session import compose_browser_sessions, derive_timeline_cursor_ke
 from .database import (
     ContinuityState,
     DatabaseViolation,
+    compose_candidate_validation_pipeline,
     compose_context_pipeline,
     compose_creator_input,
     compose_model_pipeline,
@@ -114,6 +116,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     creator_input = None
     context_pipeline = None
     model_pipeline = None
+    candidate_pipeline = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -197,6 +200,15 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 ),
             )
             await context_pipeline.open()
+            candidate_pipeline = compose_candidate_validation_pipeline(
+                prepared,
+                authority_admission=authority.require_writable,
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="CANDIDATE_PIPELINE",
+                ),
+            )
+            await candidate_pipeline.open()
             if "model.ark_api_key" in config.secret_locators:
                 try:
                     model_pipeline = compose_model_pipeline(
@@ -240,6 +252,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             )
         except (
             BrowserSessionViolation,
+            CandidateViolation,
             ContextViolation,
             CreatorInputViolation,
             SceneQueryViolation,
@@ -256,6 +269,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await creator_input.close()
             if context_pipeline is not None:
                 await context_pipeline.close()
+            if candidate_pipeline is not None:
+                await candidate_pipeline.close()
             if authority is not None:
                 await authority.release()
             if authority_port is not None:
@@ -332,6 +347,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     model_pipeline.run_worker(),
                     name=f"model-invoke-worker-{index + 1}",
                 )
+        if candidate_pipeline is not None:
+            supervisor.start(
+                candidate_pipeline.run_worker(),
+                name="candidate-validation-worker",
+            )
 
     async def stopping() -> None:
         nonlocal drain_timed_out
@@ -353,6 +373,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             context_pipeline.stop()
         if model_pipeline is not None:
             model_pipeline.stop()
+        if candidate_pipeline is not None:
+            candidate_pipeline.stop()
         released = await supervisor.drain(
             deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
         )
@@ -360,6 +382,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await context_pipeline.close()
         if model_pipeline is not None:
             await model_pipeline.close()
+        if candidate_pipeline is not None:
+            await candidate_pipeline.close()
         if authority is not None:
             diagnostic.emit(
                 (
@@ -468,6 +492,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_input.close()
         if context_pipeline is not None:
             await context_pipeline.close()
+        if candidate_pipeline is not None:
+            await candidate_pipeline.close()
         if authority_port is not None:
             await authority_port.close()
     if server.force_exit:

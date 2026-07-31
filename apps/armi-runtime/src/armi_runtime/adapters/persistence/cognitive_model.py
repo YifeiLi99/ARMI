@@ -23,20 +23,35 @@ from armi_kernel.application import (
     ModelResultStatus,
     ModelUsage,
     ModelViolation,
+    WorkDraft,
+    WorkId,
     WorkLease,
+    WorkOwner,
+    WorkPayloadRef,
     WorkResultRef,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import (
+    Digest,
+    IdempotencyKey,
+    Instant,
+    Purpose,
+    SubjectId,
+    TraceId,
+)
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.model.invoke"
+_VALIDATION_WORK_KIND = "cognition.candidate.validate"
 
 
 @dataclass(frozen=True, slots=True)
 class ModelEpisodeSnapshot:
     episode_id: UUID
     subject_id: UUID
+    base_subject_version: int
+    base_state_epoch: int
+    bundle_activation_id: UUID
     context_digest: Digest
     compiled_context: ArtifactRef
     included_context_refs: tuple[dict[str, object], ...]
@@ -60,6 +75,9 @@ class PostgreSQLCognitiveModelRepository:
                 SELECT
                     episode.cognitive_episode_id,
                     episode.subject_id,
+                    episode.base_subject_version,
+                    episode.base_state_epoch,
+                    episode.bundle_activation_id,
                     episode.context_digest,
                     episode.compiled_context_artifact_id,
                     episode.trace_id
@@ -102,8 +120,11 @@ class PostgreSQLCognitiveModelRepository:
         return ModelEpisodeSnapshot(
             row[0],
             row[1],
-            Digest(str(row[2])),
-            await self._artifact_ref(connection, row[3]),
+            int(row[2]),
+            int(row[3]),
+            row[4],
+            Digest(str(row[5])),
+            await self._artifact_ref(connection, row[6]),
             tuple(
                 {
                     "ref": f"ctx:{int(item[0])}",
@@ -112,7 +133,7 @@ class PostgreSQLCognitiveModelRepository:
                 }
                 for item in refs
             ),
-            TraceId(str(row[4])),
+            TraceId(str(row[7])),
         )
 
     async def prepare_attempt(
@@ -291,6 +312,28 @@ class PostgreSQLCognitiveModelRepository:
         ).fetchone()
         if updated is None:
             raise ModelViolation("MODEL-EPISODE-STATE")
+        now_row = await (
+            await connection.execute("SELECT statement_timestamp()")
+        ).fetchone()
+        if now_row is None or result.response_digest is None:
+            raise ModelViolation("MODEL-DATABASE")
+        now = Instant(now_row[0])
+        await unit_of_work.work.enqueue(
+            WorkDraft(
+                WorkId(uuid7()),
+                _VALIDATION_WORK_KIND,
+                WorkOwner("cognitive_episode", snapshot.episode_id),
+                IdempotencyKey(f"candidate:{snapshot.episode_id}"),
+                result.response_digest,
+                50,
+                now,
+                Instant(now.value + timedelta(seconds=3600)),
+                2,
+                snapshot.trace_id,
+                SubjectId(snapshot.subject_id),
+                WorkPayloadRef("model_attempt", attempt_id.value),
+            )
+        )
         await unit_of_work.work.complete(
             lease,
             WorkResultRef("model_attempt", attempt_id.value),
@@ -302,6 +345,20 @@ class PostgreSQLCognitiveModelRepository:
                 attempt_id,
                 AuditResultStatus.COMPLETED,
                 result.response_digest,
+            )
+        )
+        await unit_of_work.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", unit_of_work.environment_id),
+                Purpose("cognition.candidate"),
+                "cognition.candidate.queued",
+                AuditReference("cognitive_episode", snapshot.episode_id),
+                AuditResultStatus.WAITING,
+                snapshot.trace_id,
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(snapshot.subject_id),
+                request_digest=result.response_digest,
             )
         )
 

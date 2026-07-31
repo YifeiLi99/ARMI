@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import UUID, uuid7
 
 import pytest
 from armi_kernel.application import (
@@ -28,12 +29,24 @@ from armi_runtime.composition.model_contract import (
     parse_candidate,
 )
 
+_BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
+
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v1",
+        "schema_version": "armi.cognition-candidate.v2",
+        "base": {
+            "subject_version": 0,
+            "state_epoch": 0,
+            "bundle_activation_id": str(uuid7()),
+            "context_digest": Digest.from_bytes(b"context").value,
+        },
         "disposition": "no_change",
-        "understanding": "The current external claim does not require a change.",
+        "understanding": {
+            "text": "The current external claim does not require a change.",
+            "fact_class": "external_claim",
+            "basis_refs": ["ctx:1"],
+        },
         "experiences": [],
         "component_changes": [],
         "memory_changes": [],
@@ -53,6 +66,9 @@ def _request(binding: ModelBinding):
         binding=binding,
         compiled_context=context,
         context_digest=context_digest,
+        base_subject_version=0,
+        base_state_epoch=0,
+        bundle_activation_id=_BUNDLE_ID,
         included_context_refs=(
             {"ref": "ctx:1", "section": "evidence", "item_kind": "current_evidence"},
         ),
@@ -99,10 +115,15 @@ def test_candidate_rejects_unknown_or_unavailable_context_reference() -> None:
     value["experiences"] = [
         {
             "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
             "basis_refs": ["ctx:2"],
             "payload": {
                 "proposal_kind": "experiences",
-                "summary": "An ungrounded proposal.",
+                "fact_class": "external_claim",
+                "first_person_gist": "I received an ungrounded claim.",
+                "source_perspective": "creator_claim",
+                "uncertainty": "The basis is unavailable.",
+                "privacy_scope": "private",
             },
         }
     ]

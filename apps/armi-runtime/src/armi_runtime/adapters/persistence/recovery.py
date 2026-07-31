@@ -458,6 +458,96 @@ class PostgreSQLRuntimeRecovery:
         ):
             await self._verify_fence(connection, fence)
             await self._record_artifact_failures(connection, fence, sorted_findings)
+            backfilled = await (
+                await connection.execute(
+                    """
+                    WITH source AS (
+                        SELECT
+                            episode.cognitive_episode_id,
+                            episode.subject_id,
+                            episode.trace_id,
+                            attempt.model_attempt_id,
+                            artifact.content_digest
+                        FROM armi.cognitive_episodes AS episode
+                        JOIN armi.cognitive_attempts AS attempt
+                          ON attempt.cognitive_episode_id
+                           = episode.cognitive_episode_id
+                         AND attempt.dispatch_status = 'settled'
+                         AND attempt.result_status = 'succeeded'
+                        JOIN armi.artifacts AS artifact
+                          ON artifact.artifact_id = attempt.response_artifact_id
+                        WHERE episode.status = 'model_returned'
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM armi.durable_work AS existing
+                              WHERE existing.owner_kind = 'cognitive_episode'
+                                AND existing.owner_ref
+                                  = episode.cognitive_episode_id
+                                AND existing.work_kind
+                                  = 'cognition.candidate.validate'
+                          )
+                    ),
+                    inserted AS (
+                        INSERT INTO armi.durable_work (
+                            work_id, work_kind, owner_kind, owner_ref,
+                            subject_id, idempotency_key, payload_kind,
+                            payload_ref, payload_digest, priority, not_before,
+                            deadline_at, status, max_attempts, attempt_count,
+                            lease_token, trace_id, schema_version
+                        )
+                        SELECT
+                            uuidv7(), 'cognition.candidate.validate',
+                            'cognitive_episode', cognitive_episode_id,
+                            subject_id, 'candidate:' || cognitive_episode_id::text,
+                            'model_attempt', model_attempt_id, content_digest,
+                            50, statement_timestamp(),
+                            statement_timestamp() + interval '3600 seconds',
+                            'ready', 2, 0, 0, trace_id, 1
+                        FROM source
+                        RETURNING
+                            work_id, owner_ref, subject_id,
+                            payload_digest, trace_id
+                    )
+                    SELECT
+                        work_id, owner_ref, subject_id,
+                        payload_digest, trace_id
+                    FROM inserted
+                    """
+                )
+            ).fetchall()
+            for work_id, episode_id, subject_id, payload_digest, trace_id in backfilled:
+                await connection.execute(
+                    """
+                    INSERT INTO armi.outbox_items (
+                        outbox_item_id, work_id, message_kind,
+                        payload_digest, status, available_at,
+                        claim_token, attempt_count, max_attempts,
+                        trace_id, schema_version
+                    )
+                    VALUES (
+                        uuidv7(), %s, 'work.available', %s, 'ready',
+                        statement_timestamp(), 0, 0, 2, %s, 1
+                    )
+                    """,
+                    (work_id, payload_digest, trace_id),
+                )
+                await PostgreSQLAuditWriter(connection).append(
+                    AuditDraft(
+                        AuditEventId(uuid7()),
+                        AuditReference(
+                            "runtime",
+                            fence.runtime_instance_id.value,
+                        ),
+                        Purpose("cognition.candidate"),
+                        "cognition.candidate.queued",
+                        AuditReference("cognitive_episode", episode_id),
+                        AuditResultStatus.WAITING,
+                        TraceId(str(trace_id)),
+                        AuditSensitivity.PRIVATE,
+                        subject_id=SubjectId(subject_id),
+                        request_digest=Digest(str(payload_digest)),
+                    )
+                )
             await connection.execute(
                 """
                 UPDATE armi.cognitive_attempts AS attempt
@@ -560,6 +650,35 @@ class PostgreSQLRuntimeRecovery:
                                 AND work.status = 'completed'
                                 AND work.result_kind = 'cognitive_episode'
                                 AND work.result_ref = episode.cognitive_episode_id
+                            )
+                        ),
+                        (
+                            SELECT count(*)
+                            FROM armi.cognitive_episodes AS episode
+                            JOIN armi.durable_work AS work
+                              ON work.owner_kind = 'cognitive_episode'
+                             AND work.owner_ref = episode.cognitive_episode_id
+                             AND work.work_kind = 'cognition.candidate.validate'
+                            WHERE (
+                                episode.status IN ('model_returned', 'validating')
+                                AND work.status IN ('ready', 'leased')
+                            )
+                            OR (
+                                episode.status IN (
+                                    'candidate_validated',
+                                    'candidate_rejected'
+                                )
+                                AND work.status = 'completed'
+                                AND work.result_kind = 'candidate_validation'
+                                AND EXISTS (
+                                    SELECT 1
+                                    FROM armi.cognitive_candidate_validations
+                                        AS validation
+                                    WHERE validation.candidate_validation_id
+                                        = work.result_ref
+                                      AND validation.cognitive_episode_id
+                                        = episode.cognitive_episode_id
+                                )
                             )
                         ),
                         (
@@ -702,6 +821,58 @@ class PostgreSQLRuntimeRecovery:
                                                        AND work.result_kind
                                                          = 'model_attempt'
                                                  )
+                                                 AND EXISTS (
+                                                     SELECT 1
+                                                     FROM armi.durable_work AS work
+                                                     WHERE work.owner_kind
+                                                         = 'cognitive_episode'
+                                                       AND work.owner_ref
+                                                         = episode.cognitive_episode_id
+                                                       AND work.work_kind
+                                                         = 'cognition.candidate.validate'
+                                                       AND work.status
+                                                         IN ('ready', 'leased')
+                                                 )
+                                             )
+                                             OR (
+                                                 episode.status = 'validating'
+                                                 AND EXISTS (
+                                                     SELECT 1
+                                                     FROM armi.durable_work AS work
+                                                     WHERE work.owner_kind
+                                                         = 'cognitive_episode'
+                                                       AND work.owner_ref
+                                                         = episode.cognitive_episode_id
+                                                       AND work.work_kind
+                                                         = 'cognition.candidate.validate'
+                                                       AND work.status
+                                                         IN ('ready', 'leased')
+                                                 )
+                                             )
+                                             OR (
+                                                 episode.status IN (
+                                                     'candidate_validated',
+                                                     'candidate_rejected'
+                                                 )
+                                                 AND EXISTS (
+                                                     SELECT 1
+                                                     FROM armi.durable_work AS work
+                                                     JOIN armi.cognitive_candidate_validations
+                                                         AS validation
+                                                       ON validation.candidate_validation_id
+                                                         = work.result_ref
+                                                     WHERE work.owner_kind
+                                                         = 'cognitive_episode'
+                                                       AND work.owner_ref
+                                                         = episode.cognitive_episode_id
+                                                       AND work.work_kind
+                                                         = 'cognition.candidate.validate'
+                                                       AND work.status = 'completed'
+                                                       AND work.result_kind
+                                                         = 'candidate_validation'
+                                                       AND validation.cognitive_episode_id
+                                                         = episode.cognitive_episode_id
+                                                 )
                                              )
                                              OR (
                                                  episode.status = 'failed'
@@ -736,7 +907,7 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert counts is not None
-            if int(counts[5]) > 0:
+            if int(counts[6]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
                     sorted(
@@ -776,7 +947,8 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_outbox": int(counts[1]),
                 "resumable_opportunity": int(counts[2]),
                 "resumable_cognitive_episode": int(counts[3]),
-                "resumable_model_attempt": int(counts[4]),
+                "resumable_model_attempt": int(counts[5]),
+                "resumable_candidate_validation": int(counts[4]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -806,6 +978,7 @@ class PostgreSQLRuntimeRecovery:
                     resumable_opportunity_count = %s,
                     resumable_cognitive_episode_count = %s,
                     resumable_model_attempt_count = %s,
+                    resumable_candidate_validation_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -822,6 +995,7 @@ class PostgreSQLRuntimeRecovery:
                     int(counts[1]),
                     int(counts[2]),
                     int(counts[3]),
+                    int(counts[5]),
                     int(counts[4]),
                     critical,
                     blockers,
@@ -848,7 +1022,8 @@ class PostgreSQLRuntimeRecovery:
             resumable_outbox_count=int(counts[1]),
             resumable_opportunity_count=int(counts[2]),
             resumable_cognitive_episode_count=int(counts[3]),
-            resumable_model_attempt_count=int(counts[4]),
+            resumable_model_attempt_count=int(counts[5]),
+            resumable_candidate_validation_count=int(counts[4]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

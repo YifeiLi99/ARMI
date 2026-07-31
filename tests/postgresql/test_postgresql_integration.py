@@ -296,7 +296,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {12})
+        self.assertEqual({result.applied_version for result in results}, {13})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -363,7 +363,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 12)
+        self.assertEqual(result.applied_version, 13)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -425,7 +425,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 12)
+        self.assertEqual(result.applied_version, 13)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -485,7 +485,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(13,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(14,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -544,7 +544,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (12,),
+                    (13,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1032,6 +1032,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 DROP TABLE
+                    armi.cognitive_candidate_basis_links,
+                    armi.cognitive_candidate_validation_items,
+                    armi.cognitive_candidate_validations,
                     armi.cognitive_attempts,
                     armi.cognitive_context_items,
                     armi.cognitive_episodes,
@@ -1045,20 +1048,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ALTER TABLE armi.runtime_recovery_runs
                 DROP COLUMN resumable_opportunity_count,
                 DROP COLUMN resumable_cognitive_episode_count,
-                DROP COLUMN resumable_model_attempt_count
+                DROP COLUMN resumable_model_attempt_count,
+                DROP COLUMN resumable_candidate_validation_count
                 """
             )
             connection.execute(
                 "DROP TABLE armi.scene_timeline_items, armi.interaction_scenes"
             )
             connection.execute(
-                "DELETE FROM armi.schema_migrations WHERE version IN (9, 10, 11, 12)"
+                "DELETE FROM armi.schema_migrations "
+                "WHERE version IN (9, 10, 11, 12, 13)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 12)
+        self.assertEqual(backfilled.applied_version, 13)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
@@ -2348,13 +2353,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     SELECT
                         resumable_opportunity_count,
                         resumable_cognitive_episode_count,
-                        resumable_model_attempt_count
+                        resumable_model_attempt_count,
+                        resumable_candidate_validation_count
                     FROM armi.runtime_recovery_runs
                     ORDER BY started_at DESC, recovery_run_id DESC
                     LIMIT 1
                     """
                 ).fetchone()
-                self.assertEqual(recovery_count, (0, 1, 1))
+                self.assertEqual(recovery_count, (0, 1, 1, 0))
                 self.assertEqual(
                     database.execute(
                         """

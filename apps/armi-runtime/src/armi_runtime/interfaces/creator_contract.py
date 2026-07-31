@@ -351,8 +351,16 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "model_attempt",
         "model_response",
         "candidate_validation",
+        "subject_commit",
     ]
-    resume_condition: Literal["context_prepared", "model_step_available"]
+    resume_condition: Literal[
+        "context_prepared",
+        "model_step_available",
+        "model_returned",
+        "candidate_validation_available",
+        "candidate_validated",
+        "subject_commit_available",
+    ]
 
     @model_validator(mode="after")
     def validate_kernel_contract(self) -> WaitingOutcomeResponse:
@@ -365,6 +373,8 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
             ("model_attempt", "model_step_available"),
             ("model_response", "model_returned"),
             ("candidate_validation", "candidate_validation_available"),
+            ("candidate_validation", "candidate_validated"),
+            ("subject_commit", "subject_commit_available"),
         }:
             raise ValueError("CON-INPUT-OPERATION: waiting state is inconsistent")
         return self
@@ -381,12 +391,6 @@ class FailedOutcomeResponse(_CommonOutcomeResponse):
         return self
 
 
-type OperationOutcomeResponse = Annotated[
-    AcceptedOutcomeResponse | WaitingOutcomeResponse | FailedOutcomeResponse,
-    Field(discriminator="status"),
-]
-
-
 class RejectedOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["rejected"]
     error: ErrorDescriptorResponse
@@ -396,6 +400,15 @@ class RejectedOutcomeResponse(_CommonOutcomeResponse):
     def validate_kernel_contract(self) -> RejectedOutcomeResponse:
         RejectedOutcome.from_wire(self.model_dump(exclude_none=True))
         return self
+
+
+type OperationOutcomeResponse = Annotated[
+    AcceptedOutcomeResponse
+    | WaitingOutcomeResponse
+    | RejectedOutcomeResponse
+    | FailedOutcomeResponse,
+    Field(discriminator="status"),
+]
 
 
 class UnavailableOutcomeResponse(_CommonOutcomeResponse):

@@ -303,6 +303,31 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
             waiting_for="candidate_validation",
             resume_condition="candidate_validation_available",
         ).to_wire()
+    if operation.phase is CreatorOperationPhase.CANDIDATE_VALIDATING:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The cognition candidate is being validated.",
+            result_ref=result_ref,
+            waiting_for="candidate_validation",
+            resume_condition="candidate_validated",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CANDIDATE_VALIDATED:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The validated candidate is waiting for subject commit.",
+            result_ref=result_ref,
+            waiting_for="subject_commit",
+            resume_condition="subject_commit_available",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CANDIDATE_REJECTED:
+        return RejectedOutcome(
+            **_outcome_common(),
+            message="The cognition candidate was rejected.",
+            error=ErrorDescriptor(
+                ErrorCategory.INTEGRITY,
+                "INTEGRITY_COGNITION_CANDIDATE_REJECTED",
+            ),
+        ).to_wire()
     return FailedOutcome(
         **_outcome_common(),
         message="Cognition preparation failed.",

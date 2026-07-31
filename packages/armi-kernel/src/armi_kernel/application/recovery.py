@@ -94,6 +94,7 @@ class RecoverySummary:
     resumable_opportunity_count: int
     resumable_cognitive_episode_count: int
     resumable_model_attempt_count: int
+    resumable_candidate_validation_count: int
     critical_artifact_count: int
     blocker_count: int
     summary_digest: Digest | None
@@ -114,6 +115,7 @@ class RecoverySummary:
             self.resumable_opportunity_count,
             self.resumable_cognitive_episode_count,
             self.resumable_model_attempt_count,
+            self.resumable_candidate_validation_count,
             self.critical_artifact_count,
             self.blocker_count,
         ):

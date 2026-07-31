@@ -377,6 +377,7 @@ export interface components {
     OperationOutcomeResponse:
       | components["schemas"]["AcceptedOutcomeResponse"]
       | components["schemas"]["WaitingOutcomeResponse"]
+      | components["schemas"]["RejectedOutcomeResponse"]
       | components["schemas"]["FailedOutcomeResponse"];
     /**
      * Readiness
@@ -405,8 +406,8 @@ export interface components {
       /** Occurred At */
       occurred_at: string;
       /**
-       * Status
-       * @constant
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
        */
       status: "rejected";
       /** Trace Id */
@@ -540,7 +541,13 @@ export interface components {
        * Resume Condition
        * @enum {string}
        */
-      resume_condition: "context_prepared" | "model_step_available";
+      resume_condition:
+        | "context_prepared"
+        | "model_step_available"
+        | "model_returned"
+        | "candidate_validation_available"
+        | "candidate_validated"
+        | "subject_commit_available";
       /**
        * @description discriminator enum property added by openapi-typescript
        * @enum {string}
@@ -556,7 +563,8 @@ export interface components {
         | "context_preparation"
         | "model_attempt"
         | "model_response"
-        | "candidate_validation";
+        | "candidate_validation"
+        | "subject_commit";
     };
   };
   responses: never;

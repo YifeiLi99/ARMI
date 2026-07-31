@@ -47,7 +47,8 @@
         "armi_runtime.composition.artifacts",
         "armi_runtime.composition.context_pipeline",
         "armi_runtime.composition.creator_input",
-        "armi_runtime.composition.model_pipeline"
+        "armi_runtime.composition.model_pipeline",
+        "armi_runtime.composition.candidate_pipeline"
       ]
     },
     {
@@ -67,7 +68,8 @@
       "allowed_callers": [
         "armi_runtime.adapters.persistence.unit_of_work",
         "armi_runtime.composition.context_pipeline",
-        "armi_runtime.composition.model_pipeline"
+        "armi_runtime.composition.model_pipeline",
+        "armi_runtime.composition.candidate_pipeline"
       ]
     },
     {
@@ -139,6 +141,14 @@
       "owner": "cognitive-model-attempt",
       "allowed_callers": [
         "armi_runtime.composition.model_pipeline"
+      ]
+    },
+    {
+      "id": "cognitive-candidate-validation",
+      "module": "armi_runtime.adapters.persistence.candidate_validation",
+      "owner": "cognitive-candidate-validation",
+      "allowed_callers": [
+        "armi_runtime.composition.candidate_pipeline"
       ]
     }
   ],
@@ -233,6 +243,17 @@
         "durable-work",
         "normal-audit"
       ]
+    },
+    {
+      "id": "candidate-validation",
+      "module": "armi_runtime.composition.candidate_pipeline",
+      "owner": "cognitive-candidate-validation",
+      "allowed_write_surfaces": [
+        "cognitive-candidate-validation",
+        "artifact-catalog",
+        "durable-work",
+        "normal-audit"
+      ]
     }
   ],
   "named_coordinators_not_applicable_reason": "",
@@ -302,6 +323,7 @@
     "active_bindings": {
       "M0-SEAM-CONTEXT": "armi.context-compiler.deterministic-v1",
       "M0-SEAM-MODEL": "armi.model-adapter.volcengine-ark-responses-v1",
+      "M0-SEAM-COGNITIVE-CANDIDATE": "armi.candidate-validator.deterministic-v1",
       "M0-SEAM-WORK-SELECTION": "armi.opportunity-selector.creator-fifo-v1",
       "M0-SEAM-CREATOR-PROJECTION": "armi.scene-timeline-query.v2",
       "M0-SEAM-CREATOR-UI": "armi.creator-static.v1"

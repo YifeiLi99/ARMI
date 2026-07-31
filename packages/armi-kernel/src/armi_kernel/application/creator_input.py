@@ -135,6 +135,9 @@ class CreatorOperationPhase(StrEnum):
     CONTEXT_PREPARED = "context_prepared"
     MODEL_CALLING = "model_calling"
     MODEL_RETURNED = "model_returned"
+    CANDIDATE_VALIDATING = "candidate_validating"
+    CANDIDATE_VALIDATED = "candidate_validated"
+    CANDIDATE_REJECTED = "candidate_rejected"
     FAILED = "failed"
 
 
@@ -153,7 +156,17 @@ class CreatorOperation:
         if self.phase is CreatorOperationPhase.FAILED:
             if (
                 type(self.failure_code) is not str
-                or re.fullmatch(r"(?:CTX|MODEL)-[A-Z0-9-]+", self.failure_code) is None
+                or re.fullmatch(
+                    r"(?:CTX|MODEL|CANDIDATE)-[A-Z0-9-]+",
+                    self.failure_code,
+                )
+                is None
+            ):
+                raise CreatorInputViolation("CON-INPUT-OPERATION")
+        elif self.phase is CreatorOperationPhase.CANDIDATE_REJECTED:
+            if (
+                type(self.failure_code) is not str
+                or re.fullmatch(r"CANDIDATE-[A-Z0-9-]+", self.failure_code) is None
             ):
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
         elif self.failure_code is not None:

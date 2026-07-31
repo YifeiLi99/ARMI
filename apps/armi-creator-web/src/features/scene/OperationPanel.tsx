@@ -13,7 +13,8 @@ const waitingLabels = {
   context_preparation: "正在准备 Context",
   model_attempt: "Context 已准备，等待模型步骤",
   model_response: "正在等待模型响应",
-  candidate_validation: "模型响应已返回，等待候选校验",
+  candidate_validation: "正在校验认知候选",
+  subject_commit: "候选已校验，等待主体提交",
 } as const;
 
 export function OperationPanel({
@@ -82,6 +83,17 @@ export function OperationPanel({
           <div>
             <dt>责任引用</dt>
             <dd>{operation.data.result_ref}</dd>
+          </div>
+        </dl>
+      ) : operation.data.status === "rejected" ? (
+        <dl>
+          <div>
+            <dt>状态</dt>
+            <dd>认知候选已拒绝</dd>
+          </div>
+          <div>
+            <dt>安全错误码</dt>
+            <dd>{operation.data.error.code}</dd>
           </div>
         </dl>
       ) : (

@@ -8,6 +8,7 @@ from typing import Final
 from uuid import UUID
 
 from armi_kernel.application import (
+    CandidateViolation,
     ContextViolation,
     CreatorProjectionNotifier,
     CredentialPort,
@@ -38,6 +39,10 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 )
 
 from .birth_manifest import packaged_birth_digests
+from .candidate_pipeline import (
+    CandidateValidationPipeline,
+    build_candidate_validation_pipeline,
+)
 from .configuration import ConfigurationViolation
 from .context_pipeline import ContextPipeline, build_context_pipeline
 from .creator_input import (
@@ -509,6 +514,60 @@ def compose_model_pipeline(
         raise ModelViolation("MODEL-CREDENTIAL") from None
 
 
+def compose_candidate_validation_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    diagnostic: Callable[[str], None] | None = None,
+) -> CandidateValidationPipeline:
+    """Resolve the Runtime credential for the active S025 validator."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise CandidateViolation("CANDIDATE-DATABASE")
+    try:
+        policy = (
+            files("armi_runtime.composition.runtime_resources")
+            .joinpath("candidate-validation-policy.manifest.json")
+            .read_bytes()
+        )
+    except OSError:
+        raise CandidateViolation("CANDIDATE-POLICY-MISSING") from None
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> CandidateValidationPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise CandidateViolation("CANDIDATE-DATABASE") from None
+                config = prepared.effective.config
+                return build_candidate_validation_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    policy_digest=Digest.from_bytes(policy),
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise CandidateViolation("CANDIDATE-DATABASE") from None
+
+
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
@@ -567,6 +626,7 @@ __all__ = (
     "RUNTIME_LOCATOR_NAME",
     "ContinuityState",
     "DatabaseViolation",
+    "compose_candidate_validation_pipeline",
     "compose_context_pipeline",
     "compose_creator_input",
     "compose_model_pipeline",

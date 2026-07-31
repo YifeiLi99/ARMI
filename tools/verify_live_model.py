@@ -14,6 +14,7 @@ import json
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from uuid import uuid7
 
 from armi_kernel.application import CredentialLocator, ModelResultStatus
 from armi_kernel.contracts import Digest
@@ -58,10 +59,14 @@ async def _verify(env_file: Path) -> dict[str, object]:
         b'\\u6307\\u4ee4\\u3002"}],"schema_version":"armi.context-compiled.v1"}'
     )
     context_digest = Digest.from_bytes(context_bytes)
+    bundle_activation_id = uuid7()
     request_bytes = build_request_bytes(
         binding=binding,
         compiled_context=context_bytes,
         context_digest=context_digest,
+        base_subject_version=0,
+        base_state_epoch=0,
+        bundle_activation_id=bundle_activation_id,
         included_context_refs=(
             {
                 "ref": "ctx:1",

@@ -39,9 +39,11 @@ _SCHEMA_FILES = (
     "migrations/0010_creator_input_acceptance.sql",
     "migrations/0011_context_snapshot_and_compilation.sql",
     "migrations/0012_real_model_attempts.sql",
+    "migrations/0013_cognition_candidate_validation.sql",
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")
+_CANDIDATE_POLICY = Path("model/candidate-validation-policy.manifest.json")
 
 
 def _generate(root: Path, output: Path) -> None:
@@ -59,6 +61,8 @@ def _generate(root: Path, output: Path) -> None:
     (output / "context-policy.manifest.json").write_bytes(context_policy)
     model_binding = (root / _MODEL_BINDING).read_bytes()
     (output / "model-bindings.manifest.json").write_bytes(model_binding)
+    candidate_policy = (root / _CANDIDATE_POLICY).read_bytes()
+    (output / "candidate-validation-policy.manifest.json").write_bytes(candidate_policy)
     schema_resources = {
         name: (root / _SCHEMA / name).read_bytes() for name in _SCHEMA_FILES
     }
@@ -69,6 +73,7 @@ def _generate(root: Path, output: Path) -> None:
         birth_contract=birth_contract,
         context_policy=context_policy,
         model_binding=model_binding,
+        candidate_policy=candidate_policy,
         schema_resources=schema_resources,
     )
     (output / "runtime-composition.manifest.json").write_bytes(
@@ -84,6 +89,7 @@ def _files(root: Path) -> dict[str, bytes]:
             "birth-contract.manifest.json",
             "context-policy.manifest.json",
             "model-bindings.manifest.json",
+            "candidate-validation-policy.manifest.json",
             "runtime-composition.manifest.json",
         )
         if (root / name).is_file()

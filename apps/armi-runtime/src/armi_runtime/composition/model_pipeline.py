@@ -155,6 +155,9 @@ class ModelPipeline:
                 binding=self._adapter.binding,
                 compiled_context=context_bytes,
                 context_digest=snapshot.context_digest,
+                base_subject_version=snapshot.base_subject_version,
+                base_state_epoch=snapshot.base_state_epoch,
+                bundle_activation_id=snapshot.bundle_activation_id,
                 included_context_refs=snapshot.included_context_refs,
             )
             input_tokens = await self._adapter.tokenize(request_bytes)

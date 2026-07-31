@@ -127,6 +127,7 @@ class CreatorContractTests(unittest.TestCase):
             {
                 "AcceptedOutcomeResponse",
                 "WaitingOutcomeResponse",
+                "RejectedOutcomeResponse",
                 "FailedOutcomeResponse",
             },
         )

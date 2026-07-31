@@ -213,6 +213,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_opportunity_count",
                     "resumable_cognitive_episode_count",
                     "resumable_model_attempt_count",
+                    "resumable_candidate_validation_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -229,6 +230,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_opportunity_count",
                     "resumable_cognitive_episode_count",
                     "resumable_model_attempt_count",
+                    "resumable_candidate_validation_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -393,6 +395,8 @@ def build_role_manifest() -> dict[str, object]:
                         "failure_code",
                         "prepared_at",
                         "model_returned_at",
+                        "final_disposition",
+                        "validated_at",
                     ],
                 },
                 "armi_admin": {},
@@ -485,6 +489,41 @@ def build_role_manifest() -> dict[str, object]:
             "armi_migrator": {},
         },
     }
+    candidate_validation_objects = [
+        {
+            "kind": "table",
+            "name": "armi.cognitive_candidate_validations",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.cognitive_candidate_validation_items",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.cognitive_candidate_basis_links",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+        },
+    ]
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -754,12 +793,13 @@ def build_role_manifest() -> dict[str, object]:
             *creator_input_objects,
             *context_objects,
             model_attempt_object,
+            *candidate_validation_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S024 has no business or administration function requiring "
+                "M0-S025 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -959,6 +999,24 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "name": "armi.cognitive_attempts",
                 "logical_owner": "cognitive-model-attempt",
                 "activation_step": "M0-S024",
+            },
+            {
+                "kind": "table",
+                "name": "armi.cognitive_candidate_validations",
+                "logical_owner": "candidate-validation",
+                "activation_step": "M0-S025",
+            },
+            {
+                "kind": "table",
+                "name": "armi.cognitive_candidate_validation_items",
+                "logical_owner": "candidate-validation",
+                "activation_step": "M0-S025",
+            },
+            {
+                "kind": "table",
+                "name": "armi.cognitive_candidate_basis_links",
+                "logical_owner": "candidate-validation",
+                "activation_step": "M0-S025",
             },
         ],
         "deferred_objects": [

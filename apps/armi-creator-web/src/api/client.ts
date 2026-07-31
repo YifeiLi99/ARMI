@@ -10,9 +10,7 @@ export type SceneTimelinePage =
 export type AcceptedOperation =
   components["schemas"]["AcceptedOutcomeResponse"];
 export type CreatorOperation =
-  | AcceptedOperation
-  | components["schemas"]["WaitingOutcomeResponse"]
-  | components["schemas"]["FailedOutcomeResponse"];
+  components["schemas"]["OperationOutcomeResponse"];
 
 export class ApiFailure extends Error {
   constructor(
