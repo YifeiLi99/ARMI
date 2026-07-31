@@ -13,6 +13,8 @@ from armi_runtime.interfaces.creator_contract import (
     CreatorProjectionEventResponse,
     RejectedOutcomeResponse,
     RuntimeStatusResponse,
+    SceneTimelineItemResponse,
+    SceneTimelinePageResponse,
     build_creator_openapi,
 )
 from pydantic import ValidationError
@@ -202,7 +204,7 @@ class CreatorContractTests(unittest.TestCase):
             "event_kind": "scene.timeline.invalidated",
             "resource_kind": "scene_timeline",
             "resource_ref": "default",
-            "projection_version": "scene-timeline.v1",
+            "projection_version": "scene-timeline.v2",
             "occurred_at": INSTANT,
         }
         model = CreatorProjectionEventResponse.model_validate(sample)
@@ -211,7 +213,7 @@ class CreatorContractTests(unittest.TestCase):
             ("event_id", "sse-v1.invalid.1"),
             ("event_kind", "timeline.item"),
             ("resource_kind", "subject"),
-            ("projection_version", "scene-timeline.v2"),
+            ("projection_version", "scene-timeline.v1"),
             ("occurred_at", "2026-07-29T10:00:00Z"),
         ):
             with (
@@ -219,6 +221,41 @@ class CreatorContractTests(unittest.TestCase):
                 self.assertRaises(ValidationError),
             ):
                 CreatorProjectionEventResponse.model_validate({**sample, field: value})
+
+    def test_timeline_v2_exposes_only_creator_input_operation_refs(self) -> None:
+        operation_ref = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad"
+        item = {
+            "timeline_item_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ab",
+            "source_kind": "creator_input",
+            "source_ref": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ac",
+            "status": "accepted",
+            "occurred_at": INSTANT,
+            "operation_ref": operation_ref,
+        }
+        parsed = SceneTimelineItemResponse.model_validate(item)
+        self.assertEqual(parsed.operation_ref, operation_ref)
+        page = SceneTimelinePageResponse.model_validate(
+            {
+                "contract_version": "1.0",
+                "projection_version": "scene-timeline.v2",
+                "scene_key": "default",
+                "items": [item],
+            }
+        )
+        self.assertEqual(page.items[0].operation_ref, operation_ref)
+        with self.assertRaises(ValidationError):
+            SceneTimelineItemResponse.model_validate(
+                {key: value for key, value in item.items() if key != "operation_ref"}
+            )
+        with self.assertRaises(ValidationError):
+            SceneTimelinePageResponse.model_validate(
+                {
+                    "contract_version": "1.0",
+                    "projection_version": "scene-timeline.v1",
+                    "scene_key": "default",
+                    "items": [],
+                }
+            )
 
 
 if __name__ == "__main__":

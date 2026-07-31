@@ -2085,11 +2085,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             timeline["items"][0]["source_kind"],
                             timeline["items"][0]["source_ref"],
                             timeline["items"][0]["status"],
+                            timeline["items"][0]["operation_ref"],
                         ),
                         (
                             "creator_input",
                             accepted["details"]["interaction_id"],
                             "accepted",
+                            accepted["result_ref"],
                         ),
                     )
                     self.assertEqual(stream_response.readline(), b": keepalive\n")

@@ -68,6 +68,28 @@ class SceneTimelineContractTests(unittest.TestCase):
             with self.subTest(limit=limit), self.assertRaises(SceneQueryViolation):
                 SceneTimelineQuery(SceneKey("default"), limit)
 
+    def test_creator_input_requires_a_public_operation_reference(self) -> None:
+        occurred = Instant(datetime(2026, 7, 30, 10, tzinfo=UTC))
+        operation_ref = uuid7()
+        item = SceneTimelineItem(
+            TimelineItemId(uuid7()),
+            "creator_input",
+            uuid7(),
+            AuditResultStatus.ACCEPTED,
+            occurred,
+            operation_ref,
+        )
+        self.assertEqual(item.operation_ref, operation_ref)
+        with self.assertRaises(SceneQueryViolation) as missing:
+            SceneTimelineItem(
+                TimelineItemId(uuid7()),
+                "creator_input",
+                uuid7(),
+                AuditResultStatus.ACCEPTED,
+                occurred,
+            )
+        self.assertEqual(missing.exception.code, "CON-SCENE-OPERATION")
+
     def test_cursor_is_deterministic_scoped_and_tamper_evident(self) -> None:
         environment_id = uuid7()
         creator_party_id = uuid7()
@@ -137,7 +159,7 @@ class SceneTimelineContractTests(unittest.TestCase):
             )
         stale_payload = {
             "contract_version": "1.0",
-            "projection_version": "scene-timeline.v0",
+            "projection_version": "scene-timeline.v1",
             "environment_id": str(environment_id),
             "creator_party_id": str(creator_party_id),
             "scene_id": str(scene_id),

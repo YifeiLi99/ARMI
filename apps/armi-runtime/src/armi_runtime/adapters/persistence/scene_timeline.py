@@ -284,17 +284,41 @@ class PostgreSQLSceneTimelineQuery:
                         await connection.execute(
                             """
                             SELECT
-                                timeline_item_id,
-                                source_kind,
-                                source_ref,
-                                result_status,
-                                occurred_at
-                            FROM armi.scene_timeline_items
-                            WHERE scene_id = %s
-                            ORDER BY occurred_at DESC, timeline_item_id DESC
+                                item.timeline_item_id,
+                                item.source_kind,
+                                item.source_ref,
+                                item.result_status,
+                                item.occurred_at,
+                                opportunity.opportunity_id
+                            FROM armi.scene_timeline_items AS item
+                            LEFT JOIN armi.creator_input_interactions AS interaction
+                              ON item.source_kind = 'creator_input'
+                             AND interaction.creator_interaction_id = item.source_ref
+                             AND interaction.scene_id = item.scene_id
+                             AND interaction.creator_party_id = %s
+                            LEFT JOIN armi.external_evidence AS evidence
+                              ON evidence.creator_interaction_id =
+                                 interaction.creator_interaction_id
+                             AND evidence.subject_id = interaction.subject_id
+                             AND evidence.scene_id = interaction.scene_id
+                             AND evidence.creator_party_id =
+                                 interaction.creator_party_id
+                            LEFT JOIN armi.opportunities AS opportunity
+                              ON opportunity.evidence_id = evidence.evidence_id
+                             AND opportunity.subject_id = evidence.subject_id
+                             AND opportunity.scene_id = evidence.scene_id
+                             AND opportunity.creator_party_id =
+                                 evidence.creator_party_id
+                            WHERE item.scene_id = %s
+                            ORDER BY item.occurred_at DESC,
+                                     item.timeline_item_id DESC
                             LIMIT %s
                             """,
-                            (scene_id, request.limit + 1),
+                            (
+                                self._creator_party_id,
+                                scene_id,
+                                request.limit + 1,
+                            ),
                         )
                     ).fetchall()
                 else:
@@ -302,18 +326,40 @@ class PostgreSQLSceneTimelineQuery:
                         await connection.execute(
                             """
                             SELECT
-                                timeline_item_id,
-                                source_kind,
-                                source_ref,
-                                result_status,
-                                occurred_at
-                            FROM armi.scene_timeline_items
-                            WHERE scene_id = %s
-                              AND (occurred_at, timeline_item_id) < (%s, %s)
-                            ORDER BY occurred_at DESC, timeline_item_id DESC
+                                item.timeline_item_id,
+                                item.source_kind,
+                                item.source_ref,
+                                item.result_status,
+                                item.occurred_at,
+                                opportunity.opportunity_id
+                            FROM armi.scene_timeline_items AS item
+                            LEFT JOIN armi.creator_input_interactions AS interaction
+                              ON item.source_kind = 'creator_input'
+                             AND interaction.creator_interaction_id = item.source_ref
+                             AND interaction.scene_id = item.scene_id
+                             AND interaction.creator_party_id = %s
+                            LEFT JOIN armi.external_evidence AS evidence
+                              ON evidence.creator_interaction_id =
+                                 interaction.creator_interaction_id
+                             AND evidence.subject_id = interaction.subject_id
+                             AND evidence.scene_id = interaction.scene_id
+                             AND evidence.creator_party_id =
+                                 interaction.creator_party_id
+                            LEFT JOIN armi.opportunities AS opportunity
+                              ON opportunity.evidence_id = evidence.evidence_id
+                             AND opportunity.subject_id = evidence.subject_id
+                             AND opportunity.scene_id = evidence.scene_id
+                             AND opportunity.creator_party_id =
+                                 evidence.creator_party_id
+                            WHERE item.scene_id = %s
+                              AND (item.occurred_at, item.timeline_item_id)
+                                  < (%s, %s)
+                            ORDER BY item.occurred_at DESC,
+                                     item.timeline_item_id DESC
                             LIMIT %s
                             """,
                             (
+                                self._creator_party_id,
                                 scene_id,
                                 boundary[0].value,
                                 boundary[1],
@@ -327,6 +373,11 @@ class PostgreSQLSceneTimelineQuery:
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
 
         visible = rows[: request.limit]
+        if any(
+            (str(row[1]) == "creator_input") != isinstance(row[5], UUID)
+            for row in visible
+        ):
+            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
         items = tuple(
             SceneTimelineItem(
                 timeline_item_id=TimelineItemId(row[0]),
@@ -334,6 +385,7 @@ class PostgreSQLSceneTimelineQuery:
                 source_ref=row[2],
                 status=AuditResultStatus(str(row[3])),
                 occurred_at=Instant(cast(datetime, row[4])),
+                operation_ref=cast(UUID | None, row[5]),
             )
             for row in reversed(visible)
         )

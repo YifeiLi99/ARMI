@@ -16,6 +16,8 @@ import {
   saveStoredSession,
 } from "./storage";
 import type { StoredBrowserSession } from "./storage";
+import { MessageComposer } from "../scene/MessageComposer";
+import { OperationPanel } from "../scene/OperationPanel";
 import { TimelinePanel } from "../scene/TimelinePanel";
 
 type ViewState =
@@ -45,6 +47,9 @@ export function SessionPanel() {
   const queryClient = useQueryClient();
   const streamAbort = useRef<(() => void) | null>(null);
   const [code, setCode] = useState("");
+  const [selectedOperation, setSelectedOperation] = useState<string | null>(
+    null,
+  );
   const [view, setView] = useState<ViewState>({
     kind: "loading",
     message: "正在核对浏览器会话",
@@ -68,6 +73,7 @@ export function SessionPanel() {
         abortStream();
         clearStoredSession();
         queryClient.clear();
+        setSelectedOperation(null);
         setView({
           kind: "bootstrap",
           message: "运行环境已变化，请重新建立会话。",
@@ -83,6 +89,7 @@ export function SessionPanel() {
       if (error instanceof ApiFailure && error.status === 401) {
         clearStoredSession();
         queryClient.clear();
+        setSelectedOperation(null);
         setView({ kind: "bootstrap", message: safeMessage(error) });
         return;
       }
@@ -122,6 +129,7 @@ export function SessionPanel() {
     } catch (error) {
       clearStoredSession();
       queryClient.clear();
+      setSelectedOperation(null);
       setView({
         kind: "bootstrap",
         message:
@@ -142,6 +150,7 @@ export function SessionPanel() {
     abortStream();
     clearStoredSession();
     queryClient.clear();
+    setSelectedOperation(null);
     setView({ kind: "bootstrap", message: "浏览器会话已注销。" });
     try {
       await deleteCurrentBrowserSession(token);
@@ -154,6 +163,7 @@ export function SessionPanel() {
     abortStream();
     clearStoredSession();
     queryClient.clear();
+    setSelectedOperation(null);
     setView({
       kind: "bootstrap",
       message: "会话已失效，请使用新的 bootstrap code。",
@@ -253,13 +263,32 @@ export function SessionPanel() {
           当前只显示经认证的本机 Runtime 安全状态。
         </p>
       </section>
+      <MessageComposer
+        token={view.stored.token}
+        sceneKey={view.session.default_scene_key}
+        queryClient={queryClient}
+        timelineQueryKey={[
+          "scene-timeline",
+          view.session.environment_id,
+          view.session.creator_party_id,
+          view.session.default_scene_key,
+        ]}
+        onUnauthorized={unauthorized}
+        onOperationAccepted={setSelectedOperation}
+      />
       <TimelinePanel
         token={view.stored.token}
         environmentId={view.session.environment_id}
         creatorPartyId={view.session.creator_party_id}
         sceneKey={view.session.default_scene_key}
         onUnauthorized={unauthorized}
+        onOperationSelected={setSelectedOperation}
         registerStreamAbort={registerStreamAbort}
+      />
+      <OperationPanel
+        token={view.stored.token}
+        operationRef={selectedOperation}
+        onUnauthorized={unauthorized}
       />
     </div>
   );

@@ -66,7 +66,7 @@ function parseEventData(value: string): CreatorProjectionEvent {
     decoded.resource_kind !== "scene_timeline" ||
     typeof decoded.resource_ref !== "string" ||
     !SCENE_KEY.test(decoded.resource_ref) ||
-    decoded.projection_version !== "scene-timeline.v1" ||
+    decoded.projection_version !== "scene-timeline.v2" ||
     typeof decoded.occurred_at !== "string" ||
     !INSTANT.test(decoded.occurred_at)
   ) {

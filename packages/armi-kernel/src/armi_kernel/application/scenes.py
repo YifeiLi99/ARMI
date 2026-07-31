@@ -11,7 +11,7 @@ from armi_kernel.contracts import Instant, OpaqueCursor
 
 from .auditing import AuditResultStatus
 
-PROJECTION_VERSION = "scene-timeline.v1"
+PROJECTION_VERSION = "scene-timeline.v2"
 _KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 _KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^(?:CON-SCENE|CON-QUERY|SCENE)-[A-Z0-9-]+$", re.ASCII)
@@ -67,6 +67,7 @@ class SceneTimelineItem:
     source_ref: UUID
     status: AuditResultStatus
     occurred_at: Instant
+    operation_ref: UUID | None = None
 
     def __post_init__(self) -> None:
         if type(self.timeline_item_id) is not TimelineItemId:
@@ -81,6 +82,10 @@ class SceneTimelineItem:
             raise SceneQueryViolation("CON-SCENE-STATUS")
         if type(self.occurred_at) is not Instant:
             raise SceneQueryViolation("CON-SCENE-TIME")
+        if self.operation_ref is not None:
+            _require_uuid7(self.operation_ref, "CON-SCENE-OPERATION")
+        if (self.source_kind == "creator_input") != (self.operation_ref is not None):
+            raise SceneQueryViolation("CON-SCENE-OPERATION")
 
 
 @dataclass(frozen=True, slots=True)

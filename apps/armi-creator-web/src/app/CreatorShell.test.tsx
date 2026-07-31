@@ -9,6 +9,7 @@ const TOKEN = `browser-v1.${"a".repeat(43)}`;
 const CODE = `bootstrap-v1.${"b".repeat(22)}`;
 const ENVIRONMENT_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef7";
 const CREATOR_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef8";
+const OPPORTUNITY_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef9";
 
 function jsonResponse(value: object, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -52,6 +53,24 @@ function sessionResponse(includeToken: boolean): object {
   };
 }
 
+function acceptedOperation(): object {
+  return {
+    contract_version: "1.0",
+    status: "accepted",
+    trace_id: "a".repeat(32),
+    occurred_at: "2026-07-30T10:02:00.000000Z",
+    message: "The Creator input is durably accepted.",
+    result_ref: OPPORTUNITY_ID,
+    custodian: "runtime",
+    details: {
+      interaction_id: "018f47a6-7b2d-7c35-8b18-684e38ab6efa",
+      evidence_id: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
+      opportunity_id: OPPORTUNITY_ID,
+      operation_url: `/v1/operations/${OPPORTUNITY_ID}`,
+    },
+  };
+}
+
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
@@ -91,7 +110,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v1",
+          projection_version: "scene-timeline.v2",
           scene_key: "default",
           items: [],
         }),
@@ -185,7 +204,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v1",
+          projection_version: "scene-timeline.v2",
           scene_key: "default",
           items: [
             {
@@ -203,7 +222,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v1",
+          projection_version: "scene-timeline.v2",
           scene_key: "default",
           items: [
             {
@@ -264,7 +283,7 @@ describe("Creator browser session shell", () => {
       event_kind: "scene.timeline.invalidated",
       resource_kind: "scene_timeline",
       resource_ref: "default",
-      projection_version: "scene-timeline.v1",
+      projection_version: "scene-timeline.v2",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     const fetchMock = vi
@@ -284,7 +303,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v1",
+          projection_version: "scene-timeline.v2",
           scene_key: "default",
           items: [],
         }),
@@ -297,7 +316,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v1",
+          projection_version: "scene-timeline.v2",
           scene_key: "default",
           items: [
             {
@@ -339,7 +358,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v1",
+          projection_version: "scene-timeline.v2",
           scene_key: "default",
           items: [],
         }),
@@ -356,5 +375,142 @@ describe("Creator browser session shell", () => {
       await screen.findByText("会话已失效，请使用新的 bootstrap code。"),
     ).toBeInTheDocument();
     expect(sessionStorage.getItem("armi.browser-session.v1")).toBeNull();
+  });
+
+  it("accepts an input, clears its body, and verifies the operation", async () => {
+    let accepted = false;
+    const keys: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/browser-sessions" && init?.method === "POST") {
+        return jsonResponse(sessionResponse(true));
+      }
+      if (url === "/v1/browser-sessions/current") {
+        return jsonResponse(sessionResponse(false));
+      }
+      if (url === "/v1/runtime/status") {
+        return jsonResponse({
+          contract_version: "1.0",
+          environment_id: ENVIRONMENT_ID,
+          runtime_state: "ready",
+          readiness: "ready",
+          reason_codes: [],
+          observed_at: "2026-07-30T10:00:01.000000Z",
+        });
+      }
+      if (url.includes("/timeline?")) {
+        return jsonResponse({
+          contract_version: "1.0",
+          projection_version: "scene-timeline.v2",
+          scene_key: "default",
+          items: accepted
+            ? [
+                {
+                  timeline_item_id: "018f47a6-7b2d-7c35-8b18-684e38ab6efc",
+                  source_kind: "creator_input",
+                  source_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efa",
+                  status: "accepted",
+                  occurred_at: "2026-07-30T10:02:00.000000Z",
+                  operation_ref: OPPORTUNITY_ID,
+                },
+              ]
+            : [],
+        });
+      }
+      if (url.endsWith("/events")) {
+        return streamResponse();
+      }
+      if (url.endsWith("/messages")) {
+        const headers = new Headers(init?.headers);
+        keys.push(headers.get("Idempotency-Key") ?? "");
+        accepted = true;
+        return jsonResponse(acceptedOperation(), 202);
+      }
+      if (url === `/v1/operations/${OPPORTUNITY_ID}`) {
+        return jsonResponse(acceptedOperation());
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<CreatorShell />);
+
+    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
+    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
+    const composer = await screen.findByLabelText("输入内容");
+    await user.type(composer, "  保留原样\n内容  ");
+    await user.click(screen.getByRole("button", { name: "提交输入" }));
+
+    expect(
+      await screen.findByText("输入已由 Runtime 耐久接纳，可在下方核验责任。"),
+    ).toBeInTheDocument();
+    expect(composer).toHaveValue("");
+    expect(await screen.findByText(OPPORTUNITY_ID)).toBeInTheDocument();
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toMatch(/^creator-input-v1\.[A-Za-z0-9_-]{22}$/);
+    expect(document.body.textContent).not.toContain("保留原样");
+  });
+
+  it("retries an unconfirmed result with the exact same intent key", async () => {
+    const keys: string[] = [];
+    let messageAttempts = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/browser-sessions" && init?.method === "POST") {
+        return jsonResponse(sessionResponse(true));
+      }
+      if (url === "/v1/browser-sessions/current") {
+        return jsonResponse(sessionResponse(false));
+      }
+      if (url === "/v1/runtime/status") {
+        return jsonResponse({
+          contract_version: "1.0",
+          environment_id: ENVIRONMENT_ID,
+          runtime_state: "ready",
+          readiness: "ready",
+          reason_codes: [],
+          observed_at: "2026-07-30T10:00:01.000000Z",
+        });
+      }
+      if (url.includes("/timeline?")) {
+        return jsonResponse({
+          contract_version: "1.0",
+          projection_version: "scene-timeline.v2",
+          scene_key: "default",
+          items: [],
+        });
+      }
+      if (url.endsWith("/events")) {
+        return streamResponse();
+      }
+      if (url.endsWith("/messages")) {
+        keys.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
+        messageAttempts += 1;
+        if (messageAttempts === 1) {
+          throw new TypeError("connection interrupted");
+        }
+        return jsonResponse(acceptedOperation(), 202);
+      }
+      if (url === `/v1/operations/${OPPORTUNITY_ID}`) {
+        return jsonResponse(acceptedOperation());
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<CreatorShell />);
+
+    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
+    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
+    await user.type(await screen.findByLabelText("输入内容"), "需要确认");
+    await user.click(screen.getByRole("button", { name: "提交输入" }));
+    expect(await screen.findByText(/结果尚未确认/)).toBeInTheDocument();
+    expect(screen.getByLabelText("输入内容")).toHaveValue("需要确认");
+    await user.click(screen.getByRole("button", { name: "核验同一次输入" }));
+    expect(
+      await screen.findByText(/输入已由 Runtime 耐久接纳/),
+    ).toBeInTheDocument();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
   });
 });

@@ -8,6 +8,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -33,6 +34,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     event_epoch = "e" * 22
     timeline_reads = 0
     event_streams = 0
+    input_accepted = False
+    opportunity_id = "018f47a6-7b2d-7c35-8b18-684e38ab6ef9"
 
     def log_message(self, format: str, *args: object) -> None:
         del format, args
@@ -57,6 +60,32 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         }
 
     def do_POST(self) -> None:
+        if self.path == "/v1/scenes/default/messages":
+            if (
+                self.headers.get("Authorization") != f"Bearer {self.session_token}"
+                or re.fullmatch(
+                    r"creator-input-v1\.[A-Za-z0-9_-]{22}",
+                    self.headers.get("Idempotency-Key", ""),
+                )
+                is None
+            ):
+                self.send_error(403)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                request = json.loads(self.rfile.read(length))
+            except ValueError, json.JSONDecodeError:
+                self.send_error(400)
+                return
+            if request != {
+                "contract_version": "1.0",
+                "message": "精确保留的 Creator 输入",
+            }:
+                self.send_error(400)
+                return
+            type(self).input_accepted = True
+            self._json_response(202, self._accepted_operation())
+            return
         if self.path != "/v1/browser-sessions":
             self.send_error(404)
             return
@@ -76,6 +105,24 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 "browser_session_token": self.session_token,
             },
         )
+
+    @classmethod
+    def _accepted_operation(cls) -> dict[str, object]:
+        return {
+            "contract_version": "1.0",
+            "status": "accepted",
+            "trace_id": "a" * 32,
+            "occurred_at": "2026-07-30T10:03:00.000000Z",
+            "message": "The Creator input is durably accepted.",
+            "result_ref": cls.opportunity_id,
+            "custodian": "runtime",
+            "details": {
+                "interaction_id": "018f47a6-7b2d-7c35-8b18-684e38ab6efa",
+                "evidence_id": "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
+                "opportunity_id": cls.opportunity_id,
+                "operation_url": f"/v1/operations/{cls.opportunity_id}",
+            },
+        }
 
     def do_GET(self) -> None:
         if self.path == "/v1/browser-sessions/current":
@@ -107,15 +154,29 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                         "occurred_at": "2026-07-30T10:02:00.000000Z",
                     }
                 )
+            if type(self).input_accepted:
+                items.append(
+                    {
+                        "timeline_item_id": "018f47a6-7b2d-7c35-8b18-684e38ab6efc",
+                        "source_kind": "creator_input",
+                        "source_ref": "018f47a6-7b2d-7c35-8b18-684e38ab6efa",
+                        "status": "accepted",
+                        "occurred_at": "2026-07-30T10:03:00.000000Z",
+                        "operation_ref": self.opportunity_id,
+                    }
+                )
             self._json_response(
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "scene-timeline.v1",
+                    "projection_version": "scene-timeline.v2",
                     "scene_key": "default",
                     "items": items,
                 },
             )
+            return
+        if self.path == f"/v1/operations/{self.opportunity_id}":
+            self._json_response(200, self._accepted_operation())
             return
         if self.path == "/v1/scenes/default/events":
             if (
@@ -134,7 +195,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "event_kind": "scene.timeline.invalidated",
                     "resource_kind": "scene_timeline",
                     "resource_ref": "default",
-                    "projection_version": "scene-timeline.v1",
+                    "projection_version": "scene-timeline.v2",
                     "occurred_at": "2026-07-30T10:02:00.000000Z",
                 },
                 separators=(",", ":"),
@@ -218,6 +279,7 @@ def main() -> int:
                     for viewport in VIEWPORTS:
                         QuietHandler.timeline_reads = 0
                         QuietHandler.event_streams = 0
+                        QuietHandler.input_accepted = False
                         page = browser.new_page(viewport=viewport)
                         requests: list[str] = []
                         page.on(
@@ -278,6 +340,23 @@ def main() -> int:
                             raise RuntimeError(
                                 "SEC-WEB-TOKEN-DOM: session token reached the DOM"
                             )
+                        message = "精确保留的 Creator 输入"
+                        page.get_by_label("输入内容").fill(message)
+                        page.get_by_role("button", name="提交输入").click()
+                        page.get_by_text(
+                            "输入已由 Runtime 耐久接纳"
+                            + "\uff0c"
+                            + "可在下方核验责任。"
+                        ).wait_for()
+                        page.get_by_text(QuietHandler.opportunity_id).wait_for()
+                        if message in page.content():
+                            raise RuntimeError(
+                                "SEC-WEB-MESSAGE-DOM: accepted body remained visible"
+                            )
+                        if "creator-input-v1." in json.dumps(storage):
+                            raise RuntimeError(
+                                "SEC-WEB-IDEMPOTENCY-STORAGE: intent key persisted"
+                            )
                         page.reload(wait_until="networkidle")
                         page.get_by_text("浏览器会话已建立").wait_for()
                         page.get_by_text("browser.event").wait_for()
@@ -319,6 +398,7 @@ def main() -> int:
                                 "horizontal_overflow": False,
                                 "session_flow": "pass",
                                 "event_stream": "pass",
+                                "creator_input_loop": "pass",
                             }
                         )
                         page.close()

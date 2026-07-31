@@ -84,7 +84,7 @@ def build_composition_manifest(
         active = (
             "armi.creator-static.v1"
             if seam_id == "M0-SEAM-CREATOR-UI"
-            else "armi.scene-timeline-query.v1"
+            else "armi.scene-timeline-query.v2"
             if seam_id == "M0-SEAM-CREATOR-PROJECTION"
             else None
         )

@@ -167,14 +167,25 @@ class SceneTimelineItemResponse(_StrictWireModel):
     source_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     status: TimelineStatus
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
 
-    @field_validator("timeline_item_id", "source_ref")
+    @field_validator("timeline_item_id", "source_ref", "operation_ref")
     @classmethod
-    def validate_uuid7(cls, value: str) -> str:
+    def validate_uuid7(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         parsed = UUID(value)
         if parsed.version != 7 or str(parsed) != value:
             raise ValueError("CON-SCENE-ID: identity must be canonical UUIDv7")
         return value
+
+    @model_validator(mode="after")
+    def validate_operation_ref(self) -> SceneTimelineItemResponse:
+        if (self.source_kind == "creator_input") != (self.operation_ref is not None):
+            raise ValueError(
+                "CON-SCENE-OPERATION: creator input must expose its operation"
+            )
+        return self
 
     @field_validator("occurred_at")
     @classmethod
@@ -186,7 +197,7 @@ class SceneTimelineItemResponse(_StrictWireModel):
 
 class SceneTimelinePageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["scene-timeline.v1"]
+    projection_version: Literal["scene-timeline.v2"]
     scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
     items: Annotated[list[SceneTimelineItemResponse], Field(max_length=100)]
     next_cursor: (
@@ -200,7 +211,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     event_kind: Literal["scene.timeline.invalidated"]
     resource_kind: Literal["scene_timeline"]
     resource_ref: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
-    projection_version: Literal["scene-timeline.v1"]
+    projection_version: Literal["scene-timeline.v2"]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
     @field_validator("occurred_at")

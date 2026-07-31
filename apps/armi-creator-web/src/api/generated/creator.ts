@@ -302,7 +302,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "scene-timeline.v1";
+      projection_version: "scene-timeline.v2";
       /**
        * Resource Kind
        * @constant
@@ -419,6 +419,8 @@ export interface components {
     SceneTimelineItemResponse: {
       /** Occurred At */
       occurred_at: string;
+      /** Operation Ref */
+      operation_ref?: string | null;
       /** Source Kind */
       source_kind: string;
       /** Source Ref */
@@ -442,7 +444,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "scene-timeline.v1";
+      projection_version: "scene-timeline.v2";
       /** Scene Key */
       scene_key: string;
     };

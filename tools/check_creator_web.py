@@ -85,7 +85,7 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
                 "ARC-WEB-FEATURE",
                 path,
                 1,
-                "S020 must register only the session and scene features",
+                "S022 must keep Creator input and operation views inside the scene feature",
             )
         )
     event_stream = creator.get("event_stream")
@@ -254,7 +254,7 @@ def check_repository(root: Path) -> list[Violation]:
                         "ARC-WEB-FUTURE",
                         (feature_root / name).relative_to(root).as_posix(),
                         1,
-                        "S020 must not prebuild a future business feature",
+                        "S022 must not prebuild a future business feature",
                     )
                 )
         for path in sorted(source_root.rglob("*")):

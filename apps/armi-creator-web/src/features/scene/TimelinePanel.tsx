@@ -10,6 +10,7 @@ type TimelinePanelProps = {
   creatorPartyId: string;
   sceneKey: string;
   onUnauthorized: () => void;
+  onOperationSelected: (operationRef: string) => void;
   registerStreamAbort: (abort: (() => void) | null) => void;
 };
 
@@ -19,6 +20,7 @@ export function TimelinePanel({
   creatorPartyId,
   sceneKey,
   onUnauthorized,
+  onOperationSelected,
   registerStreamAbort,
 }: TimelinePanelProps) {
   const queryClient = useQueryClient();
@@ -118,6 +120,16 @@ export function TimelinePanel({
               <span>{item.source_kind}</span>
               <strong>{item.status}</strong>
               <time dateTime={item.occurred_at}>{item.occurred_at}</time>
+              {item.operation_ref === undefined ||
+              item.operation_ref === null ? null : (
+                <button
+                  type="button"
+                  className="secondary timeline-operation"
+                  onClick={() => onOperationSelected(item.operation_ref!)}
+                >
+                  查看 operation
+                </button>
+              )}
             </li>
           ))}
         </ol>

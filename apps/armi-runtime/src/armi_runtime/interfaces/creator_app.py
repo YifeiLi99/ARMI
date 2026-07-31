@@ -613,7 +613,7 @@ def create_runtime_app(
             )
         response = SceneTimelinePageResponse(
             contract_version="1.0",
-            projection_version="scene-timeline.v1",
+            projection_version="scene-timeline.v2",
             scene_key=page.scene_key.value,
             items=[
                 SceneTimelineItemResponse(
@@ -622,6 +622,11 @@ def create_runtime_app(
                     source_ref=str(item.source_ref),
                     status=item.status.value,
                     occurred_at=item.occurred_at.to_wire(),
+                    operation_ref=(
+                        str(item.operation_ref)
+                        if item.operation_ref is not None
+                        else None
+                    ),
                 )
                 for item in page.items
             ],

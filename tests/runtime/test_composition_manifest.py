@@ -28,7 +28,7 @@ class CompositionManifestTests(unittest.TestCase):
             [
                 (
                     "M0-SEAM-CREATOR-PROJECTION",
-                    "armi.scene-timeline-query.v1",
+                    "armi.scene-timeline-query.v2",
                 ),
                 ("M0-SEAM-CREATOR-UI", "armi.creator-static.v1"),
             ],
