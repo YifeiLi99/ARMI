@@ -40,10 +40,12 @@ _SCHEMA_FILES = (
     "migrations/0011_context_snapshot_and_compilation.sql",
     "migrations/0012_real_model_attempts.sql",
     "migrations/0013_cognition_candidate_validation.sql",
+    "migrations/0014_t03_subject_commit.sql",
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")
 _CANDIDATE_POLICY = Path("model/candidate-validation-policy.manifest.json")
+_SUBJECT_COMMIT_POLICY = Path("model/subject-commit-policy.manifest.json")
 
 
 def _generate(root: Path, output: Path) -> None:
@@ -63,6 +65,8 @@ def _generate(root: Path, output: Path) -> None:
     (output / "model-bindings.manifest.json").write_bytes(model_binding)
     candidate_policy = (root / _CANDIDATE_POLICY).read_bytes()
     (output / "candidate-validation-policy.manifest.json").write_bytes(candidate_policy)
+    subject_commit_policy = (root / _SUBJECT_COMMIT_POLICY).read_bytes()
+    (output / "subject-commit-policy.manifest.json").write_bytes(subject_commit_policy)
     schema_resources = {
         name: (root / _SCHEMA / name).read_bytes() for name in _SCHEMA_FILES
     }
@@ -74,6 +78,7 @@ def _generate(root: Path, output: Path) -> None:
         context_policy=context_policy,
         model_binding=model_binding,
         candidate_policy=candidate_policy,
+        subject_commit_policy=subject_commit_policy,
         schema_resources=schema_resources,
     )
     (output / "runtime-composition.manifest.json").write_bytes(
@@ -90,6 +95,7 @@ def _files(root: Path) -> dict[str, bytes]:
             "context-policy.manifest.json",
             "model-bindings.manifest.json",
             "candidate-validation-policy.manifest.json",
+            "subject-commit-policy.manifest.json",
             "runtime-composition.manifest.json",
         )
         if (root / name).is_file()

@@ -36,6 +36,7 @@ from armi_kernel.application import (
     PublishedArtifact,
     RuntimeFence,
     SceneKey,
+    SubjectSummary,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 
@@ -187,6 +188,21 @@ class EvidenceAcceptanceTransaction(
             raise
         except DatabaseTransactionError:
             raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
+
+    async def get_subject_summary(self) -> SubjectSummary:
+        try:
+            async with self._uow_factory.unit_of_work(
+                LockPlan(),
+                read_only=True,
+            ) as unit_of_work:
+                return await self._repository.subject_summary(
+                    unit_of_work,
+                    creator_party_id=self._creator_party_id,
+                )
+        except CreatorInputViolation:
+            raise
+        except DatabaseTransactionError:
+            raise CreatorInputViolation("DB-SUBJECT-SUMMARY") from None
 
     async def _attempt(
         self,

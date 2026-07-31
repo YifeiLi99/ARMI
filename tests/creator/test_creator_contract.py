@@ -66,6 +66,7 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/browser-sessions/current",
                 "/v1/runtime/status",
                 "/v1/operations/{result_ref}",
+                "/v1/subject/summary",
                 "/v1/scenes/{scene_key}/events",
                 "/v1/scenes/{scene_key}/messages",
                 "/v1/scenes/{scene_key}/timeline",
@@ -119,6 +120,9 @@ class CreatorContractTests(unittest.TestCase):
         operation = paths["/v1/operations/{result_ref}"]["get"]
         self.assertEqual(operation["operationId"], "getCreatorOperation")
         self.assertEqual(operation["security"], [{"browserSessionBearer": []}])
+        summary = paths["/v1/subject/summary"]["get"]
+        self.assertEqual(summary["operationId"], "getSubjectSummary")
+        self.assertEqual(summary["security"], [{"browserSessionBearer": []}])
         operation_schema = cast(dict[str, Any], schema["components"])["schemas"][
             "OperationOutcomeResponse"
         ]
@@ -126,6 +130,8 @@ class CreatorContractTests(unittest.TestCase):
             {branch["$ref"].rsplit("/", 1)[-1] for branch in operation_schema["oneOf"]},
             {
                 "AcceptedOutcomeResponse",
+                "AppliedOutcomeResponse",
+                "CompletedOutcomeResponse",
                 "WaitingOutcomeResponse",
                 "RejectedOutcomeResponse",
                 "FailedOutcomeResponse",

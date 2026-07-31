@@ -15,6 +15,7 @@ from armi_kernel.application import (
     CredentialPurpose,
     ModelViolation,
     RuntimeFence,
+    SubjectCommitViolation,
 )
 from armi_kernel.contracts import Digest
 
@@ -51,6 +52,10 @@ from .creator_input import (
 )
 from .environment import PreparedEnvironment
 from .model_pipeline import ModelPipeline, build_model_pipeline
+from .subject_commit_pipeline import (
+    SubjectCommitPipeline,
+    build_subject_commit_pipeline,
+)
 
 RUNTIME_LOCATOR_NAME: Final = "database.runtime"
 MIGRATOR_LOCATOR_NAME: Final = "database.migrator"
@@ -568,6 +573,49 @@ def compose_candidate_validation_pipeline(
         raise CandidateViolation("CANDIDATE-DATABASE") from None
 
 
+def compose_subject_commit_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    notifier: CreatorProjectionNotifier | None,
+    diagnostic: Callable[[str], None] | None = None,
+) -> SubjectCommitPipeline:
+    """Resolve the Runtime credential for the sole active T-03 coordinator."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise SubjectCommitViolation("SUBJECT-DATABASE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> SubjectCommitPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise SubjectCommitViolation("SUBJECT-DATABASE") from None
+                config = prepared.effective.config
+                return build_subject_commit_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
+                    notifier=notifier,
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise SubjectCommitViolation("SUBJECT-DATABASE") from None
+
+
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
@@ -633,6 +681,7 @@ __all__ = (
     "compose_runtime_authority",
     "compose_runtime_recovery",
     "compose_scene_timeline_query",
+    "compose_subject_commit_pipeline",
     "inspect_creator_context",
     "inspect_creator_party_id",
     "inspect_operator_schema",

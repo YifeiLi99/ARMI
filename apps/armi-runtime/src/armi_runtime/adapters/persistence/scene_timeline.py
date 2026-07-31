@@ -289,7 +289,10 @@ class PostgreSQLSceneTimelineQuery:
                                 item.source_ref,
                                 item.result_status,
                                 item.occurred_at,
-                                opportunity.opportunity_id
+                                COALESCE(
+                                    opportunity.root_opportunity_id,
+                                    commit_opportunity.root_opportunity_id
+                                )
                             FROM armi.scene_timeline_items AS item
                             LEFT JOIN armi.creator_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
@@ -309,12 +312,24 @@ class PostgreSQLSceneTimelineQuery:
                              AND opportunity.scene_id = evidence.scene_id
                              AND opportunity.creator_party_id =
                                  evidence.creator_party_id
+                             AND opportunity.reconsideration_no = 0
+                            LEFT JOIN armi.subject_commits AS subject_commit
+                              ON item.source_kind = 'subject_commit'
+                             AND subject_commit.subject_commit_id = item.source_ref
+                            LEFT JOIN armi.cognitive_episodes AS commit_episode
+                              ON commit_episode.cognitive_episode_id =
+                                 subject_commit.cognitive_episode_id
+                            LEFT JOIN armi.opportunities AS commit_opportunity
+                              ON commit_opportunity.opportunity_id =
+                                 commit_episode.opportunity_id
+                             AND commit_opportunity.creator_party_id = %s
                             WHERE item.scene_id = %s
                             ORDER BY item.occurred_at DESC,
                                      item.timeline_item_id DESC
                             LIMIT %s
                             """,
                             (
+                                self._creator_party_id,
                                 self._creator_party_id,
                                 scene_id,
                                 request.limit + 1,
@@ -331,7 +346,10 @@ class PostgreSQLSceneTimelineQuery:
                                 item.source_ref,
                                 item.result_status,
                                 item.occurred_at,
-                                opportunity.opportunity_id
+                                COALESCE(
+                                    opportunity.root_opportunity_id,
+                                    commit_opportunity.root_opportunity_id
+                                )
                             FROM armi.scene_timeline_items AS item
                             LEFT JOIN armi.creator_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
@@ -351,6 +369,17 @@ class PostgreSQLSceneTimelineQuery:
                              AND opportunity.scene_id = evidence.scene_id
                              AND opportunity.creator_party_id =
                                  evidence.creator_party_id
+                             AND opportunity.reconsideration_no = 0
+                            LEFT JOIN armi.subject_commits AS subject_commit
+                              ON item.source_kind = 'subject_commit'
+                             AND subject_commit.subject_commit_id = item.source_ref
+                            LEFT JOIN armi.cognitive_episodes AS commit_episode
+                              ON commit_episode.cognitive_episode_id =
+                                 subject_commit.cognitive_episode_id
+                            LEFT JOIN armi.opportunities AS commit_opportunity
+                              ON commit_opportunity.opportunity_id =
+                                 commit_episode.opportunity_id
+                             AND commit_opportunity.creator_party_id = %s
                             WHERE item.scene_id = %s
                               AND (item.occurred_at, item.timeline_item_id)
                                   < (%s, %s)
@@ -359,6 +388,7 @@ class PostgreSQLSceneTimelineQuery:
                             LIMIT %s
                             """,
                             (
+                                self._creator_party_id,
                                 self._creator_party_id,
                                 scene_id,
                                 boundary[0].value,
@@ -374,7 +404,8 @@ class PostgreSQLSceneTimelineQuery:
 
         visible = rows[: request.limit]
         if any(
-            (str(row[1]) == "creator_input") != isinstance(row[5], UUID)
+            (str(row[1]) in {"creator_input", "subject_commit"})
+            != isinstance(row[5], UUID)
             for row in visible
         ):
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")

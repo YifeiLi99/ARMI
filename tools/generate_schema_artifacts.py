@@ -116,8 +116,12 @@ def build_role_manifest() -> dict[str, object]:
             "subject_id",
             "component_kind",
             "component_version",
+            "previous_revision_id",
             "origin_kind",
             "origin_ref",
+            "subject_commit_id",
+            "proposal_ref",
+            "semantic_digest",
             "semantic_payload",
             "privacy_scope",
         ],
@@ -151,6 +155,13 @@ def build_role_manifest() -> dict[str, object]:
         }
         for name, columns in birth_insert_columns.items()
     ]
+    for item in birth_objects:
+        name = item["name"]
+        runtime_columns = item["column_grants"]["armi_runtime"]
+        if name == "armi.subjects":
+            runtime_columns["UPDATE"] = ["subject_version"]
+        elif name == "armi.subject_component_heads":
+            runtime_columns["UPDATE"] = ["current_revision_id", "component_version"]
     authority_object = {
         "kind": "table",
         "name": "armi.runtime_instances",
@@ -214,6 +225,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_cognitive_episode_count",
                     "resumable_model_attempt_count",
                     "resumable_candidate_validation_count",
+                    "resumable_subject_commit_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -231,6 +243,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_cognitive_episode_count",
                     "resumable_model_attempt_count",
                     "resumable_candidate_validation_count",
+                    "resumable_subject_commit_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -348,9 +361,12 @@ def build_role_manifest() -> dict[str, object]:
                         "purpose",
                         "eligibility_status",
                         "current_disposition",
+                        "root_opportunity_id",
+                        "predecessor_opportunity_id",
+                        "reconsideration_no",
                         "schema_version",
                     ],
-                    "UPDATE": ["current_disposition", "selected_at"],
+                    "UPDATE": ["current_disposition", "selected_at", "resolved_at"],
                 },
                 "armi_admin": {},
                 "armi_migrator": {},
@@ -397,6 +413,8 @@ def build_role_manifest() -> dict[str, object]:
                         "model_returned_at",
                         "final_disposition",
                         "validated_at",
+                        "application_resolution",
+                        "committed_at",
                     ],
                 },
                 "armi_admin": {},
@@ -523,6 +541,25 @@ def build_role_manifest() -> dict[str, object]:
                 "armi_migrator": [],
             },
         },
+    ]
+    subject_commit_objects = [
+        {
+            "kind": "table",
+            "name": name,
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+        }
+        for name in (
+            "armi.subject_commits",
+            "armi.accepted_experiences",
+            "armi.experience_evidence_links",
+            "armi.cognitive_candidate_applications",
+        )
     ]
     return {
         "schema_version": "armi.database-roles.v1",
@@ -794,12 +831,13 @@ def build_role_manifest() -> dict[str, object]:
             *context_objects,
             model_attempt_object,
             *candidate_validation_objects,
+            *subject_commit_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S025 has no business or administration function requiring "
+                "M0-S026 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -1017,6 +1055,30 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "name": "armi.cognitive_candidate_basis_links",
                 "logical_owner": "candidate-validation",
                 "activation_step": "M0-S025",
+            },
+            {
+                "kind": "table",
+                "name": "armi.subject_commits",
+                "logical_owner": "subject-commit",
+                "activation_step": "M0-S026",
+            },
+            {
+                "kind": "table",
+                "name": "armi.accepted_experiences",
+                "logical_owner": "subject-experience",
+                "activation_step": "M0-S026",
+            },
+            {
+                "kind": "table",
+                "name": "armi.experience_evidence_links",
+                "logical_owner": "subject-experience",
+                "activation_step": "M0-S026",
+            },
+            {
+                "kind": "table",
+                "name": "armi.cognitive_candidate_applications",
+                "logical_owner": "subject-commit",
+                "activation_step": "M0-S026",
             },
         ],
         "deferred_objects": [

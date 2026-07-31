@@ -175,6 +175,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/subject/summary": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Subject Summary */
+    get: operations["getSubjectSummary"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -203,6 +220,29 @@ export interface components {
        * @enum {string}
        */
       status: "accepted";
+      /** Trace Id */
+      trace_id: string;
+    };
+    /** AppliedOutcomeResponse */
+    AppliedOutcomeResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Result Ref */
+      result_ref: string;
+      /** State Version */
+      state_version: number;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "applied";
       /** Trace Id */
       trace_id: string;
     };
@@ -260,6 +300,29 @@ export interface components {
       expires_at: string;
       /** Issued At */
       issued_at: string;
+    };
+    /** CompletedOutcomeResponse */
+    CompletedOutcomeResponse: {
+      /** Completion Evidence */
+      completion_evidence: string;
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Result Ref */
+      result_ref: string;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "completed";
+      /** Trace Id */
+      trace_id: string;
     };
     /** CreatorInputAcceptanceDetails */
     CreatorInputAcceptanceDetails: {
@@ -376,6 +439,8 @@ export interface components {
     };
     OperationOutcomeResponse:
       | components["schemas"]["AcceptedOutcomeResponse"]
+      | components["schemas"]["AppliedOutcomeResponse"]
+      | components["schemas"]["CompletedOutcomeResponse"]
       | components["schemas"]["WaitingOutcomeResponse"]
       | components["schemas"]["RejectedOutcomeResponse"]
       | components["schemas"]["FailedOutcomeResponse"];
@@ -475,6 +540,42 @@ export interface components {
       /** Scene Key */
       scene_key: string;
     };
+    /** SubjectComponentSummaryResponse */
+    SubjectComponentSummaryResponse: {
+      /**
+       * Content Visibility
+       * @constant
+       */
+      content_visibility: "private";
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: "self" | "mind" | "life_mode";
+      /**
+       * Schema Version
+       * @enum {string}
+       */
+      schema_version: "armi.self.v1" | "armi.mind.v1" | "armi.life-mode.v1";
+      /** Version */
+      version: number;
+    };
+    /** SubjectSummaryResponse */
+    SubjectSummaryResponse: {
+      /** Components */
+      components: components["schemas"]["SubjectComponentSummaryResponse"][];
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Latest Commit Ref */
+      latest_commit_ref?: string | null;
+      /** Observed At */
+      observed_at: string;
+      /** Subject Version */
+      subject_version: number;
+    };
     /** @enum {string} */
     TimelineStatus:
       | "accepted"
@@ -547,7 +648,9 @@ export interface components {
         | "model_returned"
         | "candidate_validation_available"
         | "candidate_validated"
-        | "subject_commit_available";
+        | "subject_commit_available"
+        | "opportunity_available"
+        | "creator_evidence_accepted";
       /**
        * @description discriminator enum property added by openapi-typescript
        * @enum {string}
@@ -564,7 +667,9 @@ export interface components {
         | "model_attempt"
         | "model_response"
         | "candidate_validation"
-        | "subject_commit";
+        | "subject_commit"
+        | "future_opportunity"
+        | "new_evidence";
     };
   };
   responses: never;
@@ -1165,6 +1270,53 @@ export interface operations {
       };
       /** @description Conflict */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getSubjectSummary: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SubjectSummaryResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
         headers: {
           [name: string]: unknown;
         };

@@ -10,6 +10,8 @@ from uuid import UUID
 from armi_kernel.contracts import (
     CONTRACT_VERSION,
     AcceptedOutcome,
+    AppliedOutcome,
+    CompletedOutcome,
     ErrorDescriptor,
     ErrorInstanceId,
     FailedOutcome,
@@ -183,9 +185,11 @@ class SceneTimelineItemResponse(_StrictWireModel):
 
     @model_validator(mode="after")
     def validate_operation_ref(self) -> SceneTimelineItemResponse:
-        if (self.source_kind == "creator_input") != (self.operation_ref is not None):
+        if (self.source_kind in {"creator_input", "subject_commit"}) != (
+            self.operation_ref is not None
+        ):
             raise ValueError(
-                "CON-SCENE-OPERATION: creator input must expose its operation"
+                "CON-SCENE-OPERATION: operation-backed item must expose its operation"
             )
         return self
 
@@ -352,6 +356,8 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "model_response",
         "candidate_validation",
         "subject_commit",
+        "future_opportunity",
+        "new_evidence",
     ]
     resume_condition: Literal[
         "context_prepared",
@@ -360,6 +366,8 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "candidate_validation_available",
         "candidate_validated",
         "subject_commit_available",
+        "opportunity_available",
+        "creator_evidence_accepted",
     ]
 
     @model_validator(mode="after")
@@ -375,8 +383,32 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
             ("candidate_validation", "candidate_validation_available"),
             ("candidate_validation", "candidate_validated"),
             ("subject_commit", "subject_commit_available"),
+            ("future_opportunity", "opportunity_available"),
+            ("new_evidence", "creator_evidence_accepted"),
         }:
             raise ValueError("CON-INPUT-OPERATION: waiting state is inconsistent")
+        return self
+
+
+class AppliedOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["applied"]
+    result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    state_version: Annotated[int, Field(ge=0)]
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> AppliedOutcomeResponse:
+        AppliedOutcome.from_wire(self.model_dump(exclude_none=True))
+        return self
+
+
+class CompletedOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["completed"]
+    result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    completion_evidence: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> CompletedOutcomeResponse:
+        CompletedOutcome.from_wire(self.model_dump(exclude_none=True))
         return self
 
 
@@ -404,11 +436,38 @@ class RejectedOutcomeResponse(_CommonOutcomeResponse):
 
 type OperationOutcomeResponse = Annotated[
     AcceptedOutcomeResponse
+    | AppliedOutcomeResponse
+    | CompletedOutcomeResponse
     | WaitingOutcomeResponse
     | RejectedOutcomeResponse
     | FailedOutcomeResponse,
     Field(discriminator="status"),
 ]
+
+
+class SubjectComponentSummaryResponse(_StrictWireModel):
+    kind: Literal["self", "mind", "life_mode"]
+    version: Annotated[int, Field(ge=1)]
+    schema_version: Literal["armi.self.v1", "armi.mind.v1", "armi.life-mode.v1"]
+    content_visibility: Literal["private"]
+
+
+class SubjectSummaryResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    subject_version: Annotated[int, Field(ge=0)]
+    components: Annotated[
+        list[SubjectComponentSummaryResponse], Field(min_length=3, max_length=3)
+    ]
+    latest_commit_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @model_validator(mode="after")
+    def validate_summary(self) -> SubjectSummaryResponse:
+        if [item.kind for item in self.components] != ["self", "mind", "life_mode"]:
+            raise ValueError("CON-SUBJECT-SUMMARY: component order is invalid")
+        if Instant.from_wire(self.observed_at).to_wire() != self.observed_at:
+            raise ValueError("CON-SUBJECT-SUMMARY: time is not canonical")
+        return self
 
 
 class UnavailableOutcomeResponse(_CommonOutcomeResponse):
@@ -522,6 +581,20 @@ def build_creator_openapi() -> dict[str, object]:
         dependencies=[Security(bearer)],
     )
     async def runtime_status() -> RuntimeStatusResponse:
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/subject/summary",
+        operation_id="getSubjectSummary",
+        response_model=SubjectSummaryResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def subject_summary() -> SubjectSummaryResponse:
         raise NotImplementedError
 
     @app.get(
@@ -644,6 +717,7 @@ def build_creator_openapi() -> dict[str, object]:
         current_browser_session,
         delete_browser_session,
         runtime_status,
+        subject_summary,
         scene_timeline,
         accept_creator_message,
         get_creator_operation,
@@ -673,10 +747,12 @@ def build_creator_openapi() -> dict[str, object]:
 
 __all__ = (
     "AcceptedOutcomeResponse",
+    "AppliedOutcomeResponse",
     "BootstrapCodeResponse",
     "BrowserSessionCreateRequest",
     "BrowserSessionCurrentResponse",
     "BrowserSessionResponse",
+    "CompletedOutcomeResponse",
     "CreatorInputRequest",
     "CreatorProjectionEventResponse",
     "ErrorDescriptorResponse",
@@ -690,6 +766,8 @@ __all__ = (
     "RuntimeStatusResponse",
     "SceneTimelineItemResponse",
     "SceneTimelinePageResponse",
+    "SubjectComponentSummaryResponse",
+    "SubjectSummaryResponse",
     "UnavailableOutcomeResponse",
     "WaitingOutcomeResponse",
     "build_creator_openapi",

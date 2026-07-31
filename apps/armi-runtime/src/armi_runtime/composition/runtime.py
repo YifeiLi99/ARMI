@@ -22,6 +22,7 @@ from armi_kernel.application import (
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
     SceneQueryViolation,
+    SubjectCommitViolation,
 )
 
 from armi_runtime.interfaces.browser_sessions import (
@@ -48,6 +49,7 @@ from .database import (
     compose_runtime_authority,
     compose_runtime_recovery,
     compose_scene_timeline_query,
+    compose_subject_commit_pipeline,
     inspect_creator_context,
     inspect_runtime_continuity,
     runtime_database_reason,
@@ -117,6 +119,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     context_pipeline = None
     model_pipeline = None
     candidate_pipeline = None
+    subject_commit_pipeline = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -209,6 +212,16 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 ),
             )
             await candidate_pipeline.open()
+            subject_commit_pipeline = compose_subject_commit_pipeline(
+                prepared,
+                authority_admission=authority.require_writable,
+                notifier=creator_events,
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="SUBJECT_COMMIT_PIPELINE",
+                ),
+            )
+            await subject_commit_pipeline.open()
             if "model.ark_api_key" in config.secret_locators:
                 try:
                     model_pipeline = compose_model_pipeline(
@@ -256,6 +269,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             ContextViolation,
             CreatorInputViolation,
             SceneQueryViolation,
+            SubjectCommitViolation,
         ):
             diagnostic.emit(
                 "runtime.creator_interface.unavailable",
@@ -271,6 +285,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await context_pipeline.close()
             if candidate_pipeline is not None:
                 await candidate_pipeline.close()
+            if subject_commit_pipeline is not None:
+                await subject_commit_pipeline.close()
             if authority is not None:
                 await authority.release()
             if authority_port is not None:
@@ -352,6 +368,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 candidate_pipeline.run_worker(),
                 name="candidate-validation-worker",
             )
+        if subject_commit_pipeline is not None:
+            supervisor.start(
+                subject_commit_pipeline.run_worker(),
+                name="subject-commit-worker",
+            )
 
     async def stopping() -> None:
         nonlocal drain_timed_out
@@ -375,6 +396,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             model_pipeline.stop()
         if candidate_pipeline is not None:
             candidate_pipeline.stop()
+        if subject_commit_pipeline is not None:
+            subject_commit_pipeline.stop()
         released = await supervisor.drain(
             deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
         )
@@ -384,6 +407,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await model_pipeline.close()
         if candidate_pipeline is not None:
             await candidate_pipeline.close()
+        if subject_commit_pipeline is not None:
+            await subject_commit_pipeline.close()
         if authority is not None:
             diagnostic.emit(
                 (
@@ -450,6 +475,9 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         creator_events=creator_events,
         creator_input=creator_input,
         creator_operations=creator_input,
+        subject_summary=(
+            creator_input.get_subject_summary if creator_input is not None else None
+        ),
         expected_authority=f"{config.creator.bind_host}:{config.creator.port}",
         request_body_max_bytes=config.creator.request_body_max_bytes,
         on_started=started,

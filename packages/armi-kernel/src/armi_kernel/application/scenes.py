@@ -84,7 +84,9 @@ class SceneTimelineItem:
             raise SceneQueryViolation("CON-SCENE-TIME")
         if self.operation_ref is not None:
             _require_uuid7(self.operation_ref, "CON-SCENE-OPERATION")
-        if (self.source_kind == "creator_input") != (self.operation_ref is not None):
+        if (self.source_kind in {"creator_input", "subject_commit"}) != (
+            self.operation_ref is not None
+        ):
             raise SceneQueryViolation("CON-SCENE-OPERATION")
 
 

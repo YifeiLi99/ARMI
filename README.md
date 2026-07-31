@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S025，当前设计基线为 S001 3.6，产品 schema 为 v13。唯一认知模型绑定是火山方舟 `doubao-seed-evolving`；生产链已具备真实 Responses 调用、模型 attempt、candidate v2 严格校验和未生效 `SubjectChangeSet` 保管。设计现已冻结 T-03 主体提交、组件 CAS、无变化结算、最多一次 stale successor 和隐私安全 Creator 投影，但 S026 尚未实施，候选仍不会改变主体。Memory、Relationship、Activity、Capability 与 Action owner 仍未激活；仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。
+项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S026，当前设计基线为 S001 3.6，产品 schema 为 v14。唯一认知模型绑定是火山方舟 `doubao-seed-evolving`；生产链已具备真实 Responses 调用、模型 attempt、candidate v2 严格校验和 T-03 原子主体提交。主体提交会重新核对 Runtime fence、subject/generation/activation、Context 与组件版本，通过 CAS 只追加 accepted experience、组件 revision、无正文 timeline 和正常审计；无变化可安全结算，stale 最多自动创建一次 successor。Creator 只能读取隐私安全的主体版本摘要。Memory、Relationship、Activity、Capability 与 Action owner 仍未激活；仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。M0-S027 仅可进入计划模式，尚未授权能力申请或 grant 实施。
 
 ## 关于学习与参考
 

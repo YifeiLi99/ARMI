@@ -41,6 +41,7 @@ _BIRTH_CONTRACT_FILE: Final = "birth-contract.manifest.json"
 _CONTEXT_POLICY_FILE: Final = "context-policy.manifest.json"
 _MODEL_BINDING_FILE: Final = "model-bindings.manifest.json"
 _CANDIDATE_POLICY_FILE: Final = "candidate-validation-policy.manifest.json"
+_SUBJECT_COMMIT_POLICY_FILE: Final = "subject-commit-policy.manifest.json"
 _SCHEMA_FILES: Final = (
     "checks/invariants.sql",
     "manifests/database-role-manifest.json",
@@ -58,6 +59,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0011_context_snapshot_and_compilation.sql",
     "migrations/0012_real_model_attempts.sql",
     "migrations/0013_cognition_candidate_validation.sql",
+    "migrations/0014_t03_subject_commit.sql",
 )
 
 
@@ -74,6 +76,7 @@ def build_composition_manifest(
     context_policy: bytes,
     model_binding: bytes,
     candidate_policy: bytes,
+    subject_commit_policy: bytes,
     schema_resources: dict[str, bytes],
 ) -> dict[str, object]:
     """Return the only allowed S008 composition declaration."""
@@ -130,6 +133,9 @@ def build_composition_manifest(
             f"context/{_CONTEXT_POLICY_FILE}": _sha256(context_policy),
             f"model/{_MODEL_BINDING_FILE}": _sha256(model_binding),
             f"candidate/{_CANDIDATE_POLICY_FILE}": _sha256(candidate_policy),
+            f"subject-commit/{_SUBJECT_COMMIT_POLICY_FILE}": _sha256(
+                subject_commit_policy
+            ),
             **{
                 f"schema/{name}": _sha256(value)
                 for name, value in sorted(schema_resources.items())
@@ -167,6 +173,9 @@ def verify_packaged_composition() -> VerifiedComposition:
         context_policy = resources.joinpath(_CONTEXT_POLICY_FILE).read_bytes()
         model_binding = resources.joinpath(_MODEL_BINDING_FILE).read_bytes()
         candidate_policy = resources.joinpath(_CANDIDATE_POLICY_FILE).read_bytes()
+        subject_commit_policy = resources.joinpath(
+            _SUBJECT_COMMIT_POLICY_FILE
+        ).read_bytes()
         committed = resources.joinpath("runtime-composition.manifest.json").read_bytes()
         schema_resources = {
             name: schema.joinpath(name).read_bytes() for name in _SCHEMA_FILES
@@ -184,6 +193,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         context_policy=context_policy,
         model_binding=model_binding,
         candidate_policy=candidate_policy,
+        subject_commit_policy=subject_commit_policy,
         schema_resources=schema_resources,
     )
     expected_bytes = canonical_manifest_bytes(expected)

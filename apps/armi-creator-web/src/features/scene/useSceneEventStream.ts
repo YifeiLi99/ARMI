@@ -61,7 +61,13 @@ export function useSceneEventStream({
 
     async function fullRefetch(): Promise<void> {
       lastEventId.current = undefined;
-      await queryClient.resetQueries({ queryKey, exact: true });
+      await Promise.all([
+        queryClient.resetQueries({ queryKey, exact: true }),
+        queryClient.resetQueries({
+          queryKey: ["subject-summary"],
+          exact: true,
+        }),
+      ]);
     }
 
     async function run(): Promise<void> {
@@ -97,7 +103,13 @@ export function useSceneEventStream({
                 }
               }
               lastEventId.current = event.event_id;
-              await queryClient.resetQueries({ queryKey, exact: true });
+              await Promise.all([
+                queryClient.resetQueries({ queryKey, exact: true }),
+                queryClient.resetQueries({
+                  queryKey: ["subject-summary"],
+                  exact: true,
+                }),
+              ]);
             },
           );
         } catch (error) {

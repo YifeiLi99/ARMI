@@ -48,7 +48,8 @@
         "armi_runtime.composition.context_pipeline",
         "armi_runtime.composition.creator_input",
         "armi_runtime.composition.model_pipeline",
-        "armi_runtime.composition.candidate_pipeline"
+        "armi_runtime.composition.candidate_pipeline",
+        "armi_runtime.composition.subject_commit_pipeline"
       ]
     },
     {
@@ -69,7 +70,8 @@
         "armi_runtime.adapters.persistence.unit_of_work",
         "armi_runtime.composition.context_pipeline",
         "armi_runtime.composition.model_pipeline",
-        "armi_runtime.composition.candidate_pipeline"
+        "armi_runtime.composition.candidate_pipeline",
+        "armi_runtime.composition.subject_commit_pipeline"
       ]
     },
     {
@@ -149,6 +151,14 @@
       "owner": "cognitive-candidate-validation",
       "allowed_callers": [
         "armi_runtime.composition.candidate_pipeline"
+      ]
+    },
+    {
+      "id": "subject-commit",
+      "module": "armi_runtime.adapters.persistence.subject_commit",
+      "owner": "subject-continuity",
+      "allowed_callers": [
+        "armi_runtime.composition.subject_commit_pipeline"
       ]
     }
   ],
@@ -254,6 +264,17 @@
         "durable-work",
         "normal-audit"
       ]
+    },
+    {
+      "id": "t03-subject-commit",
+      "module": "armi_runtime.composition.subject_commit_pipeline",
+      "owner": "subject-continuity",
+      "allowed_write_surfaces": [
+        "subject-commit",
+        "artifact-catalog",
+        "durable-work",
+        "normal-audit"
+      ]
     }
   ],
   "named_coordinators_not_applicable_reason": "",
@@ -304,7 +325,8 @@
     "static_resource_root": "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources",
     "features": [
       "session",
-      "scene"
+      "scene",
+      "subject"
     ],
     "features_not_applicable_reason": "",
     "event_stream": {

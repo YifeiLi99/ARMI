@@ -44,6 +44,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--birth-summary-file", type=Path)
     parser.add_argument("--authority-summary-file", type=Path)
     parser.add_argument("--recovery-summary-file", type=Path)
+    parser.add_argument("--s026-live-env-file", type=Path)
+    parser.add_argument("--s026-live-output", type=Path)
     parser.add_argument("--test-expression")
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -127,6 +129,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 environment["S017_RECOVERY_SUMMARY_FILE"] = str(
                     args.recovery_summary_file.resolve()
                 )
+            if args.s026_live_env_file is not None:
+                environment["S026_LIVE_ENV_FILE"] = str(
+                    args.s026_live_env_file.resolve()
+                )
+            if args.s026_live_output is not None:
+                environment["S026_LIVE_OUTPUT"] = str(args.s026_live_output.resolve())
             pytest_command = [
                 sys.executable,
                 "-m",
@@ -134,8 +142,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "tests/postgresql",
                 "-q",
             ]
-            if args.test_expression is not None:
-                pytest_command.extend(("-k", args.test_expression))
+            test_expression = args.test_expression
+            if args.s026_live_env_file is not None and test_expression is None:
+                test_expression = "t03_subject_commit"
+            if test_expression is not None:
+                pytest_command.extend(("-k", test_expression))
             completed = subprocess.run(
                 pytest_command,
                 cwd=root,

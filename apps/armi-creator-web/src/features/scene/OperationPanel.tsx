@@ -15,6 +15,10 @@ const waitingLabels = {
   model_response: "正在等待模型响应",
   candidate_validation: "正在校验认知候选",
   subject_commit: "候选已校验，等待主体提交",
+  future_opportunity: "已暂缓，等待未来机会",
+  opportunity_available: "等待新的处理机会",
+  new_evidence: "需要新的证据",
+  creator_evidence_accepted: "等待 Creator 提供新证据",
 } as const;
 
 export function OperationPanel({
@@ -94,6 +98,24 @@ export function OperationPanel({
           <div>
             <dt>安全错误码</dt>
             <dd>{operation.data.error.code}</dd>
+          </div>
+        </dl>
+      ) : operation.data.status === "applied" ? (
+        <dl>
+          <div>
+            <dt>状态</dt>
+            <dd>主体提交已应用</dd>
+          </div>
+          <div>
+            <dt>权威版本</dt>
+            <dd>{operation.data.state_version}</dd>
+          </div>
+        </dl>
+      ) : operation.data.status === "completed" ? (
+        <dl>
+          <div>
+            <dt>状态</dt>
+            <dd>认知责任已完成，无主体变化</dd>
           </div>
         </dl>
       ) : (

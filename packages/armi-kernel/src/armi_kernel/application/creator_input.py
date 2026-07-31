@@ -138,6 +138,12 @@ class CreatorOperationPhase(StrEnum):
     CANDIDATE_VALIDATING = "candidate_validating"
     CANDIDATE_VALIDATED = "candidate_validated"
     CANDIDATE_REJECTED = "candidate_rejected"
+    SUBJECT_COMMITTING = "subject_committing"
+    APPLIED = "applied"
+    COMPLETED = "completed"
+    DEFERRED = "deferred"
+    NEED_INFORMATION = "need_information"
+    STALE_CONFLICT = "stale_conflict"
     FAILED = "failed"
 
 
@@ -146,6 +152,8 @@ class CreatorOperation:
     acceptance: CreatorInputAcceptance
     phase: CreatorOperationPhase
     failure_code: str | None = None
+    subject_version: int | None = None
+    completion_digest: Digest | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -153,11 +161,30 @@ class CreatorOperation:
             or type(self.phase) is not CreatorOperationPhase
         ):
             raise CreatorInputViolation("CON-INPUT-OPERATION")
+        if self.phase is CreatorOperationPhase.APPLIED:
+            if type(self.subject_version) is not int or self.subject_version <= 0:
+                raise CreatorInputViolation("CON-INPUT-OPERATION")
+        elif self.subject_version is not None:
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
+        completed_phase = self.phase in {
+            CreatorOperationPhase.APPLIED,
+            CreatorOperationPhase.COMPLETED,
+            CreatorOperationPhase.DEFERRED,
+            CreatorOperationPhase.NEED_INFORMATION,
+            CreatorOperationPhase.STALE_CONFLICT,
+        }
+        if completed_phase != (self.completion_digest is not None):
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
+        if (
+            self.completion_digest is not None
+            and type(self.completion_digest) is not Digest
+        ):
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
         if self.phase is CreatorOperationPhase.FAILED:
             if (
                 type(self.failure_code) is not str
                 or re.fullmatch(
-                    r"(?:CTX|MODEL|CANDIDATE)-[A-Z0-9-]+",
+                    r"(?:CTX|MODEL|CANDIDATE|SUBJECT)-[A-Z0-9-]+",
                     self.failure_code,
                 )
                 is None
@@ -168,6 +195,9 @@ class CreatorOperation:
                 type(self.failure_code) is not str
                 or re.fullmatch(r"CANDIDATE-[A-Z0-9-]+", self.failure_code) is None
             ):
+                raise CreatorInputViolation("CON-INPUT-OPERATION")
+        elif self.phase is CreatorOperationPhase.STALE_CONFLICT:
+            if self.failure_code != "CONFLICT_SUBJECT_STATE_STALE":
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
         elif self.failure_code is not None:
             raise CreatorInputViolation("CON-INPUT-OPERATION")

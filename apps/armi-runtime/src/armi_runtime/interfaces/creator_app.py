@@ -8,7 +8,7 @@ import secrets
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from armi_kernel.application import (
@@ -24,9 +24,12 @@ from armi_kernel.application import (
     SceneQueryViolation,
     SceneTimelineQuery,
     SceneTimelineQueryPort,
+    SubjectSummary,
 )
 from armi_kernel.contracts import (
     AcceptedOutcome,
+    AppliedOutcome,
+    CompletedOutcome,
     ContractViolation,
     ErrorCategory,
     ErrorDescriptor,
@@ -66,6 +69,8 @@ from .creator_contract import (
     RuntimeStatusResponse,
     SceneTimelineItemResponse,
     SceneTimelinePageResponse,
+    SubjectComponentSummaryResponse,
+    SubjectSummaryResponse,
 )
 from .creator_events import (
     CreatorEventBroker,
@@ -105,6 +110,7 @@ _SECURITY_HEADERS = {
 AsyncCallback = Callable[[], Awaitable[None]]
 ReadinessProvider = Callable[[], Readiness]
 RuntimeStatusProvider = Callable[[], RuntimeStatusResponse]
+SubjectSummaryProvider = Callable[[], Awaitable[SubjectSummary]]
 SecurityEvent = Callable[[str], None]
 
 
@@ -319,6 +325,55 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
             waiting_for="subject_commit",
             resume_condition="subject_commit_available",
         ).to_wire()
+    if operation.phase is CreatorOperationPhase.SUBJECT_COMMITTING:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The validated change is being committed.",
+            result_ref=result_ref,
+            waiting_for="subject_commit",
+            resume_condition="subject_commit_available",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.APPLIED:
+        assert operation.subject_version is not None
+        return AppliedOutcome(
+            **_outcome_common(),
+            message="The subject change is authoritatively committed.",
+            result_ref=result_ref,
+            state_version=operation.subject_version,
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.COMPLETED:
+        assert operation.completion_digest is not None
+        return CompletedOutcome(
+            **_outcome_common(),
+            message="Cognition completed without a subject change.",
+            result_ref=result_ref,
+            completion_evidence=operation.completion_digest,
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.DEFERRED:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="Cognition deferred this opportunity.",
+            result_ref=result_ref,
+            waiting_for="future_opportunity",
+            resume_condition="opportunity_available",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.NEED_INFORMATION:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="Cognition requires new evidence.",
+            result_ref=result_ref,
+            waiting_for="new_evidence",
+            resume_condition="creator_evidence_accepted",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.STALE_CONFLICT:
+        return RejectedOutcome(
+            **_outcome_common(),
+            message="The subject state changed before the candidate could commit.",
+            error=ErrorDescriptor(
+                ErrorCategory.CONFLICT,
+                "CONFLICT_SUBJECT_STATE_STALE",
+            ),
+        ).to_wire()
     if operation.phase is CreatorOperationPhase.CANDIDATE_REJECTED:
         return RejectedOutcome(
             **_outcome_common(),
@@ -367,6 +422,7 @@ def create_runtime_app(
     creator_events: CreatorEventBroker | None = None,
     creator_input: CreatorInputAcceptancePort | None = None,
     creator_operations: CreatorOperationQueryPort | None = None,
+    subject_summary: SubjectSummaryProvider | None = None,
     on_security_event: SecurityEvent | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
@@ -596,6 +652,65 @@ def create_runtime_app(
                 content=_rejected(error.code),
             )
         return JSONResponse(content=runtime_status().model_dump(mode="json"))
+
+    @app.get("/v1/subject/summary")
+    async def get_subject_summary(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or subject_summary is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            return JSONResponse(
+                status_code=403 if browser_sessions is not None else 503,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if browser_sessions is not None
+                    else _unavailable("DEPENDENCY_SUBJECT_SUMMARY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            summary = await subject_summary()
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code, content=_rejected(error.code)
+            )
+        except CreatorInputViolation:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_SUBJECT_SUMMARY_UNAVAILABLE"),
+            )
+        return JSONResponse(
+            content=SubjectSummaryResponse(
+                contract_version="1.0",
+                subject_version=summary.subject_version,
+                components=[
+                    SubjectComponentSummaryResponse(
+                        kind=item.kind.value,
+                        version=item.version,
+                        schema_version=cast(
+                            Literal[
+                                "armi.self.v1",
+                                "armi.mind.v1",
+                                "armi.life-mode.v1",
+                            ],
+                            item.schema_version,
+                        ),
+                        content_visibility="private",
+                    )
+                    for item in summary.components
+                ],
+                latest_commit_ref=(
+                    str(summary.latest_commit_ref)
+                    if summary.latest_commit_ref is not None
+                    else None
+                ),
+                observed_at=Instant(summary.observed_at).to_wire(),
+            ).model_dump(mode="json", exclude_none=True)
+        )
 
     @app.get("/v1/scenes/{scene_key}/timeline")
     async def get_scene_timeline(scene_key: str, request: Request) -> JSONResponse:
@@ -950,6 +1065,7 @@ def create_runtime_app(
         current_browser_session,
         delete_browser_session,
         get_runtime_status,
+        get_subject_summary,
         creator_redirect,
         creator_index,
         creator_asset,

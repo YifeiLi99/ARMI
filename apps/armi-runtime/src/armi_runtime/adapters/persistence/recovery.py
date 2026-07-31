@@ -722,6 +722,35 @@ class PostgreSQLRuntimeRecovery:
                         ),
                         (
                             SELECT count(*)
+                            FROM armi.cognitive_episodes AS episode
+                            JOIN armi.durable_work AS work
+                              ON work.owner_kind = 'cognitive_episode'
+                             AND work.owner_ref = episode.cognitive_episode_id
+                             AND work.work_kind = 'cognition.subject.commit'
+                            WHERE (
+                                episode.status IN (
+                                    'candidate_validated',
+                                    'committing'
+                                )
+                                AND work.status IN ('ready', 'leased')
+                            )
+                            OR (
+                                episode.status IN ('completed', 'stale')
+                                AND work.status = 'completed'
+                                AND work.result_kind = 'candidate_application'
+                                AND EXISTS (
+                                    SELECT 1
+                                    FROM armi.cognitive_candidate_applications
+                                        AS application
+                                    WHERE application.candidate_application_id
+                                        = work.result_ref
+                                      AND application.cognitive_episode_id
+                                        = episode.cognitive_episode_id
+                                )
+                            )
+                        ),
+                        (
+                            SELECT count(*)
                             FROM armi.opportunities AS opportunity
                             LEFT JOIN armi.external_evidence AS evidence
                               ON evidence.evidence_id = opportunity.evidence_id
@@ -739,7 +768,12 @@ class PostgreSQLRuntimeRecovery:
                             WHERE evidence.evidence_id IS NULL
                                OR interaction.creator_interaction_id IS NULL
                                OR opportunity.current_disposition
-                                  NOT IN ('open', 'selected')
+                                  NOT IN (
+                                      'open',
+                                      'selected',
+                                      'resolved',
+                                      'superseded'
+                                  )
                                OR opportunity.eligibility_status <> 'eligible'
                                OR opportunity.expires_at IS NOT NULL
                                OR evidence.source_kind <> 'creator_input'
@@ -907,7 +941,7 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert counts is not None
-            if int(counts[6]) > 0:
+            if int(counts[7]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
                     sorted(
@@ -949,6 +983,7 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_cognitive_episode": int(counts[3]),
                 "resumable_model_attempt": int(counts[5]),
                 "resumable_candidate_validation": int(counts[4]),
+                "resumable_subject_commit": int(counts[6]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -979,6 +1014,7 @@ class PostgreSQLRuntimeRecovery:
                     resumable_cognitive_episode_count = %s,
                     resumable_model_attempt_count = %s,
                     resumable_candidate_validation_count = %s,
+                    resumable_subject_commit_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -997,6 +1033,7 @@ class PostgreSQLRuntimeRecovery:
                     int(counts[3]),
                     int(counts[5]),
                     int(counts[4]),
+                    int(counts[6]),
                     critical,
                     blockers,
                     digest.value,
@@ -1024,6 +1061,7 @@ class PostgreSQLRuntimeRecovery:
             resumable_cognitive_episode_count=int(counts[3]),
             resumable_model_attempt_count=int(counts[5]),
             resumable_candidate_validation_count=int(counts[4]),
+            resumable_subject_commit_count=int(counts[6]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

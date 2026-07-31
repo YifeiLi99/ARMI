@@ -19,6 +19,7 @@ import type { StoredBrowserSession } from "./storage";
 import { MessageComposer } from "../scene/MessageComposer";
 import { OperationPanel } from "../scene/OperationPanel";
 import { TimelinePanel } from "../scene/TimelinePanel";
+import { SubjectSummaryPanel } from "../subject/SubjectSummaryPanel";
 
 type ViewState =
   | { kind: "bootstrap"; message?: string }
@@ -288,6 +289,10 @@ export function SessionPanel() {
       <OperationPanel
         token={view.stored.token}
         operationRef={selectedOperation}
+        onUnauthorized={unauthorized}
+      />
+      <SubjectSummaryPanel
+        token={view.stored.token}
         onUnauthorized={unauthorized}
       />
     </div>

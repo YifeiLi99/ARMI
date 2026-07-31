@@ -11,6 +11,7 @@ export type AcceptedOperation =
   components["schemas"]["AcceptedOutcomeResponse"];
 export type CreatorOperation =
   components["schemas"]["OperationOutcomeResponse"];
+export type SubjectSummary = components["schemas"]["SubjectSummaryResponse"];
 
 export class ApiFailure extends Error {
   constructor(
@@ -163,5 +164,17 @@ export async function getCreatorOperation(
       ...(signal === undefined ? {} : { signal }),
     },
   );
+  return requireJson(response);
+}
+
+export async function getSubjectSummary(
+  token: string,
+  signal?: AbortSignal,
+): Promise<SubjectSummary> {
+  const response = await fetch("/v1/subject/summary", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
   return requireJson(response);
 }

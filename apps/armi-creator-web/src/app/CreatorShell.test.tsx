@@ -84,6 +84,35 @@ function preparedContextOperation(): object {
   };
 }
 
+function subjectSummaryResponse(): object {
+  return {
+    contract_version: "1.0",
+    subject_version: 0,
+    components: [
+      {
+        kind: "self",
+        version: 1,
+        schema_version: "armi.self.v1",
+        content_visibility: "private",
+      },
+      {
+        kind: "mind",
+        version: 1,
+        schema_version: "armi.mind.v1",
+        content_visibility: "private",
+      },
+      {
+        kind: "life_mode",
+        version: 1,
+        schema_version: "armi.life-mode.v1",
+        content_visibility: "private",
+      },
+    ],
+    latest_commit_ref: null,
+    observed_at: "2026-07-30T10:00:01.000000Z",
+  };
+}
+
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
@@ -128,6 +157,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse());
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -143,7 +173,8 @@ describe("Creator browser session shell", () => {
     expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
     expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(screen.getByText("权威版本")).toBeInTheDocument();
   });
 
   it("clears an invalid restored session after a 401", async () => {
@@ -231,6 +262,7 @@ describe("Creator browser session shell", () => {
           next_cursor: cursor,
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse())
       .mockResolvedValueOnce(
         jsonResponse({
@@ -321,6 +353,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(
         finiteStreamResponse(
           `retry: 1000\n\nid: ${eventId}\nevent: scene.timeline.invalidated\ndata: ${event}\n\n`,
@@ -341,7 +374,8 @@ describe("Creator browser session shell", () => {
             },
           ],
         }),
-      );
+      )
+      .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<CreatorShell />);
@@ -350,7 +384,7 @@ describe("Creator browser session shell", () => {
     await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 
   it("clears session state when the authenticated stream returns 401", async () => {
@@ -410,6 +444,9 @@ describe("Creator browser session shell", () => {
           reason_codes: [],
           observed_at: "2026-07-30T10:00:01.000000Z",
         });
+      }
+      if (url === "/v1/subject/summary") {
+        return jsonResponse(subjectSummaryResponse());
       }
       if (url.includes("/timeline?")) {
         return jsonResponse({
@@ -487,6 +524,9 @@ describe("Creator browser session shell", () => {
           reason_codes: [],
           observed_at: "2026-07-30T10:00:01.000000Z",
         });
+      }
+      if (url === "/v1/subject/summary") {
+        return jsonResponse(subjectSummaryResponse());
       }
       if (url.includes("/timeline?")) {
         return jsonResponse({

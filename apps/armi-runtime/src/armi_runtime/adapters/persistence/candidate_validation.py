@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -26,14 +27,26 @@ from armi_kernel.application import (
     CandidateValidationResult,
     CandidateValidationStatus,
     CandidateViolation,
+    WorkDraft,
+    WorkId,
     WorkLease,
+    WorkOwner,
+    WorkPayloadRef,
     WorkResultRef,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import (
+    Digest,
+    IdempotencyKey,
+    Instant,
+    Purpose,
+    SubjectId,
+    TraceId,
+)
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.candidate.validate"
+_COMMIT_WORK_KIND = "cognition.subject.commit"
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,6 +306,29 @@ class PostgreSQLCandidateValidationRepository:
         ).fetchone()
         if updated is None:
             raise CandidateViolation("CANDIDATE-EPISODE-STATE")
+        if change_set is not None:
+            now_row = await (
+                await connection.execute("SELECT statement_timestamp()")
+            ).fetchone()
+            if now_row is None:
+                raise CandidateViolation("CANDIDATE-DATABASE")
+            now = Instant(now_row[0])
+            await unit_of_work.work.enqueue(
+                WorkDraft(
+                    WorkId(uuid7()),
+                    _COMMIT_WORK_KIND,
+                    WorkOwner("cognitive_episode", snapshot.episode_id),
+                    IdempotencyKey(f"subject-commit:{snapshot.episode_id}"),
+                    change_set.digest,
+                    50,
+                    now,
+                    Instant(now.value + timedelta(seconds=3600)),
+                    2,
+                    snapshot.trace_id,
+                    SubjectId(snapshot.subject_id),
+                    WorkPayloadRef("candidate_validation", result.validation_id.value),
+                )
+            )
         await unit_of_work.work.complete(
             lease,
             WorkResultRef(
