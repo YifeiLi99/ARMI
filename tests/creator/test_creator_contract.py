@@ -11,10 +11,12 @@ from armi_runtime.interfaces.creator_contract import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
     CreatorProjectionEventResponse,
+    FailedOutcomeResponse,
     RejectedOutcomeResponse,
     RuntimeStatusResponse,
     SceneTimelineItemResponse,
     SceneTimelinePageResponse,
+    WaitingOutcomeResponse,
     build_creator_openapi,
 )
 from pydantic import ValidationError
@@ -117,6 +119,17 @@ class CreatorContractTests(unittest.TestCase):
         operation = paths["/v1/operations/{result_ref}"]["get"]
         self.assertEqual(operation["operationId"], "getCreatorOperation")
         self.assertEqual(operation["security"], [{"browserSessionBearer": []}])
+        operation_schema = cast(dict[str, Any], schema["components"])["schemas"][
+            "OperationOutcomeResponse"
+        ]
+        self.assertEqual(
+            {branch["$ref"].rsplit("/", 1)[-1] for branch in operation_schema["oneOf"]},
+            {
+                "AcceptedOutcomeResponse",
+                "WaitingOutcomeResponse",
+                "FailedOutcomeResponse",
+            },
+        )
 
     def test_openapi_is_repeatable(self) -> None:
         first = json.dumps(
@@ -164,6 +177,46 @@ class CreatorContractTests(unittest.TestCase):
         model = RejectedOutcomeResponse.model_validate_json(json.dumps(rejected()))
         self.assertEqual(model.status, "rejected")
         self.assertEqual(model.error.code, "AUTH_BROWSER_SESSION_REQUIRED")
+
+    def test_operation_waiting_and_failed_states_are_exhaustive(self) -> None:
+        common = {
+            "contract_version": "1.0",
+            "trace_id": "0123456789abcdef0123456789abcdef",
+            "occurred_at": INSTANT,
+            "message": "safe operation state",
+        }
+        waiting = WaitingOutcomeResponse.model_validate(
+            {
+                **common,
+                "status": "waiting",
+                "result_ref": ENVIRONMENT_ID,
+                "waiting_for": "context_preparation",
+                "resume_condition": "context_prepared",
+            }
+        )
+        self.assertEqual(waiting.waiting_for, "context_preparation")
+        failed = FailedOutcomeResponse.model_validate(
+            {
+                **common,
+                "status": "failed",
+                "error": {
+                    "category": "internal",
+                    "code": "INTERNAL_CONTEXT_PREPARATION_FAILED",
+                },
+                "retryable": False,
+            }
+        )
+        self.assertFalse(failed.retryable)
+        with self.assertRaises(ValidationError):
+            WaitingOutcomeResponse.model_validate(
+                {
+                    **common,
+                    "status": "waiting",
+                    "result_ref": ENVIRONMENT_ID,
+                    "waiting_for": "context_preparation",
+                    "resume_condition": "model_step_available",
+                }
+            )
 
     def test_session_responses_require_the_authoritative_default_scene(self) -> None:
         metadata = {

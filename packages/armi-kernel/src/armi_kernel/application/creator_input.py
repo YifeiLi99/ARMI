@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -128,6 +129,35 @@ class CreatorInputAcceptance:
             raise CreatorInputViolation("CON-INPUT-ACCEPTANCE")
 
 
+class CreatorOperationPhase(StrEnum):
+    ACCEPTED = "accepted"
+    CONTEXT_PREPARING = "context_preparing"
+    CONTEXT_PREPARED = "context_prepared"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class CreatorOperation:
+    acceptance: CreatorInputAcceptance
+    phase: CreatorOperationPhase
+    failure_code: str | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.acceptance) is not CreatorInputAcceptance
+            or type(self.phase) is not CreatorOperationPhase
+        ):
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
+        if self.phase is CreatorOperationPhase.FAILED:
+            if (
+                type(self.failure_code) is not str
+                or re.fullmatch(r"CTX-[A-Z0-9-]+", self.failure_code) is None
+            ):
+                raise CreatorInputViolation("CON-INPUT-OPERATION")
+        elif self.failure_code is not None:
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
+
+
 @runtime_checkable
 class CreatorInputAcceptancePort(Protocol):
     async def accept(self, command: CreatorInputCommand) -> CreatorInputAcceptance:
@@ -137,8 +167,8 @@ class CreatorInputAcceptancePort(Protocol):
 
 @runtime_checkable
 class CreatorOperationQueryPort(Protocol):
-    async def get(self, opportunity_id: OpportunityId) -> CreatorInputAcceptance:
-        """Return an authorized accepted responsibility or reject its visibility."""
+    async def get(self, opportunity_id: OpportunityId) -> CreatorOperation:
+        """Return one authorized operation projection from authoritative facts."""
         ...
 
 
@@ -148,6 +178,8 @@ __all__ = (
     "CreatorInputCommand",
     "CreatorInputViolation",
     "CreatorInteractionId",
+    "CreatorOperation",
+    "CreatorOperationPhase",
     "CreatorOperationQueryPort",
     "EvidenceId",
     "OpportunityId",

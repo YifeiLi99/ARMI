@@ -7,6 +7,8 @@ from armi_kernel.application import (
     CreatorInputAcceptance,
     CreatorInputCommand,
     CreatorInteractionId,
+    CreatorOperation,
+    CreatorOperationPhase,
     EvidenceId,
     OpportunityId,
     SceneTimelinePage,
@@ -52,16 +54,19 @@ class _CreatorInput:
         self.commands.append(command)
         return self.acceptance
 
-    async def get(self, opportunity_id: OpportunityId) -> CreatorInputAcceptance:
+    async def get(self, opportunity_id: OpportunityId) -> CreatorOperation:
         self.assert_opportunity(opportunity_id)
         value = self.acceptance
-        return CreatorInputAcceptance(
-            value.interaction_id,
-            value.evidence_id,
-            value.opportunity_id,
-            value.request_digest,
-            value.content_digest,
-            False,
+        return CreatorOperation(
+            CreatorInputAcceptance(
+                value.interaction_id,
+                value.evidence_id,
+                value.opportunity_id,
+                value.request_digest,
+                value.content_digest,
+                False,
+            ),
+            CreatorOperationPhase.ACCEPTED,
         )
 
     def assert_opportunity(self, opportunity_id: OpportunityId) -> None:

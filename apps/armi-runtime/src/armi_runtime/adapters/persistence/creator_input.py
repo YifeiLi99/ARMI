@@ -10,6 +10,8 @@ from armi_kernel.application import (
     CreatorInputAcceptance,
     CreatorInputViolation,
     CreatorInteractionId,
+    CreatorOperation,
+    CreatorOperationPhase,
     EvidenceId,
     OpportunityId,
 )
@@ -240,7 +242,7 @@ class CreatorInputRepository:
         *,
         opportunity_id: OpportunityId,
         creator_party_id: UUID,
-    ) -> CreatorInputAcceptance:
+    ) -> CreatorOperation:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         row = await (
             await connection.execute(
@@ -250,7 +252,10 @@ class CreatorInputRepository:
                     evidence.evidence_id,
                     opportunity.opportunity_id,
                     interaction.request_digest,
-                    interaction.content_digest
+                    interaction.content_digest,
+                    opportunity.current_disposition,
+                    episode.status,
+                    episode.failure_code
                 FROM armi.opportunities AS opportunity
                 JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = opportunity.evidence_id
@@ -261,11 +266,12 @@ class CreatorInputRepository:
                   ON scene.scene_id = opportunity.scene_id
                  AND scene.primary_party_id = opportunity.creator_party_id
                  AND scene.audience_scope = 'creator'
+                LEFT JOIN armi.cognitive_episodes AS episode
+                  ON episode.opportunity_id = opportunity.opportunity_id
                 WHERE opportunity.opportunity_id = %s
                   AND opportunity.creator_party_id = %s
                   AND opportunity.purpose = 'consider_creator_input'
                   AND opportunity.eligibility_status = 'eligible'
-                  AND opportunity.current_disposition = 'open'
                   AND opportunity.expires_at IS NULL
                 """,
                 (opportunity_id.value, creator_party_id),
@@ -273,7 +279,24 @@ class CreatorInputRepository:
         ).fetchone()
         if row is None:
             raise CreatorInputViolation("SCOPE-OPERATION-NOT-VISIBLE")
-        return _acceptance(row, newly_accepted=False)
+        acceptance = _acceptance(row, newly_accepted=False)
+        disposition = str(row[5])
+        episode_status = None if row[6] is None else str(row[6])
+        if disposition == "open" and episode_status is None:
+            phase = CreatorOperationPhase.ACCEPTED
+        elif disposition == "selected" and episode_status == "preparing":
+            phase = CreatorOperationPhase.CONTEXT_PREPARING
+        elif disposition == "selected" and episode_status == "prepared":
+            phase = CreatorOperationPhase.CONTEXT_PREPARED
+        elif disposition == "selected" and episode_status in {"failed", "cancelled"}:
+            phase = CreatorOperationPhase.FAILED
+        else:
+            raise CreatorInputViolation("DB-INPUT-STATE")
+        return CreatorOperation(
+            acceptance,
+            phase,
+            str(row[7]) if phase is CreatorOperationPhase.FAILED else None,
+        )
 
 
 def _acceptance(

@@ -16,6 +16,8 @@ from armi_kernel.application import (
     CreatorInputAcceptancePort,
     CreatorInputCommand,
     CreatorInputViolation,
+    CreatorOperation,
+    CreatorOperationPhase,
     CreatorOperationQueryPort,
     OpportunityId,
     SceneKey,
@@ -28,6 +30,7 @@ from armi_kernel.contracts import (
     ContractViolation,
     ErrorCategory,
     ErrorDescriptor,
+    FailedOutcome,
     IdempotencyKey,
     Instant,
     OpaqueCursor,
@@ -35,6 +38,7 @@ from armi_kernel.contracts import (
     ResultRef,
     TraceId,
     UnavailableOutcome,
+    WaitingOutcome,
 )
 from fastapi import FastAPI, Request
 from fastapi.responses import (
@@ -260,6 +264,37 @@ def _accepted_wire(acceptance: CreatorInputAcceptance) -> dict[str, object]:
             "opportunity_id": str(acceptance.opportunity_id),
             "operation_url": f"/v1/operations/{acceptance.opportunity_id}",
         },
+    ).to_wire()
+
+
+def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
+    if operation.phase is CreatorOperationPhase.ACCEPTED:
+        return _accepted_wire(operation.acceptance)
+    result_ref = ResultRef(operation.acceptance.opportunity_id.value)
+    if operation.phase is CreatorOperationPhase.CONTEXT_PREPARING:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The Context snapshot is being prepared.",
+            result_ref=result_ref,
+            waiting_for="context_preparation",
+            resume_condition="context_prepared",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CONTEXT_PREPARED:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The prepared Context is waiting for a model attempt.",
+            result_ref=result_ref,
+            waiting_for="model_attempt",
+            resume_condition="model_step_available",
+        ).to_wire()
+    return FailedOutcome(
+        **_outcome_common(),
+        message="Context preparation failed.",
+        error=ErrorDescriptor(
+            ErrorCategory.INTERNAL,
+            "INTERNAL_CONTEXT_PREPARATION_FAILED",
+        ),
+        retryable=False,
     ).to_wire()
 
 
@@ -728,7 +763,7 @@ def create_runtime_app(
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             browser_sessions.verify(token)
             operation_id = OpportunityId(UUID(result_ref))
-            acceptance = await creator_operations.get(operation_id)
+            operation = await creator_operations.get(operation_id)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -740,7 +775,7 @@ def create_runtime_app(
             else:
                 status, content = 404, _rejected("SCOPE_OPERATION_NOT_VISIBLE")
             return JSONResponse(status_code=status, content=content)
-        return JSONResponse(content=_accepted_wire(acceptance))
+        return JSONResponse(content=_operation_wire(operation))
 
     del get_creator_operation
 

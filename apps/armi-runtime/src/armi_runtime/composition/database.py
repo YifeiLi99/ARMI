@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib.resources import files
 from typing import Final
 from uuid import UUID
 
 from armi_kernel.application import (
+    ContextViolation,
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
     RuntimeFence,
 )
+from armi_kernel.contracts import Digest
 
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.persistence.birth import (
@@ -35,6 +38,7 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 
 from .birth_manifest import packaged_birth_digests
 from .configuration import ConfigurationViolation
+from .context_pipeline import ContextPipeline, build_context_pipeline
 from .creator_input import (
     EvidenceAcceptanceTransaction,
     build_evidence_acceptance_transaction,
@@ -383,6 +387,75 @@ def compose_creator_input(
         ) from None
 
 
+def compose_context_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    diagnostic: Callable[[str], None] | None = None,
+) -> ContextPipeline:
+    """Resolve the Runtime credential for the active S023 selector and worker."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the required database credential locator is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
+    try:
+        policy = (
+            files("armi_runtime.composition.runtime_resources")
+            .joinpath("context-policy.manifest.json")
+            .read_bytes()
+        )
+    except OSError:
+        raise ContextViolation("CTX-POLICY-MISSING") from None
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> ContextPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-CONNECTION-UNAVAILABLE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
+                    ) from None
+                config = prepared.effective.config
+                return build_context_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    policy_digest=Digest.from_bytes(policy),
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise DatabaseViolation(
+            "DB-ROLE-CREDENTIAL-SCOPE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
+
+
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
@@ -441,6 +514,7 @@ __all__ = (
     "RUNTIME_LOCATOR_NAME",
     "ContinuityState",
     "DatabaseViolation",
+    "compose_context_pipeline",
     "compose_creator_input",
     "compose_runtime_authority",
     "compose_runtime_recovery",

@@ -27,6 +27,14 @@ class CompositionManifestTests(unittest.TestCase):
             active,
             [
                 (
+                    "M0-SEAM-CONTEXT",
+                    "armi.context-compiler.deterministic-v1",
+                ),
+                (
+                    "M0-SEAM-WORK-SELECTION",
+                    "armi.opportunity-selector.creator-fifo-v1",
+                ),
+                (
                     "M0-SEAM-CREATOR-PROJECTION",
                     "armi.scene-timeline-query.v2",
                 ),
@@ -48,10 +56,13 @@ class CompositionManifestTests(unittest.TestCase):
         )
         self.assertTrue(manifest["runtime_business_contract"])
 
-    def test_s014_custody_is_not_an_active_worker_binding(self) -> None:
+    def test_s023_selector_is_the_only_active_work_selection_binding(self) -> None:
         verified = verify_packaged_composition()
         bindings = dict(verified.active_bindings)
-        self.assertIsNone(bindings["M0-SEAM-WORK-SELECTION"])
+        self.assertEqual(
+            bindings["M0-SEAM-WORK-SELECTION"],
+            "armi.opportunity-selector.creator-fifo-v1",
+        )
         self.assertEqual(verified.readiness_blockers, ())
         runtime_source = Path(
             "apps/armi-runtime/src/armi_runtime/composition/runtime.py"

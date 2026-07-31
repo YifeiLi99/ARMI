@@ -296,7 +296,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {10})
+        self.assertEqual({result.applied_version for result in results}, {11})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -363,7 +363,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 10)
+        self.assertEqual(result.applied_version, 11)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -425,7 +425,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 10)
+        self.assertEqual(result.applied_version, 11)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -485,7 +485,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(11,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(12,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -544,7 +544,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (10,),
+                    (11,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1032,6 +1032,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 DROP TABLE
+                    armi.cognitive_context_items,
+                    armi.cognitive_episodes,
                     armi.opportunities,
                     armi.external_evidence,
                     armi.creator_input_interactions
@@ -1040,20 +1042,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 ALTER TABLE armi.runtime_recovery_runs
-                DROP COLUMN resumable_opportunity_count
+                DROP COLUMN resumable_opportunity_count,
+                DROP COLUMN resumable_cognitive_episode_count
                 """
             )
             connection.execute(
                 "DROP TABLE armi.scene_timeline_items, armi.interaction_scenes"
             )
             connection.execute(
-                "DELETE FROM armi.schema_migrations WHERE version IN (9, 10)"
+                "DELETE FROM armi.schema_migrations WHERE version IN (9, 10, 11)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 10)
+        self.assertEqual(backfilled.applied_version, 11)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
@@ -2070,7 +2073,33 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     operation = json.loads(operation_response.read())
                     self.assertEqual(operation_response.status, 200)
                     self.assertEqual(operation["result_ref"], accepted["result_ref"])
-                    self.assertEqual(operation["details"], accepted["details"])
+                    self.assertIn(operation["status"], {"accepted", "waiting"})
+                    operation_deadline = time.monotonic() + 10
+                    while (
+                        operation.get("waiting_for") != "model_attempt"
+                        and time.monotonic() < operation_deadline
+                    ):
+                        time.sleep(0.05)
+                        connection.request(
+                            "GET",
+                            accepted["details"]["operation_url"],
+                            headers=authenticated_headers,
+                        )
+                        operation_response = connection.getresponse()
+                        operation = json.loads(operation_response.read())
+                        self.assertEqual(operation_response.status, 200)
+                    self.assertEqual(
+                        (
+                            operation["status"],
+                            operation["waiting_for"],
+                            operation["resume_condition"],
+                        ),
+                        (
+                            "waiting",
+                            "model_attempt",
+                            "model_step_available",
+                        ),
+                    )
                     connection.request(
                         "GET",
                         "/v1/scenes/default/timeline?limit=50",
@@ -2177,6 +2206,37 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                 ).fetchone()
                 self.assertEqual(fact_counts, (1, 1, 1, 1, 1))
+                context_facts = database.execute(
+                    """
+                    SELECT
+                        (
+                            SELECT count(*)
+                            FROM armi.cognitive_episodes
+                            WHERE status = 'prepared'
+                        ),
+                        (
+                            SELECT count(*)
+                            FROM armi.cognitive_context_items
+                        ),
+                        (
+                            SELECT count(*)
+                            FROM armi.artifacts
+                            WHERE logical_kind IN (
+                                'context.manifest',
+                                'context.compiled'
+                            )
+                        ),
+                        (
+                            SELECT subject_version
+                            FROM armi.subjects
+                            WHERE singleton_key = 1
+                        )
+                    """
+                ).fetchone()
+                assert context_facts is not None
+                self.assertEqual(context_facts[0], 1)
+                self.assertGreaterEqual(context_facts[1], 10)
+                self.assertEqual(context_facts[2:], (2, 0))
                 artifact_identity = database.execute(
                     """
                     SELECT artifact.content_digest, artifact.storage_locator
@@ -2279,18 +2339,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with psycopg.connect(fixture.runtime_dsn) as database:
                 recovery_count = database.execute(
                     """
-                    SELECT resumable_opportunity_count
+                    SELECT
+                        resumable_opportunity_count,
+                        resumable_cognitive_episode_count
                     FROM armi.runtime_recovery_runs
                     ORDER BY started_at DESC, recovery_run_id DESC
                     LIMIT 1
                     """
                 ).fetchone()
-                self.assertEqual(recovery_count, (1,))
+                self.assertEqual(recovery_count, (0, 1))
                 self.assertEqual(
                     database.execute(
                         "SELECT count(*) FROM armi.durable_work"
                     ).fetchone(),
-                    (1,),
+                    (2,),
                 )
                 self.assertEqual(
                     database.execute(
@@ -2930,11 +2992,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 owner_a = _uuid7()
                 claims = await asyncio.gather(
                     gateway.claim(
+                        work_kind=draft.work_kind,
                         lease_owner=owner_a,
                         lease_seconds=1,
                         limit=1,
                     ),
                     gateway.claim(
+                        work_kind=draft.work_kind,
                         lease_owner=_uuid7(),
                         lease_seconds=2,
                         limit=1,
@@ -2949,6 +3013,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await asyncio.sleep(2.5)
                 reclaimed_after_expiry = (
                     await gateway.claim(
+                        work_kind=draft.work_kind,
                         lease_owner=_uuid7(),
                         lease_seconds=2,
                         limit=1,
@@ -2970,6 +3035,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
                 reclaimed = (
                     await gateway.claim(
+                        work_kind=draft.work_kind,
                         lease_owner=_uuid7(),
                         lease_seconds=2,
                         limit=1,
@@ -3052,6 +3118,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     await unit_of_work.work.enqueue(exhausted)
                 exhausted_claim = (
                     await gateway.claim(
+                        work_kind=exhausted.work_kind,
                         lease_owner=_uuid7(),
                         lease_seconds=1,
                         limit=1,
@@ -3061,6 +3128,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await asyncio.sleep(1.1)
                 self.assertEqual(
                     await gateway.claim(
+                        work_kind=exhausted.work_kind,
                         lease_owner=_uuid7(),
                         lease_seconds=1,
                         limit=1,
@@ -3082,6 +3150,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     await unit_of_work.work.enqueue(deadline)
                 self.assertEqual(
                     await gateway.claim(
+                        work_kind=deadline.work_kind,
                         lease_owner=_uuid7(),
                         lease_seconds=1,
                         limit=1,

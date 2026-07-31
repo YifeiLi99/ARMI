@@ -199,8 +199,8 @@ export interface components {
       /** Result Ref */
       result_ref: string;
       /**
-       * Status
-       * @constant
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
        */
       status: "accepted";
       /** Trace Id */
@@ -338,6 +338,28 @@ export interface components {
       /** Error Instance Id */
       error_instance_id?: string | null;
     };
+    /** FailedOutcomeResponse */
+    FailedOutcomeResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      error: components["schemas"]["ErrorDescriptorResponse"];
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Retryable */
+      retryable: boolean;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "failed";
+      /** Trace Id */
+      trace_id: string;
+    };
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
@@ -352,6 +374,10 @@ export interface components {
        */
       status: "alive";
     };
+    OperationOutcomeResponse:
+      | components["schemas"]["AcceptedOutcomeResponse"]
+      | components["schemas"]["WaitingOutcomeResponse"]
+      | components["schemas"]["FailedOutcomeResponse"];
     /**
      * Readiness
      * @enum {string}
@@ -496,6 +522,37 @@ export interface components {
       msg: string;
       /** Error Type */
       type: string;
+    };
+    /** WaitingOutcomeResponse */
+    WaitingOutcomeResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Result Ref */
+      result_ref: string;
+      /**
+       * Resume Condition
+       * @enum {string}
+       */
+      resume_condition: "context_prepared" | "model_step_available";
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "waiting";
+      /** Trace Id */
+      trace_id: string;
+      /**
+       * Waiting For
+       * @enum {string}
+       */
+      waiting_for: "context_preparation" | "model_attempt";
     };
   };
   responses: never;
@@ -762,7 +819,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["AcceptedOutcomeResponse"];
+          "application/json": components["schemas"]["OperationOutcomeResponse"];
         };
       };
       /** @description Bad Request */

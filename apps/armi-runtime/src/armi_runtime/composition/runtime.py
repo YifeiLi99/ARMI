@@ -13,6 +13,7 @@ from uuid import uuid7
 
 import uvicorn
 from armi_kernel.application import (
+    ContextViolation,
     CreatorInputViolation,
     RecoveryStatus,
     RecoveryViolation,
@@ -38,6 +39,7 @@ from .creator_session import compose_browser_sessions, derive_timeline_cursor_ke
 from .database import (
     ContinuityState,
     DatabaseViolation,
+    compose_context_pipeline,
     compose_creator_input,
     compose_runtime_authority,
     compose_runtime_recovery,
@@ -108,6 +110,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     scene_timeline_query = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
+    context_pipeline = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -182,6 +185,15 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 ),
             )
             await creator_input.open()
+            context_pipeline = compose_context_pipeline(
+                prepared,
+                authority_admission=authority.require_writable,
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="CONTEXT_PIPELINE",
+                ),
+            )
+            await context_pipeline.open()
         except DatabaseViolation, RuntimeAuthorityViolation:
             diagnostic.emit(
                 "runtime.authority.unavailable",
@@ -201,7 +213,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 result_code="REC_FAILED",
                 reason_codes=recovery_reasons,
             )
-        except BrowserSessionViolation, CreatorInputViolation, SceneQueryViolation:
+        except (
+            BrowserSessionViolation,
+            ContextViolation,
+            CreatorInputViolation,
+            SceneQueryViolation,
+        ):
             diagnostic.emit(
                 "runtime.creator_interface.unavailable",
                 level=logging.ERROR,
@@ -212,6 +229,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await scene_timeline_query.close()
             if creator_input is not None:
                 await creator_input.close()
+            if context_pipeline is not None:
+                await context_pipeline.close()
             if authority is not None:
                 await authority.release()
             if authority_port is not None:
@@ -273,6 +292,15 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 name="runtime-authority-heartbeat",
                 heartbeat=True,
             )
+        if context_pipeline is not None:
+            supervisor.start(
+                context_pipeline.run_selector(),
+                name="context-opportunity-selector",
+            )
+            supervisor.start(
+                context_pipeline.run_worker(),
+                name="context-prepare-worker",
+            )
 
     async def stopping() -> None:
         nonlocal drain_timed_out
@@ -290,9 +318,13 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await scene_timeline_query.close()
         if creator_input is not None:
             await creator_input.close()
+        if context_pipeline is not None:
+            context_pipeline.stop()
         released = await supervisor.drain(
             deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
         )
+        if context_pipeline is not None:
+            await context_pipeline.close()
         if authority is not None:
             diagnostic.emit(
                 (
@@ -399,6 +431,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await scene_timeline_query.close()
         if creator_input is not None:
             await creator_input.close()
+        if context_pipeline is not None:
+            await context_pipeline.close()
         if authority_port is not None:
             await authority_port.close()
     if server.force_exit:

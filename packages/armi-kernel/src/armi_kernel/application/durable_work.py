@@ -206,12 +206,35 @@ class DurableWorkWriter(Protocol):
         """Create or idempotently return one work item in the active transaction."""
         ...
 
+    async def release(
+        self,
+        lease: WorkLease,
+        *,
+        not_before: Instant,
+        error_code: str | None = None,
+    ) -> WorkRecord:
+        """Release the caller's current lease inside the active transaction."""
+        ...
+
+    async def complete(
+        self,
+        lease: WorkLease,
+        result: WorkResultRef,
+    ) -> WorkRecord:
+        """Complete the caller's current lease inside the active transaction."""
+        ...
+
+    async def fail(self, lease: WorkLease, *, error_code: str) -> WorkRecord:
+        """Fail the caller's current lease inside the active transaction."""
+        ...
+
 
 @runtime_checkable
 class DurableWorkPort(Protocol):
     async def claim(
         self,
         *,
+        work_kind: str,
         lease_owner: UUID,
         lease_seconds: int,
         limit: int = 1,

@@ -245,6 +245,7 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("summary_digest", "text", False),
         ("schema_version", "smallint", True),
         ("resumable_opportunity_count", "integer", True),
+        ("resumable_cognitive_episode_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -309,6 +310,47 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("available_after", "timestamp(6) with time zone", True),
         ("expires_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
+        ("selected_at", "timestamp(6) with time zone", False),
+    ),
+    "cognitive_episodes": (
+        ("cognitive_episode_id", "uuid", True),
+        ("opportunity_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("scene_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("purpose", "text", True),
+        ("status", "text", True),
+        ("base_subject_version", "bigint", True),
+        ("base_state_epoch", "bigint", True),
+        ("bundle_activation_id", "uuid", True),
+        ("policy_digest", "text", True),
+        ("mechanism_identity", "text", True),
+        ("mechanism_config_digest", "text", True),
+        ("context_manifest_artifact_id", "uuid", False),
+        ("compiled_context_artifact_id", "uuid", False),
+        ("context_digest", "text", False),
+        ("failure_code", "text", False),
+        ("trace_id", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("prepared_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
+    "cognitive_context_items": (
+        ("context_item_id", "uuid", True),
+        ("cognitive_episode_id", "uuid", True),
+        ("ordinal", "smallint", True),
+        ("section", "text", True),
+        ("item_kind", "text", True),
+        ("source_kind", "text", True),
+        ("source_ref", "uuid", False),
+        ("source_version", "bigint", False),
+        ("source_digest", "text", False),
+        ("trust_class", "text", True),
+        ("privacy_scope", "text", True),
+        ("disposition", "text", True),
+        ("reason_code", "text", False),
+        ("content_bytes", "integer", True),
+        ("schema_version", "smallint", True),
     ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
@@ -341,7 +383,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 17, *("n",) * 18, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 18, *("n",) * 19, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
         sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
@@ -353,7 +395,13 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     "external_evidence": tuple(
         sorted((*("c",) * 6, *("n",) * 12, *("f",) * 2, "p", *("u",) * 2))
     ),
-    "opportunities": tuple(sorted((*("c",) * 6, *("n",) * 10, "f", "p", "u"))),
+    "opportunities": tuple(sorted((*("c",) * 7, *("n",) * 10, "f", "p", *("u",) * 2))),
+    "cognitive_episodes": tuple(
+        sorted((*("c",) * 13, *("n",) * 16, *("f",) * 4, "p", "u"))
+    ),
+    "cognitive_context_items": tuple(
+        sorted((*("c",) * 16, *("n",) * 11, "f", "p", "u"))
+    ),
 }
 
 
@@ -747,6 +795,12 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(input_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 11:
+            context_tables = ("cognitive_episodes", "cognitive_context_items")
+            expected_objects.extend((name, "r") for name in context_tables)
+            expected_tables.extend(context_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -811,9 +865,14 @@ class PostgreSQLSchemaGateway:
             )
         for table_name in table_names:
             expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
+            if table_name == "runtime_recovery_runs" and expected is not None:
+                if applied_version < 10:
+                    expected = expected[:-2]
+                elif applied_version < 11:
+                    expected = expected[:-1]
             if (
-                table_name == "runtime_recovery_runs"
-                and applied_version < 10
+                table_name == "opportunities"
+                and applied_version < 11
                 and expected is not None
             ):
                 expected = expected[:-1]
@@ -848,14 +907,24 @@ class PostgreSQLSchemaGateway:
         for table_name in table_names:
             actual = tuple(actual_constraints.get(table_name, ()))
             expected = _EXPECTED_CONSTRAINT_KINDS.get(table_name)
+            if table_name == "runtime_recovery_runs" and expected is not None:
+                prior_kinds = list(expected)
+                if applied_version < 10:
+                    for _ in range(2):
+                        prior_kinds.remove("c")
+                        prior_kinds.remove("n")
+                elif applied_version < 11:
+                    prior_kinds.remove("c")
+                    prior_kinds.remove("n")
+                expected = tuple(prior_kinds)
             if (
-                table_name == "runtime_recovery_runs"
-                and applied_version < 10
+                table_name == "opportunities"
+                and applied_version < 11
                 and expected is not None
             ):
                 prior_kinds = list(expected)
                 prior_kinds.remove("c")
-                prior_kinds.remove("n")
+                prior_kinds.remove("u")
                 expected = tuple(prior_kinds)
             if (
                 table_name == "interaction_scenes"

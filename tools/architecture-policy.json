@@ -45,6 +45,7 @@
       "owner": "artifact-catalog",
       "allowed_callers": [
         "armi_runtime.composition.artifacts",
+        "armi_runtime.composition.context_pipeline",
         "armi_runtime.composition.creator_input"
       ]
     },
@@ -63,7 +64,8 @@
       "module": "armi_runtime.adapters.persistence.durable_work",
       "owner": "durable-work",
       "allowed_callers": [
-        "armi_runtime.adapters.persistence.unit_of_work"
+        "armi_runtime.adapters.persistence.unit_of_work",
+        "armi_runtime.composition.context_pipeline"
       ]
     },
     {
@@ -119,6 +121,14 @@
       "owner": "creator-input-intake",
       "allowed_callers": [
         "armi_runtime.composition.creator_input"
+      ]
+    },
+    {
+      "id": "context-snapshot",
+      "module": "armi_runtime.adapters.persistence.context",
+      "owner": "context-snapshot",
+      "allowed_callers": [
+        "armi_runtime.composition.context_pipeline"
       ]
     }
   ],
@@ -191,6 +201,17 @@
         "artifact-catalog",
         "normal-audit"
       ]
+    },
+    {
+      "id": "context-preparation",
+      "module": "armi_runtime.composition.context_pipeline",
+      "owner": "context-snapshot",
+      "allowed_write_surfaces": [
+        "context-snapshot",
+        "artifact-catalog",
+        "durable-work",
+        "normal-audit"
+      ]
     }
   ],
   "named_coordinators_not_applicable_reason": "",
@@ -258,6 +279,8 @@
     "entry_point": "armi",
     "manifest": "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/runtime-composition.manifest.json",
     "active_bindings": {
+      "M0-SEAM-CONTEXT": "armi.context-compiler.deterministic-v1",
+      "M0-SEAM-WORK-SELECTION": "armi.opportunity-selector.creator-fifo-v1",
       "M0-SEAM-CREATOR-PROJECTION": "armi.scene-timeline-query.v2",
       "M0-SEAM-CREATOR-UI": "armi.creator-static.v1"
     },

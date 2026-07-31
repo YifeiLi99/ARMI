@@ -117,6 +117,8 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
             "runtime_resources/runtime-composition.manifest.json"
         ),
         "active_bindings": {
+            "M0-SEAM-CONTEXT": "armi.context-compiler.deterministic-v1",
+            "M0-SEAM-WORK-SELECTION": ("armi.opportunity-selector.creator-fifo-v1"),
             "M0-SEAM-CREATOR-PROJECTION": "armi.scene-timeline-query.v2",
             "M0-SEAM-CREATOR-UI": "armi.creator-static.v1",
         },

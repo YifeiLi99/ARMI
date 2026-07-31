@@ -12,10 +12,12 @@ from armi_kernel.contracts import (
     AcceptedOutcome,
     ErrorDescriptor,
     ErrorInstanceId,
+    FailedOutcome,
     Instant,
     RejectedOutcome,
     TraceId,
     UnavailableOutcome,
+    WaitingOutcome,
 )
 from fastapi import FastAPI, Header, Query, Security
 from fastapi.responses import StreamingResponse
@@ -341,6 +343,43 @@ class AcceptedOutcomeResponse(_CommonOutcomeResponse):
         return value
 
 
+class WaitingOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["waiting"]
+    result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    waiting_for: Literal["context_preparation", "model_attempt"]
+    resume_condition: Literal["context_prepared", "model_step_available"]
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> WaitingOutcomeResponse:
+        WaitingOutcome.from_wire(self.model_dump(exclude_none=True))
+        if (
+            self.waiting_for,
+            self.resume_condition,
+        ) not in {
+            ("context_preparation", "context_prepared"),
+            ("model_attempt", "model_step_available"),
+        }:
+            raise ValueError("CON-INPUT-OPERATION: waiting state is inconsistent")
+        return self
+
+
+class FailedOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["failed"]
+    error: ErrorDescriptorResponse
+    retryable: bool
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> FailedOutcomeResponse:
+        FailedOutcome.from_wire(self.model_dump(exclude_none=True))
+        return self
+
+
+type OperationOutcomeResponse = Annotated[
+    AcceptedOutcomeResponse | WaitingOutcomeResponse | FailedOutcomeResponse,
+    Field(discriminator="status"),
+]
+
+
 class RejectedOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["rejected"]
     error: ErrorDescriptorResponse
@@ -524,7 +563,7 @@ def build_creator_openapi() -> dict[str, object]:
     @app.get(
         "/v1/operations/{result_ref}",
         operation_id="getCreatorOperation",
-        response_model=AcceptedOutcomeResponse,
+        response_model=OperationOutcomeResponse,
         responses={
             400: {"model": RejectedOutcomeResponse},
             401: {"model": RejectedOutcomeResponse},
@@ -536,7 +575,7 @@ def build_creator_openapi() -> dict[str, object]:
     )
     async def get_creator_operation(
         result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
-    ) -> AcceptedOutcomeResponse:
+    ) -> OperationOutcomeResponse:
         del result_ref
         raise NotImplementedError
 
@@ -621,7 +660,9 @@ __all__ = (
     "CreatorInputRequest",
     "CreatorProjectionEventResponse",
     "ErrorDescriptorResponse",
+    "FailedOutcomeResponse",
     "LiveResponse",
+    "OperationOutcomeResponse",
     "Readiness",
     "ReadyResponse",
     "RejectedOutcomeResponse",
@@ -630,5 +671,6 @@ __all__ = (
     "SceneTimelineItemResponse",
     "SceneTimelinePageResponse",
     "UnavailableOutcomeResponse",
+    "WaitingOutcomeResponse",
     "build_creator_openapi",
 )

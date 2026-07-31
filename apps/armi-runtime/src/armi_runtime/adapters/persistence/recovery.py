@@ -497,6 +497,28 @@ class PostgreSQLRuntimeRecovery:
                         ),
                         (
                             SELECT count(*)
+                            FROM armi.cognitive_episodes AS episode
+                            JOIN armi.opportunities AS opportunity
+                              ON opportunity.opportunity_id
+                               = episode.opportunity_id
+                             AND opportunity.current_disposition = 'selected'
+                            JOIN armi.durable_work AS work
+                              ON work.owner_kind = 'cognitive_episode'
+                             AND work.owner_ref = episode.cognitive_episode_id
+                             AND work.work_kind = 'cognition.context.prepare'
+                            WHERE (
+                                episode.status = 'preparing'
+                                AND work.status IN ('ready', 'leased')
+                            )
+                            OR (
+                                episode.status = 'prepared'
+                                AND work.status = 'completed'
+                                AND work.result_kind = 'cognitive_episode'
+                                AND work.result_ref = episode.cognitive_episode_id
+                            )
+                        ),
+                        (
+                            SELECT count(*)
                             FROM armi.opportunities AS opportunity
                             LEFT JOIN armi.external_evidence AS evidence
                               ON evidence.evidence_id = opportunity.evidence_id
@@ -513,7 +535,8 @@ class PostgreSQLRuntimeRecovery:
                                = evidence.creator_party_id
                             WHERE evidence.evidence_id IS NULL
                                OR interaction.creator_interaction_id IS NULL
-                               OR opportunity.current_disposition <> 'open'
+                               OR opportunity.current_disposition
+                                  NOT IN ('open', 'selected')
                                OR opportunity.eligibility_status <> 'eligible'
                                OR opportunity.expires_at IS NOT NULL
                                OR evidence.source_kind <> 'creator_input'
@@ -521,13 +544,60 @@ class PostgreSQLRuntimeRecovery:
                                OR evidence.privacy_scope <> 'creator_visible'
                                OR evidence.acceptance_status <> 'accepted'
                                OR interaction.purpose <> 'creator_message'
+                               OR (
+                                   opportunity.current_disposition = 'open'
+                                   AND EXISTS (
+                                       SELECT 1
+                                       FROM armi.cognitive_episodes AS episode
+                                       WHERE episode.opportunity_id
+                                         = opportunity.opportunity_id
+                                   )
+                               )
+                               OR (
+                                   opportunity.current_disposition = 'selected'
+                                   AND NOT EXISTS (
+                                       SELECT 1
+                                       FROM armi.cognitive_episodes AS episode
+                                       JOIN armi.durable_work AS work
+                                         ON work.owner_kind = 'cognitive_episode'
+                                        AND work.owner_ref
+                                          = episode.cognitive_episode_id
+                                        AND work.work_kind
+                                          = 'cognition.context.prepare'
+                                       WHERE episode.opportunity_id
+                                         = opportunity.opportunity_id
+                                         AND (
+                                             (
+                                                 episode.status = 'preparing'
+                                                 AND work.status
+                                                   IN ('ready', 'leased')
+                                             )
+                                             OR (
+                                                 episode.status = 'prepared'
+                                                 AND work.status = 'completed'
+                                                 AND work.result_kind
+                                                   = 'cognitive_episode'
+                                                 AND work.result_ref
+                                                   = episode.cognitive_episode_id
+                                             )
+                                             OR (
+                                                 episode.status = 'failed'
+                                                 AND work.status = 'failed'
+                                             )
+                                             OR (
+                                                 episode.status = 'cancelled'
+                                                 AND work.status = 'cancelled'
+                                             )
+                                         )
+                                   )
+                               )
                         )
                     FROM armi.durable_work
                     """
                 )
             ).fetchone()
             assert counts is not None
-            if int(counts[3]) > 0:
+            if int(counts[4]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
                     sorted(
@@ -566,6 +636,7 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_work": int(counts[0]),
                 "resumable_outbox": int(counts[1]),
                 "resumable_opportunity": int(counts[2]),
+                "resumable_cognitive_episode": int(counts[3]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -593,6 +664,7 @@ class PostgreSQLRuntimeRecovery:
                     resumable_work_count = %s,
                     resumable_outbox_count = %s,
                     resumable_opportunity_count = %s,
+                    resumable_cognitive_episode_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -608,6 +680,7 @@ class PostgreSQLRuntimeRecovery:
                     int(counts[0]),
                     int(counts[1]),
                     int(counts[2]),
+                    int(counts[3]),
                     critical,
                     blockers,
                     digest.value,
@@ -632,6 +705,7 @@ class PostgreSQLRuntimeRecovery:
             resumable_work_count=int(counts[0]),
             resumable_outbox_count=int(counts[1]),
             resumable_opportunity_count=int(counts[2]),
+            resumable_cognitive_episode_count=int(counts[3]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

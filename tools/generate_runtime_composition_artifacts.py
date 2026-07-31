@@ -37,7 +37,9 @@ _SCHEMA_FILES = (
     "migrations/0008_runtime_recovery.sql",
     "migrations/0009_scene_timeline_query.sql",
     "migrations/0010_creator_input_acceptance.sql",
+    "migrations/0011_context_snapshot_and_compilation.sql",
 )
+_CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 
 
 def _generate(root: Path, output: Path) -> None:
@@ -51,6 +53,8 @@ def _generate(root: Path, output: Path) -> None:
     creator_openapi = (root / _CREATOR / "openapi.json").read_bytes()
     birth_contract = (root / _TARGET / "birth-contract.manifest.json").read_bytes()
     (output / "birth-contract.manifest.json").write_bytes(birth_contract)
+    context_policy = (root / _CONTEXT_POLICY).read_bytes()
+    (output / "context-policy.manifest.json").write_bytes(context_policy)
     schema_resources = {
         name: (root / _SCHEMA / name).read_bytes() for name in _SCHEMA_FILES
     }
@@ -59,6 +63,7 @@ def _generate(root: Path, output: Path) -> None:
         creator_manifest=creator_manifest,
         creator_openapi=creator_openapi,
         birth_contract=birth_contract,
+        context_policy=context_policy,
         schema_resources=schema_resources,
     )
     (output / "runtime-composition.manifest.json").write_bytes(
@@ -72,6 +77,7 @@ def _files(root: Path) -> dict[str, bytes]:
         for name in (
             *_CONFIG,
             "birth-contract.manifest.json",
+            "context-policy.manifest.json",
             "runtime-composition.manifest.json",
         )
         if (root / name).is_file()

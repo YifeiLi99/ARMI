@@ -71,6 +71,19 @@ function acceptedOperation(): object {
   };
 }
 
+function preparedContextOperation(): object {
+  return {
+    contract_version: "1.0",
+    status: "waiting",
+    trace_id: "b".repeat(32),
+    occurred_at: "2026-07-30T10:02:01.000000Z",
+    message: "The prepared Context is waiting for a model attempt.",
+    result_ref: OPPORTUNITY_ID,
+    waiting_for: "model_attempt",
+    resume_condition: "model_step_available",
+  };
+}
+
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
@@ -427,7 +440,7 @@ describe("Creator browser session shell", () => {
         return jsonResponse(acceptedOperation(), 202);
       }
       if (url === `/v1/operations/${OPPORTUNITY_ID}`) {
-        return jsonResponse(acceptedOperation());
+        return jsonResponse(preparedContextOperation());
       }
       throw new Error(`unexpected request: ${url}`);
     });
@@ -446,6 +459,9 @@ describe("Creator browser session shell", () => {
     ).toBeInTheDocument();
     expect(composer).toHaveValue("");
     expect(await screen.findByText(OPPORTUNITY_ID)).toBeInTheDocument();
+    expect(
+      await screen.findByText("Context 已准备，等待模型步骤"),
+    ).toBeInTheDocument();
     expect(keys).toHaveLength(1);
     expect(keys[0]).toMatch(/^creator-input-v1\.[A-Za-z0-9_-]{22}$/);
     expect(document.body.textContent).not.toContain("保留原样");

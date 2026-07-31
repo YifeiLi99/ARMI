@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 10})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 11})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -92,6 +92,8 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.creator_input_interactions",
                 "armi.external_evidence",
                 "armi.opportunities",
+                "armi.cognitive_episodes",
+                "armi.cognitive_context_items",
             ],
         )
         self.assertNotIn("manifest_sha256", manifest)
@@ -265,6 +267,22 @@ class SchemaArtifactTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn("upgrade_operator_schema", source)
         self.assertNotIn(".upgrade(", source)
+
+    def test_context_migration_has_only_the_s023_authority_surface(self) -> None:
+        sql = Path(
+            "schema/migrations/0011_context_snapshot_and_compilation.sql"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(sql.count("CREATE TABLE"), 2)
+        self.assertIn("CREATE TABLE armi.cognitive_episodes", sql)
+        self.assertIn("CREATE TABLE armi.cognitive_context_items", sql)
+        self.assertIn("ADD COLUMN resumable_cognitive_episode_count", sql)
+        self.assertIn(
+            "mechanism_identity = 'armi.context-compiler.deterministic-v1'",
+            sql,
+        )
+        self.assertNotIn("MODEL", sql.upper())
+        self.assertNotIn("GRANT DELETE", sql.upper())
+        self.assertNotIn("GRANT TRUNCATE", sql.upper())
 
     def test_durable_work_migration_is_the_only_s014_surface(self) -> None:
         sql = Path("schema/migrations/0005_durable_work_and_outbox.sql").read_text(

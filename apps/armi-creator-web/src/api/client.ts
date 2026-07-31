@@ -9,6 +9,10 @@ export type SceneTimelinePage =
   components["schemas"]["SceneTimelinePageResponse"];
 export type AcceptedOperation =
   components["schemas"]["AcceptedOutcomeResponse"];
+export type CreatorOperation =
+  | AcceptedOperation
+  | components["schemas"]["WaitingOutcomeResponse"]
+  | components["schemas"]["FailedOutcomeResponse"];
 
 export class ApiFailure extends Error {
   constructor(
@@ -152,7 +156,7 @@ export async function getCreatorOperation(
   token: string,
   operationRef: string,
   signal?: AbortSignal,
-): Promise<AcceptedOperation> {
+): Promise<CreatorOperation> {
   const response = await fetch(
     `/v1/operations/${encodeURIComponent(operationRef)}`,
     {

@@ -18,6 +18,8 @@ export function OperationPanel({
     queryKey: ["creator-operation", operationRef],
     enabled: operationRef !== null,
     queryFn: ({ signal }) => getCreatorOperation(token, operationRef!, signal),
+    refetchInterval: (query) =>
+      query.state.data?.status === "waiting" ? 2000 : false,
   });
 
   useEffect(() => {
@@ -49,11 +51,11 @@ export function OperationPanel({
         <p role="status">正在核验接纳责任</p>
       ) : operation.isError ? (
         <p role="status">当前无法核验这项接纳责任。</p>
-      ) : (
+      ) : operation.data.status === "accepted" ? (
         <dl>
           <div>
             <dt>状态</dt>
-            <dd>{operation.data.status}</dd>
+            <dd>已耐久接纳</dd>
           </div>
           <div>
             <dt>保管方</dt>
@@ -62,6 +64,32 @@ export function OperationPanel({
           <div>
             <dt>责任引用</dt>
             <dd>{operation.data.result_ref}</dd>
+          </div>
+        </dl>
+      ) : operation.data.status === "waiting" ? (
+        <dl>
+          <div>
+            <dt>状态</dt>
+            <dd>
+              {operation.data.waiting_for === "context_preparation"
+                ? "正在准备 Context"
+                : "Context 已准备，等待模型步骤"}
+            </dd>
+          </div>
+          <div>
+            <dt>责任引用</dt>
+            <dd>{operation.data.result_ref}</dd>
+          </div>
+        </dl>
+      ) : (
+        <dl>
+          <div>
+            <dt>状态</dt>
+            <dd>Context 准备失败</dd>
+          </div>
+          <div>
+            <dt>安全错误码</dt>
+            <dd>{operation.data.error.code}</dd>
           </div>
         </dl>
       )}

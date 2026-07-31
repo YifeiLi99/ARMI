@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S022，并把当前设计基线重冻为 S001 3.2。新基线冻结了 Context v1、FIFO Creator opportunity 选择、`cognition.context.prepare` 分阶段工作、确定性字节预算和 prepared episode 与 S024 模型 attempt 的责任边界；现有产品 schema 仍为 v10，Context、episode 与业务 worker 尚未实施。仓库和长期环境也没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此仍不是可用产品版本；M0-S023 进入实施，S024 尚未获得模型联网或凭据使用授权。
+项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S023，当前设计基线为 S001 3.2。产品 schema 已升至 v11，并激活 FIFO Creator opportunity 选择器与确定性 Context compiler：生产 Runtime 可把已接纳输入收敛为唯一的 prepared episode，同时保留 unavailable 来源和字节预算证据。仓库和长期环境仍没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，也不会在本步骤取得模型凭据或发起模型调用，因此还不是可用产品版本；M0-S024 仅开放计划前置条件，尚未获得实施、联网或凭据使用授权。
 
 ## 关于学习与参考
 

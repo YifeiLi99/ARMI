@@ -26,6 +26,7 @@ from armi_kernel.application import (
     CreatorInputAcceptancePort,
     CreatorInputCommand,
     CreatorInputViolation,
+    CreatorOperation,
     CreatorOperationQueryPort,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
@@ -169,7 +170,7 @@ class EvidenceAcceptanceTransaction(
     async def close(self) -> None:
         await self._uow_factory.close()
 
-    async def get(self, opportunity_id: OpportunityId) -> CreatorInputAcceptance:
+    async def get(self, opportunity_id: OpportunityId) -> CreatorOperation:
         if type(opportunity_id) is not OpportunityId:
             raise CreatorInputViolation("CON-INPUT-OPPORTUNITY-ID")
         try:

@@ -191,6 +191,143 @@ class PostgreSQLDurableWorkWriter:
         ).fetchone()
         return _row_to_record(row) if row is not None else None
 
+    async def release(
+        self,
+        lease: WorkLease,
+        *,
+        not_before: Instant,
+        error_code: str | None = None,
+    ) -> WorkRecord:
+        if type(not_before) is not Instant:
+            raise WorkViolation("WORK-DECLARATION")
+        _require_error_code(error_code)
+        return await self._settle(
+            lease,
+            """
+            UPDATE armi.durable_work
+            SET status = 'ready',
+                not_before = GREATEST(%s, statement_timestamp()),
+                current_attempt_id = NULL,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                last_error_code = %s,
+                updated_at = clock_timestamp()
+            WHERE work_id = %s
+              AND status = 'leased'
+              AND current_attempt_id = %s
+              AND lease_owner = %s
+              AND lease_token = %s
+              AND lease_expires_at >= statement_timestamp()
+              AND deadline_at > statement_timestamp()
+            RETURNING
+            """,
+            (
+                not_before.value,
+                error_code,
+                lease.work_id.value,
+                lease.attempt_id.value,
+                lease.owner,
+                lease.token,
+            ),
+            "released",
+        )
+
+    async def complete(
+        self,
+        lease: WorkLease,
+        result: WorkResultRef,
+    ) -> WorkRecord:
+        if type(result) is not WorkResultRef:
+            raise WorkViolation("WORK-DECLARATION")
+        return await self._settle(
+            lease,
+            """
+            UPDATE armi.durable_work
+            SET status = 'completed',
+                current_attempt_id = NULL,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                result_kind = %s,
+                result_ref = %s,
+                last_error_code = NULL,
+                updated_at = clock_timestamp()
+            WHERE work_id = %s
+              AND status = 'leased'
+              AND current_attempt_id = %s
+              AND lease_owner = %s
+              AND lease_token = %s
+              AND lease_expires_at >= statement_timestamp()
+              AND deadline_at > statement_timestamp()
+            RETURNING
+            """,
+            (
+                result.kind,
+                result.reference,
+                lease.work_id.value,
+                lease.attempt_id.value,
+                lease.owner,
+                lease.token,
+            ),
+            "completed",
+        )
+
+    async def fail(self, lease: WorkLease, *, error_code: str) -> WorkRecord:
+        _require_error_code(error_code)
+        return await self._settle(
+            lease,
+            """
+            UPDATE armi.durable_work
+            SET status = 'failed',
+                current_attempt_id = NULL,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                last_error_code = %s,
+                updated_at = clock_timestamp()
+            WHERE work_id = %s
+              AND status = 'leased'
+              AND current_attempt_id = %s
+              AND lease_owner = %s
+              AND lease_token = %s
+              AND lease_expires_at >= statement_timestamp()
+            RETURNING
+            """,
+            (
+                error_code,
+                lease.work_id.value,
+                lease.attempt_id.value,
+                lease.owner,
+                lease.token,
+            ),
+            "failed",
+        )
+
+    async def _settle(
+        self,
+        lease: WorkLease,
+        sql_prefix: str,
+        parameters: tuple[object, ...],
+        operation: str,
+    ) -> WorkRecord:
+        _require_lease(lease)
+        try:
+            row = await (
+                await self._connection.execute(
+                    cast(LiteralString, f"{sql_prefix} {_WORK_COLUMNS}"),
+                    parameters,
+                )
+            ).fetchone()
+            if row is None:
+                raise WorkViolation("WORK-LEASE-STALE")
+            record = _row_to_record(row)
+            await self._audit.append(_record_audit(self._actor_ref, record, operation))
+            return record
+        except WorkViolation:
+            raise
+        except AuditViolation:
+            raise WorkViolation("WORK-AUDIT") from None
+        except psycopg.Error:
+            raise WorkViolation("WORK-DATABASE") from None
+
 
 class PostgreSQLDurableWorkGateway:
     """Claim and settle work through explicit short Unit of Work scopes."""
@@ -203,10 +340,12 @@ class PostgreSQLDurableWorkGateway:
     async def claim(
         self,
         *,
+        work_kind: str,
         lease_owner: UUID,
         lease_seconds: int,
         limit: int = 1,
     ) -> tuple[WorkRecord, ...]:
+        _require_token(work_kind)
         _require_uuid7(lease_owner)
         _require_positive(lease_seconds)
         if type(limit) is not int or not 1 <= limit <= 100:
@@ -221,6 +360,7 @@ class PostgreSQLDurableWorkGateway:
                         SELECT work_id
                         FROM armi.durable_work
                         WHERE status IN ('ready', 'leased')
+                          AND work_kind = %s
                           AND not_before <= statement_timestamp()
                           AND deadline_at > statement_timestamp()
                           AND attempt_count < max_attempts
@@ -232,7 +372,7 @@ class PostgreSQLDurableWorkGateway:
                         FOR UPDATE SKIP LOCKED
                         LIMIT %s
                         """,
-                        (limit,),
+                        (work_kind, limit),
                     )
                 ).fetchall()
                 records: list[WorkRecord] = []
@@ -695,6 +835,19 @@ def _require_uuid7(value: object) -> None:
 
 def _require_positive(value: object) -> None:
     if type(value) is not int or value <= 0:
+        raise WorkViolation("WORK-DECLARATION")
+
+
+def _require_token(value: object) -> None:
+    if (
+        type(value) is not str
+        or re.fullmatch(
+            r"[a-z][a-z0-9._-]{0,63}",
+            value,
+            re.ASCII,
+        )
+        is None
+    ):
         raise WorkViolation("WORK-DECLARATION")
 
 

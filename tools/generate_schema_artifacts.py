@@ -211,6 +211,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_work_count",
                     "resumable_outbox_count",
                     "resumable_opportunity_count",
+                    "resumable_cognitive_episode_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -225,6 +226,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_work_count",
                     "resumable_outbox_count",
                     "resumable_opportunity_count",
+                    "resumable_cognitive_episode_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -342,6 +344,85 @@ def build_role_manifest() -> dict[str, object]:
                         "purpose",
                         "eligibility_status",
                         "current_disposition",
+                        "schema_version",
+                    ],
+                    "UPDATE": ["current_disposition", "selected_at"],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+    ]
+    context_objects = [
+        {
+            "kind": "table",
+            "name": "armi.cognitive_episodes",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "cognitive_episode_id",
+                        "opportunity_id",
+                        "subject_id",
+                        "scene_id",
+                        "creator_party_id",
+                        "purpose",
+                        "status",
+                        "base_subject_version",
+                        "base_state_epoch",
+                        "bundle_activation_id",
+                        "policy_digest",
+                        "mechanism_identity",
+                        "mechanism_config_digest",
+                        "trace_id",
+                        "schema_version",
+                    ],
+                    "UPDATE": [
+                        "status",
+                        "context_manifest_artifact_id",
+                        "compiled_context_artifact_id",
+                        "context_digest",
+                        "failure_code",
+                        "prepared_at",
+                    ],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.cognitive_context_items",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "context_item_id",
+                        "cognitive_episode_id",
+                        "ordinal",
+                        "section",
+                        "item_kind",
+                        "source_kind",
+                        "source_ref",
+                        "source_version",
+                        "source_digest",
+                        "trust_class",
+                        "privacy_scope",
+                        "disposition",
+                        "reason_code",
+                        "content_bytes",
                         "schema_version",
                     ]
                 },
@@ -617,12 +698,13 @@ def build_role_manifest() -> dict[str, object]:
             recovery_object,
             timeline_object,
             *creator_input_objects,
+            *context_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S021 has no business or administration function requiring "
+                "M0-S023 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -805,9 +887,20 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "logical_owner": "opportunity-custody",
                 "activation_step": "M0-S021",
             },
+            {
+                "kind": "table",
+                "name": "armi.cognitive_episodes",
+                "logical_owner": "cognitive-episode",
+                "activation_step": "M0-S023",
+            },
+            {
+                "kind": "table",
+                "name": "armi.cognitive_context_items",
+                "logical_owner": "context-snapshot",
+                "activation_step": "M0-S023",
+            },
         ],
         "deferred_objects": [
-            {"scope": "episode_state", "activation_step": "M0-S023"},
             {"scope": "cognition_attempt_state", "activation_step": "M0-S024"},
             {"scope": "effect_state", "activation_step": "M0-S028"},
             {"scope": "business_projection_state", "activation_step": "M0-S030"},
