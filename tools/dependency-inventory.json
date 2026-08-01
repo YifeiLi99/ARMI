@@ -1101,10 +1101,6 @@
         },
         {
           "from": "armi-runtime@0.0.0",
-          "to": "playwright"
-        },
-        {
-          "from": "armi-runtime@0.0.0",
           "to": "psycopg"
         },
         {
@@ -4740,5 +4736,5 @@
     }
   },
   "unresolved_licenses": [],
-  "graph_sha256": "e221dc3e856a74b8d83a4c0e31f0819b6e3f983155e364a4f49c6aa4f0dc4d64"
+  "graph_sha256": "6cfdc94908b518bdd882147ed1cc1876760fc4d208ec4efead48b8635e2b5c52"
 }

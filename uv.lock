@@ -77,7 +77,6 @@ dependencies = [
     { name = "armi-kernel" },
     { name = "fastapi" },
     { name = "openai" },
-    { name = "playwright" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
     { name = "pydantic" },
@@ -90,7 +89,6 @@ requires-dist = [
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "fastapi", specifier = "==0.140.13" },
     { name = "openai", specifier = "==2.49.0" },
-    { name = "playwright", specifier = "==1.61.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
     { name = "pydantic", specifier = "==2.13.4" },
@@ -106,6 +104,7 @@ source = { virtual = "." }
 [package.dev-dependencies]
 dev = [
     { name = "hypothesis" },
+    { name = "playwright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -116,6 +115,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "hypothesis", specifier = "==6.163.0" },
+    { name = "playwright", specifier = "==1.61.0" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-asyncio", specifier = "==1.4.0" },
     { name = "ruff", specifier = "==0.16.0" },

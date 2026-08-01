@@ -52,7 +52,6 @@ DISTRIBUTIONS = (
             "armi-kernel==0.0.0",
             "fastapi==0.140.13",
             "openai==2.49.0",
-            "playwright==1.61.0",
             "psycopg[binary]==3.3.4",
             "psycopg-pool==3.3.1",
             "pydantic==2.13.4",
@@ -186,6 +185,7 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
             "dependency-groups.dev",
             [
                 "hypothesis==6.163.0",
+                "playwright==1.61.0",
                 "pytest==9.1.1",
                 "pytest-asyncio==1.4.0",
                 "ruff==0.16.0",

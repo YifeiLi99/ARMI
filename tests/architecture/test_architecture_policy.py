@@ -20,6 +20,7 @@ BASE_POLICY: dict[str, Any] = {
     "transaction_control_exemptions": [],
     "transaction_control_exemptions_not_applicable_reason": "not implemented",
     "coordinator_forbidden_io_roots": ["openai", "playwright", "mcp", "httpx"],
+    "runtime_forbidden_import_roots": ["playwright", "mcp"],
     "forbidden_entry_points": [],
     "forbidden_entry_points_not_applicable_reason": "greenfield",
 }
@@ -144,6 +145,16 @@ class ArchitecturePolicyTests(unittest.TestCase):
         self.assertIn(
             "ARC-OWNER-COORDINATOR-IO",
             self.codes("import openai\n", module=module, policy=policy),
+        )
+
+    def test_runtime_cannot_import_product_browser_or_local_mcp_client(self) -> None:
+        self.assertIn(
+            "ARC-RUNTIME-FORBIDDEN-ADAPTER",
+            self.codes("import playwright\n"),
+        )
+        self.assertIn(
+            "ARC-RUNTIME-FORBIDDEN-ADAPTER",
+            self.codes("from mcp import ClientSession\n"),
         )
 
     def test_global_service_locator_is_rejected(self) -> None:

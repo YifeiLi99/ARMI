@@ -191,11 +191,21 @@ def analyze_source(
         if isinstance(item, dict) and item.get("module")
     }
     forbidden_coordinator_io = set(policy.get("coordinator_forbidden_io_roots", []))
+    forbidden_runtime_imports = set(policy.get("runtime_forbidden_import_roots", []))
     imports = list(imported_modules(tree))
 
     imports_driver = False
     for imported, line in imports:
         root = imported.split(".", maxsplit=1)[0]
+        if module_matches(module, "armi_runtime") and root in forbidden_runtime_imports:
+            violations.append(
+                Violation(
+                    "ARC-RUNTIME-FORBIDDEN-ADAPTER",
+                    path,
+                    line,
+                    f"Runtime product code cannot import {root}",
+                )
+            )
         if module in coordinator_modules and root in forbidden_coordinator_io:
             violations.append(
                 Violation(

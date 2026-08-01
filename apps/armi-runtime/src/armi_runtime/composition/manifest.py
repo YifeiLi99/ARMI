@@ -41,6 +41,7 @@ _CONFIG_FILES: Final = (
 _BIRTH_CONTRACT_FILE: Final = "birth-contract.manifest.json"
 _CONTEXT_POLICY_FILE: Final = "context-policy.manifest.json"
 _MODEL_BINDING_FILE: Final = "model-bindings.manifest.json"
+_REMOTE_MCP_BINDING_FILE: Final = "remote-mcp-binding.manifest.json"
 _CANDIDATE_POLICY_FILE: Final = "candidate-validation-policy.manifest.json"
 _SUBJECT_COMMIT_POLICY_FILE: Final = "subject-commit-policy.manifest.json"
 _CAPABILITY_CATALOG_FILE: Final = "capability-catalog.manifest.json"
@@ -83,6 +84,7 @@ def build_composition_manifest(
     birth_contract: bytes,
     context_policy: bytes,
     model_binding: bytes,
+    remote_mcp_binding: bytes,
     candidate_policy: bytes,
     subject_commit_policy: bytes,
     capability_catalog: bytes,
@@ -147,6 +149,7 @@ def build_composition_manifest(
             f"bootstrap/{_BIRTH_CONTRACT_FILE}": _sha256(birth_contract),
             f"context/{_CONTEXT_POLICY_FILE}": _sha256(context_policy),
             f"model/{_MODEL_BINDING_FILE}": _sha256(model_binding),
+            f"model/{_REMOTE_MCP_BINDING_FILE}": _sha256(remote_mcp_binding),
             f"candidate/{_CANDIDATE_POLICY_FILE}": _sha256(candidate_policy),
             f"subject-commit/{_SUBJECT_COMMIT_POLICY_FILE}": _sha256(
                 subject_commit_policy
@@ -192,6 +195,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         birth_contract = resources.joinpath(_BIRTH_CONTRACT_FILE).read_bytes()
         context_policy = resources.joinpath(_CONTEXT_POLICY_FILE).read_bytes()
         model_binding = resources.joinpath(_MODEL_BINDING_FILE).read_bytes()
+        remote_mcp_binding = resources.joinpath(_REMOTE_MCP_BINDING_FILE).read_bytes()
         candidate_policy = resources.joinpath(_CANDIDATE_POLICY_FILE).read_bytes()
         subject_commit_policy = resources.joinpath(
             _SUBJECT_COMMIT_POLICY_FILE
@@ -219,6 +223,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         birth_contract=birth_contract,
         context_policy=context_policy,
         model_binding=model_binding,
+        remote_mcp_binding=remote_mcp_binding,
         candidate_policy=candidate_policy,
         subject_commit_policy=subject_commit_policy,
         capability_catalog=capability_catalog,

@@ -393,8 +393,20 @@
     "openai",
     "playwright"
   ],
-  "forbidden_entry_points": [],
-  "forbidden_entry_points_not_applicable_reason": "The greenfield S004 baseline has no replaced production entry point.",
+  "runtime_forbidden_import_roots": ["mcp", "playwright"],
+  "forbidden_entry_points": [
+    {
+      "id": "superseded-web-worker-entry",
+      "module": "armi_runtime.workers.web_worker",
+      "path": "apps/armi-runtime/src/armi_runtime/workers/web_worker.py"
+    },
+    {
+      "id": "superseded-web-worker-supervisor",
+      "module": "armi_runtime.composition.web_worker_supervisor",
+      "path": "apps/armi-runtime/src/armi_runtime/composition/web_worker_supervisor.py"
+    }
+  ],
+  "forbidden_entry_points_not_applicable_reason": "",
   "creator_web": {
     "source_root": "apps/armi-creator-web/src",
     "generated_file": "apps/armi-creator-web/src/api/generated/creator.ts",

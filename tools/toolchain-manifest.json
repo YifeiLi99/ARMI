@@ -91,7 +91,7 @@
   "lockfiles": [
     {
       "path": "uv.lock",
-      "sha256": "a19acc95777b3c8d8c7749053481762acf02acb261eeb18309945a63b5e95851"
+      "sha256": "62bc03302716c21a604727cb1059ca3c007655e09bf5c0bde003b7985afe01e0"
     },
     {
       "path": "apps/armi-creator-web/package-lock.json",
@@ -110,6 +110,6 @@
   },
   "dependency_inventory": {
     "path": "tools/dependency-inventory.json",
-    "graph_sha256": "e221dc3e856a74b8d83a4c0e31f0819b6e3f983155e364a4f49c6aa4f0dc4d64"
+    "graph_sha256": "6cfdc94908b518bdd882147ed1cc1876760fc4d208ec4efead48b8635e2b5c52"
   }
 }
