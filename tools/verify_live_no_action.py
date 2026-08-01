@@ -1,4 +1,4 @@
-"""Run the one-call S031 Seed Evolving formal-no-action live gate.
+"""Run one bounded S031 Seed Evolving formal-no-action live attempt.
 
 This explicit entry is outside the offline quality path. It never prints the
 credential or model content and only records bounded, non-sensitive evidence.
@@ -22,6 +22,7 @@ from armi_kernel.application import (
     CredentialLocator,
     FormalNoActionDraft,
     FormalNoActionKind,
+    FormalNoActionReason,
     ModelResultStatus,
 )
 from armi_kernel.contracts import Digest
@@ -274,17 +275,23 @@ async def _verify(env_file: Path) -> dict[str, object]:
         ),
     )
     change_set = validation.change_set
-    if (
+    formal_choice = (
+        change_set.action_choices[0]
+        if change_set is not None
+        and len(change_set.action_choices) == 1
+        and isinstance(change_set.action_choices[0], FormalNoActionDraft)
+        else None
+    )
+    passed = not (
         change_set is None
         or change_set.disposition.value != "no_action"
-        or len(change_set.action_choices) != 1
-        or not isinstance(change_set.action_choices[0], FormalNoActionDraft)
-        or change_set.action_choices[0].kind is not FormalNoActionKind.NO_ACTION
+        or formal_choice is None
+        or formal_choice.kind is not FormalNoActionKind.NO_ACTION
+        or formal_choice.reason is not FormalNoActionReason.SUBJECTIVE_SILENCE
         or change_set.experiences
         or change_set.components
         or change_set.capability_requests
-    ):
-        raise RuntimeError(validation.error_code or "CANDIDATE-NO-ACTION-REQUIRED")
+    )
     return {
         "schema_version": "armi.creator-closure-no-action-live-evidence.v1",
         "binding_digest": binding.digest.value,
@@ -296,9 +303,29 @@ async def _verify(env_file: Path) -> dict[str, object]:
         "request_digest": request.digest.value,
         "response_digest": invocation.response_digest.value,
         "candidate_digest": Digest.from_bytes(candidate_bytes).value,
-        "change_set_digest": change_set.digest.value,
-        "disposition": change_set.disposition.value,
-        "formal_no_action_kind": change_set.action_choices[0].kind.value,
+        "candidate_disposition": response["candidate"].get("disposition"),
+        "validation_status": validation.status.value,
+        "validation_code": validation.error_code,
+        "accepted_count": validation.accepted_count,
+        "rejected_count": validation.rejected_count,
+        "change_set_digest": (
+            change_set.digest.value if change_set is not None else None
+        ),
+        "disposition": (
+            change_set.disposition.value if change_set is not None else None
+        ),
+        "formal_no_action_kind": (
+            formal_choice.kind.value if formal_choice is not None else None
+        ),
+        "formal_no_action_reason": (
+            formal_choice.reason.value if formal_choice is not None else None
+        ),
+        "experience_count": len(change_set.experiences) if change_set else None,
+        "component_count": len(change_set.components) if change_set else None,
+        "capability_request_count": (
+            len(change_set.capability_requests) if change_set else None
+        ),
+        "action_choice_count": len(change_set.action_choices) if change_set else None,
         "input_tokens": invocation.usage.input_tokens,
         "output_tokens": invocation.usage.output_tokens,
         "cached_input_tokens": invocation.usage.cached_input_tokens,
@@ -307,7 +334,8 @@ async def _verify(env_file: Path) -> dict[str, object]:
         "tools_enabled": False,
         "store": False,
         "subject_state_written": False,
-        "result": "pass",
+        "failure_code": None if passed else "CANDIDATE-NO-ACTION-REQUIRED",
+        "result": "pass" if passed else "blocked",
     }
 
 
@@ -316,13 +344,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    output = args.output.resolve()
     try:
         evidence = asyncio.run(_verify(args.env_file.resolve()))
     except Exception as error:
         code = str(error)
         if not code.startswith(("MODEL-", "CANDIDATE-")):
             code = "MODEL-LIVE-FAILED"
-        print(json.dumps({"result": "fail", "code": code}, separators=(",", ":")))
+        evidence = {
+            "schema_version": "armi.creator-closure-no-action-live-evidence.v1",
+            "result": "fail",
+            "failure_code": code,
+        }
+        encoded = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(encoded + "\n", encoding="utf-8", newline="\n")
+        print(encoded)
         return 1
     encoded = json.dumps(
         evidence,
@@ -330,11 +367,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         sort_keys=True,
         separators=(",", ":"),
     )
-    output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(encoded + "\n", encoding="utf-8", newline="\n")
     print(encoded)
-    return 0
+    return 0 if evidence["result"] == "pass" else 2
 
 
 if __name__ == "__main__":

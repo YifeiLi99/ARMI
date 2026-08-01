@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S030，当前设计基线已重冻为 S001 4.1，产品 schema 仍为 v18。首个 `creator.scene.reply/send` effect 已能通过 PostgreSQL Creator inbox 完成耐久 attempt、幂等接收、可靠 observation、settlement 和崩溃恢复；结果不明时保持 `unknown`，只由后续权威 inbox 查询收敛，不盲目重派。S031 的 capability/operation/effect/subject 权威投影、五类 SSE 失效通知和 Creator 单页权限效果工作台已经实现，并通过离线质量、PostgreSQL 与真实 Chromium 验收；真实 Evolving 回应闭环也已通过，但正式不行动 live gate 在三次获准推理预算内未形成合格候选，因此 S031 尚未标记完成，R3 与 M0-A04 也尚未判定通过。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`，`codex.delegated-work` 在执行适配器完成前保持不可授权；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。
+项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S031，当前设计基线为 S001 4.1，产品 schema 仍为 v18。首个 `creator.scene.reply/send` effect 已能通过 PostgreSQL Creator inbox 完成耐久 attempt、幂等接收、可靠 observation、settlement 和崩溃恢复；结果不明时保持 `unknown`，只由后续权威 inbox 查询收敛，不盲目重派。S031 的 capability/operation/effect/subject 权威投影、五类 SSE 失效通知和 Creator 单页权限效果工作台已经实现，并通过离线质量、PostgreSQL、真实 Chromium、Evolving 回应闭环与严格正式不行动 live gate；R3 与当前 M0-A04 Creator 可见证明已通过，M0-S032 已开放实施。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`，`codex.delegated-work` 在执行适配器完成前保持不可授权；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。
 
 ## 关于学习与参考
 
