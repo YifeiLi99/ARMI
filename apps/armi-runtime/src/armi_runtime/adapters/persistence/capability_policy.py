@@ -8,7 +8,7 @@ import hmac
 import json
 import secrets
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -24,16 +24,20 @@ from armi_kernel.application import (
     CapabilityRequestId,
     CapabilityRequestStatus,
     CapabilityViolation,
+    CreatorEventResourceKind,
+    CreatorEventViolation,
     CreatorGrantCommand,
     CreatorGrantDecision,
     CreatorGrantResult,
+    CreatorProjectionInvalidation,
+    CreatorProjectionNotifier,
     CreatorSceneReplyScope,
     GrantStatus,
     PermissionGrant,
     PermissionGrantId,
     RuntimeFence,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 
 from .unit_of_work import PostgreSQLUnitOfWorkFactory
 
@@ -41,7 +45,7 @@ from .unit_of_work import PostgreSQLUnitOfWorkFactory
 class PostgreSQLCreatorGrantPolicy:
     """Apply exact Creator decisions; never dispatch or execute the capability."""
 
-    __slots__ = ("_cursor_key", "_environment_id", "_factory", "_stop")
+    __slots__ = ("_cursor_key", "_environment_id", "_factory", "_notifier", "_stop")
 
     def __init__(
         self,
@@ -54,6 +58,7 @@ class PostgreSQLCreatorGrantPolicy:
         statement_timeout_seconds: int,
         authority_admission: Callable[[], RuntimeFence],
         cursor_key: bytes,
+        notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         async def reject_dynamic_lock(connection: Any, target: Any) -> None:
             del connection, target
@@ -75,6 +80,7 @@ class PostgreSQLCreatorGrantPolicy:
             cursor_key, b"armi.creator.capability-request.cursor-key.v1", hashlib.sha256
         ).digest()
         self._environment_id = environment_id
+        self._notifier = notifier
         self._stop = asyncio.Event()
 
     async def open(self) -> None:
@@ -138,10 +144,30 @@ class PostgreSQLCreatorGrantPolicy:
                              THEN 'expired'
                              ELSE request.current_status
                            END, request.request_version,
-                           request.created_at, permission.grant_id
+                           request.created_at, permission.grant_id,
+                           capability.availability_status,
+                           decision.reason_code,
+                           CASE
+                             WHEN permission.status = 'active'
+                              AND permission.valid_until <= statement_timestamp()
+                             THEN 'expired'
+                             ELSE permission.status
+                           END,
+                           permission.valid_from, permission.valid_until,
+                           permission.max_uses, permission.consumed_uses,
+                           permission.max_payload_bytes
                     FROM armi.capability_requests AS request
+                    JOIN armi.capabilities AS capability
+                      ON capability.capability_id = request.capability_id
                     LEFT JOIN armi.permission_grants AS permission
                       ON permission.capability_request_id = request.capability_request_id
+                    LEFT JOIN LATERAL (
+                      SELECT item.reason_code
+                      FROM armi.capability_request_decisions AS item
+                      WHERE item.capability_request_id = request.capability_request_id
+                      ORDER BY item.resulting_request_version DESC
+                      LIMIT 1
+                    ) AS decision ON true
                     WHERE request.creator_party_id = %s
                       AND (%s::timestamptz IS NULL OR
                            (request.created_at, request.capability_request_id) <
@@ -178,7 +204,22 @@ class PostgreSQLCreatorGrantPolicy:
                 "status": str(row[14]),
                 "request_version": int(row[15]),
                 "created_at": row[16],
-                "grant_ref": str(row[17]) if row[17] is not None else None,
+                "capability_availability": str(row[18]),
+                "resolution_reason_code": row[19],
+                "effective_grant": (
+                    {
+                        "grant_ref": str(row[17]),
+                        "status": str(row[20]),
+                        "valid_from": row[21],
+                        "valid_until": row[22],
+                        "max_uses": int(row[23]),
+                        "consumed_uses": int(row[24]),
+                        "remaining_uses": int(row[23]) - int(row[24]),
+                        "max_payload_bytes": int(row[25]),
+                    }
+                    if row[17] is not None
+                    else None
+                ),
             }
             for row in visible
         ]
@@ -267,7 +308,7 @@ class PostgreSQLCreatorGrantPolicy:
                 now = now_row[0]
                 resulting_version = command.expected_version + 1
                 grant: PermissionGrant | None = None
-                cancelled_effects: tuple[tuple[UUID, UUID, Digest], ...] = ()
+                cancelled_effects: tuple[tuple[UUID, UUID, Digest, UUID], ...] = ()
                 cancellation_grant_id: UUID | None = None
                 scope_digest: Digest | None = None
                 result_status: CapabilityRequestStatus
@@ -444,7 +485,12 @@ class PostgreSQLCreatorGrantPolicy:
                         else None,
                     )
                 )
-                for effect_id, subject_id, cancellation_digest in cancelled_effects:
+                for (
+                    effect_id,
+                    subject_id,
+                    cancellation_digest,
+                    _root_operation_id,
+                ) in cancelled_effects:
                     assert cancellation_grant_id is not None
                     await unit_of_work.audit.append(
                         AuditDraft(
@@ -482,6 +528,8 @@ class PostgreSQLCreatorGrantPolicy:
             raise CapabilityViolation("CON-CAPABILITY-PAGE")
         from armi_kernel.application import LockPlan
 
+        expired_request_ids: list[UUID] = []
+        cancelled_projection_refs: list[tuple[UUID, UUID]] = []
         async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
             connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
             rows = await (
@@ -531,6 +579,7 @@ class PostgreSQLCreatorGrantPolicy:
                     grant_id=UUID(str(row[0])),
                     reason_code="POLICY-GRANT-EXPIRED",
                 )
+                expired_request_ids.append(UUID(str(row[1])))
                 await connection.execute(
                     """
                     INSERT INTO armi.capability_request_decisions (
@@ -566,7 +615,13 @@ class PostgreSQLCreatorGrantPolicy:
                         grant=AuditReference("permission_grant", row[0]),
                     )
                 )
-                for effect_id, subject_id, cancellation_digest in cancelled_effects:
+                for (
+                    effect_id,
+                    subject_id,
+                    cancellation_digest,
+                    root_operation_id,
+                ) in cancelled_effects:
+                    cancelled_projection_refs.append((effect_id, root_operation_id))
                     await unit_of_work.audit.append(
                         AuditDraft(
                             AuditEventId(uuid7()),
@@ -582,7 +637,48 @@ class PostgreSQLCreatorGrantPolicy:
                             grant=AuditReference("permission_grant", row[0]),
                         )
                     )
-            return len(rows)
+        await self._notify_expiry(expired_request_ids, cancelled_projection_refs)
+        return len(expired_request_ids)
+
+    async def _notify_expiry(
+        self,
+        request_ids: list[UUID],
+        cancelled_refs: list[tuple[UUID, UUID]],
+    ) -> None:
+        if self._notifier is None:
+            return
+        now = Instant(datetime.now(UTC))
+        invalidations = [
+            CreatorProjectionInvalidation(
+                CreatorEventResourceKind.CAPABILITY_REQUEST,
+                str(request_id),
+                now,
+                "capability-request.v2",
+            )
+            for request_id in request_ids
+        ]
+        for effect_id, root_operation_id in cancelled_refs:
+            invalidations.extend(
+                (
+                    CreatorProjectionInvalidation(
+                        CreatorEventResourceKind.EFFECT,
+                        str(effect_id),
+                        now,
+                        "creator-effect.v1",
+                    ),
+                    CreatorProjectionInvalidation(
+                        CreatorEventResourceKind.OPERATION,
+                        str(root_operation_id),
+                        now,
+                        "creator-operation.v1",
+                    ),
+                )
+            )
+        for invalidation in invalidations:
+            try:
+                await self._notifier.notify(invalidation)
+            except CreatorEventViolation:
+                continue
 
 
 async def _cancel_registered_effects(
@@ -590,15 +686,19 @@ async def _cancel_registered_effects(
     *,
     grant_id: UUID,
     reason_code: str,
-) -> tuple[tuple[UUID, UUID, Digest], ...]:
+) -> tuple[tuple[UUID, UUID, Digest, UUID], ...]:
     rows = await (
         await connection.execute(
             """
             SELECT effect.effect_id, effect.subject_id,
                    effect.action_intent_revision_id,
                    effect.creator_response_operation_id,
-                   effect.policy_decision_id
+                   effect.policy_decision_id,
+                   response.root_opportunity_id
             FROM armi.effects AS effect
+            JOIN armi.creator_response_operations AS response
+              ON response.creator_response_operation_id
+               = effect.creator_response_operation_id
             JOIN armi.policy_decisions AS policy
               ON policy.policy_decision_id = effect.policy_decision_id
              AND policy.is_current
@@ -613,13 +713,14 @@ async def _cancel_registered_effects(
             (grant_id,),
         )
     ).fetchall()
-    cancelled: list[tuple[UUID, UUID, Digest]] = []
+    cancelled: list[tuple[UUID, UUID, Digest, UUID]] = []
     for row in rows:
         effect_id = UUID(str(row[0]))
         subject_id = UUID(str(row[1]))
         action_revision_id = UUID(str(row[2]))
         operation_id = UUID(str(row[3]))
         prior_decision_id = UUID(str(row[4]))
+        root_operation_id = UUID(str(row[5]))
         decision_id = uuid7()
         cancellation_digest = Digest.from_bytes(
             rfc8785.dumps(
@@ -685,7 +786,9 @@ async def _cancel_registered_effects(
             """,
             (decision_id, operation_id),
         )
-        cancelled.append((effect_id, subject_id, cancellation_digest))
+        cancelled.append(
+            (effect_id, subject_id, cancellation_digest, root_operation_id)
+        )
     return tuple(cancelled)
 
 
@@ -821,7 +924,8 @@ def _encode_cursor(
         cast(
             Any,
             {
-                "schema_version": "armi.capability-request-cursor.v1",
+                "schema_version": "armi.capability-request-cursor.v2",
+                "projection_version": "capability-request.v2",
                 "environment_id": str(environment_id),
                 "creator_party_id": str(creator_party_id),
                 "limit": limit,
@@ -869,12 +973,16 @@ def _decode_cursor(
                 "limit",
                 "created_at",
                 "capability_request_id",
+                "projection_version",
             }
-            or document["schema_version"] != "armi.capability-request-cursor.v1"
+            or document["schema_version"] != "armi.capability-request-cursor.v2"
+            or document["projection_version"] != "capability-request.v2"
             or document["environment_id"] != str(environment_id)
             or document["creator_party_id"] != str(creator_party_id)
             or document["limit"] != limit
         ):
+            if document.get("schema_version") == "armi.capability-request-cursor.v1":
+                raise CapabilityViolation("CONFLICT-CAPABILITY-CURSOR-STALE")
             raise ValueError
         request_id_text = document["capability_request_id"]
         if type(request_id_text) is not str:

@@ -34,6 +34,56 @@ async function read(values: Uint8Array[]): Promise<string[]> {
 }
 
 describe("authenticated Creator event stream parser", () => {
+  it.each([
+    [
+      "scene.timeline.invalidated",
+      "scene_timeline",
+      "default",
+      "scene-timeline.v3",
+    ],
+    [
+      "capability.request.invalidated",
+      "capability_request",
+      "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",
+      "capability-request.v2",
+    ],
+    [
+      "operation.invalidated",
+      "operation",
+      "018f47a6-7b2d-7c35-8b18-684e38ab6ef8",
+      "creator-operation.v1",
+    ],
+    [
+      "effect.invalidated",
+      "effect",
+      "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
+      "creator-effect.v1",
+    ],
+    [
+      "subject.summary.invalidated",
+      "subject_summary",
+      "018f47a6-7b2d-7c35-8b18-684e38ab6efa",
+      "subject-summary.v1",
+    ],
+  ] as const)(
+    "accepts %s only with its exact resource binding",
+    async (eventKind, resourceKind, resourceRef, projectionVersion) => {
+      const data = JSON.stringify({
+        contract_version: "1.0",
+        event_id: EVENT_ID,
+        event_kind: eventKind,
+        resource_kind: resourceKind,
+        resource_ref: resourceRef,
+        projection_version: projectionVersion,
+        occurred_at: "2026-07-30T10:00:00.000000Z",
+      });
+      const frame = `id: ${EVENT_ID}\nevent: ${eventKind}\ndata: ${data}\n\n`;
+      await expect(read([new TextEncoder().encode(frame)])).resolves.toEqual([
+        EVENT_ID,
+      ]);
+    },
+  );
+
   it("parses the frozen frame across every byte boundary", async () => {
     const encoded = new TextEncoder().encode(FRAME);
     for (let boundary = 0; boundary <= encoded.length; boundary += 1) {

@@ -23,7 +23,13 @@ SUBSCRIBER_CAPACITY = 64
 MAX_EVENT_BYTES = 4096
 KEEPALIVE_SECONDS = 15
 RETRY_MILLISECONDS = 1000
-EVENT_KIND = "scene.timeline.invalidated"
+EVENT_KINDS = {
+    "scene_timeline": "scene.timeline.invalidated",
+    "capability_request": "capability.request.invalidated",
+    "operation": "operation.invalidated",
+    "effect": "effect.invalidated",
+    "subject_summary": "subject.summary.invalidated",
+}
 _EVENT_ID = re.compile(
     r"^sse-v1\.([A-Za-z0-9_-]{22})\.([1-9][0-9]*)$",
     re.ASCII,
@@ -156,12 +162,13 @@ class CreatorEventBroker:
         async with self._lock:
             sequence = self._sequence + 1
             event_id = f"sse-v1.{self._epoch}.{sequence}"
+            event_kind = EVENT_KINDS[invalidation.resource_kind.value]
             wire = {
                 "contract_version": "1.0",
                 "event_id": event_id,
-                "event_kind": EVENT_KIND,
+                "event_kind": event_kind,
                 "resource_kind": invalidation.resource_kind.value,
-                "resource_ref": invalidation.resource_ref.value,
+                "resource_ref": invalidation.resource_ref,
                 "projection_version": invalidation.projection_version,
                 "occurred_at": invalidation.occurred_at.to_wire(),
             }
@@ -172,7 +179,7 @@ class CreatorEventBroker:
                 sort_keys=True,
             ).encode("utf-8")
             frame = (
-                f"id: {event_id}\nevent: {EVENT_KIND}\ndata: ".encode("ascii")
+                f"id: {event_id}\nevent: {event_kind}\ndata: ".encode("ascii")
                 + data
                 + b"\n\n"
             )
@@ -183,7 +190,7 @@ class CreatorEventBroker:
                 )
             event = PublishedCreatorEvent(
                 event_id=event_id,
-                event_kind=EVENT_KIND,
+                event_kind=event_kind,
                 data=data,
                 frame=frame,
                 sequence=sequence,
@@ -308,7 +315,7 @@ async def stream_creator_events(
 
 
 __all__ = (
-    "EVENT_KIND",
+    "EVENT_KINDS",
     "KEEPALIVE_SECONDS",
     "MAX_EVENT_BYTES",
     "REPLAY_CAPACITY",

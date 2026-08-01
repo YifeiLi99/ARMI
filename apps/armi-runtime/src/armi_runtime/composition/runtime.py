@@ -186,18 +186,19 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 cursor_key=derive_timeline_cursor_key(prepared),
             )
             await scene_timeline_query.open()
-            capability_policy = compose_capability_policy(
-                prepared,
-                authority_admission=authority.require_writable,
-                cursor_key=derive_timeline_cursor_key(prepared),
-            )
-            await capability_policy.open()
             creator_events = CreatorEventBroker(
                 diagnostic=lambda event: diagnostic.emit(
                     event,
                     result_code="CREATOR_EVENT_STREAM",
                 )
             )
+            capability_policy = compose_capability_policy(
+                prepared,
+                authority_admission=authority.require_writable,
+                cursor_key=derive_timeline_cursor_key(prepared),
+                notifier=creator_events,
+            )
+            await capability_policy.open()
             creator_input = compose_creator_input(
                 prepared,
                 creator_party_id=creator_context.party_id,

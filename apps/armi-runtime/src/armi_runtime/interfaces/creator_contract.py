@@ -215,10 +215,28 @@ class SceneTimelinePageResponse(_StrictWireModel):
 class CreatorProjectionEventResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     event_id: Annotated[str, Field(pattern=_EVENT_ID_PATTERN, max_length=128)]
-    event_kind: Literal["scene.timeline.invalidated"]
-    resource_kind: Literal["scene_timeline"]
-    resource_ref: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
-    projection_version: Literal["scene-timeline.v3"]
+    event_kind: Literal[
+        "scene.timeline.invalidated",
+        "capability.request.invalidated",
+        "operation.invalidated",
+        "effect.invalidated",
+        "subject.summary.invalidated",
+    ]
+    resource_kind: Literal[
+        "scene_timeline",
+        "capability_request",
+        "operation",
+        "effect",
+        "subject_summary",
+    ]
+    resource_ref: Annotated[str, Field(min_length=1, max_length=64)]
+    projection_version: Literal[
+        "scene-timeline.v3",
+        "capability-request.v2",
+        "creator-operation.v1",
+        "creator-effect.v1",
+        "subject-summary.v1",
+    ]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
     @field_validator("occurred_at")
@@ -227,6 +245,43 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         if Instant.from_wire(value).to_wire() != value:
             raise ValueError("CON-SSE-TIME: instant must be canonical")
         return value
+
+    @model_validator(mode="after")
+    def validate_resource(self) -> CreatorProjectionEventResponse:
+        expected = {
+            "scene_timeline": (
+                "scene.timeline.invalidated",
+                "scene-timeline.v3",
+                _SCENE_KEY_PATTERN,
+            ),
+            "capability_request": (
+                "capability.request.invalidated",
+                "capability-request.v2",
+                _UUIDV7_PATTERN,
+            ),
+            "operation": (
+                "operation.invalidated",
+                "creator-operation.v1",
+                _UUIDV7_PATTERN,
+            ),
+            "effect": (
+                "effect.invalidated",
+                "creator-effect.v1",
+                _UUIDV7_PATTERN,
+            ),
+            "subject_summary": (
+                "subject.summary.invalidated",
+                "subject-summary.v1",
+                _UUIDV7_PATTERN,
+            ),
+        }[self.resource_kind]
+        if (
+            self.event_kind != expected[0]
+            or self.projection_version != expected[1]
+            or re.fullmatch(expected[2], self.resource_ref, flags=re.ASCII) is None
+        ):
+            raise ValueError("CON-SSE-RESOURCE: event resource is inconsistent")
+        return self
 
 
 class CreatorInputRequest(_StrictWireModel):
@@ -456,14 +511,108 @@ class UnknownOutcomeResponse(_CommonOutcomeResponse):
         return self
 
 
+class UnavailableOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["unavailable"]
+    error: ErrorDescriptorResponse
+    details: dict[str, JsonValue] | None = None
+    recovery_hint: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> UnavailableOutcomeResponse:
+        UnavailableOutcome.from_wire(self.model_dump(exclude_none=True))
+        return self
+
+
+class CreatorOperationDetails(_StrictWireModel):
+    projection_version: Literal["creator-operation.v1"]
+    root_operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    completion_kind: Literal[
+        "cognition",
+        "subject_change",
+        "formal_decline",
+        "formal_no_action",
+        "no_change",
+        "response_effect",
+    ]
+    delivery_state: (
+        Literal[
+            "not_started",
+            "registered",
+            "dispatching",
+            "completed",
+            "failed",
+            "unknown",
+            "cancelled",
+        ]
+        | None
+    ) = None
+    effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+
+
+class OperationAcceptedOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["accepted"]
+    result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    custodian: Literal["runtime"]
+    details: CreatorOperationDetails
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> OperationAcceptedOutcomeResponse:
+        AcceptedOutcome.from_wire(self.model_dump(exclude_none=True))
+        return self
+
+
+class OperationAppliedOutcomeResponse(AppliedOutcomeResponse):
+    details: CreatorOperationDetails
+
+
+class OperationCompletedOutcomeResponse(CompletedOutcomeResponse):
+    details: CreatorOperationDetails
+
+
+class OperationWaitingOutcomeResponse(WaitingOutcomeResponse):
+    details: CreatorOperationDetails
+
+
+class OperationRejectedOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["rejected"]
+    error: ErrorDescriptorResponse
+    details: CreatorOperationDetails
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> OperationRejectedOutcomeResponse:
+        RejectedOutcome.from_wire(self.model_dump(exclude_none=True))
+        return self
+
+
+class OperationUnavailableOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["unavailable"]
+    error: ErrorDescriptorResponse
+    details: CreatorOperationDetails
+    recovery_hint: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> OperationUnavailableOutcomeResponse:
+        UnavailableOutcome.from_wire(self.model_dump(exclude_none=True))
+        return self
+
+
+class OperationFailedOutcomeResponse(FailedOutcomeResponse):
+    details: CreatorOperationDetails
+
+
+class OperationUnknownOutcomeResponse(UnknownOutcomeResponse):
+    details: CreatorOperationDetails
+
+
 type OperationOutcomeResponse = Annotated[
-    AcceptedOutcomeResponse
-    | AppliedOutcomeResponse
-    | CompletedOutcomeResponse
-    | WaitingOutcomeResponse
-    | RejectedOutcomeResponse
-    | FailedOutcomeResponse
-    | UnknownOutcomeResponse,
+    OperationAcceptedOutcomeResponse
+    | OperationAppliedOutcomeResponse
+    | OperationCompletedOutcomeResponse
+    | OperationWaitingOutcomeResponse
+    | OperationRejectedOutcomeResponse
+    | OperationUnavailableOutcomeResponse
+    | OperationFailedOutcomeResponse
+    | OperationUnknownOutcomeResponse,
     Field(discriminator="status"),
 ]
 
@@ -477,6 +626,7 @@ class SubjectComponentSummaryResponse(_StrictWireModel):
 
 class SubjectSummaryResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
+    projection_version: Literal["subject-summary.v1"]
     subject_version: Annotated[int, Field(ge=0)]
     components: Annotated[
         list[SubjectComponentSummaryResponse], Field(min_length=3, max_length=3)
@@ -495,6 +645,7 @@ class SubjectSummaryResponse(_StrictWireModel):
 
 class EffectResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
+    projection_version: Literal["creator-effect.v1"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     root_operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     effect_kind: Literal["creator_response"]
@@ -544,6 +695,27 @@ class EffectResponse(_StrictWireModel):
         return self
 
 
+class EffectiveGrantResponse(_StrictWireModel):
+    grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    status: Literal["active", "revoked", "expired"]
+    valid_from: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    valid_until: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    max_uses: Annotated[int, Field(ge=1, le=16)]
+    consumed_uses: Annotated[int, Field(ge=0, le=16)]
+    remaining_uses: Annotated[int, Field(ge=0, le=16)]
+    max_payload_bytes: Annotated[int, Field(ge=1, le=65536)]
+
+    @model_validator(mode="after")
+    def validate_grant(self) -> EffectiveGrantResponse:
+        if self.consumed_uses + self.remaining_uses != self.max_uses:
+            raise ValueError("CON-CAPABILITY-GRANT: usage counts are inconsistent")
+        if Instant.from_wire(self.valid_from).to_wire() != self.valid_from:
+            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
+        if Instant.from_wire(self.valid_until).to_wire() != self.valid_until:
+            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
+        return self
+
+
 class CapabilityRequestItemResponse(_StrictWireModel):
     capability_request_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
@@ -560,11 +732,15 @@ class CapabilityRequestItemResponse(_StrictWireModel):
     max_uses: Annotated[int, Field(ge=1, le=16)]
     max_payload_bytes: Annotated[int, Field(ge=1, le=65536)] | None = None
     status: Literal["pending", "granted", "limited", "denied", "revoked", "expired"]
+    capability_availability: Literal["available", "unavailable"]
     request_version: Annotated[int, Field(ge=1)]
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-    grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    resolution_reason_code: (
+        Annotated[str, Field(pattern=r"[A-Z][A-Z0-9-]{2,127}")] | None
+    ) = None
+    effective_grant: EffectiveGrantResponse | None = None
 
-    @field_validator("capability_request_id", "subject_id", "scene_id", "grant_ref")
+    @field_validator("capability_request_id", "subject_id", "scene_id")
     @classmethod
     def validate_identity(cls, value: str | None) -> str | None:
         if value is not None:
@@ -607,16 +783,16 @@ class CapabilityRequestItemResponse(_StrictWireModel):
             or self.network_access is not False
         ):
             raise ValueError("CON-CAPABILITY-SCOPE: Codex scope is invalid")
-        if self.status in {"granted", "limited"} and self.grant_ref is None:
+        if self.status in {"granted", "limited"} and self.effective_grant is None:
             raise ValueError("CON-CAPABILITY-STATE: grant reference is missing")
-        if self.status in {"pending", "denied"} and self.grant_ref is not None:
+        if self.status in {"pending", "denied"} and self.effective_grant is not None:
             raise ValueError("CON-CAPABILITY-STATE: grant reference is inconsistent")
         return self
 
 
 class CapabilityRequestPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["capability-request.v1"]
+    projection_version: Literal["capability-request.v2"]
     items: Annotated[list[CapabilityRequestItemResponse], Field(max_length=100)]
     next_cursor: (
         Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
@@ -658,18 +834,6 @@ class CapabilityRequestDecisionRequest(_StrictWireModel):
             raise ValueError("CON-CAPABILITY-LIMIT: limit must narrow scope")
         if self.decision != "limit" and any(value is not None for value in limits):
             raise ValueError("CON-CAPABILITY-LIMIT: only limit accepts scope fields")
-        return self
-
-
-class UnavailableOutcomeResponse(_CommonOutcomeResponse):
-    status: Literal["unavailable"]
-    error: ErrorDescriptorResponse
-    details: dict[str, JsonValue] | None = None
-    recovery_hint: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
-
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> UnavailableOutcomeResponse:
-        UnavailableOutcome.from_wire(self.model_dump(exclude_none=True))
         return self
 
 

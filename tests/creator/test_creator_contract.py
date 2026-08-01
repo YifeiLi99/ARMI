@@ -132,13 +132,14 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(
             {branch["$ref"].rsplit("/", 1)[-1] for branch in operation_schema["oneOf"]},
             {
-                "AcceptedOutcomeResponse",
-                "AppliedOutcomeResponse",
-                "CompletedOutcomeResponse",
-                "WaitingOutcomeResponse",
-                "RejectedOutcomeResponse",
-                "FailedOutcomeResponse",
-                "UnknownOutcomeResponse",
+                "OperationAcceptedOutcomeResponse",
+                "OperationAppliedOutcomeResponse",
+                "OperationCompletedOutcomeResponse",
+                "OperationWaitingOutcomeResponse",
+                "OperationRejectedOutcomeResponse",
+                "OperationUnavailableOutcomeResponse",
+                "OperationFailedOutcomeResponse",
+                "OperationUnknownOutcomeResponse",
             },
         )
 

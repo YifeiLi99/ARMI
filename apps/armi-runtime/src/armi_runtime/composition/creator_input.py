@@ -359,8 +359,9 @@ class EvidenceAcceptanceTransaction(
             await self._notifier.notify(
                 CreatorProjectionInvalidation(
                     resource_kind=CreatorEventResourceKind.SCENE_TIMELINE,
-                    resource_ref=SceneKey(scene_key),
+                    resource_ref=SceneKey(scene_key).value,
                     occurred_at=Instant(datetime.now(UTC)),
+                    projection_version="scene-timeline.v3",
                 )
             )
         except Exception:

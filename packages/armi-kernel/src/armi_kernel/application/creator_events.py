@@ -9,9 +9,13 @@ from typing import Protocol, runtime_checkable
 
 from armi_kernel.contracts import Instant
 
-from .scenes import PROJECTION_VERSION, SceneKey
-
 _CODE = re.compile(r"^(?:CON-SSE|SSE)-[A-Z0-9-]+$", re.ASCII)
+_SCENE_KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
+_UUIDV7 = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-"
+    r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.ASCII,
+)
 
 
 class CreatorEventViolation(RuntimeError):
@@ -31,23 +35,43 @@ class CreatorEventViolation(RuntimeError):
 
 class CreatorEventResourceKind(StrEnum):
     SCENE_TIMELINE = "scene_timeline"
+    CAPABILITY_REQUEST = "capability_request"
+    OPERATION = "operation"
+    EFFECT = "effect"
+    SUBJECT_SUMMARY = "subject_summary"
+
+
+_PROJECTIONS = {
+    CreatorEventResourceKind.SCENE_TIMELINE: "scene-timeline.v3",
+    CreatorEventResourceKind.CAPABILITY_REQUEST: "capability-request.v2",
+    CreatorEventResourceKind.OPERATION: "creator-operation.v1",
+    CreatorEventResourceKind.EFFECT: "creator-effect.v1",
+    CreatorEventResourceKind.SUBJECT_SUMMARY: "subject-summary.v1",
+}
 
 
 @dataclass(frozen=True, slots=True)
 class CreatorProjectionInvalidation:
     resource_kind: CreatorEventResourceKind
-    resource_ref: SceneKey
+    resource_ref: str
     occurred_at: Instant
-    projection_version: str = PROJECTION_VERSION
+    projection_version: str
 
     def __post_init__(self) -> None:
         if type(self.resource_kind) is not CreatorEventResourceKind:
             raise CreatorEventViolation("CON-SSE-RESOURCE")
-        if type(self.resource_ref) is not SceneKey:
+        if type(self.resource_ref) is not str:
+            raise CreatorEventViolation("CON-SSE-RESOURCE")
+        pattern = (
+            _SCENE_KEY
+            if self.resource_kind is CreatorEventResourceKind.SCENE_TIMELINE
+            else _UUIDV7
+        )
+        if pattern.fullmatch(self.resource_ref) is None:
             raise CreatorEventViolation("CON-SSE-RESOURCE")
         if type(self.occurred_at) is not Instant:
             raise CreatorEventViolation("CON-SSE-TIME")
-        if self.projection_version != PROJECTION_VERSION:
+        if self.projection_version != _PROJECTIONS[self.resource_kind]:
             raise CreatorEventViolation("CON-SSE-PROJECTION")
 
 

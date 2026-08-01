@@ -109,9 +109,11 @@ class _CapabilityPolicy:
                     "max_uses": 1,
                     "max_payload_bytes": 1024,
                     "status": "pending",
+                    "capability_availability": "available",
                     "request_version": 1,
                     "created_at": datetime.now(UTC),
-                    "grant_ref": None,
+                    "resolution_reason_code": None,
+                    "effective_grant": None,
                 }
             ][:limit],
             "next_cursor": None,

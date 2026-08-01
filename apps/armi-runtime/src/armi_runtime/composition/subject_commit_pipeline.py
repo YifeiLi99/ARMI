@@ -160,8 +160,7 @@ class SubjectCommitPipeline:
                     change_set=change_set,
                     response_artifact_id=response_artifact_id,
                 )
-            if result.subject_commit_id is not None:
-                await self._notify(snapshot.scene_key)
+            await self._notify(snapshot, result)
             return True
         except SubjectCommitViolation as error:
             if error.code in {
@@ -180,8 +179,7 @@ class SubjectCommitPipeline:
             if error.code == "DB-TX-COMMIT-UNKNOWN" and snapshot is not None:
                 recovered = await self._recover_committed(snapshot)
                 if recovered is not None:
-                    if recovered.subject_commit_id is not None:
-                        await self._notify(snapshot.scene_key)
+                    await self._notify(snapshot, recovered)
                     return True
                 self._diagnostic("subject_commit.commit.outcome_unknown")
                 return True
@@ -277,19 +275,60 @@ class SubjectCommitPipeline:
         except DatabaseTransactionError:
             return None
 
-    async def _notify(self, scene_key: str) -> None:
+    async def _notify(
+        self, snapshot: SubjectCommitSnapshot, result: SubjectCommitResult
+    ) -> None:
         if self._notifier is None:
             return
-        try:
-            await self._notifier.notify(
-                CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.SCENE_TIMELINE,
-                    SceneKey(scene_key),
-                    Instant(datetime.now(UTC)),
+        now = Instant(datetime.now(UTC))
+        invalidations = [
+            CreatorProjectionInvalidation(
+                CreatorEventResourceKind.OPERATION,
+                str(snapshot.root_opportunity_id),
+                now,
+                "creator-operation.v1",
+            )
+        ]
+        if result.subject_commit_id is not None:
+            invalidations.extend(
+                (
+                    CreatorProjectionInvalidation(
+                        CreatorEventResourceKind.SCENE_TIMELINE,
+                        SceneKey(snapshot.scene_key).value,
+                        now,
+                        "scene-timeline.v3",
+                    ),
+                    CreatorProjectionInvalidation(
+                        CreatorEventResourceKind.SUBJECT_SUMMARY,
+                        str(snapshot.subject_id),
+                        now,
+                        "subject-summary.v1",
+                    ),
                 )
             )
-        except CreatorEventViolation:
-            self._diagnostic("subject_commit.notification.failed")
+            try:
+                async with self._factory.unit_of_work(
+                    LockPlan(), read_only=True
+                ) as unit_of_work:
+                    request_ids = await self._repository.capability_request_ids(
+                        unit_of_work, result.subject_commit_id
+                    )
+                invalidations.extend(
+                    CreatorProjectionInvalidation(
+                        CreatorEventResourceKind.CAPABILITY_REQUEST,
+                        str(request_id),
+                        now,
+                        "capability-request.v2",
+                    )
+                    for request_id in request_ids
+                )
+            except DatabaseTransactionError:
+                self._diagnostic("subject_commit.notification.lookup_failed")
+        for invalidation in invalidations:
+            try:
+                await self._notifier.notify(invalidation)
+            except CreatorEventViolation:
+                self._diagnostic("subject_commit.notification.failed")
 
 
 def build_subject_commit_pipeline(

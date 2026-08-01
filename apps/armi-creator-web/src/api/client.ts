@@ -12,6 +12,15 @@ export type AcceptedOperation =
 export type CreatorOperation =
   components["schemas"]["OperationOutcomeResponse"];
 export type SubjectSummary = components["schemas"]["SubjectSummaryResponse"];
+export type CapabilityRequestPage =
+  components["schemas"]["CapabilityRequestPageResponse"];
+export type CapabilityRequest =
+  components["schemas"]["CapabilityRequestItemResponse"];
+export type CapabilityDecision =
+  components["schemas"]["CapabilityRequestDecisionRequest"];
+export type CapabilityDecisionResult =
+  components["schemas"]["AppliedOutcomeResponse"];
+export type EffectDetail = components["schemas"]["EffectResponse"];
 
 export class ApiFailure extends Error {
   constructor(
@@ -172,6 +181,59 @@ export async function getSubjectSummary(
   signal?: AbortSignal,
 ): Promise<SubjectSummary> {
   const response = await fetch("/v1/subject/summary", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getCapabilityRequests(
+  token: string,
+  limit: number,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<CapabilityRequestPage> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) {
+    query.set("cursor", cursor);
+  }
+  const response = await fetch(`/v1/capability-requests?${query.toString()}`, {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function decideCapabilityRequest(
+  token: string,
+  requestId: string,
+  decision: CapabilityDecision,
+  signal?: AbortSignal,
+): Promise<CapabilityDecisionResult> {
+  const response = await fetch(
+    `/v1/capability-requests/${encodeURIComponent(requestId)}/decision`,
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(decision),
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
+}
+
+export async function getEffectDetail(
+  token: string,
+  effectId: string,
+  signal?: AbortSignal,
+): Promise<EffectDetail> {
+  const response = await fetch(`/v1/effects/${encodeURIComponent(effectId)}`, {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),

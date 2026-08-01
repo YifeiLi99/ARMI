@@ -52,9 +52,9 @@ class CompositionManifestTests(unittest.TestCase):
                 ),
                 (
                     "M0-SEAM-CREATOR-PROJECTION",
-                    "armi.scene-timeline-query.v3",
+                    "armi.creator-projection-workbench.v1",
                 ),
-                ("M0-SEAM-CREATOR-UI", "armi.creator-static.v1"),
+                ("M0-SEAM-CREATOR-UI", "armi.creator-workbench.v1"),
             ],
         )
         self.assertEqual(verified.readiness_blockers, RUNTIME_BLOCKING_REASONS)

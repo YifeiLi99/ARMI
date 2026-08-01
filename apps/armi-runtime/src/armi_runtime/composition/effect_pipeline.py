@@ -18,6 +18,7 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
     EffectAdapterReceipt,
     EffectId,
+    EffectRegistrationResult,
     EffectView,
     EffectViolation,
     LockPlan,
@@ -37,6 +38,7 @@ from armi_runtime.adapters.persistence.effect_dispatch import (
     PostgreSQLEffectDispatchRepository,
 )
 from armi_runtime.adapters.persistence.effect_ledger import (
+    EffectRegistrationSnapshot,
     PostgreSQLEffectLedgerRepository,
 )
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
@@ -120,9 +122,10 @@ class EffectRegistrationPipeline:
                 is not None
             )
             async with self._factory.unit_of_work(LockPlan()) as uow:
-                await self._repository.settle(
+                result = await self._repository.settle(
                     uow, lease=lease, snapshot=snapshot, integrity_ok=integrity_ok
                 )
+            await self._notify_registration(snapshot, result)
             return True
         except EffectViolation as error:
             if error.code != "EFFECT-WORK-STALE":
@@ -167,20 +170,23 @@ class EffectRegistrationPipeline:
             if payload is None:
                 async with self._factory.unit_of_work(LockPlan()) as uow:
                     await self._dispatcher.settle_integrity_failure(uow, snapshot)
+                await self._notify_dispatch(snapshot, include_scene=False)
                 return True
             async with self._factory.unit_of_work(LockPlan()) as uow:
                 await self._dispatcher.mark_dispatching(uow, snapshot)
+            await self._notify_dispatch(snapshot, include_scene=False)
             try:
                 receipt = await self._dispatch_with_heartbeat(snapshot, payload)
             except EffectViolation as error:
                 if error.code == "EFFECT-RECEIVER-CONFLICT":
                     async with self._factory.unit_of_work(LockPlan()) as uow:
                         await self._dispatcher.settle_integrity_failure(uow, snapshot)
+                    await self._notify_dispatch(snapshot, include_scene=False)
                     return True
                 return await self._reconcile(snapshot)
             async with self._factory.unit_of_work(LockPlan()) as uow:
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
-            await self._notify(snapshot.scene_key)
+            await self._notify_dispatch(snapshot, include_scene=True)
             return True
         except DatabaseTransactionError, EffectViolation:
             self._diagnostic("effect.dispatch.transient_failure")
@@ -210,7 +216,9 @@ class EffectRegistrationPipeline:
                         uow, unknown, receipt
                     )
             if receipt is not None:
-                await self._notify(unknown.scene_key)
+                await self._notify_dispatch(unknown, include_scene=True)
+            else:
+                await self._notify_dispatch(unknown, include_scene=False)
             return True
         except DatabaseTransactionError, EffectViolation:
             self._diagnostic("effect.recovery.failed")
@@ -222,14 +230,16 @@ class EffectRegistrationPipeline:
         except DatabaseTransactionError, EffectViolation:
             async with self._factory.unit_of_work(LockPlan()) as uow:
                 await self._dispatcher.settle_unknown(uow, snapshot)
+            await self._notify_dispatch(snapshot, include_scene=False)
             return True
         if receipt is not None:
             async with self._factory.unit_of_work(LockPlan()) as uow:
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
-            await self._notify(snapshot.scene_key)
+            await self._notify_dispatch(snapshot, include_scene=True)
             return True
         async with self._factory.unit_of_work(LockPlan()) as uow:
             await self._dispatcher.settle_absent(uow, snapshot)
+        await self._notify_dispatch(snapshot, include_scene=False)
         return True
 
     async def _dispatch_with_heartbeat(
@@ -249,21 +259,87 @@ class EffectRegistrationPipeline:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
 
-    async def _notify(self, scene_key: str) -> None:
-        if self._notifier is None:
-            return
-        try:
-            from armi_kernel.contracts import Instant
-
-            await self._notifier.notify(
-                CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.SCENE_TIMELINE,
-                    SceneKey(scene_key),
-                    Instant(datetime.now(UTC)),
+    async def _notify_registration(
+        self,
+        snapshot: EffectRegistrationSnapshot,
+        result: EffectRegistrationResult | None,
+    ) -> None:
+        invalidations = [
+            (
+                CreatorEventResourceKind.OPERATION,
+                str(snapshot.root_operation_id),
+                "creator-operation.v1",
+            )
+        ]
+        if result is not None:
+            invalidations.append(
+                (
+                    CreatorEventResourceKind.EFFECT,
+                    str(result.effect_id.value),
+                    "creator-effect.v1",
                 )
             )
-        except Exception:
-            self._diagnostic("effect.timeline_notification.failed")
+        await self._notify(invalidations)
+
+    async def _notify_dispatch(
+        self, snapshot: EffectDispatchSnapshot, *, include_scene: bool
+    ) -> None:
+        try:
+            async with self._factory.unit_of_work(
+                LockPlan(), read_only=True
+            ) as unit_of_work:
+                view = await self._repository.get_effect(
+                    unit_of_work,
+                    snapshot.request.effect_id,
+                    creator_party_id=snapshot.request.creator_party_id,
+                )
+        except DatabaseTransactionError, EffectViolation:
+            self._diagnostic("effect.notification.lookup_failed")
+            return
+        invalidations = [
+            (
+                CreatorEventResourceKind.EFFECT,
+                str(snapshot.request.effect_id.value),
+                "creator-effect.v1",
+            ),
+            (
+                CreatorEventResourceKind.OPERATION,
+                str(view.root_operation_ref),
+                "creator-operation.v1",
+            ),
+        ]
+        if include_scene:
+            invalidations.insert(
+                0,
+                (
+                    CreatorEventResourceKind.SCENE_TIMELINE,
+                    SceneKey(snapshot.scene_key).value,
+                    "scene-timeline.v3",
+                ),
+            )
+        await self._notify(invalidations)
+
+    async def _notify(
+        self,
+        invalidations: list[tuple[CreatorEventResourceKind, str, str]],
+    ) -> None:
+        if self._notifier is None:
+            return
+        from armi_kernel.contracts import Instant
+
+        now = Instant(datetime.now(UTC))
+        for resource_kind, resource_ref, projection_version in invalidations:
+            try:
+                await self._notifier.notify(
+                    CreatorProjectionInvalidation(
+                        resource_kind,
+                        resource_ref,
+                        now,
+                        projection_version,
+                    )
+                )
+            except Exception:
+                self._diagnostic("effect.projection_notification.failed")
 
     async def _read_payload(
         self, artifact_id: UUID, digest: str, size: int

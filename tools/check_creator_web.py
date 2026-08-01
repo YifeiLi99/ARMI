@@ -79,23 +79,38 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
         violations.append(
             Violation("ARC-WEB-POLICY", path, 1, "features must be an array")
         )
-    elif features != ["session", "scene", "subject"]:
+    elif features != [
+        "capability",
+        "effect",
+        "operation",
+        "session",
+        "scene",
+        "subject",
+    ]:
         violations.append(
             Violation(
                 "ARC-WEB-FEATURE",
                 path,
                 1,
-                "S026 permits only session, scene, and private subject summary features",
+                "S031 permits only the single-page capability/effect/operation/session/scene/subject features",
             )
         )
     event_stream = creator.get("event_stream")
     if event_stream != {
+        "contract": "creator-event-stream.v2",
         "transport": "authenticated-fetch-sse",
         "client": "apps/armi-creator-web/src/api/eventStream.ts",
         "broker": "armi_runtime.interfaces.creator_events.CreatorEventBroker",
         "fact_source": False,
         "runtime_discovery": False,
         "persistent_event_cache": False,
+        "event_kinds": [
+            "scene.timeline.invalidated",
+            "capability.request.invalidated",
+            "operation.invalidated",
+            "effect.invalidated",
+            "subject.summary.invalidated",
+        ],
     }:
         violations.append(
             Violation(
@@ -246,7 +261,15 @@ def check_repository(root: Path) -> list[Violation]:
             unexpected = sorted(
                 child.name
                 for child in feature_root.iterdir()
-                if child.name not in {"scene", "session", "subject"}
+                if child.name
+                not in {
+                    "capability",
+                    "effect",
+                    "operation",
+                    "scene",
+                    "session",
+                    "subject",
+                }
             )
             for name in unexpected:
                 violations.append(

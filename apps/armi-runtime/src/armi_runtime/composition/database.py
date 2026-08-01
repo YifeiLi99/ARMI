@@ -634,6 +634,7 @@ def compose_capability_policy(
     *,
     authority_admission: Callable[[], RuntimeFence],
     cursor_key: bytes,
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> PostgreSQLCreatorGrantPolicy:
     """Resolve the Runtime credential for the sole active T-04 policy."""
 
@@ -660,6 +661,7 @@ def compose_capability_policy(
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
                     cursor_key=cursor_key,
+                    notifier=notifier,
                 )
 
             return handle.consume(create)

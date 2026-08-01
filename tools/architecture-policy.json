@@ -400,18 +400,29 @@
     "generated_file": "apps/armi-creator-web/src/api/generated/creator.ts",
     "static_resource_root": "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources",
     "features": [
+      "capability",
+      "effect",
+      "operation",
       "session",
       "scene",
       "subject"
     ],
     "features_not_applicable_reason": "",
     "event_stream": {
+      "contract": "creator-event-stream.v2",
       "transport": "authenticated-fetch-sse",
       "client": "apps/armi-creator-web/src/api/eventStream.ts",
       "broker": "armi_runtime.interfaces.creator_events.CreatorEventBroker",
       "fact_source": false,
       "runtime_discovery": false,
-      "persistent_event_cache": false
+      "persistent_event_cache": false,
+      "event_kinds": [
+        "scene.timeline.invalidated",
+        "capability.request.invalidated",
+        "operation.invalidated",
+        "effect.invalidated",
+        "subject.summary.invalidated"
+      ]
     },
     "runtime_discovery": false
   },
@@ -424,8 +435,8 @@
       "M0-SEAM-COGNITIVE-CANDIDATE": "armi.candidate-validator.deterministic-v1",
       "M0-SEAM-POLICY": "armi.policy-engine.deterministic-v1",
       "M0-SEAM-WORK-SELECTION": "armi.opportunity-selector.creator-fifo-v1",
-      "M0-SEAM-CREATOR-PROJECTION": "armi.scene-timeline-query.v2",
-      "M0-SEAM-CREATOR-UI": "armi.creator-static.v1"
+      "M0-SEAM-CREATOR-PROJECTION": "armi.creator-projection-workbench.v1",
+      "M0-SEAM-CREATOR-UI": "armi.creator-workbench.v1"
     },
     "runtime_discovery": false
   }

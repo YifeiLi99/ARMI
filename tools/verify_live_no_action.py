@@ -1,0 +1,341 @@
+"""Run the one-call S031 Seed Evolving formal-no-action live gate.
+
+This explicit entry is outside the offline quality path. It never prints the
+credential or model content and only records bounded, non-sensitive evidence.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import hashlib
+import json
+import time
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any, cast
+from uuid import uuid7
+
+import rfc8785
+from armi_kernel.application import (
+    CandidateBasis,
+    CredentialLocator,
+    FormalNoActionDraft,
+    FormalNoActionKind,
+    ModelResultStatus,
+)
+from armi_kernel.contracts import Digest
+from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
+from armi_runtime.composition.candidate_validator import (
+    CandidateValidationContext,
+    DeterministicCandidateValidator,
+)
+from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
+from armi_runtime.composition.model_contract import (
+    build_request_bytes,
+    candidate_schema,
+    checked_model_request,
+    load_active_binding,
+    parse_candidate,
+)
+
+_KEY_NAME = "ARMI_SECRET_ARK_API_KEY"
+
+
+def _read_key(path: Path) -> str:
+    try:
+        raw = path.read_bytes()
+        text = raw.decode("utf-8")
+    except OSError, UnicodeDecodeError:
+        raise RuntimeError("MODEL-LIVE-CREDENTIAL") from None
+    prefix = f"{_KEY_NAME}="
+    lines = text.splitlines()
+    if (
+        raw.startswith(b"\xef\xbb\xbf")
+        or "\r" in text
+        or len(lines) != 1
+        or not lines[0].startswith(prefix)
+    ):
+        raise RuntimeError("MODEL-LIVE-CREDENTIAL")
+    value = lines[0][len(prefix) :]
+    if not value or value != value.strip():
+        raise RuntimeError("MODEL-LIVE-CREDENTIAL")
+    return value
+
+
+async def _verify(env_file: Path) -> dict[str, object]:
+    secret = _read_key(env_file)
+    binding = load_active_binding()
+    subject_id = uuid7()
+    generation_id = uuid7()
+    episode_id = uuid7()
+    attempt_id = uuid7()
+    activation_id = uuid7()
+    scene_id = uuid7()
+    creator_party_id = uuid7()
+    evidence_id = uuid7()
+    evidence_text = (
+        "Creator 已结束本轮交流,并明确表示她现在需要安静休息、不期待收到回复。"
+        "当前没有待回答的问题或需要更新的事实。"
+    )
+    evidence_digest = Digest.from_bytes(evidence_text.encode("utf-8"))
+    scene_digest = Digest.from_bytes(b"default-creator-scene")
+    purpose_digest = Digest.from_bytes(b"formal-no-action-conformance-v1")
+    context_bytes = rfc8785.dumps(
+        cast(
+            Any,
+            {
+                "schema_version": "armi.compiled-context.v1",
+                "purpose": "consider_creator_input",
+                "sections": [
+                    {
+                        "section": "purpose",
+                        "items": [
+                            {
+                                "item_kind": "output_constraint",
+                                "source": {
+                                    "kind": "response_admission_policy",
+                                    "reference": "formal-no-action-conformance-v1",
+                                    "version": 1,
+                                    "digest": purpose_digest.value,
+                                },
+                                "trust": "policy",
+                                "privacy": "internal",
+                                "content": {
+                                    "required_disposition": "no_action",
+                                    "required_action_kind": "formal_no_action",
+                                    "required_reason_class": "subjective_silence",
+                                    "forbidden_dispositions": [
+                                        "change",
+                                        "no_change",
+                                        "defer",
+                                        "decline",
+                                        "need_information",
+                                    ],
+                                    "forbidden_proposals": [
+                                        "creator_reply",
+                                        "capability_request",
+                                        "experience",
+                                        "component_change",
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "section": "current_evidence",
+                        "items": [
+                            {
+                                "item_kind": "current_evidence",
+                                "source": {
+                                    "kind": "creator_input",
+                                    "reference": str(evidence_id),
+                                    "version": 1,
+                                    "digest": evidence_digest.value,
+                                },
+                                "trust": "external_claim",
+                                "privacy": "private",
+                                "content": evidence_text,
+                            }
+                        ],
+                    },
+                    {
+                        "section": "scene",
+                        "items": [
+                            {
+                                "item_kind": "current_scene",
+                                "source": {
+                                    "kind": "interaction_scene",
+                                    "reference": str(scene_id),
+                                    "version": 1,
+                                    "digest": scene_digest.value,
+                                },
+                                "trust": "runtime_authority",
+                                "privacy": "private",
+                                "content": {
+                                    "scene_key": "default",
+                                    "audience_scope": "creator",
+                                    "creator_party_id": str(creator_party_id),
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+        )
+    )
+    context_digest = Digest.from_bytes(context_bytes)
+    request_bytes = build_request_bytes(
+        binding=binding,
+        compiled_context=context_bytes,
+        context_digest=context_digest,
+        base_subject_version=0,
+        base_state_epoch=0,
+        bundle_activation_id=activation_id,
+        included_context_refs=(
+            {
+                "ref": "ctx:1",
+                "section": "purpose",
+                "item_kind": "output_constraint",
+            },
+            {
+                "ref": "ctx:2",
+                "section": "current_evidence",
+                "item_kind": "current_evidence",
+            },
+            {
+                "ref": "ctx:3",
+                "section": "scene",
+                "item_kind": "current_scene",
+            },
+        ),
+    )
+    adapter = VolcengineArkModelAdapter(
+        binding=binding,
+        credential_port=EnvironmentFileCredentialPort(
+            environment={_KEY_NAME: secret},
+            secret_roots=(env_file.parent,),
+        ),
+        locator=CredentialLocator.parse(f"env:{_KEY_NAME}"),
+        candidate_schema=candidate_schema(),
+        candidate_parser=parse_candidate,
+    )
+    input_tokens = await adapter.tokenize(request_bytes)
+    request = checked_model_request(
+        binding=binding,
+        request_bytes=request_bytes,
+        context_digest=context_digest,
+        input_tokens=input_tokens,
+    )
+    started = time.perf_counter()
+    invocation = await adapter.invoke(request)
+    elapsed_ms = round((time.perf_counter() - started) * 1000)
+    if invocation.status is not ModelResultStatus.SUCCEEDED:
+        raise RuntimeError(invocation.error_code or "MODEL-LIVE-FAILED")
+    if (
+        invocation.response_bytes is None
+        or invocation.response_digest is None
+        or invocation.usage is None
+        or invocation.provider_request_id is None
+        or invocation.provider_model_id is None
+    ):
+        raise RuntimeError("MODEL-LIVE-FAILED")
+    if invocation.usage.estimated_cost_microyuan > 1_000_000:
+        raise RuntimeError("MODEL-LIVE-BUDGET")
+    response = cast(dict[str, Any], json.loads(invocation.response_bytes))
+    candidate_bytes = rfc8785.dumps(response["candidate"])
+    validation = DeterministicCandidateValidator(
+        CandidateValidationContext(
+            subject_id,
+            generation_id,
+            episode_id,
+            attempt_id,
+            0,
+            0,
+            activation_id,
+            context_digest,
+            scene_id,
+            creator_party_id,
+            (),
+        )
+    ).validate(
+        candidate_bytes,
+        bases=(
+            CandidateBasis(
+                1,
+                "purpose",
+                "output_constraint",
+                uuid7(),
+                1,
+                purpose_digest,
+                "policy",
+                "internal",
+            ),
+            CandidateBasis(
+                2,
+                "current_evidence",
+                "current_evidence",
+                evidence_id,
+                1,
+                evidence_digest,
+                "external_claim",
+                "private",
+            ),
+            CandidateBasis(
+                3,
+                "scene",
+                "current_scene",
+                scene_id,
+                1,
+                scene_digest,
+                "runtime_authority",
+                "private",
+            ),
+        ),
+    )
+    change_set = validation.change_set
+    if (
+        change_set is None
+        or change_set.disposition.value != "no_action"
+        or len(change_set.action_choices) != 1
+        or not isinstance(change_set.action_choices[0], FormalNoActionDraft)
+        or change_set.action_choices[0].kind is not FormalNoActionKind.NO_ACTION
+        or change_set.experiences
+        or change_set.components
+        or change_set.capability_requests
+    ):
+        raise RuntimeError(validation.error_code or "CANDIDATE-NO-ACTION-REQUIRED")
+    return {
+        "schema_version": "armi.creator-closure-no-action-live-evidence.v1",
+        "binding_digest": binding.digest.value,
+        "credential_fingerprint": adapter.credential_fingerprint(),
+        "requested_model_id": binding.model_id,
+        "provider_model_id": invocation.provider_model_id,
+        "provider_request_id_sha256": "sha256:"
+        + hashlib.sha256(invocation.provider_request_id.encode()).hexdigest(),
+        "request_digest": request.digest.value,
+        "response_digest": invocation.response_digest.value,
+        "candidate_digest": Digest.from_bytes(candidate_bytes).value,
+        "change_set_digest": change_set.digest.value,
+        "disposition": change_set.disposition.value,
+        "formal_no_action_kind": change_set.action_choices[0].kind.value,
+        "input_tokens": invocation.usage.input_tokens,
+        "output_tokens": invocation.usage.output_tokens,
+        "cached_input_tokens": invocation.usage.cached_input_tokens,
+        "estimated_cost_microyuan": invocation.usage.estimated_cost_microyuan,
+        "elapsed_ms": elapsed_ms,
+        "tools_enabled": False,
+        "store": False,
+        "subject_state_written": False,
+        "result": "pass",
+    }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        evidence = asyncio.run(_verify(args.env_file.resolve()))
+    except Exception as error:
+        code = str(error)
+        if not code.startswith(("MODEL-", "CANDIDATE-")):
+            code = "MODEL-LIVE-FAILED"
+        print(json.dumps({"result": "fail", "code": code}, separators=(",", ":")))
+        return 1
+    encoded = json.dumps(
+        evidence,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    output = args.output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(encoded + "\n", encoding="utf-8", newline="\n")
+    print(encoded)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

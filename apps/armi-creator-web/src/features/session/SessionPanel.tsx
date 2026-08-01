@@ -17,7 +17,9 @@ import {
 } from "./storage";
 import type { StoredBrowserSession } from "./storage";
 import { MessageComposer } from "../scene/MessageComposer";
-import { OperationPanel } from "../scene/OperationPanel";
+import { CapabilityInbox } from "../capability/CapabilityInbox";
+import { EffectDetail } from "../effect/EffectDetail";
+import { OperationPanel } from "../operation/OperationPanel";
 import { TimelinePanel } from "../scene/TimelinePanel";
 import { SubjectSummaryPanel } from "../subject/SubjectSummaryPanel";
 
@@ -47,10 +49,12 @@ function safeMessage(error: unknown): string {
 export function SessionPanel() {
   const queryClient = useQueryClient();
   const streamAbort = useRef<(() => void) | null>(null);
+  const effectTrigger = useRef<HTMLButtonElement>(null);
   const [code, setCode] = useState("");
   const [selectedOperation, setSelectedOperation] = useState<string | null>(
     null,
   );
+  const [selectedEffect, setSelectedEffect] = useState<string | null>(null);
   const [view, setView] = useState<ViewState>({
     kind: "loading",
     message: "正在核对浏览器会话",
@@ -75,6 +79,7 @@ export function SessionPanel() {
         clearStoredSession();
         queryClient.clear();
         setSelectedOperation(null);
+        setSelectedEffect(null);
         setView({
           kind: "bootstrap",
           message: "运行环境已变化，请重新建立会话。",
@@ -91,6 +96,7 @@ export function SessionPanel() {
         clearStoredSession();
         queryClient.clear();
         setSelectedOperation(null);
+        setSelectedEffect(null);
         setView({ kind: "bootstrap", message: safeMessage(error) });
         return;
       }
@@ -131,6 +137,7 @@ export function SessionPanel() {
       clearStoredSession();
       queryClient.clear();
       setSelectedOperation(null);
+      setSelectedEffect(null);
       setView({
         kind: "bootstrap",
         message:
@@ -152,6 +159,7 @@ export function SessionPanel() {
     clearStoredSession();
     queryClient.clear();
     setSelectedOperation(null);
+    setSelectedEffect(null);
     setView({ kind: "bootstrap", message: "浏览器会话已注销。" });
     try {
       await deleteCurrentBrowserSession(token);
@@ -165,6 +173,7 @@ export function SessionPanel() {
     clearStoredSession();
     queryClient.clear();
     setSelectedOperation(null);
+    setSelectedEffect(null);
     setView({
       kind: "bootstrap",
       message: "会话已失效，请使用新的 bootstrap code。",
@@ -264,37 +273,68 @@ export function SessionPanel() {
           当前只显示经认证的本机 Runtime 安全状态。
         </p>
       </section>
-      <MessageComposer
-        token={view.stored.token}
-        sceneKey={view.session.default_scene_key}
-        queryClient={queryClient}
-        timelineQueryKey={[
-          "scene-timeline",
-          view.session.environment_id,
-          view.session.creator_party_id,
-          view.session.default_scene_key,
-        ]}
-        onUnauthorized={unauthorized}
-        onOperationAccepted={setSelectedOperation}
-      />
-      <TimelinePanel
-        token={view.stored.token}
-        environmentId={view.session.environment_id}
-        creatorPartyId={view.session.creator_party_id}
-        sceneKey={view.session.default_scene_key}
-        onUnauthorized={unauthorized}
-        onOperationSelected={setSelectedOperation}
-        registerStreamAbort={registerStreamAbort}
-      />
-      <OperationPanel
-        token={view.stored.token}
-        operationRef={selectedOperation}
-        onUnauthorized={unauthorized}
-      />
-      <SubjectSummaryPanel
-        token={view.stored.token}
-        onUnauthorized={unauthorized}
-      />
+      <div className="workspace-grid">
+        <div className="scene-column">
+          <MessageComposer
+            token={view.stored.token}
+            sceneKey={view.session.default_scene_key}
+            queryClient={queryClient}
+            timelineQueryKey={[
+              "scene-timeline",
+              view.session.environment_id,
+              view.session.creator_party_id,
+              view.session.default_scene_key,
+            ]}
+            onUnauthorized={unauthorized}
+            onOperationAccepted={(operationRef) => {
+              setSelectedEffect(null);
+              setSelectedOperation(operationRef);
+            }}
+          />
+          <TimelinePanel
+            token={view.stored.token}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
+            sceneKey={view.session.default_scene_key}
+            onUnauthorized={unauthorized}
+            onOperationSelected={(operationRef) => {
+              setSelectedEffect(null);
+              setSelectedOperation(operationRef);
+            }}
+            registerStreamAbort={registerStreamAbort}
+          />
+        </div>
+        <div className="authority-column">
+          <CapabilityInbox
+            token={view.stored.token}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
+            onUnauthorized={unauthorized}
+          />
+          <OperationPanel
+            token={view.stored.token}
+            operationRef={selectedOperation}
+            onEffectSelected={setSelectedEffect}
+            onUnauthorized={unauthorized}
+            effectTriggerRef={effectTrigger}
+          />
+          <EffectDetail
+            token={view.stored.token}
+            effectRef={selectedEffect}
+            onClose={() => {
+              setSelectedEffect(null);
+              effectTrigger.current?.focus();
+            }}
+            onUnauthorized={unauthorized}
+          />
+          <SubjectSummaryPanel
+            token={view.stored.token}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
+            onUnauthorized={unauthorized}
+          />
+        </div>
+      </div>
     </div>
   );
 }

@@ -15,6 +15,7 @@ from armi_kernel.application import (
     CapabilityDecisionId,
     CapabilityRequestId,
     CapabilityViolation,
+    CreatorEventResourceKind,
     CreatorGrantCommand,
     CreatorGrantDecision,
     CreatorGrantResult,
@@ -25,6 +26,7 @@ from armi_kernel.application import (
     CreatorOperation,
     CreatorOperationPhase,
     CreatorOperationQueryPort,
+    CreatorProjectionInvalidation,
     EffectId,
     EffectLedgerPort,
     EffectViolation,
@@ -321,7 +323,7 @@ def _accepted_wire(acceptance: CreatorInputAcceptance) -> dict[str, object]:
     ).to_wire()
 
 
-def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
+def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
     if operation.phase is CreatorOperationPhase.ACCEPTED:
         return _accepted_wire(operation.acceptance)
     result_ref = ResultRef(operation.acceptance.opportunity_id.value)
@@ -555,6 +557,58 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
         ),
         retryable=False,
     ).to_wire()
+
+
+def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
+    wire = _operation_outcome_wire(operation)
+    phase = operation.phase
+    if phase is CreatorOperationPhase.FORMAL_DECLINED:
+        completion_kind = "formal_decline"
+    elif phase is CreatorOperationPhase.FORMAL_NO_ACTION:
+        completion_kind = "formal_no_action"
+    elif phase is CreatorOperationPhase.COMPLETED:
+        completion_kind = "no_change"
+    elif phase is CreatorOperationPhase.APPLIED:
+        completion_kind = "subject_change"
+    elif phase in {
+        CreatorOperationPhase.RESPONSE_ADMISSION,
+        CreatorOperationPhase.RESPONSE_ACCEPTED,
+        CreatorOperationPhase.EFFECT_REGISTRATION,
+        CreatorOperationPhase.EFFECT_REGISTERED,
+        CreatorOperationPhase.EFFECT_DISPATCHING,
+        CreatorOperationPhase.EFFECT_COMPLETED,
+        CreatorOperationPhase.EFFECT_FAILED,
+        CreatorOperationPhase.EFFECT_UNKNOWN,
+        CreatorOperationPhase.EFFECT_CANCELLED,
+        CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
+        CreatorOperationPhase.RESPONSE_UNAVAILABLE,
+        CreatorOperationPhase.RESPONSE_FAILED,
+    }:
+        completion_kind = "response_effect"
+    else:
+        completion_kind = "cognition"
+    delivery_state = {
+        CreatorOperationPhase.RESPONSE_ACCEPTED: "not_started",
+        CreatorOperationPhase.EFFECT_REGISTRATION: "not_started",
+        CreatorOperationPhase.EFFECT_REGISTERED: "registered",
+        CreatorOperationPhase.EFFECT_DISPATCHING: "dispatching",
+        CreatorOperationPhase.EFFECT_COMPLETED: "completed",
+        CreatorOperationPhase.EFFECT_FAILED: "failed",
+        CreatorOperationPhase.EFFECT_UNKNOWN: "unknown",
+        CreatorOperationPhase.EFFECT_CANCELLED: "cancelled",
+    }.get(phase)
+    wire["details"] = {
+        "projection_version": "creator-operation.v1",
+        "root_operation_ref": str(operation.acceptance.opportunity_id),
+        "completion_kind": completion_kind,
+        **({"delivery_state": delivery_state} if delivery_state is not None else {}),
+        **(
+            {"effect_ref": str(operation.effect_ref)}
+            if operation.effect_ref is not None
+            else {}
+        ),
+    }
+    return wire
 
 
 def _input_failure(error: CreatorInputViolation) -> tuple[int, dict[str, object]]:
@@ -852,6 +906,7 @@ def create_runtime_app(
         return JSONResponse(
             content=SubjectSummaryResponse(
                 contract_version="1.0",
+                projection_version="subject-summary.v1",
                 subject_version=summary.subject_version,
                 components=[
                     SubjectComponentSummaryResponse(
@@ -933,6 +988,11 @@ def create_runtime_app(
                 cursor=values.get("cursor"),
             )
         except CapabilityViolation as error:
+            if error.code == "CONFLICT-CAPABILITY-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("CONFLICT_CURSOR_STALE"),
+                )
             if error.code == "CON-CAPABILITY-CURSOR":
                 return JSONResponse(
                     status_code=400,
@@ -945,7 +1005,7 @@ def create_runtime_app(
         raw_items = cast(list[dict[str, object]], page["items"])
         response = CapabilityRequestPageResponse(
             contract_version="1.0",
-            projection_version="capability-request.v1",
+            projection_version="capability-request.v2",
             items=[
                 CapabilityRequestItemResponse.model_validate(
                     {
@@ -953,6 +1013,36 @@ def create_runtime_app(
                         "created_at": Instant(
                             cast(datetime, item["created_at"])
                         ).to_wire(),
+                        **(
+                            {
+                                "effective_grant": {
+                                    **cast(
+                                        dict[str, object],
+                                        item["effective_grant"],
+                                    ),
+                                    "valid_from": Instant(
+                                        cast(
+                                            datetime,
+                                            cast(
+                                                dict[str, object],
+                                                item["effective_grant"],
+                                            )["valid_from"],
+                                        )
+                                    ).to_wire(),
+                                    "valid_until": Instant(
+                                        cast(
+                                            datetime,
+                                            cast(
+                                                dict[str, object],
+                                                item["effective_grant"],
+                                            )["valid_until"],
+                                        )
+                                    ).to_wire(),
+                                }
+                            }
+                            if item.get("effective_grant") is not None
+                            else {}
+                        ),
                     }
                 )
                 for item in raw_items
@@ -1036,6 +1126,18 @@ def create_runtime_app(
             result_ref=ResultRef(result.request_id.value),
             state_version=result.request_version,
         )
+        if creator_events is not None:
+            try:
+                await creator_events.notify(
+                    CreatorProjectionInvalidation(
+                        CreatorEventResourceKind.CAPABILITY_REQUEST,
+                        str(result.request_id.value),
+                        Instant(datetime.now(UTC)),
+                        "capability-request.v2",
+                    )
+                )
+            except Exception:
+                emit("creator.capability.notification_failed")
         return JSONResponse(content=applied.to_wire())
 
     del list_capability_requests, decide_capability_request
@@ -1218,6 +1320,18 @@ def create_runtime_app(
             if acceptance.newly_accepted
             else "creator.input.idempotent"
         )
+        if creator_events is not None and acceptance.newly_accepted:
+            try:
+                await creator_events.notify(
+                    CreatorProjectionInvalidation(
+                        CreatorEventResourceKind.OPERATION,
+                        str(acceptance.opportunity_id),
+                        Instant(datetime.now(UTC)),
+                        "creator-operation.v1",
+                    )
+                )
+            except Exception:
+                emit("creator.operation.notification_failed")
         return JSONResponse(status_code=202, content=_accepted_wire(acceptance))
 
     del accept_creator_message
@@ -1306,6 +1420,7 @@ def create_runtime_app(
         return JSONResponse(
             content=EffectResponse(
                 contract_version="1.0",
+                projection_version="creator-effect.v1",
                 effect_id=str(view.effect_id.value),
                 root_operation_ref=str(view.root_operation_ref),
                 effect_kind="creator_response",

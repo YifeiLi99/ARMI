@@ -71,6 +71,23 @@ function acceptedOperation(): object {
   };
 }
 
+function acceptedOperationProjection(): object {
+  return {
+    contract_version: "1.0",
+    status: "accepted",
+    trace_id: "a".repeat(32),
+    occurred_at: "2026-07-30T10:02:00.000000Z",
+    message: "The responsibility remains durably accepted.",
+    result_ref: OPPORTUNITY_ID,
+    custodian: "runtime",
+    details: {
+      projection_version: "creator-operation.v1",
+      root_operation_ref: OPPORTUNITY_ID,
+      completion_kind: "cognition",
+    },
+  };
+}
+
 function preparedContextOperation(): object {
   return {
     contract_version: "1.0",
@@ -81,12 +98,26 @@ function preparedContextOperation(): object {
     result_ref: OPPORTUNITY_ID,
     waiting_for: "model_attempt",
     resume_condition: "model_step_available",
+    details: {
+      projection_version: "creator-operation.v1",
+      root_operation_ref: OPPORTUNITY_ID,
+      completion_kind: "cognition",
+    },
+  };
+}
+
+function capabilityPageResponse(): object {
+  return {
+    contract_version: "1.0",
+    projection_version: "capability-request.v2",
+    items: [],
   };
 }
 
 function subjectSummaryResponse(): object {
   return {
     contract_version: "1.0",
+    projection_version: "subject-summary.v1",
     subject_version: 0,
     components: [
       {
@@ -157,6 +188,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse());
     vi.stubGlobal("fetch", fetchMock);
@@ -173,7 +205,7 @@ describe("Creator browser session shell", () => {
     expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
     expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     expect(screen.getByText("权威版本")).toBeInTheDocument();
   });
 
@@ -262,6 +294,7 @@ describe("Creator browser session shell", () => {
           next_cursor: cursor,
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse())
       .mockResolvedValueOnce(
@@ -353,6 +386,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(
         finiteStreamResponse(
@@ -374,8 +408,7 @@ describe("Creator browser session shell", () => {
             },
           ],
         }),
-      )
-      .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()));
+      );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<CreatorShell />);
@@ -410,6 +443,8 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -447,6 +482,9 @@ describe("Creator browser session shell", () => {
       }
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());
+      }
+      if (url.startsWith("/v1/capability-requests?")) {
+        return jsonResponse(capabilityPageResponse());
       }
       if (url.includes("/timeline?")) {
         return jsonResponse({
@@ -528,6 +566,9 @@ describe("Creator browser session shell", () => {
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());
       }
+      if (url.startsWith("/v1/capability-requests?")) {
+        return jsonResponse(capabilityPageResponse());
+      }
       if (url.includes("/timeline?")) {
         return jsonResponse({
           contract_version: "1.0",
@@ -548,7 +589,7 @@ describe("Creator browser session shell", () => {
         return jsonResponse(acceptedOperation(), 202);
       }
       if (url === `/v1/operations/${OPPORTUNITY_ID}`) {
-        return jsonResponse(acceptedOperation());
+        return jsonResponse(acceptedOperationProjection());
       }
       throw new Error(`unexpected request: ${url}`);
     });

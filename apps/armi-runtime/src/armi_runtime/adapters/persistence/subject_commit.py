@@ -82,6 +82,25 @@ class PostgreSQLSubjectCommitRepository:
 
     __slots__ = ()
 
+    async def capability_request_ids(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        subject_commit_id: SubjectCommitId,
+    ) -> tuple[UUID, ...]:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        rows = await (
+            await connection.execute(
+                """
+                SELECT capability_request_id
+                FROM armi.capability_requests
+                WHERE subject_commit_id = %s
+                ORDER BY capability_request_id
+                """,
+                (subject_commit_id.value,),
+            )
+        ).fetchall()
+        return tuple(UUID(str(row[0])) for row in rows)
+
     async def snapshot(
         self,
         unit_of_work: PostgreSQLUnitOfWork,

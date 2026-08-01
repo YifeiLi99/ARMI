@@ -29,8 +29,12 @@ describe("generated Creator OpenAPI types", () => {
     >();
     expectTypeOf<RejectedOutcome["status"]>().toEqualTypeOf<"rejected">();
     expectTypeOf<UnavailableOutcome["status"]>().toEqualTypeOf<"unavailable">();
-    expectTypeOf<
-      CreatorProjectionEventResponse["event_kind"]
-    >().toEqualTypeOf<"scene.timeline.invalidated">();
+    expectTypeOf<CreatorProjectionEventResponse["event_kind"]>().toEqualTypeOf<
+      | "scene.timeline.invalidated"
+      | "capability.request.invalidated"
+      | "operation.invalidated"
+      | "effect.invalidated"
+      | "subject.summary.invalidated"
+    >();
   });
 });

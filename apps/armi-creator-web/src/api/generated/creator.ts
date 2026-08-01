@@ -267,8 +267,8 @@ export interface components {
       /** Result Ref */
       result_ref: string;
       /**
-       * @description discriminator enum property added by openapi-typescript
-       * @enum {string}
+       * Status
+       * @constant
        */
       status: "accepted";
       /** Trace Id */
@@ -290,8 +290,8 @@ export interface components {
       /** State Version */
       state_version: number;
       /**
-       * @description discriminator enum property added by openapi-typescript
-       * @enum {string}
+       * Status
+       * @constant
        */
       status: "applied";
       /** Trace Id */
@@ -384,6 +384,11 @@ export interface components {
       /** Audience Scope */
       audience_scope?: "creator" | null;
       /**
+       * Capability Availability
+       * @enum {string}
+       */
+      capability_availability: "available" | "unavailable";
+      /**
        * Capability Kind
        * @enum {string}
        */
@@ -394,8 +399,7 @@ export interface components {
       created_at: string;
       /** Data Scope */
       data_scope?: "creator_visible_response" | null;
-      /** Grant Ref */
-      grant_ref?: string | null;
+      effective_grant?: components["schemas"]["EffectiveGrantResponse"] | null;
       /** Max Payload Bytes */
       max_payload_bytes?: number | null;
       /** Max Uses */
@@ -414,6 +418,8 @@ export interface components {
       purpose: "respond_to_creator" | "delegate_codex_work";
       /** Request Version */
       request_version: number;
+      /** Resolution Reason Code */
+      resolution_reason_code?: string | null;
       /** Scene Id */
       scene_id: string;
       /**
@@ -444,30 +450,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "capability-request.v1";
-    };
-    /** CompletedOutcomeResponse */
-    CompletedOutcomeResponse: {
-      /** Completion Evidence */
-      completion_evidence: string;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /** Message */
-      message: string;
-      /** Occurred At */
-      occurred_at: string;
-      /** Result Ref */
-      result_ref: string;
-      /**
-       * @description discriminator enum property added by openapi-typescript
-       * @enum {string}
-       */
-      status: "completed";
-      /** Trace Id */
-      trace_id: string;
+      projection_version: "capability-request.v2";
     };
     /** CreatorInputAcceptanceDetails */
     CreatorInputAcceptanceDetails: {
@@ -490,6 +473,41 @@ export interface components {
       /** Message */
       message: string;
     };
+    /** CreatorOperationDetails */
+    CreatorOperationDetails: {
+      /**
+       * Completion Kind
+       * @enum {string}
+       */
+      completion_kind:
+        | "cognition"
+        | "subject_change"
+        | "formal_decline"
+        | "formal_no_action"
+        | "no_change"
+        | "response_effect";
+      /** Delivery State */
+      delivery_state?:
+        | (
+            | "not_started"
+            | "registered"
+            | "dispatching"
+            | "completed"
+            | "failed"
+            | "unknown"
+            | "cancelled"
+          )
+        | null;
+      /** Effect Ref */
+      effect_ref?: string | null;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-operation.v1";
+      /** Root Operation Ref */
+      root_operation_ref: string;
+    };
     /** CreatorProjectionEventResponse */
     CreatorProjectionEventResponse: {
       /**
@@ -501,21 +519,36 @@ export interface components {
       event_id: string;
       /**
        * Event Kind
-       * @constant
+       * @enum {string}
        */
-      event_kind: "scene.timeline.invalidated";
+      event_kind:
+        | "scene.timeline.invalidated"
+        | "capability.request.invalidated"
+        | "operation.invalidated"
+        | "effect.invalidated"
+        | "subject.summary.invalidated";
       /** Occurred At */
       occurred_at: string;
       /**
        * Projection Version
-       * @constant
+       * @enum {string}
        */
-      projection_version: "scene-timeline.v3";
+      projection_version:
+        | "scene-timeline.v3"
+        | "capability-request.v2"
+        | "creator-operation.v1"
+        | "creator-effect.v1"
+        | "subject-summary.v1";
       /**
        * Resource Kind
-       * @constant
+       * @enum {string}
        */
-      resource_kind: "scene_timeline";
+      resource_kind:
+        | "scene_timeline"
+        | "capability_request"
+        | "operation"
+        | "effect"
+        | "subject_summary";
       /** Resource Ref */
       resource_ref: string;
     };
@@ -542,6 +575,11 @@ export interface components {
         ("receipt" | "query" | "rejection" | "ambiguous") | null;
       /** Last Observation Reliability */
       last_observation_reliability?: ("reliable" | "inconclusive") | null;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-effect.v1";
       /** Registered At */
       registered_at: string;
       /** Response Text */
@@ -570,6 +608,28 @@ export interface components {
       verification_status:
         "not_started" | "pending" | "verified" | "inconclusive";
     };
+    /** EffectiveGrantResponse */
+    EffectiveGrantResponse: {
+      /** Consumed Uses */
+      consumed_uses: number;
+      /** Grant Ref */
+      grant_ref: string;
+      /** Max Payload Bytes */
+      max_payload_bytes: number;
+      /** Max Uses */
+      max_uses: number;
+      /** Remaining Uses */
+      remaining_uses: number;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "active" | "revoked" | "expired";
+      /** Valid From */
+      valid_from: string;
+      /** Valid Until */
+      valid_until: string;
+    };
     /** @enum {string} */
     ErrorCategoryValue:
       | "input"
@@ -597,13 +657,103 @@ export interface components {
       /** Error Instance Id */
       error_instance_id?: string | null;
     };
-    /** FailedOutcomeResponse */
-    FailedOutcomeResponse: {
+    /** HTTPValidationError */
+    HTTPValidationError: {
+      /** Detail */
+      detail?: components["schemas"]["ValidationError"][];
+    };
+    JsonValue: unknown;
+    /** LiveResponse */
+    LiveResponse: {
+      /**
+       * Status
+       * @constant
+       */
+      status: "alive";
+    };
+    /** OperationAcceptedOutcomeResponse */
+    OperationAcceptedOutcomeResponse: {
       /**
        * Contract Version
        * @constant
        */
       contract_version: "1.0";
+      /**
+       * Custodian
+       * @constant
+       */
+      custodian: "runtime";
+      details: components["schemas"]["CreatorOperationDetails"];
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Result Ref */
+      result_ref: string;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "accepted";
+      /** Trace Id */
+      trace_id: string;
+    };
+    /** OperationAppliedOutcomeResponse */
+    OperationAppliedOutcomeResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      details: components["schemas"]["CreatorOperationDetails"];
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Result Ref */
+      result_ref: string;
+      /** State Version */
+      state_version: number;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "applied";
+      /** Trace Id */
+      trace_id: string;
+    };
+    /** OperationCompletedOutcomeResponse */
+    OperationCompletedOutcomeResponse: {
+      /** Completion Evidence */
+      completion_evidence: string;
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      details: components["schemas"]["CreatorOperationDetails"];
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Result Ref */
+      result_ref: string;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "completed";
+      /** Trace Id */
+      trace_id: string;
+    };
+    /** OperationFailedOutcomeResponse */
+    OperationFailedOutcomeResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      details: components["schemas"]["CreatorOperationDetails"];
       error: components["schemas"]["ErrorDescriptorResponse"];
       /** Message */
       message: string;
@@ -619,28 +769,144 @@ export interface components {
       /** Trace Id */
       trace_id: string;
     };
-    /** HTTPValidationError */
-    HTTPValidationError: {
-      /** Detail */
-      detail?: components["schemas"]["ValidationError"][];
-    };
-    JsonValue: unknown;
-    /** LiveResponse */
-    LiveResponse: {
+    OperationOutcomeResponse:
+      | components["schemas"]["OperationAcceptedOutcomeResponse"]
+      | components["schemas"]["OperationAppliedOutcomeResponse"]
+      | components["schemas"]["OperationCompletedOutcomeResponse"]
+      | components["schemas"]["OperationWaitingOutcomeResponse"]
+      | components["schemas"]["OperationRejectedOutcomeResponse"]
+      | components["schemas"]["OperationUnavailableOutcomeResponse"]
+      | components["schemas"]["OperationFailedOutcomeResponse"]
+      | components["schemas"]["OperationUnknownOutcomeResponse"];
+    /** OperationRejectedOutcomeResponse */
+    OperationRejectedOutcomeResponse: {
       /**
-       * Status
+       * Contract Version
        * @constant
        */
-      status: "alive";
+      contract_version: "1.0";
+      details: components["schemas"]["CreatorOperationDetails"];
+      error: components["schemas"]["ErrorDescriptorResponse"];
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "rejected";
+      /** Trace Id */
+      trace_id: string;
     };
-    OperationOutcomeResponse:
-      | components["schemas"]["AcceptedOutcomeResponse"]
-      | components["schemas"]["AppliedOutcomeResponse"]
-      | components["schemas"]["CompletedOutcomeResponse"]
-      | components["schemas"]["WaitingOutcomeResponse"]
-      | components["schemas"]["RejectedOutcomeResponse"]
-      | components["schemas"]["FailedOutcomeResponse"]
-      | components["schemas"]["UnknownOutcomeResponse"];
+    /** OperationUnavailableOutcomeResponse */
+    OperationUnavailableOutcomeResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      details: components["schemas"]["CreatorOperationDetails"];
+      error: components["schemas"]["ErrorDescriptorResponse"];
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Recovery Hint */
+      recovery_hint?: string | null;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "unavailable";
+      /** Trace Id */
+      trace_id: string;
+    };
+    /** OperationUnknownOutcomeResponse */
+    OperationUnknownOutcomeResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /**
+       * Custodian
+       * @constant
+       */
+      custodian: "runtime";
+      details: components["schemas"]["CreatorOperationDetails"];
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Result Ref */
+      result_ref: string;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "unknown";
+      /** Trace Id */
+      trace_id: string;
+      /**
+       * Verification Action
+       * @constant
+       */
+      verification_action: "verify_creator_inbox";
+    };
+    /** OperationWaitingOutcomeResponse */
+    OperationWaitingOutcomeResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      details: components["schemas"]["CreatorOperationDetails"];
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Result Ref */
+      result_ref: string;
+      /**
+       * Resume Condition
+       * @enum {string}
+       */
+      resume_condition:
+        | "context_prepared"
+        | "model_step_available"
+        | "model_returned"
+        | "candidate_validation_available"
+        | "candidate_validated"
+        | "subject_commit_available"
+        | "opportunity_available"
+        | "creator_evidence_accepted"
+        | "response_admitted"
+        | "effect_registered"
+        | "effect_settled";
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "waiting";
+      /** Trace Id */
+      trace_id: string;
+      /**
+       * Waiting For
+       * @enum {string}
+       */
+      waiting_for:
+        | "context_preparation"
+        | "model_attempt"
+        | "model_response"
+        | "candidate_validation"
+        | "subject_commit"
+        | "response_admission"
+        | "effect_registration"
+        | "effect_dispatch"
+        | "future_opportunity"
+        | "new_evidence";
+    };
     /**
      * Readiness
      * @enum {string}
@@ -668,8 +934,8 @@ export interface components {
       /** Occurred At */
       occurred_at: string;
       /**
-       * @description discriminator enum property added by openapi-typescript
-       * @enum {string}
+       * Status
+       * @constant
        */
       status: "rejected";
       /** Trace Id */
@@ -770,6 +1036,11 @@ export interface components {
       latest_commit_ref?: string | null;
       /** Observed At */
       observed_at: string;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "subject-summary.v1";
       /** Subject Version */
       subject_version: number;
     };
@@ -809,37 +1080,6 @@ export interface components {
       /** Trace Id */
       trace_id: string;
     };
-    /** UnknownOutcomeResponse */
-    UnknownOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /**
-       * Custodian
-       * @constant
-       */
-      custodian: "runtime";
-      /** Message */
-      message: string;
-      /** Occurred At */
-      occurred_at: string;
-      /** Result Ref */
-      result_ref: string;
-      /**
-       * @description discriminator enum property added by openapi-typescript
-       * @enum {string}
-       */
-      status: "unknown";
-      /** Trace Id */
-      trace_id: string;
-      /**
-       * Verification Action
-       * @constant
-       */
-      verification_action: "verify_creator_inbox";
-    };
     /** ValidationError */
     ValidationError: {
       /** Context */
@@ -852,58 +1092,6 @@ export interface components {
       msg: string;
       /** Error Type */
       type: string;
-    };
-    /** WaitingOutcomeResponse */
-    WaitingOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /** Message */
-      message: string;
-      /** Occurred At */
-      occurred_at: string;
-      /** Result Ref */
-      result_ref: string;
-      /**
-       * Resume Condition
-       * @enum {string}
-       */
-      resume_condition:
-        | "context_prepared"
-        | "model_step_available"
-        | "model_returned"
-        | "candidate_validation_available"
-        | "candidate_validated"
-        | "subject_commit_available"
-        | "opportunity_available"
-        | "creator_evidence_accepted"
-        | "response_admitted"
-        | "effect_registered"
-        | "effect_settled";
-      /**
-       * @description discriminator enum property added by openapi-typescript
-       * @enum {string}
-       */
-      status: "waiting";
-      /** Trace Id */
-      trace_id: string;
-      /**
-       * Waiting For
-       * @enum {string}
-       */
-      waiting_for:
-        | "context_preparation"
-        | "model_attempt"
-        | "model_response"
-        | "candidate_validation"
-        | "subject_commit"
-        | "response_admission"
-        | "effect_registration"
-        | "effect_dispatch"
-        | "future_opportunity"
-        | "new_evidence";
     };
   };
   responses: never;

@@ -5,15 +5,19 @@ import { ApiFailure, getSubjectSummary } from "../../api/client";
 
 type SubjectSummaryPanelProps = {
   token: string;
+  environmentId: string;
+  creatorPartyId: string;
   onUnauthorized: () => void;
 };
 
 export function SubjectSummaryPanel({
   token,
+  environmentId,
+  creatorPartyId,
   onUnauthorized,
 }: SubjectSummaryPanelProps) {
   const summary = useQuery({
-    queryKey: ["subject-summary"],
+    queryKey: ["subject-summary", environmentId, creatorPartyId],
     queryFn: ({ signal }) => getSubjectSummary(token, signal),
   });
 
@@ -25,7 +29,7 @@ export function SubjectSummaryPanel({
 
   return (
     <section
-      className="operation-panel"
+      className="authority-panel"
       aria-labelledby="subject-summary-heading"
     >
       <div className="timeline-heading-row">

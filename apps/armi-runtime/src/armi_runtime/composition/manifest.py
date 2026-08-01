@@ -105,9 +105,9 @@ def build_composition_manifest(
     seams: list[dict[str, object]] = []
     for seam_id, activation_steps in _SEAMS:
         active = (
-            "armi.creator-static.v1"
+            "armi.creator-workbench.v1"
             if seam_id == "M0-SEAM-CREATOR-UI"
-            else "armi.scene-timeline-query.v3"
+            else "armi.creator-projection-workbench.v1"
             if seam_id == "M0-SEAM-CREATOR-PROJECTION"
             else "armi.context-compiler.deterministic-v1"
             if seam_id == "M0-SEAM-CONTEXT"

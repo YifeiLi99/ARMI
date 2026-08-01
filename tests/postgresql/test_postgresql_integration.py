@@ -3610,6 +3610,33 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         ),
                     )
                     self.assertEqual(event_lines[3], b"\n")
+                    operation_event_lines = [
+                        stream_response.readline(),
+                        stream_response.readline(),
+                        stream_response.readline(),
+                        stream_response.readline(),
+                    ]
+                    self.assertTrue(operation_event_lines[0].startswith(b"id: sse-v1."))
+                    self.assertEqual(
+                        operation_event_lines[1],
+                        b"event: operation.invalidated\n",
+                    )
+                    operation_event = json.loads(
+                        operation_event_lines[2].removeprefix(b"data: ")
+                    )
+                    self.assertEqual(
+                        (
+                            operation_event["resource_kind"],
+                            operation_event["resource_ref"],
+                            operation_event["projection_version"],
+                        ),
+                        (
+                            "operation",
+                            accepted["result_ref"],
+                            "creator-operation.v1",
+                        ),
+                    )
+                    self.assertEqual(operation_event_lines[3], b"\n")
                     connection.request(
                         "POST",
                         "/v1/scenes/default/messages",

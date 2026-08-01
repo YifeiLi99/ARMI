@@ -36,6 +36,13 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     event_streams = 0
     input_accepted = False
     opportunity_id = "018f47a6-7b2d-7c35-8b18-684e38ab6ef9"
+    capability_request_id = "018f47a6-7b2d-7c35-8b18-684e38ab6efa"
+    codex_request_id = "018f47a6-7b2d-7c35-8b18-684e38ab6efb"
+    grant_id = "018f47a6-7b2d-7c35-8b18-684e38ab6efc"
+    effect_id = "018f47a6-7b2d-7c35-8b18-684e38ab6efd"
+    capability_status = "pending"
+    capability_version = 1
+    effect_reads = 0
 
     def log_message(self, format: str, *args: object) -> None:
         del format, args
@@ -60,6 +67,44 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         }
 
     def do_POST(self) -> None:
+        if self.path == (
+            f"/v1/capability-requests/{self.capability_request_id}/decision"
+        ):
+            length = int(self.headers.get("Content-Length", "0"))
+            try:
+                request = json.loads(self.rfile.read(length))
+            except json.JSONDecodeError:
+                self.send_error(400)
+                return
+            if (
+                request.get("contract_version") != "1.0"
+                or request.get("decision") != "limit"
+                or request.get("expected_request_version") != 1
+                or request.get("max_uses") != 2
+                or re.fullmatch(
+                    r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-"
+                    r"[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                    str(request.get("decision_id", "")),
+                )
+                is None
+            ):
+                self.send_error(400)
+                return
+            type(self).capability_status = "limited"
+            type(self).capability_version = 2
+            self._json_response(
+                200,
+                {
+                    "contract_version": "1.0",
+                    "status": "applied",
+                    "trace_id": "c" * 32,
+                    "occurred_at": "2026-07-30T10:01:00.000000Z",
+                    "message": "decision applied",
+                    "result_ref": self.capability_request_id,
+                    "state_version": 2,
+                },
+            )
+            return
         if self.path == "/v1/scenes/default/messages":
             if (
                 self.headers.get("Authorization") != f"Bearer {self.session_token}"
@@ -124,6 +169,77 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             },
         }
 
+    @classmethod
+    def _operation_projection(cls) -> dict[str, object]:
+        return {
+            "contract_version": "1.0",
+            "status": "completed",
+            "trace_id": "d" * 32,
+            "occurred_at": "2026-07-30T10:03:02.000000Z",
+            "message": "Creator response verified.",
+            "result_ref": cls.effect_id,
+            "completion_evidence": "sha256:" + ("e" * 64),
+            "details": {
+                "projection_version": "creator-operation.v1",
+                "root_operation_ref": cls.opportunity_id,
+                "completion_kind": "response_effect",
+                "delivery_state": "completed",
+                "effect_ref": cls.effect_id,
+            },
+        }
+
+    @classmethod
+    def _capability_items(cls) -> list[dict[str, object]]:
+        reply: dict[str, object] = {
+            "capability_request_id": cls.capability_request_id,
+            "capability_kind": "creator.scene.reply",
+            "operation": "send",
+            "subject_id": cls.environment_id,
+            "scene_id": cls.creator_party_id,
+            "audience_scope": "creator",
+            "data_scope": "creator_visible_response",
+            "purpose": "respond_to_creator",
+            "valid_for_seconds": 600,
+            "max_uses": 4,
+            "max_payload_bytes": 4096,
+            "status": cls.capability_status,
+            "capability_availability": "available",
+            "request_version": cls.capability_version,
+            "created_at": "2026-07-30T10:00:00.000000Z",
+        }
+        if cls.capability_status == "limited":
+            reply["effective_grant"] = {
+                "grant_ref": cls.grant_id,
+                "status": "active",
+                "valid_from": "2026-07-30T10:01:00.000000Z",
+                "valid_until": "2026-07-30T10:06:00.000000Z",
+                "max_uses": 2,
+                "consumed_uses": 0,
+                "remaining_uses": 2,
+                "max_payload_bytes": 4096,
+            }
+        return [
+            reply,
+            {
+                "capability_request_id": cls.codex_request_id,
+                "capability_kind": "codex.delegated-work",
+                "operation": "execute",
+                "subject_id": cls.environment_id,
+                "scene_id": cls.creator_party_id,
+                "purpose": "delegate_codex_work",
+                "workspace_scope": "isolated_ephemeral",
+                "artifact_scope": "explicit_only",
+                "network_access": False,
+                "valid_for_seconds": 600,
+                "max_uses": 1,
+                "status": "pending",
+                "capability_availability": "unavailable",
+                "resolution_reason_code": "CAPABILITY-NOT-ACTIVE",
+                "request_version": 1,
+                "created_at": "2026-07-30T09:59:00.000000Z",
+            },
+        ]
+
     def do_GET(self) -> None:
         if self.path == "/v1/browser-sessions/current":
             self._json_response(200, self._session_metadata())
@@ -138,6 +254,48 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "readiness": "ready",
                     "reason_codes": [],
                     "observed_at": "2026-07-30T10:00:01.000000Z",
+                },
+            )
+            return
+        if self.path == "/v1/subject/summary":
+            self._json_response(
+                200,
+                {
+                    "contract_version": "1.0",
+                    "projection_version": "subject-summary.v1",
+                    "subject_version": 1,
+                    "components": [
+                        {
+                            "kind": "self",
+                            "version": 1,
+                            "schema_version": "armi.self.v1",
+                            "content_visibility": "private",
+                        },
+                        {
+                            "kind": "mind",
+                            "version": 1,
+                            "schema_version": "armi.mind.v1",
+                            "content_visibility": "private",
+                        },
+                        {
+                            "kind": "life_mode",
+                            "version": 1,
+                            "schema_version": "armi.life-mode.v1",
+                            "content_visibility": "private",
+                        },
+                    ],
+                    "latest_commit_ref": self.opportunity_id,
+                    "observed_at": "2026-07-30T10:00:01.000000Z",
+                },
+            )
+            return
+        if self.path == "/v1/capability-requests?limit=50":
+            self._json_response(
+                200,
+                {
+                    "contract_version": "1.0",
+                    "projection_version": "capability-request.v2",
+                    "items": self._capability_items(),
                 },
             )
             return
@@ -176,7 +334,28 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             )
             return
         if self.path == f"/v1/operations/{self.opportunity_id}":
-            self._json_response(200, self._accepted_operation())
+            self._json_response(200, self._operation_projection())
+            return
+        if self.path == f"/v1/effects/{self.effect_id}":
+            type(self).effect_reads += 1
+            self._json_response(
+                200,
+                {
+                    "contract_version": "1.0",
+                    "projection_version": "creator-effect.v1",
+                    "effect_id": self.effect_id,
+                    "root_operation_ref": self.opportunity_id,
+                    "effect_kind": "creator_response",
+                    "status": "completed",
+                    "verification_status": "verified",
+                    "attempt_count": 1,
+                    "last_observation_kind": "receipt",
+                    "last_observation_reliability": "reliable",
+                    "registered_at": "2026-07-30T10:03:00.000000Z",
+                    "settled_at": "2026-07-30T10:03:02.000000Z",
+                    "response_text": "<img src=https://outside.invalid/x> 已核验回应",
+                },
+            )
             return
         if self.path == "/v1/scenes/default/events":
             if (
@@ -280,6 +459,9 @@ def main() -> int:
                         QuietHandler.timeline_reads = 0
                         QuietHandler.event_streams = 0
                         QuietHandler.input_accepted = False
+                        QuietHandler.capability_status = "pending"
+                        QuietHandler.capability_version = 1
+                        QuietHandler.effect_reads = 0
                         page = browser.new_page(viewport=viewport)
                         requests: list[str] = []
                         page.on(
@@ -310,6 +492,27 @@ def main() -> int:
                         ).click()
                         page.get_by_text("浏览器会话已建立").wait_for()
                         page.get_by_text("browser.event").wait_for()
+                        capability_item = page.locator("li.capability-item").filter(
+                            has_text="creator.scene.reply"
+                        )
+                        capability_item.get_by_role(
+                            "button", name="限制", exact=True
+                        ).click()
+                        capability_item.get_by_label("最大次数").fill("2")
+                        capability_item.get_by_role(
+                            "button", name="应用更严格限制"
+                        ).click()
+                        capability_item.get_by_text("limited", exact=True).wait_for()
+                        capability_item.get_by_text("2/2 次").wait_for()
+                        codex_item = page.locator("li.capability-item").filter(
+                            has_text="codex.delegated-work"
+                        )
+                        if codex_item.get_by_role(
+                            "button", name="允许", exact=True
+                        ).count():
+                            raise RuntimeError(
+                                "WEB-BROWSER-CAPABILITY: unavailable Codex can be granted"
+                            )
                         if (
                             QuietHandler.timeline_reads < 2
                             or QuietHandler.event_streams < 1
@@ -318,7 +521,9 @@ def main() -> int:
                                 "WEB-BROWSER-SSE: invalidation did not refetch "
                                 "the authoritative timeline"
                             )
-                        page.get_by_role("button", name="刷新").click()
+                        page.locator(".session-actions").get_by_role(
+                            "button", name="重新读取状态"
+                        ).click()
                         page.wait_for_load_state("networkidle")
                         if page.get_by_text("ready").count() != 2:
                             raise RuntimeError(
@@ -348,7 +553,42 @@ def main() -> int:
                             + "\uff0c"
                             + "可在下方核验责任。"
                         ).wait_for()
-                        page.get_by_text(QuietHandler.opportunity_id).wait_for()
+                        page.get_by_text(QuietHandler.opportunity_id).first.wait_for()
+                        effect_trigger = page.get_by_role("button", name="查看效果详情")
+                        effect_trigger.wait_for()
+                        if QuietHandler.effect_reads != 0:
+                            raise RuntimeError(
+                                "SEC-WEB-EFFECT: response was fetched before explicit open"
+                            )
+                        effect_trigger.click()
+                        page.get_by_role(
+                            "heading", name="已核验回应", exact=True
+                        ).wait_for()
+                        page.get_by_text(
+                            "<img src=https://outside.invalid/x> 已核验回应"
+                        ).wait_for()
+                        if QuietHandler.effect_reads != 1:
+                            raise RuntimeError(
+                                "WEB-BROWSER-EFFECT: explicit detail did not read once"
+                            )
+                        if page.locator(".verified-response img").count():
+                            raise RuntimeError(
+                                "SEC-WEB-EFFECT-HTML: response created active markup"
+                            )
+                        close_detail = page.get_by_role("button", name="关闭详情")
+                        if not close_detail.evaluate(
+                            "element => element === document.activeElement"
+                        ):
+                            raise RuntimeError(
+                                "WEB-BROWSER-FOCUS: effect detail did not receive focus"
+                            )
+                        close_detail.click()
+                        if not effect_trigger.evaluate(
+                            "element => element === document.activeElement"
+                        ):
+                            raise RuntimeError(
+                                "WEB-BROWSER-FOCUS: effect trigger focus was not restored"
+                            )
                         if message in page.content():
                             raise RuntimeError(
                                 "SEC-WEB-MESSAGE-DOM: accepted body remained visible"
@@ -367,6 +607,24 @@ def main() -> int:
                         if overflow:
                             raise RuntimeError(
                                 "WEB-BROWSER-OVERFLOW: horizontal overflow detected"
+                            )
+                        cdp = page.context.new_cdp_session(page)
+                        cdp.send(
+                            "Emulation.setPageScaleFactor",
+                            {"pageScaleFactor": 2},
+                        )
+                        zoom_overflow = page.evaluate(
+                            "() => document.documentElement.scrollWidth > "
+                            "document.documentElement.clientWidth"
+                        )
+                        cdp.send(
+                            "Emulation.setPageScaleFactor",
+                            {"pageScaleFactor": 1},
+                        )
+                        cdp.detach()
+                        if zoom_overflow:
+                            raise RuntimeError(
+                                "WEB-BROWSER-ZOOM: 200 percent zoom overflow detected"
                             )
                         if any(not request.startswith(origin) for request in requests):
                             raise RuntimeError(
@@ -399,6 +657,8 @@ def main() -> int:
                                 "session_flow": "pass",
                                 "event_stream": "pass",
                                 "creator_input_loop": "pass",
+                                "capability_effect_loop": "pass",
+                                "zoom_200_percent": "pass",
                             }
                         )
                         page.close()

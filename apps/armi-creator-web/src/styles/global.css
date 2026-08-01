@@ -44,7 +44,7 @@ body {
 }
 
 .status-card {
-  width: min(100%, 42rem);
+  width: min(100%, 78rem);
   padding: clamp(1.5rem, 5vw, 3.75rem);
   border: 1px solid rgb(32 32 31 / 12%);
   border-radius: 1.5rem;
@@ -100,7 +100,8 @@ h1 {
 .session-summary,
 .timeline-panel,
 .message-composer,
-.operation-panel {
+.operation-panel,
+.authority-panel {
   margin-top: clamp(2rem, 7vw, 4rem);
 }
 
@@ -134,7 +135,8 @@ h1 {
 }
 
 .session-form input,
-.message-composer textarea {
+.message-composer textarea,
+.limit-form input {
   width: 100%;
   padding: 0.85rem 1rem;
   border: 1px solid rgb(32 32 31 / 24%);
@@ -161,7 +163,8 @@ h1 {
 }
 
 .message-composer h2,
-.operation-panel h2 {
+.operation-panel h2,
+.authority-panel h2 {
   margin: 0;
 }
 
@@ -246,6 +249,18 @@ textarea:focus-visible {
   gap: 2rem;
 }
 
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(20rem, 0.85fr);
+  gap: clamp(2rem, 5vw, 4rem);
+  align-items: start;
+}
+
+.scene-column,
+.authority-column {
+  min-width: 0;
+}
+
 .timeline-panel {
   padding-top: 1.5rem;
   border-top: 1px solid rgb(32 32 31 / 12%);
@@ -309,6 +324,126 @@ textarea:focus-visible {
 .operation-panel {
   padding-top: 1.5rem;
   border-top: 1px solid rgb(32 32 31 / 12%);
+}
+
+.authority-panel {
+  padding-top: 1.5rem;
+  border-top: 1px solid rgb(32 32 31 / 12%);
+}
+
+.authority-panel dl,
+.capability-item dl {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.authority-panel dl div,
+.capability-item dl div {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.45fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.authority-panel dt,
+.capability-item dt {
+  color: #6d685f;
+}
+
+.authority-panel dd,
+.capability-item dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.capability-list {
+  display: grid;
+  gap: 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.capability-item {
+  padding: 1rem;
+  border: 1px solid rgb(32 32 31 / 12%);
+  border-radius: 0.9rem;
+  background: rgb(255 255 255 / 55%);
+}
+
+.capability-title-row,
+.decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.decision-actions {
+  justify-content: flex-start;
+}
+
+.limit-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.limit-form label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.critical-state,
+.critical-note {
+  color: #8a2f2a;
+  font-weight: 650;
+}
+
+.verified-response {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: #f6f3ed;
+}
+
+.verified-response h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.verified-response pre {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+}
+
+@media (max-width: 56rem) {
+  .workspace-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 30rem) {
+  .status-card {
+    padding: 1.25rem;
+    border-radius: 1rem;
+  }
+
+  .timeline-heading-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .authority-panel dl div,
+  .capability-item dl div,
+  .operation-panel dl div,
+  .session-summary dl div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.2rem;
+  }
 }
 
 .operation-panel dl {

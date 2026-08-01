@@ -124,8 +124,8 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
             ),
             "M0-SEAM-WORK-SELECTION": ("armi.opportunity-selector.creator-fifo-v1"),
             "M0-SEAM-POLICY": "armi.policy-engine.deterministic-v1",
-            "M0-SEAM-CREATOR-PROJECTION": "armi.scene-timeline-query.v2",
-            "M0-SEAM-CREATOR-UI": "armi.creator-static.v1",
+            "M0-SEAM-CREATOR-PROJECTION": "armi.creator-projection-workbench.v1",
+            "M0-SEAM-CREATOR-UI": "armi.creator-workbench.v1",
         },
         "runtime_discovery": False,
     }

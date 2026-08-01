@@ -61,13 +61,45 @@ export function useSceneEventStream({
 
     async function fullRefetch(): Promise<void> {
       lastEventId.current = undefined;
-      await Promise.all([
-        queryClient.resetQueries({ queryKey, exact: true }),
-        queryClient.resetQueries({
-          queryKey: ["subject-summary"],
-          exact: true,
-        }),
-      ]);
+      await queryClient.resetQueries({
+        predicate: (query) =>
+          [
+            "scene-timeline",
+            "capability-requests",
+            "creator-operation",
+            "creator-effect",
+            "subject-summary",
+          ].includes(String(query.queryKey[0])),
+      });
+    }
+
+    async function invalidateResource(
+      resourceKind: string,
+      resourceRef: string,
+    ): Promise<void> {
+      if (resourceKind === "scene_timeline") {
+        if (resourceRef !== sceneKey) {
+          throw new EventStreamFailure("event");
+        }
+        await queryClient.resetQueries({ queryKey, exact: true });
+        return;
+      }
+      const prefix = {
+        capability_request: "capability-requests",
+        operation: "creator-operation",
+        effect: "creator-effect",
+        subject_summary: "subject-summary",
+      }[resourceKind];
+      if (prefix === undefined) {
+        throw new EventStreamFailure("event");
+      }
+      await queryClient.resetQueries({
+        predicate: (query) =>
+          query.queryKey[0] === prefix &&
+          (prefix === "capability-requests" ||
+            prefix === "subject-summary" ||
+            query.queryKey.includes(resourceRef)),
+      });
     }
 
     async function run(): Promise<void> {
@@ -85,10 +117,6 @@ export function useSceneEventStream({
               setState("connected");
             },
             async (event) => {
-              if (event.resource_ref !== sceneKey) {
-                await fullRefetch();
-                throw new EventStreamFailure("event");
-              }
               if (lastEventId.current !== undefined) {
                 const order = compareEventIds(
                   lastEventId.current,
@@ -103,13 +131,7 @@ export function useSceneEventStream({
                 }
               }
               lastEventId.current = event.event_id;
-              await Promise.all([
-                queryClient.resetQueries({ queryKey, exact: true }),
-                queryClient.resetQueries({
-                  queryKey: ["subject-summary"],
-                  exact: true,
-                }),
-              ]);
+              await invalidateResource(event.resource_kind, event.resource_ref);
             },
           );
         } catch (error) {
@@ -164,7 +186,17 @@ export function useSceneEventStream({
       return;
     }
     const interval = window.setInterval(
-      () => void queryClient.resetQueries({ queryKey, exact: true }),
+      () =>
+        void queryClient.resetQueries({
+          predicate: (query) =>
+            [
+              "scene-timeline",
+              "capability-requests",
+              "creator-operation",
+              "creator-effect",
+              "subject-summary",
+            ].includes(String(query.queryKey[0])),
+        }),
       POLLING_MILLISECONDS,
     );
     return () => window.clearInterval(interval);

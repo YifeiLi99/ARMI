@@ -5,9 +5,29 @@ export type CreatorProjectionEvent =
 
 const EVENT_ID = /^sse-v1\.([A-Za-z0-9_-]{22})\.([1-9][0-9]*)$/;
 const SCENE_KEY = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const UUID_V7 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5]\d\.\d{6}Z$/;
-const EVENT_KIND = "scene.timeline.invalidated";
 const MAX_EVENT_BYTES = 4096;
+const RESOURCES = {
+  scene_timeline: [
+    "scene.timeline.invalidated",
+    "scene-timeline.v3",
+    SCENE_KEY,
+  ],
+  capability_request: [
+    "capability.request.invalidated",
+    "capability-request.v2",
+    UUID_V7,
+  ],
+  operation: ["operation.invalidated", "creator-operation.v1", UUID_V7],
+  effect: ["effect.invalidated", "creator-effect.v1", UUID_V7],
+  subject_summary: [
+    "subject.summary.invalidated",
+    "subject-summary.v1",
+    UUID_V7,
+  ],
+} as const;
 
 export class EventStreamFailure extends Error {
   constructor(
@@ -58,15 +78,20 @@ function parseEventData(value: string): CreatorProjectionEvent {
   ) {
     throw new EventStreamFailure("event");
   }
+  const resource =
+    typeof decoded.resource_kind === "string" &&
+    decoded.resource_kind in RESOURCES
+      ? RESOURCES[decoded.resource_kind as keyof typeof RESOURCES]
+      : undefined;
   if (
     decoded.contract_version !== "1.0" ||
     typeof decoded.event_id !== "string" ||
     !EVENT_ID.test(decoded.event_id) ||
-    decoded.event_kind !== EVENT_KIND ||
-    decoded.resource_kind !== "scene_timeline" ||
+    resource === undefined ||
+    decoded.event_kind !== resource[0] ||
     typeof decoded.resource_ref !== "string" ||
-    !SCENE_KEY.test(decoded.resource_ref) ||
-    decoded.projection_version !== "scene-timeline.v3" ||
+    !resource[2].test(decoded.resource_ref) ||
+    decoded.projection_version !== resource[1] ||
     typeof decoded.occurred_at !== "string" ||
     !INSTANT.test(decoded.occurred_at)
   ) {
