@@ -139,6 +139,13 @@ class CreatorOperationPhase(StrEnum):
     CANDIDATE_VALIDATED = "candidate_validated"
     CANDIDATE_REJECTED = "candidate_rejected"
     SUBJECT_COMMITTING = "subject_committing"
+    RESPONSE_ADMISSION = "response_admission"
+    RESPONSE_ACCEPTED = "response_accepted"
+    FORMAL_DECLINED = "formal_declined"
+    FORMAL_NO_ACTION = "formal_no_action"
+    RESPONSE_UNAUTHORIZED = "response_unauthorized"
+    RESPONSE_UNAVAILABLE = "response_unavailable"
+    RESPONSE_FAILED = "response_failed"
     APPLIED = "applied"
     COMPLETED = "completed"
     DEFERRED = "deferred"
@@ -172,6 +179,12 @@ class CreatorOperation:
             CreatorOperationPhase.DEFERRED,
             CreatorOperationPhase.NEED_INFORMATION,
             CreatorOperationPhase.STALE_CONFLICT,
+            CreatorOperationPhase.RESPONSE_ACCEPTED,
+            CreatorOperationPhase.FORMAL_DECLINED,
+            CreatorOperationPhase.FORMAL_NO_ACTION,
+            CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
+            CreatorOperationPhase.RESPONSE_UNAVAILABLE,
+            CreatorOperationPhase.RESPONSE_FAILED,
         }
         if completed_phase != (self.completion_digest is not None):
             raise CreatorInputViolation("CON-INPUT-OPERATION")
@@ -184,7 +197,7 @@ class CreatorOperation:
             if (
                 type(self.failure_code) is not str
                 or re.fullmatch(
-                    r"(?:CTX|MODEL|CANDIDATE|SUBJECT)-[A-Z0-9-]+",
+                    r"(?:CTX|MODEL|CANDIDATE|SUBJECT|RESPONSE|POLICY|ACTION)-[A-Z0-9-]+",
                     self.failure_code,
                 )
                 is None
@@ -198,6 +211,13 @@ class CreatorOperation:
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
         elif self.phase is CreatorOperationPhase.STALE_CONFLICT:
             if self.failure_code != "CONFLICT_SUBJECT_STATE_STALE":
+                raise CreatorInputViolation("CON-INPUT-OPERATION")
+        elif self.phase in {
+            CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
+            CreatorOperationPhase.RESPONSE_UNAVAILABLE,
+            CreatorOperationPhase.RESPONSE_FAILED,
+        }:
+            if self.failure_code is None:
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
         elif self.failure_code is not None:
             raise CreatorInputViolation("CON-INPUT-OPERATION")

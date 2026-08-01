@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -24,20 +25,34 @@ from armi_kernel.application import (
     CandidateOwner,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
+    CreatorReplyDraft,
     CreatorSceneReplyScope,
     ExperienceId,
+    FormalNoActionDraft,
     SubjectChangeSet,
     SubjectCommitId,
     SubjectCommitResult,
     SubjectCommitViolation,
+    WorkDraft,
+    WorkId,
     WorkLease,
+    WorkOwner,
+    WorkPayloadRef,
     WorkResultRef,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import (
+    Digest,
+    IdempotencyKey,
+    Instant,
+    Purpose,
+    SubjectId,
+    TraceId,
+)
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.subject.commit"
+_RESPONSE_WORK_KIND = "cognition.response.admit"
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +206,7 @@ class PostgreSQLSubjectCommitRepository:
         lease: WorkLease,
         snapshot: SubjectCommitSnapshot,
         change_set: SubjectChangeSet,
+        response_artifact_id: ArtifactId | None = None,
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await _assert_lease(connection, lease, snapshot.episode_id)
@@ -246,6 +262,7 @@ class PostgreSQLSubjectCommitRepository:
             lease=lease,
             snapshot=snapshot,
             change_set=change_set,
+            response_artifact_id=response_artifact_id,
         )
 
     async def _settle_current(
@@ -255,12 +272,14 @@ class PostgreSQLSubjectCommitRepository:
         lease: WorkLease,
         snapshot: SubjectCommitSnapshot,
         change_set: SubjectChangeSet,
+        response_artifact_id: ArtifactId | None,
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         disposition_map = {
             CandidateDisposition.NO_CHANGE: CandidateApplicationStatus.NO_CHANGE,
             CandidateDisposition.DEFER: CandidateApplicationStatus.DEFERRED,
             CandidateDisposition.DECLINE: CandidateApplicationStatus.DECLINED,
+            CandidateDisposition.NO_ACTION: CandidateApplicationStatus.NO_ACTION,
             CandidateDisposition.NEED_INFORMATION: CandidateApplicationStatus.NEED_INFORMATION,
         }
         if change_set.disposition is not CandidateDisposition.CHANGE:
@@ -271,11 +290,13 @@ class PostgreSQLSubjectCommitRepository:
                 snapshot=snapshot,
                 status=status,
                 observed_version=change_set.base_subject_version,
+                change_set=change_set,
             )
         if (
             not change_set.experiences
             and not change_set.components
             and not change_set.capability_requests
+            and not change_set.action_choices
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -433,6 +454,13 @@ class PostgreSQLSubjectCommitRepository:
             snapshot=snapshot,
             commit_id=commit_id,
             requests=change_set.capability_requests,
+        )
+        await _insert_response_intent(
+            unit_of_work,
+            snapshot=snapshot,
+            commit_id=commit_id,
+            change_set=change_set,
+            response_artifact_id=response_artifact_id,
         )
 
         updated_subject = await (
@@ -606,6 +634,7 @@ async def _settle_without_commit(
     snapshot: SubjectCommitSnapshot,
     status: CandidateApplicationStatus,
     observed_version: int,
+    change_set: SubjectChangeSet,
 ) -> SubjectCommitResult:
     connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
     completion = _completion_digest(
@@ -625,6 +654,17 @@ async def _settle_without_commit(
         observed_version=observed_version,
         completion_digest=completion,
     )
+    if status in {
+        CandidateApplicationStatus.DECLINED,
+        CandidateApplicationStatus.NO_ACTION,
+    }:
+        await _insert_formal_no_action(
+            unit_of_work,
+            snapshot=snapshot,
+            application_id=application_id,
+            change_set=change_set,
+            completion=completion,
+        )
     await _finish_episode_and_work(
         unit_of_work,
         lease=lease,
@@ -635,7 +675,11 @@ async def _settle_without_commit(
     audit_status = (
         AuditResultStatus.COMPLETED
         if status
-        in {CandidateApplicationStatus.NO_CHANGE, CandidateApplicationStatus.DECLINED}
+        in {
+            CandidateApplicationStatus.NO_CHANGE,
+            CandidateApplicationStatus.DECLINED,
+            CandidateApplicationStatus.NO_ACTION,
+        }
         else AuditResultStatus.WAITING
     )
     await unit_of_work.audit.append(
@@ -923,6 +967,225 @@ async def _insert_capability_requests(
                 request_digest,
             )
         )
+
+
+async def _insert_response_intent(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    change_set: SubjectChangeSet,
+    response_artifact_id: ArtifactId | None,
+) -> None:
+    replies = tuple(
+        item
+        for item in change_set.action_choices
+        if isinstance(item, CreatorReplyDraft)
+    )
+    if not replies:
+        if response_artifact_id is not None:
+            raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
+        return
+    if len(replies) != 1 or response_artifact_id is None:
+        raise SubjectCommitViolation("SUBJECT-RESPONSE-COUNT")
+    reply = replies[0]
+    if (
+        reply.subject_id != snapshot.subject_id
+        or reply.scene_id != snapshot.scene_id
+        or reply.creator_party_id != snapshot.creator_party_id
+    ):
+        raise SubjectCommitViolation("SUBJECT-RESPONSE-SCOPE")
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    item = await (
+        await connection.execute(
+            """
+            SELECT validation_status
+            FROM armi.cognitive_candidate_validation_items
+            WHERE candidate_validation_id = %s AND proposal_ref = %s
+              AND owner_kind = 'action'
+            """,
+            (snapshot.validation_id, reply.proposal_ref),
+        )
+    ).fetchone()
+    if item is None or str(item[0]) != "accepted":
+        raise SubjectCommitViolation("SUBJECT-RESPONSE-VALIDATION")
+    action_id = uuid7()
+    revision_id = uuid7()
+    await connection.execute(
+        """
+        INSERT INTO armi.action_intents (
+            action_intent_id, subject_id, interaction_scene_id,
+            creator_party_id, root_opportunity_id, purpose,
+            current_revision_id, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, 'respond_to_creator', NULL, 1)
+        """,
+        (
+            action_id,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.creator_party_id,
+            snapshot.root_opportunity_id,
+        ),
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.action_intent_revisions (
+            action_intent_revision_id, action_intent_id, revision_no,
+            response_artifact_id, response_digest, response_bytes,
+            media_type, capability_kind, operation_class, audience_scope,
+            data_scope, purpose, candidate_validation_id, proposal_ref,
+            subject_commit_id, schema_version
+        ) VALUES (
+            %s, %s, 1, %s, %s, %s, 'text/plain',
+            'creator.scene.reply', 'send', 'creator',
+            'creator_visible_response', 'respond_to_creator',
+            %s, %s, %s, 1
+        )
+        """,
+        (
+            revision_id,
+            action_id,
+            response_artifact_id.value,
+            reply.content_digest.value,
+            len(reply.content_bytes),
+            snapshot.validation_id,
+            reply.proposal_ref,
+            commit_id.value,
+        ),
+    )
+    await connection.execute(
+        "UPDATE armi.action_intents SET current_revision_id = %s WHERE action_intent_id = %s",
+        (revision_id, action_id),
+    )
+    now_row = await (
+        await connection.execute("SELECT statement_timestamp()")
+    ).fetchone()
+    if now_row is None:
+        raise SubjectCommitViolation("SUBJECT-DATABASE")
+    work_id = WorkId(uuid7())
+    await unit_of_work.work.enqueue(
+        WorkDraft(
+            work_id,
+            _RESPONSE_WORK_KIND,
+            WorkOwner("action_intent", action_id),
+            IdempotencyKey(f"response-admit:{action_id}"),
+            reply.content_digest,
+            50,
+            Instant(now_row[0]),
+            Instant(now_row[0] + timedelta(seconds=3600)),
+            2,
+            snapshot.trace_id,
+            SubjectId(snapshot.subject_id),
+            WorkPayloadRef("action_intent", action_id),
+        )
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.creator_response_operations (
+            creator_response_operation_id, root_opportunity_id, subject_id,
+            interaction_scene_id, creator_party_id, action_intent_id,
+            admission_work_id, current_status, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', 1)
+        """,
+        (
+            snapshot.root_opportunity_id,
+            snapshot.root_opportunity_id,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.creator_party_id,
+            action_id,
+            work_id.value,
+        ),
+    )
+    await unit_of_work.audit.append(
+        _audit(
+            unit_of_work,
+            snapshot,
+            "cognition.response.intent.recorded",
+            "action_intent",
+            action_id,
+            AuditResultStatus.ACCEPTED,
+            reply.content_digest,
+        )
+    )
+
+
+async def _insert_formal_no_action(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    application_id: CandidateApplicationId,
+    change_set: SubjectChangeSet,
+    completion: Digest,
+) -> None:
+    decisions = tuple(
+        item
+        for item in change_set.action_choices
+        if isinstance(item, FormalNoActionDraft)
+    )
+    if len(decisions) != 1:
+        raise SubjectCommitViolation("SUBJECT-NO-ACTION-COUNT")
+    decision = decisions[0]
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    rows = await (
+        await connection.execute(
+            """
+            SELECT basis.context_item_id
+            FROM armi.cognitive_candidate_basis_links AS basis
+            JOIN armi.cognitive_candidate_validation_items AS item
+              ON item.candidate_validation_id = basis.candidate_validation_id
+             AND item.proposal_ref = basis.proposal_ref
+             AND item.validation_status = 'accepted'
+             AND item.owner_kind = 'action'
+            WHERE basis.candidate_validation_id = %s AND basis.proposal_ref = %s
+            ORDER BY basis.ordinal
+            """,
+            (snapshot.validation_id, decision.proposal_ref),
+        )
+    ).fetchall()
+    if len(rows) != len(decision.basis_ordinals):
+        raise SubjectCommitViolation("SUBJECT-NO-ACTION-BASIS")
+    basis_digest = Digest.from_bytes(
+        rfc8785.dumps(cast(Any, [str(row[0]) for row in rows]))
+    )
+    no_action_id = uuid7()
+    await connection.execute(
+        """
+        INSERT INTO armi.formal_no_action_decisions (
+            formal_no_action_id, candidate_application_id,
+            candidate_validation_id, proposal_ref, root_opportunity_id,
+            decision_kind, reason_class, basis_digest, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1)
+        """,
+        (
+            no_action_id,
+            application_id.value,
+            snapshot.validation_id,
+            decision.proposal_ref,
+            snapshot.root_opportunity_id,
+            decision.kind.value,
+            decision.reason.value,
+            basis_digest.value,
+        ),
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.creator_response_operations (
+            creator_response_operation_id, root_opportunity_id, subject_id,
+            interaction_scene_id, creator_party_id, formal_no_action_id,
+            current_status, completion_digest, completed_at, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, 'no_action', %s, statement_timestamp(), 1)
+        """,
+        (
+            snapshot.root_opportunity_id,
+            snapshot.root_opportunity_id,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.creator_party_id,
+            no_action_id,
+            completion.value,
+        ),
+    )
 
 
 def _scope_wire(

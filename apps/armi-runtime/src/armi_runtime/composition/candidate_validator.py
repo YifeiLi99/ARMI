@@ -25,22 +25,29 @@ from armi_kernel.application import (
     CapabilityOperation,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
+    CreatorReplyDraft,
     CreatorSceneReplyScope,
+    FormalNoActionDraft,
+    FormalNoActionKind,
+    FormalNoActionReason,
     ModelViolation,
     SubjectChangeSet,
 )
 from armi_kernel.contracts import Digest
 
 from .model_contract import (
+    ActionChoiceProposal,
     CognitionCandidate,
     ComponentChangeProposal,
+    CreatorReplyPayload,
     ExperienceProposal,
+    FormalNoActionPayload,
     parse_candidate,
 )
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v1"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-CHANGE_SET_VERSION = "armi.subject-change-set.v2"
+CHANGE_SET_VERSION = "armi.subject-change-set.v3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +89,7 @@ class CandidateValidationContext:
 
 
 class DeterministicCandidateValidator:
-    """Validate candidate v3 into a canonical, not-yet-effective change set."""
+    """Validate candidate v4 into a canonical, not-yet-effective change set."""
 
     __slots__ = ("_context",)
 
@@ -114,7 +121,11 @@ class DeterministicCandidateValidator:
                 "CANDIDATE-CONTRACT-OBSOLETE"
                 if isinstance(raw, dict)
                 and raw.get("schema_version")
-                in {"armi.cognition-candidate.v1", "armi.cognition-candidate.v2"}
+                in {
+                    "armi.cognition-candidate.v1",
+                    "armi.cognition-candidate.v2",
+                    "armi.cognition-candidate.v3",
+                }
                 else "CANDIDATE-CONTRACT"
             )
             return _rejected(code)
@@ -130,7 +141,27 @@ class DeterministicCandidateValidator:
             return _rejected("CANDIDATE-FACT-CLASS")
 
         proposals = _all_proposals(candidate)
-        if candidate.disposition != "change" and proposals:
+        formal_no_action = tuple(
+            proposal
+            for owner, proposal in proposals
+            if owner is CandidateOwner.ACTION
+            and isinstance(proposal.payload, FormalNoActionPayload)
+        )
+        if candidate.disposition == "change" and formal_no_action:
+            return _rejected("CANDIDATE-DISPOSITION")
+        if candidate.disposition != "change" and any(
+            owner is not CandidateOwner.ACTION
+            or not isinstance(proposal.payload, FormalNoActionPayload)
+            for owner, proposal in proposals
+        ):
+            return _rejected("CANDIDATE-DISPOSITION")
+        if candidate.disposition in {"decline", "no_action"}:
+            if (
+                len(formal_no_action) != 1
+                or formal_no_action[0].payload.decision != candidate.disposition
+            ):
+                return _rejected("CANDIDATE-DISPOSITION")
+        elif formal_no_action:
             return _rejected("CANDIDATE-DISPOSITION")
 
         component_state = {
@@ -139,7 +170,11 @@ class DeterministicCandidateValidator:
         }
         accepted: dict[
             str,
-            CandidateExperienceDraft | CandidateComponentDraft | CapabilityRequestDraft,
+            CandidateExperienceDraft
+            | CandidateComponentDraft
+            | CapabilityRequestDraft
+            | CreatorReplyDraft
+            | FormalNoActionDraft,
         ] = {}
         rejected: dict[str, CandidateRejection] = {}
         group_members: dict[str, list[str]] = defaultdict(list)
@@ -214,6 +249,33 @@ class DeterministicCandidateValidator:
                         scope,
                     )
                     continue
+            if failure is None and owner is CandidateOwner.ACTION:
+                action = cast(ActionChoiceProposal, proposal)
+                failure = _action_failure(action, proposal_bases, context=self._context)
+                if failure is None and isinstance(action.payload, CreatorReplyPayload):
+                    content = action.payload.content.encode("utf-8", errors="strict")
+                    accepted[proposal.proposal_ref] = CreatorReplyDraft(
+                        proposal.proposal_ref,
+                        proposal.atomic_group_ref,
+                        tuple(basis.ordinal for basis in proposal_bases),
+                        UUID(action.payload.subject_id),
+                        UUID(action.payload.scene_id),
+                        UUID(action.payload.creator_party_id),
+                        content,
+                        Digest.from_bytes(content),
+                    )
+                    continue
+                if failure is None and isinstance(
+                    action.payload, FormalNoActionPayload
+                ):
+                    accepted[proposal.proposal_ref] = FormalNoActionDraft(
+                        proposal.proposal_ref,
+                        proposal.atomic_group_ref,
+                        tuple(basis.ordinal for basis in proposal_bases),
+                        FormalNoActionKind(action.payload.decision),
+                        FormalNoActionReason(action.payload.reason_class),
+                    )
+                    continue
             if failure is None:
                 failure = "CANDIDATE-OWNER-NOT-ACTIVE"
             rejected[proposal.proposal_ref] = CandidateRejection(
@@ -279,6 +341,11 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CapabilityRequestDraft)
         )
+        action_choices = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, (CreatorReplyDraft, FormalNoActionDraft))
+        )
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
         change_set_value = {
@@ -300,6 +367,7 @@ class DeterministicCandidateValidator:
             "capability_requests": [
                 _capability_wire(item) for item in capability_requests
             ],
+            "action_choices": [_action_wire(item) for item in action_choices],
             "rejections": [_rejection_wire(item) for item in rejections],
         }
         canonical = rfc8785.dumps(cast(Any, change_set_value))
@@ -319,6 +387,7 @@ class DeterministicCandidateValidator:
             experiences,
             components,
             capability_requests,
+            action_choices,
             rejections,
         )
         status = (
@@ -361,7 +430,7 @@ def _all_proposals(
         ),
         *((CandidateOwner.ACTIVITY, item) for item in candidate.activity_changes),
         *((CandidateOwner.CAPABILITY, item) for item in candidate.capability_requests),
-        *((CandidateOwner.ACTION, item) for item in candidate.action_intents),
+        *((CandidateOwner.ACTION, item) for item in candidate.action_choices),
     )
 
 
@@ -471,6 +540,51 @@ def _capability_failure(
     return "CANDIDATE-CAPABILITY-UNKNOWN"
 
 
+def _action_failure(
+    proposal: ActionChoiceProposal,
+    bases: tuple[CandidateBasis, ...],
+    *,
+    context: CandidateValidationContext,
+) -> str | None:
+    payload = proposal.payload
+    if payload.fact_class not in {"subjective_understanding", "inference"}:
+        return "CANDIDATE-ACTION-FACT"
+    if not any(
+        basis.item_kind == "current_scene" and basis.source_ref == context.scene_id
+        for basis in bases
+    ):
+        return "CANDIDATE-ACTION-SCENE-BASIS"
+    if not any(
+        basis.item_kind == "current_evidence" and basis.trust_class == "external_claim"
+        for basis in bases
+    ):
+        return "CANDIDATE-ACTION-EVIDENCE-BASIS"
+    if isinstance(payload, CreatorReplyPayload):
+        if not any(
+            basis.section == "capability"
+            and basis.item_kind == "capability_catalog"
+            and basis.trust_class == "policy"
+            for basis in bases
+        ):
+            return "CANDIDATE-ACTION-CAPABILITY-BASIS"
+        if (
+            UUID(payload.subject_id) != context.subject_id
+            or UUID(payload.scene_id) != context.scene_id
+            or UUID(payload.creator_party_id) != context.creator_party_id
+        ):
+            return "CANDIDATE-ACTION-SCOPE"
+        return None
+    expected_reason = {
+        "decline": "subjective_refusal",
+        "no_action": "subjective_silence",
+    }[payload.decision]
+    return (
+        None
+        if payload.reason_class == expected_reason
+        else "CANDIDATE-NO-ACTION-REASON"
+    )
+
+
 def _rejected(code: str) -> CandidateValidationResult:
     return CandidateValidationResult(
         CandidateValidationId(uuid7()),
@@ -491,19 +605,31 @@ def _primary_rejection(rejected: dict[str, CandidateRejection]) -> str:
 
 
 def _draft_owner(
-    draft: CandidateExperienceDraft | CandidateComponentDraft | CapabilityRequestDraft,
+    draft: CandidateExperienceDraft
+    | CandidateComponentDraft
+    | CapabilityRequestDraft
+    | CreatorReplyDraft
+    | FormalNoActionDraft,
 ) -> CandidateOwner:
     if isinstance(draft, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
     if isinstance(draft, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
+    if isinstance(draft, (CreatorReplyDraft, FormalNoActionDraft)):
+        return CandidateOwner.ACTION
     return draft.owner
 
 
 def _draft_fact_class(
-    draft: CandidateExperienceDraft | CandidateComponentDraft | CapabilityRequestDraft,
+    draft: CandidateExperienceDraft
+    | CandidateComponentDraft
+    | CapabilityRequestDraft
+    | CreatorReplyDraft
+    | FormalNoActionDraft,
 ) -> CandidateFactClass:
-    if isinstance(draft, CapabilityRequestDraft):
+    if isinstance(
+        draft, (CapabilityRequestDraft, CreatorReplyDraft, FormalNoActionDraft)
+    ):
         return CandidateFactClass.INFERENCE
     return draft.fact_class
 
@@ -573,6 +699,36 @@ def _rejection_wire(value: CandidateRejection) -> dict[str, object]:
         "fact_class": value.fact_class.value,
         "owner": value.owner.value,
         "code": value.code,
+    }
+
+
+def _action_wire(value: CreatorReplyDraft | FormalNoActionDraft) -> dict[str, object]:
+    common: dict[str, object] = {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+    }
+    if isinstance(value, CreatorReplyDraft):
+        return {
+            **common,
+            "action_kind": "creator_reply",
+            "subject_id": str(value.subject_id),
+            "scene_id": str(value.scene_id),
+            "creator_party_id": str(value.creator_party_id),
+            "capability_kind": value.capability_kind,
+            "operation": value.operation,
+            "audience_scope": value.audience_scope,
+            "data_scope": value.data_scope,
+            "purpose": value.purpose,
+            "media_type": value.media_type,
+            "content": value.content_bytes.decode("utf-8"),
+            "content_digest": value.content_digest.value,
+        }
+    return {
+        **common,
+        "action_kind": "formal_no_action",
+        "decision": value.kind.value,
+        "reason_class": value.reason.value,
     }
 
 

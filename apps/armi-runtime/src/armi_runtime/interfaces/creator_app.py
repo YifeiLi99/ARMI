@@ -376,6 +376,64 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
             waiting_for="subject_commit",
             resume_condition="subject_commit_available",
         ).to_wire()
+    if operation.phase is CreatorOperationPhase.RESPONSE_ADMISSION:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The response intent is waiting for admission.",
+            result_ref=result_ref,
+            waiting_for="response_admission",
+            resume_condition="response_admitted",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.RESPONSE_ACCEPTED:
+        return AcceptedOutcome(
+            **_outcome_common(),
+            message="The response is durably accepted but has not been sent.",
+            result_ref=result_ref,
+            custodian="runtime",
+        ).to_wire()
+    if operation.phase in {
+        CreatorOperationPhase.FORMAL_DECLINED,
+        CreatorOperationPhase.FORMAL_NO_ACTION,
+    }:
+        assert operation.completion_digest is not None
+        return CompletedOutcome(
+            **_outcome_common(),
+            message=(
+                "Cognition formally declined to respond."
+                if operation.phase is CreatorOperationPhase.FORMAL_DECLINED
+                else "Cognition formally chose not to act."
+            ),
+            result_ref=result_ref,
+            completion_evidence=operation.completion_digest,
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.RESPONSE_UNAUTHORIZED:
+        return RejectedOutcome(
+            **_outcome_common(),
+            message="The response is not covered by a current exact grant.",
+            error=ErrorDescriptor(
+                ErrorCategory.SCOPE,
+                "SCOPE_RESPONSE_NOT_AUTHORIZED",
+            ),
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.RESPONSE_UNAVAILABLE:
+        return UnavailableOutcome(
+            **_outcome_common(),
+            message="The response capability is unavailable.",
+            error=ErrorDescriptor(
+                ErrorCategory.DEPENDENCY,
+                "DEPENDENCY_RESPONSE_CAPABILITY_UNAVAILABLE",
+            ),
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.RESPONSE_FAILED:
+        return FailedOutcome(
+            **_outcome_common(),
+            message="The response admission failed.",
+            error=ErrorDescriptor(
+                ErrorCategory.INTEGRITY,
+                "INTEGRITY_RESPONSE_ADMISSION_FAILED",
+            ),
+            retryable=False,
+        ).to_wire()
     if operation.phase is CreatorOperationPhase.APPLIED:
         assert operation.subject_version is not None
         return AppliedOutcome(

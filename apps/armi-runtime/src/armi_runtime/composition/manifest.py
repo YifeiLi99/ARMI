@@ -44,6 +44,7 @@ _CANDIDATE_POLICY_FILE: Final = "candidate-validation-policy.manifest.json"
 _SUBJECT_COMMIT_POLICY_FILE: Final = "subject-commit-policy.manifest.json"
 _CAPABILITY_CATALOG_FILE: Final = "capability-catalog.manifest.json"
 _CREATOR_GRANT_POLICY_FILE: Final = "creator-grant-policy.manifest.json"
+_RESPONSE_ADMISSION_POLICY_FILE: Final = "response-admission-policy.manifest.json"
 _SCHEMA_FILES: Final = (
     "checks/invariants.sql",
     "manifests/database-role-manifest.json",
@@ -63,6 +64,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0013_cognition_candidate_validation.sql",
     "migrations/0014_t03_subject_commit.sql",
     "migrations/0015_minimal_capability_grants.sql",
+    "migrations/0016_response_and_formal_no_action.sql",
 )
 
 
@@ -82,6 +84,7 @@ def build_composition_manifest(
     subject_commit_policy: bytes,
     capability_catalog: bytes,
     creator_grant_policy: bytes,
+    response_admission_policy: bytes,
     schema_resources: dict[str, bytes],
 ) -> dict[str, object]:
     """Return the only allowed S008 composition declaration."""
@@ -145,6 +148,9 @@ def build_composition_manifest(
             ),
             f"capability/{_CAPABILITY_CATALOG_FILE}": _sha256(capability_catalog),
             f"policy/{_CREATOR_GRANT_POLICY_FILE}": _sha256(creator_grant_policy),
+            f"response/{_RESPONSE_ADMISSION_POLICY_FILE}": _sha256(
+                response_admission_policy
+            ),
             **{
                 f"schema/{name}": _sha256(value)
                 for name, value in sorted(schema_resources.items())
@@ -189,6 +195,9 @@ def verify_packaged_composition() -> VerifiedComposition:
         creator_grant_policy = resources.joinpath(
             _CREATOR_GRANT_POLICY_FILE
         ).read_bytes()
+        response_admission_policy = resources.joinpath(
+            _RESPONSE_ADMISSION_POLICY_FILE
+        ).read_bytes()
         committed = resources.joinpath("runtime-composition.manifest.json").read_bytes()
         schema_resources = {
             name: schema.joinpath(name).read_bytes() for name in _SCHEMA_FILES
@@ -209,6 +218,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         subject_commit_policy=subject_commit_policy,
         capability_catalog=capability_catalog,
         creator_grant_policy=creator_grant_policy,
+        response_admission_policy=response_admission_policy,
         schema_resources=schema_resources,
     )
     expected_bytes = canonical_manifest_bytes(expected)

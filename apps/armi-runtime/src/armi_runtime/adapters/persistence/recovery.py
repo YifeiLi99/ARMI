@@ -985,6 +985,78 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert capability_counts is not None
+            response_counts = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        count(*) FILTER (
+                            WHERE response.current_status = 'pending'
+                        ),
+                        count(*) FILTER (
+                            WHERE opportunity.opportunity_id IS NULL
+                               OR scene.scene_id IS NULL
+                               OR scene.subject_id <> response.subject_id
+                               OR scene.primary_party_id
+                                  <> response.creator_party_id
+                               OR (
+                                   response.current_status = 'pending'
+                                   AND (
+                                       intent.action_intent_id IS NULL
+                                       OR revision.action_intent_revision_id
+                                          IS NULL
+                                       OR work.work_id IS NULL
+                                       OR work.work_kind
+                                          <> 'cognition.response.admit'
+                                       OR work.status NOT IN ('ready', 'leased')
+                                   )
+                               )
+                               OR (
+                                   response.current_status = 'accepted'
+                                   AND (
+                                       intent.action_intent_id IS NULL
+                                       OR revision.action_intent_revision_id
+                                          IS NULL
+                                       OR response.matched_grant_id IS NULL
+                                       OR work.status <> 'completed'
+                                   )
+                               )
+                               OR (
+                                   response.current_status = 'no_action'
+                                   AND no_action.formal_no_action_id IS NULL
+                               )
+                               OR (
+                                   response.current_status IN (
+                                       'unauthorized', 'unavailable', 'failed'
+                                   )
+                                   AND (
+                                       intent.action_intent_id IS NULL
+                                       OR revision.action_intent_revision_id
+                                          IS NULL
+                                       OR work.status <> 'completed'
+                                   )
+                               )
+                        )
+                    FROM armi.creator_response_operations AS response
+                    LEFT JOIN armi.opportunities AS opportunity
+                      ON opportunity.opportunity_id
+                       = response.root_opportunity_id
+                    LEFT JOIN armi.interaction_scenes AS scene
+                      ON scene.scene_id = response.interaction_scene_id
+                    LEFT JOIN armi.action_intents AS intent
+                      ON intent.action_intent_id = response.action_intent_id
+                    LEFT JOIN armi.action_intent_revisions AS revision
+                      ON revision.action_intent_id = intent.action_intent_id
+                     AND revision.action_intent_revision_id
+                       = intent.current_revision_id
+                    LEFT JOIN armi.formal_no_action_decisions AS no_action
+                      ON no_action.formal_no_action_id
+                       = response.formal_no_action_id
+                    LEFT JOIN armi.durable_work AS work
+                      ON work.work_id = response.admission_work_id
+                    """
+                )
+            ).fetchone()
+            assert response_counts is not None
             if int(counts[7]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
@@ -1010,6 +1082,21 @@ class PostgreSQLRuntimeRecovery:
                                 "capability_request",
                                 RecoveryDecision.BLOCKED,
                                 "REC-CAPABILITY-REQUEST-INVALID",
+                            ),
+                        ),
+                        key=_finding_key,
+                    )
+                )
+            if int(response_counts[1]) > 0:
+                blockers += 1
+                sorted_findings = tuple(
+                    sorted(
+                        (
+                            *sorted_findings,
+                            RecoveryFinding(
+                                "response_operation",
+                                RecoveryDecision.BLOCKED,
+                                "REC-RESPONSE-OPERATION-INVALID",
                             ),
                         ),
                         key=_finding_key,
@@ -1044,6 +1131,7 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_candidate_validation": int(counts[4]),
                 "resumable_subject_commit": int(counts[6]),
                 "resumable_capability_request": int(capability_counts[0]),
+                "resumable_response_operation": int(response_counts[0]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -1076,6 +1164,7 @@ class PostgreSQLRuntimeRecovery:
                     resumable_candidate_validation_count = %s,
                     resumable_subject_commit_count = %s,
                     resumable_capability_request_count = %s,
+                    resumable_response_operation_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -1096,6 +1185,7 @@ class PostgreSQLRuntimeRecovery:
                     int(counts[4]),
                     int(counts[6]),
                     int(capability_counts[0]),
+                    int(response_counts[0]),
                     critical,
                     blockers,
                     digest.value,
@@ -1125,6 +1215,7 @@ class PostgreSQLRuntimeRecovery:
             resumable_candidate_validation_count=int(counts[4]),
             resumable_subject_commit_count=int(counts[6]),
             resumable_capability_request_count=int(capability_counts[0]),
+            resumable_response_operation_count=int(response_counts[0]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

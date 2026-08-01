@@ -4,17 +4,28 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
+    ArtifactId,
+    ArtifactPolicy,
+    ArtifactPrivacyScope,
+    ArtifactRef,
+    ArtifactViolation,
+    AuditDraft,
+    AuditEventId,
+    AuditReference,
+    AuditResultStatus,
+    AuditSensitivity,
     CreatorEventResourceKind,
     CreatorEventViolation,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorReplyDraft,
     LockPlan,
     LockTarget,
     RuntimeFence,
@@ -24,15 +35,19 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
-from armi_kernel.contracts import Instant
+from armi_kernel.contracts import Instant, Purpose, SubjectId
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
+from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.subject_commit import (
     PostgreSQLSubjectCommitRepository,
     SubjectCommitSnapshot,
 )
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
+from armi_runtime.adapters.persistence.unit_of_work import (
+    PostgreSQLUnitOfWork,
+    PostgreSQLUnitOfWorkFactory,
+)
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .subject_commit_contract import parse_subject_change_set
@@ -50,6 +65,7 @@ class SubjectCommitPipeline:
     """Apply validated ChangeSets through the sole T-03 coordinator."""
 
     __slots__ = (
+        "_catalog",
         "_diagnostic",
         "_factory",
         "_lease_owner",
@@ -69,6 +85,7 @@ class SubjectCommitPipeline:
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
+        self._catalog = ArtifactCatalogRepository()
         self._storage = storage
         self._notifier = notifier
         self._repository = PostgreSQLSubjectCommitRepository()
@@ -109,12 +126,39 @@ class SubjectCommitPipeline:
         try:
             snapshot = await self._snapshot(lease)
             change_set = parse_subject_change_set(await self._read(snapshot))
+            replies = tuple(
+                item
+                for item in change_set.action_choices
+                if isinstance(item, CreatorReplyDraft)
+            )
+            if len(replies) > 1:
+                raise SubjectCommitViolation("SUBJECT-RESPONSE-COUNT")
+            published_reply = (
+                await self._publish_response(replies[0], snapshot) if replies else None
+            )
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+                response_artifact_id = None
+                if published_reply is not None:
+                    registration = await self._catalog.register(
+                        unit_of_work,
+                        ArtifactId(uuid7()),
+                        published_reply,
+                    )
+                    response_artifact_id = registration.ref.artifact_id
+                    if registration.inserted:
+                        await unit_of_work.audit.append(
+                            _response_artifact_audit(
+                                unit_of_work,
+                                registration.ref,
+                                snapshot,
+                            )
+                        )
                 result = await self._repository.settle(
                     unit_of_work,
                     lease=lease,
                     snapshot=snapshot,
                     change_set=change_set,
+                    response_artifact_id=response_artifact_id,
                 )
             if result.subject_commit_id is not None:
                 await self._notify(snapshot.scene_key)
@@ -128,6 +172,9 @@ class SubjectCommitPipeline:
                 self._diagnostic("subject_commit.work.stale")
                 return True
             await self._release(lease, error.code)
+            return True
+        except ArtifactViolation:
+            await self._release(lease, "SUBJECT-RESPONSE-ARTIFACT")
             return True
         except DatabaseTransactionError as error:
             if error.code == "DB-TX-COMMIT-UNKNOWN" and snapshot is not None:
@@ -149,7 +196,8 @@ class SubjectCommitPipeline:
             try:
                 worked = await self.commit_once()
             except SubjectCommitViolation:
-                self._diagnostic("subject_commit.worker.failed")
+                if not self._stop.is_set():
+                    self._diagnostic("subject_commit.worker.failed")
                 worked = False
             if worked:
                 await asyncio.sleep(0)
@@ -198,6 +246,23 @@ class SubjectCommitPipeline:
                 )
         except DatabaseTransactionError, WorkViolation:
             self._diagnostic("subject_commit.settlement.deferred")
+
+    async def _publish_response(
+        self,
+        reply: CreatorReplyDraft,
+        snapshot: SubjectCommitSnapshot,
+    ):
+        staged = await self._storage.stage(
+            _one_chunk(reply.content_bytes),
+            ArtifactPolicy(
+                "text/plain",
+                "creator.response.text",
+                "subject.commit",
+                snapshot.trace_id,
+                ArtifactPrivacyScope.PRIVATE,
+            ),
+        )
+        return await self._storage.publish(staged)
 
     async def _recover_committed(
         self, snapshot: SubjectCommitSnapshot
@@ -266,3 +331,27 @@ def build_subject_commit_pipeline(
 
 
 __all__ = ("SubjectCommitPipeline", "build_subject_commit_pipeline")
+
+
+def _response_artifact_audit(
+    unit_of_work: PostgreSQLUnitOfWork,
+    ref: ArtifactRef,
+    snapshot: SubjectCommitSnapshot,
+) -> AuditDraft:
+    return AuditDraft(
+        AuditEventId(uuid7()),
+        AuditReference("runtime", unit_of_work.environment_id),
+        Purpose("cognition.response"),
+        "artifact.catalog.registered",
+        AuditReference("artifact", ref.artifact_id.value),
+        AuditResultStatus.APPLIED,
+        snapshot.trace_id,
+        AuditSensitivity.RESTRICTED,
+        subject_id=SubjectId(snapshot.subject_id),
+        request=AuditReference("cognitive_episode", snapshot.episode_id),
+        artifact_digest=ref.content_digest,
+    )
+
+
+async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
+    yield value

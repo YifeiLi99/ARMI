@@ -19,7 +19,11 @@ from armi_kernel.application import (
     CapabilityOperation,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
+    CreatorReplyDraft,
     CreatorSceneReplyScope,
+    FormalNoActionDraft,
+    FormalNoActionKind,
+    FormalNoActionReason,
     SubjectChangeSet,
     SubjectCommitViolation,
 )
@@ -39,6 +43,7 @@ _TOP_KEYS_V1 = {
     "rejections",
 }
 _TOP_KEYS_V2 = {*_TOP_KEYS_V1, "capability_requests"}
+_TOP_KEYS_V3 = {*_TOP_KEYS_V2, "action_choices"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -50,10 +55,18 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         if document.get("schema_version") not in {
             "armi.subject-change-set.v1",
             "armi.subject-change-set.v2",
+            "armi.subject-change-set.v3",
         }:
             raise ValueError
         version = document["schema_version"]
-        if set(document) != (_TOP_KEYS_V1 if version.endswith(".v1") else _TOP_KEYS_V2):
+        expected_keys = (
+            _TOP_KEYS_V1
+            if version.endswith(".v1")
+            else _TOP_KEYS_V2
+            if version.endswith(".v2")
+            else _TOP_KEYS_V3
+        )
+        if set(document) != expected_keys:
             raise ValueError
         canonical = rfc8785.dumps(cast(Any, document))
         if canonical != value:
@@ -77,6 +90,9 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             _capability(item)
             for item in _array(document.get("capability_requests", []), 4)
         )
+        action_choices = tuple(
+            _action(item) for item in _array(document.get("action_choices", []), 1)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -96,17 +112,43 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             experiences,
             components,
             capability_requests,
+            action_choices,
             rejections,
         )
         proposal_refs = [
             item.proposal_ref
-            for item in (*experiences, *components, *capability_requests, *rejections)
+            for item in (
+                *experiences,
+                *components,
+                *capability_requests,
+                *action_choices,
+                *rejections,
+            )
         ]
         if len(proposal_refs) != len(set(proposal_refs)):
             raise ValueError
-        if result.disposition is not CandidateDisposition.CHANGE and (
+        change_material = (
             result.experiences or result.components or result.capability_requests
-        ):
+        )
+        reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
+        no_action = tuple(
+            item for item in action_choices if isinstance(item, FormalNoActionDraft)
+        )
+        if result.disposition is CandidateDisposition.CHANGE:
+            if no_action:
+                raise ValueError
+        elif change_material or reply:
+            raise ValueError
+        if result.disposition in {
+            CandidateDisposition.DECLINE,
+            CandidateDisposition.NO_ACTION,
+        }:
+            if (
+                len(no_action) != 1
+                or no_action[0].kind.value != result.disposition.value
+            ):
+                raise ValueError
+        elif no_action:
             raise ValueError
         return result
     except (
@@ -262,6 +304,58 @@ def _rejection(value: object) -> CandidateRejection:
         CandidateFactClass(_text(item["fact_class"])),
         CandidateOwner(_text(item["owner"])),
         _text(item["code"]),
+    )
+
+
+def _action(value: object) -> CreatorReplyDraft | FormalNoActionDraft:
+    if type(value) is not dict:
+        raise ValueError
+    action_object = cast(dict[str, Any], value)
+    action_kind = action_object.get("action_kind")
+    common = {"proposal_ref", "atomic_group_ref", "basis_ordinals", "action_kind"}
+    if action_kind == "creator_reply":
+        item = _object(
+            action_object,
+            common
+            | {
+                "subject_id",
+                "scene_id",
+                "creator_party_id",
+                "capability_kind",
+                "operation",
+                "audience_scope",
+                "data_scope",
+                "purpose",
+                "media_type",
+                "content",
+                "content_digest",
+            },
+        )
+        content = _text(item["content"]).encode("utf-8", errors="strict")
+        draft = CreatorReplyDraft(
+            _text(item["proposal_ref"]),
+            _text(item["atomic_group_ref"]),
+            _ordinals(item["basis_ordinals"]),
+            _uuid7(item["subject_id"]),
+            _uuid7(item["scene_id"]),
+            _uuid7(item["creator_party_id"]),
+            content,
+            Digest(_text(item["content_digest"])),
+            _text(item["capability_kind"]),
+            _text(item["operation"]),
+            _text(item["audience_scope"]),
+            _text(item["data_scope"]),
+            _text(item["purpose"]),
+            _text(item["media_type"]),
+        )
+        return draft
+    item = _object(action_object, common | {"decision", "reason_class"})
+    return FormalNoActionDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        FormalNoActionKind(_text(item["decision"])),
+        FormalNoActionReason(_text(item["reason_class"])),
     )
 
 

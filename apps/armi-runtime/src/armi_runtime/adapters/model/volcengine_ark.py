@@ -41,9 +41,10 @@ _INSTRUCTIONS = (
     "understanding 或 proposal 同时引用 external_claim、policy 或 runtime_authority"
     "等不同性质依据时使用 inference,不得标为 objective_fact; external_claim 不得"
     "提升为 objective_fact。"
-    "当前只可提出 Experience、Self、Mind、life_mode,或请求中 Capability section 明示"
-    "的严格 capability request。申请不是 grant 或执行结果;不得扩大 catalog scope。"
-    "Memory、Relationship、Activity 和 Action 数组保持为空。"
+    "当前只可提出 Experience、Self、Mind、life_mode,请求中 Capability section 明示"
+    "的严格 capability request,以及绑定当前 subject、scene、Creator 的 creator_reply"
+    "或有真实 basis 的 formal_no_action。申请不是 grant 或执行结果;回应选择不是已发送"
+    "事实,不得扩大 catalog scope。Memory、Relationship、Activity 数组保持为空。"
 )
 
 
@@ -154,7 +155,7 @@ class OpenAIArkTransport:
                 text={
                     "format": {
                         "type": "json_schema",
-                        "name": "armi_cognition_candidate_v3",
+                        "name": "armi_cognition_candidate_v4",
                         "strict": True,
                         "schema": self._candidate_schema,
                     }

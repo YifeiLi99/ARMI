@@ -289,7 +289,8 @@ class ModelPipeline:
             try:
                 worked = await self.invoke_once()
             except ModelViolation:
-                self._diagnostic("model.worker.failed")
+                if not self._stop.is_set():
+                    self._diagnostic("model.worker.failed")
                 worked = False
             await self._wait(0 if worked else 1)
 

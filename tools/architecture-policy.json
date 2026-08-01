@@ -169,6 +169,14 @@
       "allowed_callers": [
         "armi_runtime.composition.database"
       ]
+    },
+    {
+      "id": "response-admission",
+      "module": "armi_runtime.adapters.persistence.response_admission",
+      "owner": "response-admission",
+      "allowed_callers": [
+        "armi_runtime.composition.response_pipeline"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -293,6 +301,15 @@
         "capability-policy",
         "normal-audit"
       ]
+    },
+    {
+      "id": "response-admission",
+      "module": "armi_runtime.composition.response_pipeline",
+      "owner": "response-admission",
+      "allowed_write_surfaces": [
+        "response-admission",
+        "durable-work"
+      ]
     }
   ],
   "named_coordinators_not_applicable_reason": "",
@@ -364,6 +381,7 @@
       "M0-SEAM-CONTEXT": "armi.context-compiler.deterministic-v1",
       "M0-SEAM-MODEL": "armi.model-adapter.volcengine-ark-responses-v1",
       "M0-SEAM-COGNITIVE-CANDIDATE": "armi.candidate-validator.deterministic-v1",
+      "M0-SEAM-POLICY": "armi.policy-engine.deterministic-v1",
       "M0-SEAM-WORK-SELECTION": "armi.opportunity-selector.creator-fifo-v1",
       "M0-SEAM-CREATOR-PROJECTION": "armi.scene-timeline-query.v2",
       "M0-SEAM-CREATOR-UI": "armi.creator-static.v1"

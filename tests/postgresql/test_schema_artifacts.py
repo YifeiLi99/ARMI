@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 15})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 16})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -107,6 +107,10 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.capability_request_basis_links",
                 "armi.capability_request_decisions",
                 "armi.permission_grants",
+                "armi.action_intents",
+                "armi.action_intent_revisions",
+                "armi.formal_no_action_decisions",
+                "armi.creator_response_operations",
             ],
         )
         self.assertNotIn("manifest_sha256", manifest)
@@ -333,6 +337,24 @@ class SchemaArtifactTests(unittest.TestCase):
         ):
             self.assertIn(f"CREATE TABLE armi.{table}", sql)
         self.assertIn("ADD COLUMN resumable_subject_commit_count", sql)
+        self.assertNotIn("GRANT DELETE", sql.upper())
+        self.assertNotIn("GRANT TRUNCATE", sql.upper())
+
+    def test_response_migration_has_only_the_s028_surface(self) -> None:
+        sql = Path(
+            "schema/migrations/0016_response_and_formal_no_action.sql"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(sql.count("CREATE TABLE"), 4)
+        for table in (
+            "action_intents",
+            "action_intent_revisions",
+            "formal_no_action_decisions",
+            "creator_response_operations",
+        ):
+            self.assertIn(f"CREATE TABLE armi.{table}", sql)
+        self.assertIn("ADD COLUMN resumable_response_operation_count", sql)
+        self.assertNotIn("CREATE TABLE armi.policy_decisions", sql)
+        self.assertNotIn("CREATE TABLE armi.effects", sql)
         self.assertNotIn("GRANT DELETE", sql.upper())
         self.assertNotIn("GRANT TRUNCATE", sql.upper())
 

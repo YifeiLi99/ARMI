@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 MODEL_BINDING_VERSION = "armi.model-bindings.v1"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
-CANDIDATE_VERSION = "armi.cognition-candidate.v3"
+CANDIDATE_VERSION = "armi.cognition-candidate.v4"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -180,10 +180,34 @@ type CapabilityRequestPayload = Annotated[
 ]
 
 
-class ActionIntentPayload(_StrictModel):
-    proposal_kind: Literal["action_intents"]
+class CreatorReplyPayload(_StrictModel):
+    proposal_kind: Literal["action_choices"]
+    action_kind: Literal["creator_reply"]
     fact_class: FactClass
-    summary: Summary
+    subject_id: Uuid7Value
+    scene_id: Uuid7Value
+    creator_party_id: Uuid7Value
+    capability_kind: Literal["creator.scene.reply"]
+    operation: Literal["send"]
+    audience_scope: Literal["creator"]
+    data_scope: Literal["creator_visible_response"]
+    purpose: Literal["respond_to_creator"]
+    media_type: Literal["text/plain"]
+    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+
+
+class FormalNoActionPayload(_StrictModel):
+    proposal_kind: Literal["action_choices"]
+    action_kind: Literal["formal_no_action"]
+    fact_class: FactClass
+    decision: Literal["decline", "no_action"]
+    reason_class: Literal["subjective_refusal", "subjective_silence"]
+
+
+type ActionChoicePayload = Annotated[
+    CreatorReplyPayload | FormalNoActionPayload,
+    Field(discriminator="action_kind"),
+]
 
 
 class ExperienceProposal(_StrictModel):
@@ -228,11 +252,11 @@ class CapabilityRequestProposal(_StrictModel):
     payload: CapabilityRequestPayload
 
 
-class ActionIntentProposal(_StrictModel):
+class ActionChoiceProposal(_StrictModel):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
-    payload: ActionIntentPayload
+    payload: ActionChoicePayload
 
 
 class CandidateUncertainty(_StrictModel):
@@ -243,13 +267,14 @@ class CandidateUncertainty(_StrictModel):
 
 
 class CognitionCandidate(_StrictModel):
-    schema_version: Literal["armi.cognition-candidate.v3"]
+    schema_version: Literal["armi.cognition-candidate.v4"]
     base: CandidateBase
     disposition: Literal[
         "change",
         "no_change",
         "defer",
         "decline",
+        "no_action",
         "need_information",
     ]
     understanding: CandidateUnderstanding
@@ -259,7 +284,7 @@ class CognitionCandidate(_StrictModel):
     relationship_changes: tuple[RelationshipChangeProposal, ...] = Field(max_length=4)
     activity_changes: tuple[ActivityChangeProposal, ...] = Field(max_length=4)
     capability_requests: tuple[CapabilityRequestProposal, ...] = Field(max_length=4)
-    action_intents: tuple[ActionIntentProposal, ...] = Field(max_length=4)
+    action_choices: tuple[ActionChoiceProposal, ...] = Field(max_length=4)
     uncertainties: tuple[CandidateUncertainty, ...] = Field(max_length=8)
     reason_summary: Summary
 
@@ -277,7 +302,24 @@ def parse_candidate(
     allowed_context_refs: frozenset[str],
 ) -> CognitionCandidate:
     try:
-        candidate = _CANDIDATE_ADAPTER.validate_json(value, strict=True)
+        raw: object = json.loads(value)
+        if type(raw) is dict:
+            candidate_object = cast(dict[str, Any], raw)
+            if (
+                candidate_object.get("schema_version") == "armi.cognition-candidate.v3"
+                and candidate_object.get("action_intents") == []
+            ):
+                candidate_object = {
+                    **candidate_object,
+                    "schema_version": CANDIDATE_VERSION,
+                }
+                candidate_object["action_choices"] = []
+                del candidate_object["action_intents"]
+            raw = candidate_object
+        candidate = _CANDIDATE_ADAPTER.validate_json(
+            json.dumps(raw, ensure_ascii=False, separators=(",", ":")),
+            strict=True,
+        )
     except Exception:
         raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
     proposals = (
@@ -287,7 +329,7 @@ def parse_candidate(
         *candidate.relationship_changes,
         *candidate.activity_changes,
         *candidate.capability_requests,
-        *candidate.action_intents,
+        *candidate.action_choices,
     )
     if len(proposals) > 16:
         raise ModelViolation("MODEL-RESPONSE-LIMIT")
@@ -301,6 +343,18 @@ def parse_candidate(
         group_counts[proposal.atomic_group_ref] = (
             group_counts.get(proposal.atomic_group_ref, 0) + 1
         )
+        if isinstance(proposal.payload, CreatorReplyPayload):
+            try:
+                encoded = proposal.payload.content.encode("utf-8", errors="strict")
+            except UnicodeEncodeError:
+                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
+            if (
+                not encoded
+                or len(encoded) > 65536
+                or b"\x00" in encoded
+                or not proposal.payload.content.strip()
+            ):
+                raise ModelViolation("MODEL-RESPONSE-LIMIT")
     if any(count > 8 for count in group_counts.values()):
         raise ModelViolation("MODEL-RESPONSE-LIMIT")
     if not set(candidate.understanding.basis_refs).issubset(allowed_context_refs):

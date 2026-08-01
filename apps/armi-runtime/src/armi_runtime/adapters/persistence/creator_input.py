@@ -267,6 +267,10 @@ class CreatorInputRepository:
                     application.completion_digest,
                     commit.new_subject_version,
                     opportunity.reconsideration_no
+                    , response.current_status
+                    , response.completion_digest
+                    , response.reason_code
+                    , no_action.decision_kind
                 FROM armi.opportunities AS requested
                 JOIN LATERAL (
                     SELECT current.*
@@ -290,6 +294,10 @@ class CreatorInputRepository:
                   ON application.cognitive_episode_id = episode.cognitive_episode_id
                 LEFT JOIN armi.subject_commits AS commit
                   ON commit.subject_commit_id = application.subject_commit_id
+                LEFT JOIN armi.creator_response_operations AS response
+                  ON response.root_opportunity_id = requested.opportunity_id
+                LEFT JOIN armi.formal_no_action_decisions AS no_action
+                  ON no_action.formal_no_action_id = response.formal_no_action_id
                 WHERE requested.opportunity_id = %s
                   AND requested.root_opportunity_id = requested.opportunity_id
                   AND opportunity.creator_party_id = %s
@@ -306,6 +314,8 @@ class CreatorInputRepository:
         disposition = str(row[5])
         episode_status = None if row[6] is None else str(row[6])
         application_resolution = None if row[8] is None else str(row[8])
+        response_status = None if row[12] is None else str(row[12])
+        no_action_kind = None if row[15] is None else str(row[15])
         if disposition == "open" and episode_status is None:
             phase = CreatorOperationPhase.ACCEPTED
         elif disposition == "selected" and episode_status == "preparing":
@@ -324,6 +334,20 @@ class CreatorInputRepository:
             phase = CreatorOperationPhase.SUBJECT_COMMITTING
         elif disposition == "selected" and episode_status == "candidate_rejected":
             phase = CreatorOperationPhase.CANDIDATE_REJECTED
+        elif response_status == "pending":
+            phase = CreatorOperationPhase.RESPONSE_ADMISSION
+        elif response_status == "accepted":
+            phase = CreatorOperationPhase.RESPONSE_ACCEPTED
+        elif response_status == "no_action" and no_action_kind == "decline":
+            phase = CreatorOperationPhase.FORMAL_DECLINED
+        elif response_status == "no_action" and no_action_kind == "no_action":
+            phase = CreatorOperationPhase.FORMAL_NO_ACTION
+        elif response_status == "unauthorized":
+            phase = CreatorOperationPhase.RESPONSE_UNAUTHORIZED
+        elif response_status == "unavailable":
+            phase = CreatorOperationPhase.RESPONSE_UNAVAILABLE
+        elif response_status == "failed":
+            phase = CreatorOperationPhase.RESPONSE_FAILED
         elif disposition == "resolved" and application_resolution == "applied":
             phase = CreatorOperationPhase.APPLIED
         elif disposition == "resolved" and application_resolution in {
@@ -349,7 +373,14 @@ class CreatorInputRepository:
             "CONFLICT_SUBJECT_STATE_STALE"
             if phase is CreatorOperationPhase.STALE_CONFLICT
             else (
-                str(row[7])
+                str(row[14])
+                if phase
+                in {
+                    CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
+                    CreatorOperationPhase.RESPONSE_UNAVAILABLE,
+                    CreatorOperationPhase.RESPONSE_FAILED,
+                }
+                else str(row[7])
                 if phase
                 in {
                     CreatorOperationPhase.FAILED,
@@ -363,7 +394,19 @@ class CreatorInputRepository:
             phase,
             failure_code,
             int(row[10]) if phase is CreatorOperationPhase.APPLIED else None,
-            Digest(str(row[9]))
+            Digest(
+                str(row[13])
+                if phase
+                in {
+                    CreatorOperationPhase.RESPONSE_ACCEPTED,
+                    CreatorOperationPhase.FORMAL_DECLINED,
+                    CreatorOperationPhase.FORMAL_NO_ACTION,
+                    CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
+                    CreatorOperationPhase.RESPONSE_UNAVAILABLE,
+                    CreatorOperationPhase.RESPONSE_FAILED,
+                }
+                else str(row[9])
+            )
             if phase
             in {
                 CreatorOperationPhase.APPLIED,
@@ -371,6 +414,12 @@ class CreatorInputRepository:
                 CreatorOperationPhase.DEFERRED,
                 CreatorOperationPhase.NEED_INFORMATION,
                 CreatorOperationPhase.STALE_CONFLICT,
+                CreatorOperationPhase.RESPONSE_ACCEPTED,
+                CreatorOperationPhase.FORMAL_DECLINED,
+                CreatorOperationPhase.FORMAL_NO_ACTION,
+                CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
+                CreatorOperationPhase.RESPONSE_UNAVAILABLE,
+                CreatorOperationPhase.RESPONSE_FAILED,
             }
             else None,
         )

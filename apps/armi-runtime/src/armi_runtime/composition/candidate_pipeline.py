@@ -205,7 +205,8 @@ class CandidateValidationPipeline:
             try:
                 worked = await self.validate_once()
             except CandidateViolation:
-                self._diagnostic("candidate.worker.failed")
+                if not self._stop.is_set():
+                    self._diagnostic("candidate.worker.failed")
                 worked = False
             if worked:
                 await asyncio.sleep(0)

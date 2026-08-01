@@ -15,6 +15,7 @@ from armi_kernel.application import (
     CredentialPort,
     CredentialPurpose,
     ModelViolation,
+    ResponseViolation,
     RuntimeFence,
     SubjectCommitViolation,
 )
@@ -56,6 +57,10 @@ from .creator_input import (
 )
 from .environment import PreparedEnvironment
 from .model_pipeline import ModelPipeline, build_model_pipeline
+from .response_pipeline import (
+    ResponseAdmissionPipeline,
+    build_response_admission_pipeline,
+)
 from .subject_commit_pipeline import (
     SubjectCommitPipeline,
     build_subject_commit_pipeline,
@@ -658,6 +663,46 @@ def compose_capability_policy(
         raise CapabilityViolation("POLICY-DATABASE") from None
 
 
+def compose_response_admission_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    diagnostic: Callable[[str], None] | None = None,
+) -> ResponseAdmissionPipeline:
+    """Resolve the Runtime credential for the S028 admission worker."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise ResponseViolation("RESPONSE-DATABASE")
+    try:
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.runtime")
+        ) as handle:
+
+            def create(value: memoryview) -> ResponseAdmissionPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise ResponseViolation("RESPONSE-DATABASE") from None
+                config = prepared.effective.config
+                return build_response_admission_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise ResponseViolation("RESPONSE-DATABASE") from None
+
+
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
@@ -721,6 +766,7 @@ __all__ = (
     "compose_context_pipeline",
     "compose_creator_input",
     "compose_model_pipeline",
+    "compose_response_admission_pipeline",
     "compose_runtime_authority",
     "compose_runtime_recovery",
     "compose_scene_timeline_query",

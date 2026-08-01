@@ -42,6 +42,7 @@ _SCHEMA_FILES = (
     "migrations/0013_cognition_candidate_validation.sql",
     "migrations/0014_t03_subject_commit.sql",
     "migrations/0015_minimal_capability_grants.sql",
+    "migrations/0016_response_and_formal_no_action.sql",
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")
@@ -49,6 +50,7 @@ _CANDIDATE_POLICY = Path("model/candidate-validation-policy.manifest.json")
 _SUBJECT_COMMIT_POLICY = Path("model/subject-commit-policy.manifest.json")
 _CAPABILITY_CATALOG = Path("model/capability-catalog.manifest.json")
 _CREATOR_GRANT_POLICY = Path("model/creator-grant-policy.manifest.json")
+_RESPONSE_ADMISSION_POLICY = Path("model/response-admission-policy.manifest.json")
 
 
 def _generate(root: Path, output: Path) -> None:
@@ -74,6 +76,10 @@ def _generate(root: Path, output: Path) -> None:
     (output / "capability-catalog.manifest.json").write_bytes(capability_catalog)
     creator_grant_policy = (root / _CREATOR_GRANT_POLICY).read_bytes()
     (output / "creator-grant-policy.manifest.json").write_bytes(creator_grant_policy)
+    response_admission_policy = (root / _RESPONSE_ADMISSION_POLICY).read_bytes()
+    (output / "response-admission-policy.manifest.json").write_bytes(
+        response_admission_policy
+    )
     schema_resources = {
         name: (root / _SCHEMA / name).read_bytes() for name in _SCHEMA_FILES
     }
@@ -88,6 +94,7 @@ def _generate(root: Path, output: Path) -> None:
         subject_commit_policy=subject_commit_policy,
         capability_catalog=capability_catalog,
         creator_grant_policy=creator_grant_policy,
+        response_admission_policy=response_admission_policy,
         schema_resources=schema_resources,
     )
     (output / "runtime-composition.manifest.json").write_bytes(
@@ -107,6 +114,7 @@ def _files(root: Path) -> dict[str, bytes]:
             "subject-commit-policy.manifest.json",
             "capability-catalog.manifest.json",
             "creator-grant-policy.manifest.json",
+            "response-admission-policy.manifest.json",
             "runtime-composition.manifest.json",
         )
         if (root / name).is_file()

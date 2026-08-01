@@ -19,6 +19,7 @@ class CandidateApplicationStatus(StrEnum):
     NO_CHANGE = "no_change"
     DEFERRED = "deferred"
     DECLINED = "declined"
+    NO_ACTION = "no_action"
     NEED_INFORMATION = "need_information"
     STALE = "stale"
 

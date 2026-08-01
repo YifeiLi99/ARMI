@@ -11,6 +11,7 @@ from uuid import UUID
 from armi_kernel.contracts import Digest
 
 from .capability import CapabilityRequestDraft
+from .response import ResponseChoiceDraft
 
 _CODE = re.compile(r"^(?:CON|CANDIDATE)-[A-Z0-9-]+$", re.ASCII)
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
@@ -23,6 +24,7 @@ class CandidateDisposition(StrEnum):
     NO_CHANGE = "no_change"
     DEFER = "defer"
     DECLINE = "decline"
+    NO_ACTION = "no_action"
     NEED_INFORMATION = "need_information"
 
 
@@ -219,6 +221,7 @@ class SubjectChangeSet:
     experiences: tuple[CandidateExperienceDraft, ...]
     components: tuple[CandidateComponentDraft, ...]
     capability_requests: tuple[CapabilityRequestDraft, ...]
+    action_choices: tuple[ResponseChoiceDraft, ...]
     rejections: tuple[CandidateRejection, ...]
 
     def __post_init__(self) -> None:

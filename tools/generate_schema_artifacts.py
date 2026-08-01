@@ -227,6 +227,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_candidate_validation_count",
                     "resumable_subject_commit_count",
                     "resumable_capability_request_count",
+                    "resumable_response_operation_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -246,6 +247,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_candidate_validation_count",
                     "resumable_subject_commit_count",
                     "resumable_capability_request_count",
+                    "resumable_response_operation_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -709,6 +711,139 @@ def build_role_manifest() -> dict[str, object]:
             },
         },
     ]
+    response_objects = [
+        {
+            "kind": "table",
+            "name": "armi.action_intents",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "action_intent_id",
+                        "subject_id",
+                        "interaction_scene_id",
+                        "creator_party_id",
+                        "root_opportunity_id",
+                        "purpose",
+                        "current_revision_id",
+                        "schema_version",
+                    ],
+                    "UPDATE": ["current_revision_id"],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.action_intent_revisions",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "action_intent_revision_id",
+                        "action_intent_id",
+                        "revision_no",
+                        "response_artifact_id",
+                        "response_digest",
+                        "response_bytes",
+                        "media_type",
+                        "capability_kind",
+                        "operation_class",
+                        "audience_scope",
+                        "data_scope",
+                        "purpose",
+                        "candidate_validation_id",
+                        "proposal_ref",
+                        "subject_commit_id",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.formal_no_action_decisions",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "formal_no_action_id",
+                        "candidate_application_id",
+                        "candidate_validation_id",
+                        "proposal_ref",
+                        "root_opportunity_id",
+                        "decision_kind",
+                        "reason_class",
+                        "basis_digest",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.creator_response_operations",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "creator_response_operation_id",
+                        "root_opportunity_id",
+                        "subject_id",
+                        "interaction_scene_id",
+                        "creator_party_id",
+                        "action_intent_id",
+                        "formal_no_action_id",
+                        "admission_work_id",
+                        "current_status",
+                        "matched_grant_id",
+                        "completion_digest",
+                        "reason_code",
+                        "completed_at",
+                        "schema_version",
+                    ],
+                    "UPDATE": [
+                        "current_status",
+                        "matched_grant_id",
+                        "completion_digest",
+                        "reason_code",
+                        "completed_at",
+                    ],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+    ]
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -981,12 +1116,13 @@ def build_role_manifest() -> dict[str, object]:
             *candidate_validation_objects,
             *subject_commit_objects,
             *capability_objects,
+            *response_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S027 has no business or administration function requiring "
+                "M0-S028 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -1242,6 +1378,20 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                     ("armi.capability_request_basis_links", "capability-policy"),
                     ("armi.capability_request_decisions", "capability-policy"),
                     ("armi.permission_grants", "capability-policy"),
+                )
+            ],
+            *[
+                {
+                    "kind": "table",
+                    "name": name,
+                    "logical_owner": owner,
+                    "activation_step": "M0-S028",
+                }
+                for name, owner in (
+                    ("armi.action_intents", "response-intent"),
+                    ("armi.action_intent_revisions", "response-intent"),
+                    ("armi.formal_no_action_decisions", "subject-no-action"),
+                    ("armi.creator_response_operations", "response-admission"),
                 )
             ],
         ],

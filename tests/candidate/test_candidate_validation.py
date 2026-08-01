@@ -11,6 +11,7 @@ from armi_kernel.application import (
     CandidateBasis,
     CandidateOwner,
     CandidateValidationStatus,
+    CreatorReplyDraft,
 )
 from armi_kernel.contracts import Digest
 from armi_runtime.composition.candidate_validator import (
@@ -317,3 +318,110 @@ def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:
         _bytes(candidate), bases=extended
     )
     assert rejected.error_code == "CANDIDATE-CAPABILITY-BASIS"
+
+
+def test_v4_creator_reply_is_admitted_as_exact_action_choice() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = _candidate(context)
+    candidate["schema_version"] = "armi.cognition-candidate.v4"
+    candidate["experiences"] = []
+    candidate["component_changes"] = []
+    candidate["action_choices"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2", "ctx:4", "ctx:5"],
+            "payload": {
+                "proposal_kind": "action_choices",
+                "action_kind": "creator_reply",
+                "fact_class": "subjective_understanding",
+                "subject_id": str(context.subject_id),
+                "scene_id": str(context.scene_id),
+                "creator_party_id": str(context.creator_party_id),
+                "capability_kind": "creator.scene.reply",
+                "operation": "send",
+                "audience_scope": "creator",
+                "data_scope": "creator_visible_response",
+                "purpose": "respond_to_creator",
+                "media_type": "text/plain",
+                "content": " 我选择回应。\n",
+            },
+        }
+    ]
+    del candidate["action_intents"]
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    reply = result.change_set.action_choices[0]
+    assert isinstance(reply, CreatorReplyDraft)
+    assert reply.content_bytes == " 我选择回应。\n".encode()
+    assert b"response_artifact" not in result.change_set.canonical_bytes
+
+
+def test_v4_formal_no_action_is_subjective_and_not_empty_no_change() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+    )
+    candidate = _candidate(context)
+    candidate["schema_version"] = "armi.cognition-candidate.v4"
+    candidate["disposition"] = "no_action"
+    candidate["experiences"] = []
+    candidate["component_changes"] = []
+    candidate["action_choices"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2", "ctx:4"],
+            "payload": {
+                "proposal_kind": "action_choices",
+                "action_kind": "formal_no_action",
+                "fact_class": "subjective_understanding",
+                "decision": "no_action",
+                "reason_class": "subjective_silence",
+            },
+        }
+    ]
+    del candidate["action_intents"]
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.disposition.value == "no_action"
+    assert len(result.change_set.action_choices) == 1

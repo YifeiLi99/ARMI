@@ -20,6 +20,7 @@ from armi_kernel.application import (
     ModelViolation,
     RecoveryStatus,
     RecoveryViolation,
+    ResponseViolation,
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
     SceneQueryViolation,
@@ -48,6 +49,7 @@ from .database import (
     compose_context_pipeline,
     compose_creator_input,
     compose_model_pipeline,
+    compose_response_admission_pipeline,
     compose_runtime_authority,
     compose_runtime_recovery,
     compose_scene_timeline_query,
@@ -123,6 +125,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     candidate_pipeline = None
     subject_commit_pipeline = None
     capability_policy = None
+    response_pipeline = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -231,6 +234,15 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 ),
             )
             await subject_commit_pipeline.open()
+            response_pipeline = compose_response_admission_pipeline(
+                prepared,
+                authority_admission=authority.require_writable,
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="RESPONSE_ADMISSION",
+                ),
+            )
+            await response_pipeline.open()
             if "model.ark_api_key" in config.secret_locators:
                 try:
                     model_pipeline = compose_model_pipeline(
@@ -280,6 +292,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             CreatorInputViolation,
             SceneQueryViolation,
             SubjectCommitViolation,
+            ResponseViolation,
         ):
             diagnostic.emit(
                 "runtime.creator_interface.unavailable",
@@ -297,6 +310,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await candidate_pipeline.close()
             if subject_commit_pipeline is not None:
                 await subject_commit_pipeline.close()
+            if response_pipeline is not None:
+                await response_pipeline.close()
             if capability_policy is not None:
                 await capability_policy.close()
             if authority is not None:
@@ -385,6 +400,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 subject_commit_pipeline.run_worker(),
                 name="subject-commit-worker",
             )
+        if response_pipeline is not None:
+            supervisor.start(
+                response_pipeline.run_worker(),
+                name="response-admission-worker",
+            )
         if capability_policy is not None:
             supervisor.start(
                 capability_policy.run_expiry_reconciler(),
@@ -415,6 +435,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             candidate_pipeline.stop()
         if subject_commit_pipeline is not None:
             subject_commit_pipeline.stop()
+        if response_pipeline is not None:
+            response_pipeline.stop()
         if capability_policy is not None:
             capability_policy.stop()
         released = await supervisor.drain(
@@ -428,6 +450,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await candidate_pipeline.close()
         if subject_commit_pipeline is not None:
             await subject_commit_pipeline.close()
+        if response_pipeline is not None:
+            await response_pipeline.close()
         if capability_policy is not None:
             await capability_policy.close()
         if authority is not None:
