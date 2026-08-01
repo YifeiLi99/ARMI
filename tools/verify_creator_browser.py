@@ -169,7 +169,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "scene-timeline.v2",
+                    "projection_version": "scene-timeline.v3",
                     "scene_key": "default",
                     "items": items,
                 },
@@ -195,7 +195,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "event_kind": "scene.timeline.invalidated",
                     "resource_kind": "scene_timeline",
                     "resource_ref": "default",
-                    "projection_version": "scene-timeline.v2",
+                    "projection_version": "scene-timeline.v3",
                     "occurred_at": "2026-07-30T10:02:00.000000Z",
                 },
                 separators=(",", ":"),

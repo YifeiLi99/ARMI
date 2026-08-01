@@ -764,6 +764,7 @@ def compose_effect_registration_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> EffectRegistrationPipeline:
     """Resolve the Runtime credential for the S029 T-05 worker."""
@@ -794,6 +795,7 @@ def compose_effect_registration_pipeline(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    notifier=notifier,
                     diagnostic=diagnostic,
                 )
 

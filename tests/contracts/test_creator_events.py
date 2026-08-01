@@ -24,7 +24,7 @@ class CreatorEventContractTests(unittest.TestCase):
         )
         self.assertEqual(invalidation.resource_kind.value, "scene_timeline")
         self.assertEqual(invalidation.resource_ref.value, "default")
-        self.assertEqual(invalidation.projection_version, "scene-timeline.v2")
+        self.assertEqual(invalidation.projection_version, "scene-timeline.v3")
 
     def test_projection_and_resource_are_strict(self) -> None:
         instant = Instant(datetime(2026, 7, 30, tzinfo=UTC))

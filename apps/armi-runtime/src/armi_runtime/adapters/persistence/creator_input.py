@@ -272,6 +272,7 @@ class CreatorInputRepository:
                     , response.reason_code
                     , no_action.decision_kind
                     , response.effect_id
+                    , effect.settlement_digest
                 FROM armi.opportunities AS requested
                 JOIN LATERAL (
                     SELECT current.*
@@ -299,6 +300,7 @@ class CreatorInputRepository:
                   ON response.root_opportunity_id = requested.opportunity_id
                 LEFT JOIN armi.formal_no_action_decisions AS no_action
                   ON no_action.formal_no_action_id = response.formal_no_action_id
+                LEFT JOIN armi.effects AS effect ON effect.effect_id = response.effect_id
                 WHERE requested.opportunity_id = %s
                   AND requested.root_opportunity_id = requested.opportunity_id
                   AND opportunity.creator_party_id = %s
@@ -341,6 +343,14 @@ class CreatorInputRepository:
             phase = CreatorOperationPhase.EFFECT_REGISTRATION
         elif response_status == "effect_registered":
             phase = CreatorOperationPhase.EFFECT_REGISTERED
+        elif response_status == "effect_dispatching":
+            phase = CreatorOperationPhase.EFFECT_DISPATCHING
+        elif response_status == "effect_completed":
+            phase = CreatorOperationPhase.EFFECT_COMPLETED
+        elif response_status == "effect_failed":
+            phase = CreatorOperationPhase.EFFECT_FAILED
+        elif response_status == "effect_unknown":
+            phase = CreatorOperationPhase.EFFECT_UNKNOWN
         elif response_status == "effect_cancelled":
             phase = CreatorOperationPhase.EFFECT_CANCELLED
         elif response_status == "no_action" and no_action_kind == "decline":
@@ -384,6 +394,8 @@ class CreatorInputRepository:
                     CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
                     CreatorOperationPhase.RESPONSE_UNAVAILABLE,
                     CreatorOperationPhase.RESPONSE_FAILED,
+                    CreatorOperationPhase.EFFECT_FAILED,
+                    CreatorOperationPhase.EFFECT_UNKNOWN,
                 }
                 else str(row[7])
                 if phase
@@ -400,7 +412,14 @@ class CreatorInputRepository:
             failure_code,
             int(row[10]) if phase is CreatorOperationPhase.APPLIED else None,
             Digest(
-                str(row[13])
+                str(row[17])
+                if phase
+                in {
+                    CreatorOperationPhase.EFFECT_COMPLETED,
+                    CreatorOperationPhase.EFFECT_FAILED,
+                    CreatorOperationPhase.EFFECT_UNKNOWN,
+                }
+                else str(row[13])
                 if phase
                 in {
                     CreatorOperationPhase.RESPONSE_ACCEPTED,
@@ -423,6 +442,9 @@ class CreatorInputRepository:
                 CreatorOperationPhase.STALE_CONFLICT,
                 CreatorOperationPhase.RESPONSE_ACCEPTED,
                 CreatorOperationPhase.EFFECT_REGISTERED,
+                CreatorOperationPhase.EFFECT_COMPLETED,
+                CreatorOperationPhase.EFFECT_FAILED,
+                CreatorOperationPhase.EFFECT_UNKNOWN,
                 CreatorOperationPhase.EFFECT_CANCELLED,
                 CreatorOperationPhase.FORMAL_DECLINED,
                 CreatorOperationPhase.FORMAL_NO_ACTION,
@@ -435,6 +457,10 @@ class CreatorInputRepository:
             if phase
             in {
                 CreatorOperationPhase.EFFECT_REGISTERED,
+                CreatorOperationPhase.EFFECT_DISPATCHING,
+                CreatorOperationPhase.EFFECT_COMPLETED,
+                CreatorOperationPhase.EFFECT_FAILED,
+                CreatorOperationPhase.EFFECT_UNKNOWN,
                 CreatorOperationPhase.EFFECT_CANCELLED,
             }
             else None,

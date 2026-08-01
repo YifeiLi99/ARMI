@@ -11,7 +11,7 @@ from armi_kernel.contracts import Instant, OpaqueCursor
 
 from .auditing import AuditResultStatus
 
-PROJECTION_VERSION = "scene-timeline.v2"
+PROJECTION_VERSION = "scene-timeline.v3"
 _KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 _KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^(?:CON-SCENE|CON-QUERY|SCENE)-[A-Z0-9-]+$", re.ASCII)

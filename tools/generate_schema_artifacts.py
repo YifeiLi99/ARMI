@@ -230,6 +230,9 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_response_operation_count",
                     "resumable_effect_count",
                     "resumable_effect_outbox_count",
+                    "resumable_effect_attempt_count",
+                    "reliable_effect_observation_count",
+                    "creator_response_delivery_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -252,6 +255,9 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_response_operation_count",
                     "resumable_effect_count",
                     "resumable_effect_outbox_count",
+                    "resumable_effect_attempt_count",
+                    "reliable_effect_observation_count",
+                    "creator_response_delivery_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -884,7 +890,17 @@ def build_role_manifest() -> dict[str, object]:
                 "armi_migrator": [],
             },
             "column_grants": {
-                "armi_runtime": {"UPDATE": ["status", "cancelled_at"]},
+                "armi_runtime": {
+                    "UPDATE": [
+                        "status",
+                        "cancelled_at",
+                        "verification_status",
+                        "current_attempt_id",
+                        "current_observation_id",
+                        "settlement_digest",
+                        "settled_at",
+                    ]
+                },
                 "armi_admin": {},
                 "armi_migrator": {},
             },
@@ -900,7 +916,108 @@ def build_role_manifest() -> dict[str, object]:
                 "armi_migrator": [],
             },
             "column_grants": {
-                "armi_runtime": {"UPDATE": ["status", "cancelled_at"]},
+                "armi_runtime": {
+                    "UPDATE": [
+                        "status",
+                        "cancelled_at",
+                        "available_at",
+                        "claim_owner",
+                        "claim_expires_at",
+                        "claim_token",
+                        "attempt_count",
+                        "delivered_at",
+                        "last_error_code",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.creator_response_deliveries",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "creator_response_delivery_id",
+                        "effect_id",
+                        "interaction_scene_id",
+                        "creator_party_id",
+                        "payload_artifact_id",
+                        "payload_digest",
+                        "payload_bytes",
+                        "receipt_digest",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.effect_attempts",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "effect_attempt_id",
+                        "effect_id",
+                        "attempt_no",
+                        "adapter_binding",
+                        "request_digest",
+                        "claim_token",
+                        "dispatch_state",
+                        "schema_version",
+                    ],
+                    "UPDATE": [
+                        "dispatch_state",
+                        "result_status",
+                        "error_code",
+                        "dispatched_at",
+                        "settled_at",
+                    ],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.effect_observations",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "effect_observation_id",
+                        "effect_id",
+                        "effect_attempt_id",
+                        "observation_kind",
+                        "reliability",
+                        "receiver_ref",
+                        "observation_digest",
+                        "schema_version",
+                    ]
+                },
                 "armi_admin": {},
                 "armi_migrator": {},
             },
@@ -1184,7 +1301,7 @@ def build_role_manifest() -> dict[str, object]:
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S028 has no business or administration function requiring "
+                "M0-S030 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -1469,9 +1586,22 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                     ("armi.effect_outbox_items", "effect-ledger"),
                 )
             ],
+            *[
+                {
+                    "kind": "table",
+                    "name": name,
+                    "logical_owner": owner,
+                    "activation_step": "M0-S030",
+                }
+                for name, owner in (
+                    ("armi.creator_response_deliveries", "creator-response-inbox"),
+                    ("armi.effect_attempts", "effect-execution"),
+                    ("armi.effect_observations", "effect-execution"),
+                )
+            ],
         ],
         "deferred_objects": [
-            {"scope": "business_projection_state", "activation_step": "M0-S030"},
+            {"scope": "creator_effect_ui", "activation_step": "M0-S031"},
         ],
         "runtime_upgrade_allowed": False,
         "database_role_manifest": {

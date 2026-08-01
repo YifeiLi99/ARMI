@@ -1,26 +1,41 @@
-"""Production T-05 registration worker; deliberately contains no dispatcher."""
+"""Production T-05 registration and T-06 Creator response dispatch pipeline."""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
 from collections.abc import Callable
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
+    ActionAdapterPort,
+    CreatorEventResourceKind,
+    CreatorProjectionInvalidation,
+    CreatorProjectionNotifier,
+    EffectAdapterReceipt,
     EffectId,
     EffectView,
     EffectViolation,
     LockPlan,
     LockTarget,
     RuntimeFence,
+    SceneKey,
     WorkViolation,
 )
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
+from armi_runtime.adapters.creator_response_inbox import (
+    PostgreSQLCreatorResponseInbox,
+)
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
+from armi_runtime.adapters.persistence.effect_dispatch import (
+    EffectDispatchSnapshot,
+    PostgreSQLEffectDispatchRepository,
+)
 from armi_runtime.adapters.persistence.effect_ledger import (
     PostgreSQLEffectLedgerRepository,
 )
@@ -36,9 +51,12 @@ def _ignore_diagnostic(event: str) -> None:
 
 class EffectRegistrationPipeline:
     __slots__ = (
+        "_adapter",
         "_diagnostic",
+        "_dispatcher",
         "_factory",
         "_lease_owner",
+        "_notifier",
         "_repository",
         "_stop",
         "_storage",
@@ -50,15 +68,20 @@ class EffectRegistrationPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        notifier: CreatorProjectionNotifier | None = None,
+        adapter: ActionAdapterPort | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
         self._repository = PostgreSQLEffectLedgerRepository()
+        self._dispatcher = PostgreSQLEffectDispatchRepository()
+        self._adapter = adapter or PostgreSQLCreatorResponseInbox(factory)
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
         self._diagnostic: Diagnostic = diagnostic or _ignore_diagnostic
+        self._notifier = notifier
 
     async def open(self) -> None:
         await self._factory.open()
@@ -88,10 +111,13 @@ class EffectRegistrationPipeline:
         try:
             async with self._factory.unit_of_work(LockPlan()) as uow:
                 snapshot = await self._repository.snapshot(uow, lease)
-            integrity_ok = await self._verify(
-                snapshot.artifact_id,
-                snapshot.payload_digest.value,
-                snapshot.payload_bytes,
+            integrity_ok = (
+                await self._read_payload(
+                    snapshot.artifact_id,
+                    snapshot.payload_digest.value,
+                    snapshot.payload_bytes,
+                )
+                is not None
             )
             async with self._factory.unit_of_work(LockPlan()) as uow:
                 await self._repository.settle(
@@ -110,9 +136,138 @@ class EffectRegistrationPipeline:
         self, effect_id: EffectId, *, creator_party_id: UUID
     ) -> EffectView:
         async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
-            return await self._repository.get_effect(uow, effect_id, creator_party_id)
+            view = await self._repository.get_effect(uow, effect_id, creator_party_id)
+            if view.status.value != "completed":
+                return view
+            artifact_id, digest, size = await self._repository.payload_reference(
+                uow, effect_id
+            )
+        value = await self._read_payload(artifact_id, digest.value, size)
+        if value is None:
+            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
+        try:
+            text = value.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE") from None
+        return replace(view, response_text=text)
 
-    async def _verify(self, artifact_id: UUID, digest: str, size: int) -> bool:
+    async def dispatch_once(self) -> bool:
+        try:
+            async with self._factory.unit_of_work(LockPlan()) as uow:
+                snapshot = await self._dispatcher.claim(
+                    uow, claim_owner=self._lease_owner
+                )
+            if snapshot is None:
+                return False
+            payload = await self._read_payload(
+                snapshot.artifact_id,
+                snapshot.request.payload_digest.value,
+                snapshot.request.payload_bytes,
+            )
+            if payload is None:
+                async with self._factory.unit_of_work(LockPlan()) as uow:
+                    await self._dispatcher.settle_integrity_failure(uow, snapshot)
+                return True
+            async with self._factory.unit_of_work(LockPlan()) as uow:
+                await self._dispatcher.mark_dispatching(uow, snapshot)
+            try:
+                receipt = await self._dispatch_with_heartbeat(snapshot, payload)
+            except EffectViolation as error:
+                if error.code == "EFFECT-RECEIVER-CONFLICT":
+                    async with self._factory.unit_of_work(LockPlan()) as uow:
+                        await self._dispatcher.settle_integrity_failure(uow, snapshot)
+                    return True
+                return await self._reconcile(snapshot)
+            async with self._factory.unit_of_work(LockPlan()) as uow:
+                await self._dispatcher.settle_receipt(uow, snapshot, receipt)
+            await self._notify(snapshot.scene_key)
+            return True
+        except DatabaseTransactionError, EffectViolation:
+            self._diagnostic("effect.dispatch.transient_failure")
+            return True
+
+    async def recover_once(self) -> bool:
+        try:
+            async with self._factory.unit_of_work(LockPlan()) as uow:
+                snapshot = await self._dispatcher.expired(uow)
+            if snapshot is not None:
+                await self._reconcile(snapshot)
+                return True
+            async with self._factory.unit_of_work(LockPlan()) as uow:
+                unknown = await self._dispatcher.unknown(uow)
+            if unknown is None:
+                return False
+            try:
+                receipt = await self._adapter.observe(unknown.request)
+            except DatabaseTransactionError, EffectViolation:
+                self._diagnostic("effect.unknown_verification.unavailable")
+                return False
+            async with self._factory.unit_of_work(LockPlan()) as uow:
+                if receipt is None:
+                    await self._dispatcher.resolve_unknown_absent(uow, unknown)
+                else:
+                    await self._dispatcher.resolve_unknown_receipt(
+                        uow, unknown, receipt
+                    )
+            if receipt is not None:
+                await self._notify(unknown.scene_key)
+            return True
+        except DatabaseTransactionError, EffectViolation:
+            self._diagnostic("effect.recovery.failed")
+            return True
+
+    async def _reconcile(self, snapshot: EffectDispatchSnapshot) -> bool:
+        try:
+            receipt = await self._adapter.observe(snapshot.request)
+        except DatabaseTransactionError, EffectViolation:
+            async with self._factory.unit_of_work(LockPlan()) as uow:
+                await self._dispatcher.settle_unknown(uow, snapshot)
+            return True
+        if receipt is not None:
+            async with self._factory.unit_of_work(LockPlan()) as uow:
+                await self._dispatcher.settle_receipt(uow, snapshot, receipt)
+            await self._notify(snapshot.scene_key)
+            return True
+        async with self._factory.unit_of_work(LockPlan()) as uow:
+            await self._dispatcher.settle_absent(uow, snapshot)
+        return True
+
+    async def _dispatch_with_heartbeat(
+        self, snapshot: EffectDispatchSnapshot, payload: bytes
+    ) -> EffectAdapterReceipt:
+        task = asyncio.create_task(self._adapter.dispatch(snapshot.request, payload))
+        try:
+            while True:
+                done, _ = await asyncio.wait((task,), timeout=20)
+                if task in done:
+                    return task.result()
+                async with self._factory.unit_of_work(LockPlan()) as uow:
+                    await self._dispatcher.renew_claim(uow, snapshot)
+        finally:
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+    async def _notify(self, scene_key: str) -> None:
+        if self._notifier is None:
+            return
+        try:
+            from armi_kernel.contracts import Instant
+
+            await self._notifier.notify(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.SCENE_TIMELINE,
+                    SceneKey(scene_key),
+                    Instant(datetime.now(UTC)),
+                )
+            )
+        except Exception:
+            self._diagnostic("effect.timeline_notification.failed")
+
+    async def _read_payload(
+        self, artifact_id: UUID, digest: str, size: int
+    ) -> bytes | None:
         try:
             from armi_kernel.application import (
                 ArtifactId,
@@ -137,13 +292,21 @@ class EffectRegistrationPipeline:
                 value = await stream.read()
             finally:
                 await stream.close()
-            return len(value) == size and Digest.from_bytes(value).value == digest
+            if len(value) != size or Digest.from_bytes(value).value != digest:
+                return None
+            return value
         except Exception:
-            return False
+            return None
 
     async def run(self) -> None:
         while not self._stop.is_set():
+            if await self.recover_once():
+                await asyncio.sleep(0)
+                continue
             if await self.register_once():
+                await asyncio.sleep(0)
+                continue
+            if await self.dispatch_once():
                 await asyncio.sleep(0)
                 continue
             with contextlib.suppress(TimeoutError):
@@ -161,7 +324,8 @@ def build_effect_registration_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
-    diagnostic: Diagnostic | None,
+    notifier: CreatorProjectionNotifier | None = None,
+    diagnostic: Diagnostic | None = None,
 ) -> EffectRegistrationPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -182,6 +346,7 @@ def build_effect_registration_pipeline(
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
+        notifier=notifier,
         diagnostic=diagnostic,
     )
 

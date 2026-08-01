@@ -21,6 +21,7 @@ const waitingLabels = {
   creator_evidence_accepted: "等待 Creator 提供新证据",
   response_admission: "正在核验回应准入",
   effect_registration: "回应已接纳，正在登记效果账本",
+  effect_dispatch: "效果已登记，正在等待接收与核验",
 } as const;
 
 export function OperationPanel({
@@ -117,7 +118,18 @@ export function OperationPanel({
         <dl>
           <div>
             <dt>状态</dt>
-            <dd>认知责任已完成，无主体变化</dd>
+            <dd>责任已完成并有耐久核验证据</dd>
+          </div>
+        </dl>
+      ) : operation.data.status === "unknown" ? (
+        <dl>
+          <div>
+            <dt>状态</dt>
+            <dd>效果结果未知，等待权威接收端核验</dd>
+          </div>
+          <div>
+            <dt>核验责任</dt>
+            <dd>{operation.data.verification_action}</dd>
           </div>
         </dl>
       ) : (

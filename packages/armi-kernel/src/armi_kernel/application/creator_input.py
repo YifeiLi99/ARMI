@@ -143,6 +143,10 @@ class CreatorOperationPhase(StrEnum):
     RESPONSE_ACCEPTED = "response_accepted"
     EFFECT_REGISTRATION = "effect_registration"
     EFFECT_REGISTERED = "effect_registered"
+    EFFECT_DISPATCHING = "effect_dispatching"
+    EFFECT_COMPLETED = "effect_completed"
+    EFFECT_FAILED = "effect_failed"
+    EFFECT_UNKNOWN = "effect_unknown"
     EFFECT_CANCELLED = "effect_cancelled"
     FORMAL_DECLINED = "formal_declined"
     FORMAL_NO_ACTION = "formal_no_action"
@@ -185,6 +189,9 @@ class CreatorOperation:
             CreatorOperationPhase.STALE_CONFLICT,
             CreatorOperationPhase.RESPONSE_ACCEPTED,
             CreatorOperationPhase.EFFECT_REGISTERED,
+            CreatorOperationPhase.EFFECT_COMPLETED,
+            CreatorOperationPhase.EFFECT_FAILED,
+            CreatorOperationPhase.EFFECT_UNKNOWN,
             CreatorOperationPhase.EFFECT_CANCELLED,
             CreatorOperationPhase.FORMAL_DECLINED,
             CreatorOperationPhase.FORMAL_NO_ACTION,
@@ -198,6 +205,10 @@ class CreatorOperation:
             self.phase
             in {
                 CreatorOperationPhase.EFFECT_REGISTERED,
+                CreatorOperationPhase.EFFECT_DISPATCHING,
+                CreatorOperationPhase.EFFECT_COMPLETED,
+                CreatorOperationPhase.EFFECT_FAILED,
+                CreatorOperationPhase.EFFECT_UNKNOWN,
                 CreatorOperationPhase.EFFECT_CANCELLED,
             }
         ) != (self.effect_ref is not None):
@@ -234,6 +245,8 @@ class CreatorOperation:
             CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
             CreatorOperationPhase.RESPONSE_UNAVAILABLE,
             CreatorOperationPhase.RESPONSE_FAILED,
+            CreatorOperationPhase.EFFECT_FAILED,
+            CreatorOperationPhase.EFFECT_UNKNOWN,
         }:
             if self.failure_code is None:
                 raise CreatorInputViolation("CON-INPUT-OPERATION")

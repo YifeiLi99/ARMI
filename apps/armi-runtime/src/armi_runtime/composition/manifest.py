@@ -21,11 +21,12 @@ _SEAMS: Final = (
     ("M0-SEAM-COGNITIVE-CANDIDATE", ("M0-S025", "M0-S026")),
     ("M0-SEAM-WORK-SELECTION", ("M0-S023",)),
     ("M0-SEAM-POLICY", ("M0-S027—M0-S029",)),
+    ("M0-SEAM-EFFECT", ("M0-S030",)),
     ("M0-SEAM-WEB", ("M0-S032—M0-S034",)),
     ("M0-SEAM-CODEX", ("M0-S038", "M0-S039")),
     (
         "M0-SEAM-CREATOR-PROJECTION",
-        ("M0-S019", "M0-S020", "M0-S021", "M0-S031"),
+        ("M0-S019", "M0-S020", "M0-S021", "M0-S030", "M0-S031"),
     ),
     (
         "M0-SEAM-CREATOR-UI",
@@ -66,6 +67,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0015_minimal_capability_grants.sql",
     "migrations/0016_response_and_formal_no_action.sql",
     "migrations/0017_effect_intent_and_ledger.sql",
+    "migrations/0018_effect_dispatch_observation_settlement.sql",
 )
 
 
@@ -105,7 +107,7 @@ def build_composition_manifest(
         active = (
             "armi.creator-static.v1"
             if seam_id == "M0-SEAM-CREATOR-UI"
-            else "armi.scene-timeline-query.v2"
+            else "armi.scene-timeline-query.v3"
             if seam_id == "M0-SEAM-CREATOR-PROJECTION"
             else "armi.context-compiler.deterministic-v1"
             if seam_id == "M0-SEAM-CONTEXT"
@@ -117,6 +119,8 @@ def build_composition_manifest(
             if seam_id == "M0-SEAM-WORK-SELECTION"
             else "armi.policy-engine.deterministic-v1"
             if seam_id == "M0-SEAM-POLICY"
+            else "armi.creator-response-adapter.postgresql-inbox-v1"
+            if seam_id == "M0-SEAM-EFFECT"
             else None
         )
         seams.append(

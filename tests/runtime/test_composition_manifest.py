@@ -22,7 +22,7 @@ class CompositionManifestTests(unittest.TestCase):
         ]
 
         self.assertEqual(verified.schema_version, COMPOSITION_SCHEMA_VERSION)
-        self.assertEqual(len(verified.active_bindings), 9)
+        self.assertEqual(len(verified.active_bindings), 10)
         self.assertEqual(
             active,
             [
@@ -47,8 +47,12 @@ class CompositionManifestTests(unittest.TestCase):
                     "armi.policy-engine.deterministic-v1",
                 ),
                 (
+                    "M0-SEAM-EFFECT",
+                    "armi.creator-response-adapter.postgresql-inbox-v1",
+                ),
+                (
                     "M0-SEAM-CREATOR-PROJECTION",
-                    "armi.scene-timeline-query.v2",
+                    "armi.scene-timeline-query.v3",
                 ),
                 ("M0-SEAM-CREATOR-UI", "armi.creator-static.v1"),
             ],

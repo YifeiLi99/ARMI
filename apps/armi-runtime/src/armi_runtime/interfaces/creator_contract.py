@@ -19,6 +19,7 @@ from armi_kernel.contracts import (
     RejectedOutcome,
     TraceId,
     UnavailableOutcome,
+    UnknownOutcome,
     WaitingOutcome,
 )
 from fastapi import FastAPI, Header, Query, Security
@@ -203,7 +204,7 @@ class SceneTimelineItemResponse(_StrictWireModel):
 
 class SceneTimelinePageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["scene-timeline.v2"]
+    projection_version: Literal["scene-timeline.v3"]
     scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
     items: Annotated[list[SceneTimelineItemResponse], Field(max_length=100)]
     next_cursor: (
@@ -217,7 +218,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     event_kind: Literal["scene.timeline.invalidated"]
     resource_kind: Literal["scene_timeline"]
     resource_ref: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
-    projection_version: Literal["scene-timeline.v2"]
+    projection_version: Literal["scene-timeline.v3"]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
     @field_validator("occurred_at")
@@ -358,6 +359,7 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "subject_commit",
         "response_admission",
         "effect_registration",
+        "effect_dispatch",
         "future_opportunity",
         "new_evidence",
     ]
@@ -372,6 +374,7 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "creator_evidence_accepted",
         "response_admitted",
         "effect_registered",
+        "effect_settled",
     ]
 
     @model_validator(mode="after")
@@ -389,6 +392,7 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
             ("subject_commit", "subject_commit_available"),
             ("response_admission", "response_admitted"),
             ("effect_registration", "effect_registered"),
+            ("effect_dispatch", "effect_settled"),
             ("future_opportunity", "opportunity_available"),
             ("new_evidence", "creator_evidence_accepted"),
         }:
@@ -440,13 +444,26 @@ class RejectedOutcomeResponse(_CommonOutcomeResponse):
         return self
 
 
+class UnknownOutcomeResponse(_CommonOutcomeResponse):
+    status: Literal["unknown"]
+    result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    custodian: Literal["runtime"]
+    verification_action: Literal["verify_creator_inbox"]
+
+    @model_validator(mode="after")
+    def validate_kernel_contract(self) -> UnknownOutcomeResponse:
+        UnknownOutcome.from_wire(self.model_dump(exclude_none=True))
+        return self
+
+
 type OperationOutcomeResponse = Annotated[
     AcceptedOutcomeResponse
     | AppliedOutcomeResponse
     | CompletedOutcomeResponse
     | WaitingOutcomeResponse
     | RejectedOutcomeResponse
-    | FailedOutcomeResponse,
+    | FailedOutcomeResponse
+    | UnknownOutcomeResponse,
     Field(discriminator="status"),
 ]
 
@@ -481,10 +498,20 @@ class EffectResponse(_StrictWireModel):
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     root_operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     effect_kind: Literal["creator_response"]
-    status: Literal["registered", "cancelled"]
-    verification_status: Literal["not_started"]
+    status: Literal[
+        "registered", "dispatching", "completed", "failed", "unknown", "cancelled"
+    ]
+    verification_status: Literal["not_started", "pending", "verified", "inconclusive"]
     registered_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     cancelled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
+    attempt_count: Annotated[int, Field(ge=0, le=2)]
+    last_observation_kind: (
+        Literal["receipt", "query", "rejection", "ambiguous"] | None
+    ) = None
+    last_observation_reliability: Literal["reliable", "inconclusive"] | None = None
+    verification_action: Literal["verify_creator_inbox"] | None = None
+    settled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
+    response_text: Annotated[str, Field(min_length=1, max_length=65536)] | None = None
 
     @model_validator(mode="after")
     def validate_effect(self) -> EffectResponse:
@@ -494,11 +521,24 @@ class EffectResponse(_StrictWireModel):
                 raise ValueError("CON-EFFECT-ID: identity must be canonical UUIDv7")
         if (self.status == "cancelled") != (self.cancelled_at is not None):
             raise ValueError("CON-EFFECT-STATE: cancellation time mismatch")
+        if (self.last_observation_kind is None) != (
+            self.last_observation_reliability is None
+        ):
+            raise ValueError("CON-EFFECT-OBSERVATION: observation is incomplete")
+        if (self.status == "unknown") != (self.verification_action is not None):
+            raise ValueError("CON-EFFECT-VERIFICATION: action is inconsistent")
+        if (self.status == "completed") != (self.response_text is not None):
+            raise ValueError("CON-EFFECT-VISIBILITY: response visibility is invalid")
         if Instant.from_wire(self.registered_at).to_wire() != self.registered_at:
             raise ValueError("CON-EFFECT-TIME: time must be canonical")
         if (
             self.cancelled_at is not None
             and Instant.from_wire(self.cancelled_at).to_wire() != self.cancelled_at
+        ):
+            raise ValueError("CON-EFFECT-TIME: time must be canonical")
+        if (
+            self.settled_at is not None
+            and Instant.from_wire(self.settled_at).to_wire() != self.settled_at
         ):
             raise ValueError("CON-EFFECT-TIME: time must be canonical")
         return self
@@ -996,6 +1036,7 @@ __all__ = (
     "SubjectComponentSummaryResponse",
     "SubjectSummaryResponse",
     "UnavailableOutcomeResponse",
+    "UnknownOutcomeResponse",
     "WaitingOutcomeResponse",
     "build_creator_openapi",
 )

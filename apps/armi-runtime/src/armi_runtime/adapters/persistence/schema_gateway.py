@@ -255,6 +255,9 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("resumable_response_operation_count", "integer", True),
         ("resumable_effect_count", "integer", True),
         ("resumable_effect_outbox_count", "integer", True),
+        ("resumable_effect_attempt_count", "integer", True),
+        ("reliable_effect_observation_count", "integer", True),
+        ("creator_response_delivery_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -685,6 +688,11 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("registered_at", "timestamp(6) with time zone", True),
         ("cancelled_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
+        ("trace_id", "text", True),
+        ("current_attempt_id", "uuid", False),
+        ("current_observation_id", "uuid", False),
+        ("settlement_digest", "text", False),
+        ("settled_at", "timestamp(6) with time zone", False),
     ),
     "effect_outbox_items": (
         ("effect_outbox_item_id", "uuid", True),
@@ -694,6 +702,52 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("status", "text", True),
         ("available_at", "timestamp(6) with time zone", True),
         ("cancelled_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+        ("claim_owner", "uuid", False),
+        ("claim_expires_at", "timestamp(6) with time zone", False),
+        ("claim_token", "bigint", True),
+        ("attempt_count", "smallint", True),
+        ("max_attempts", "smallint", True),
+        ("dispatch_deadline", "timestamp(6) with time zone", True),
+        ("delivered_at", "timestamp(6) with time zone", False),
+        ("last_error_code", "text", False),
+    ),
+    "creator_response_deliveries": (
+        ("creator_response_delivery_id", "uuid", True),
+        ("effect_id", "uuid", True),
+        ("interaction_scene_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("payload_artifact_id", "uuid", True),
+        ("payload_digest", "text", True),
+        ("payload_bytes", "integer", True),
+        ("receipt_digest", "text", True),
+        ("received_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "effect_attempts": (
+        ("effect_attempt_id", "uuid", True),
+        ("effect_id", "uuid", True),
+        ("attempt_no", "smallint", True),
+        ("adapter_binding", "text", True),
+        ("request_digest", "text", True),
+        ("claim_token", "bigint", True),
+        ("dispatch_state", "text", True),
+        ("result_status", "text", False),
+        ("error_code", "text", False),
+        ("prepared_at", "timestamp(6) with time zone", True),
+        ("dispatched_at", "timestamp(6) with time zone", False),
+        ("settled_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
+    "effect_observations": (
+        ("effect_observation_id", "uuid", True),
+        ("effect_id", "uuid", True),
+        ("effect_attempt_id", "uuid", True),
+        ("observation_kind", "text", True),
+        ("reliability", "text", True),
+        ("receiver_ref", "uuid", False),
+        ("observation_digest", "text", True),
+        ("observed_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
     ),
 }
@@ -727,7 +781,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 25, *("n",) * 26, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 28, *("n",) * 29, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
         sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
@@ -797,9 +851,16 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     ),
     "policy_decisions": tuple(sorted((*("c",) * 9, *("n",) * 10, *("f",) * 4, "p"))),
     "effects": tuple(
-        sorted((*("c",) * 14, *("n",) * 21, *("f",) * 7, "p", *("u",) * 3))
+        sorted((*("c",) * 16, *("n",) * 22, *("f",) * 9, "p", *("u",) * 3))
     ),
-    "effect_outbox_items": tuple(sorted((*("c",) * 6, *("n",) * 7, "f", "p", "u"))),
+    "effect_outbox_items": tuple(sorted((*("c",) * 11, *("n",) * 11, "f", "p", "u"))),
+    "creator_response_deliveries": tuple(
+        sorted((*("c",) * 5, *("n",) * 10, *("f",) * 4, "p", "u"))
+    ),
+    "effect_attempts": tuple(sorted((*("c",) * 11, *("n",) * 9, "f", "p", "u", "u"))),
+    "effect_observations": tuple(
+        sorted((*("c",) * 8, *("n",) * 8, "f", "f", "p", "u"))
+    ),
 }
 
 
@@ -1254,6 +1315,16 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(effect_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 18:
+            execution_tables = (
+                "creator_response_deliveries",
+                "effect_attempts",
+                "effect_observations",
+            )
+            expected_objects.extend((name, "r") for name in execution_tables)
+            expected_tables.extend(execution_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -1320,10 +1391,24 @@ class PostgreSQLSchemaGateway:
             expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
             if table_name == "runtime_recovery_runs" and expected is not None:
                 added_columns = 0
+                if applied_version < 18:
+                    added_columns += 3
                 if applied_version < 17:
-                    added_columns = 2 + max(0, 16 - max(applied_version, 9))
+                    added_columns += 2 + max(0, 16 - max(applied_version, 9))
                 if added_columns:
                     expected = expected[:-added_columns]
+            if (
+                table_name == "effects"
+                and applied_version < 18
+                and expected is not None
+            ):
+                expected = expected[:-5]
+            if (
+                table_name == "effect_outbox_items"
+                and applied_version < 18
+                and expected is not None
+            ):
+                expected = expected[:-8]
             if (
                 table_name == "creator_response_operations"
                 and applied_version < 17
@@ -1386,11 +1471,31 @@ class PostgreSQLSchemaGateway:
             if table_name == "runtime_recovery_runs" and expected is not None:
                 prior_kinds = list(expected)
                 added_constraints = 0
+                if applied_version < 18:
+                    added_constraints += 3
                 if applied_version < 17:
-                    added_constraints = 2 + max(0, 16 - max(applied_version, 9))
+                    added_constraints += 2 + max(0, 16 - max(applied_version, 9))
                 for _ in range(added_constraints):
                     prior_kinds.remove("c")
                     prior_kinds.remove("n")
+                expected = tuple(prior_kinds)
+            if (
+                table_name == "effects"
+                and applied_version < 18
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                for kind in ("c", "c", "n", "f", "f"):
+                    prior_kinds.remove(kind)
+                expected = tuple(prior_kinds)
+            if (
+                table_name == "effect_outbox_items"
+                and applied_version < 18
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                for kind in (*("c",) * 5, *("n",) * 4):
+                    prior_kinds.remove(kind)
                 expected = tuple(prior_kinds)
             if (
                 table_name == "creator_response_operations"

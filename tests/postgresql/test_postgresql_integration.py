@@ -86,6 +86,9 @@ from armi_kernel.contracts import (
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_runtime.adapters.creator_response_inbox import (
+    PostgreSQLCreatorResponseInbox,
+)
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
@@ -101,6 +104,9 @@ from armi_runtime.adapters.persistence.capability_policy import (
 )
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
+)
+from armi_runtime.adapters.persistence.effect_dispatch import (
+    PostgreSQLEffectDispatchRepository,
 )
 from armi_runtime.adapters.persistence.effect_ledger import (
     PostgreSQLEffectLedgerRepository,
@@ -341,7 +347,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {17})
+        self.assertEqual({result.applied_version for result in results}, {18})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -408,7 +414,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 17)
+        self.assertEqual(result.applied_version, 18)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -470,7 +476,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 17)
+        self.assertEqual(result.applied_version, 18)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -530,7 +536,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(18,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(19,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -589,7 +595,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (17,),
+                    (18,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1077,6 +1083,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 DROP TABLE
+                    armi.effect_observations,
+                    armi.effect_attempts,
+                    armi.creator_response_deliveries,
                     armi.effect_outbox_items,
                     armi.effects,
                     armi.policy_decisions,
@@ -1155,8 +1164,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 DROP COLUMN resumable_subject_commit_count,
                 DROP COLUMN resumable_capability_request_count,
                 DROP COLUMN resumable_response_operation_count,
-                DROP COLUMN resumable_effect_count,
-                DROP COLUMN resumable_effect_outbox_count
+                    DROP COLUMN resumable_effect_count,
+                    DROP COLUMN resumable_effect_outbox_count,
+                    DROP COLUMN resumable_effect_attempt_count,
+                    DROP COLUMN reliable_effect_observation_count,
+                    DROP COLUMN creator_response_delivery_count
                 """
             )
             connection.execute(
@@ -1164,13 +1176,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 17)
+        self.assertEqual(backfilled.applied_version, 18)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
@@ -2675,6 +2687,44 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                     assert effect_result is not None
                     self.assertIs(effect_result.status, EffectStatus.REGISTERED)
+                    dispatch_repository = PostgreSQLEffectDispatchRepository()
+                    async with response_factory.unit_of_work(
+                        LockPlan()
+                    ) as unit_of_work:
+                        dispatch_snapshot = await dispatch_repository.claim(
+                            unit_of_work,
+                            claim_owner=ids["runtime"],
+                        )
+                    assert dispatch_snapshot is not None
+                    async with response_factory.unit_of_work(
+                        LockPlan()
+                    ) as unit_of_work:
+                        await dispatch_repository.mark_dispatching(
+                            unit_of_work,
+                            dispatch_snapshot,
+                        )
+                    adapter = PostgreSQLCreatorResponseInbox(response_factory)
+                    receipt = await adapter.dispatch(
+                        dispatch_snapshot.request,
+                        payloads["reply"],
+                    )
+                    duplicate_receipt = await adapter.dispatch(
+                        dispatch_snapshot.request,
+                        payloads["reply"],
+                    )
+                    self.assertTrue(duplicate_receipt.duplicate)
+                    self.assertEqual(
+                        duplicate_receipt.delivery_id,
+                        receipt.delivery_id,
+                    )
+                    async with response_factory.unit_of_work(
+                        LockPlan()
+                    ) as unit_of_work:
+                        await dispatch_repository.settle_receipt(
+                            unit_of_work,
+                            dispatch_snapshot,
+                            receipt,
+                        )
                 finally:
                     await response_factory.close()
                 with self.assertRaisesRegex(
@@ -2768,7 +2818,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                        operation.current_status, permission.consumed_uses,
                        original_policy.is_current, current_policy.is_current,
                        current_policy.supersedes_policy_decision_id =
-                           original_policy.policy_decision_id
+                           original_policy.policy_decision_id,
+                       (SELECT count(*) FROM armi.creator_response_deliveries),
+                       (SELECT count(*) FROM armi.effect_attempts),
+                       (SELECT count(*) FROM armi.effect_observations),
+                       (SELECT count(*) FROM armi.scene_timeline_items
+                        WHERE source_kind = 'creator_response')
                 FROM armi.effects AS effect
                 JOIN armi.effect_outbox_items AS effect_outbox USING (effect_id)
                 JOIN armi.creator_response_operations AS operation USING (effect_id)
@@ -2784,7 +2839,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(
             effect_state,
-            ("cancelled", "cancelled", "effect_cancelled", 1, False, True, True),
+            (
+                "completed",
+                "delivered",
+                "effect_completed",
+                1,
+                True,
+                True,
+                None,
+                1,
+                1,
+                1,
+                1,
+            ),
         )
         live_output = (
             os.environ.get("S028_LIVE_OUTPUT")

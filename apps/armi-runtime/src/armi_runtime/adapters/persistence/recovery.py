@@ -1217,6 +1217,72 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert effect_counts is not None
+            effect_execution_counts = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        (SELECT count(*)
+                         FROM armi.effect_attempts
+                         WHERE dispatch_state IN ('prepared', 'dispatching')),
+                        (SELECT count(*)
+                         FROM armi.effect_observations
+                         WHERE reliability = 'reliable'),
+                        (SELECT count(*) FROM armi.creator_response_deliveries),
+                        count(*) FILTER (
+                            WHERE
+                                (effect.status = 'registered' AND outbox.status <> 'ready')
+                                OR (effect.status = 'dispatching' AND (
+                                    outbox.status <> 'claimed'
+                                    OR attempt.dispatch_state <> 'dispatching'
+                                    OR response.current_status <> 'effect_dispatching'
+                                ))
+                                OR (effect.status = 'completed' AND (
+                                    outbox.status <> 'delivered'
+                                    OR attempt.result_status NOT IN ('succeeded', 'unknown')
+                                    OR observation.reliability <> 'reliable'
+                                    OR observation.observation_kind <> 'receipt'
+                                    OR delivery.effect_id IS NULL
+                                    OR observation.receiver_ref
+                                       <> delivery.creator_response_delivery_id
+                                    OR response.current_status <> 'effect_completed'
+                                ))
+                                OR (effect.status = 'failed' AND (
+                                    outbox.status <> 'dead'
+                                    OR attempt.result_status NOT IN ('failed', 'unknown')
+                                    OR observation.reliability <> 'reliable'
+                                    OR response.current_status <> 'effect_failed'
+                                ))
+                                OR (effect.status = 'unknown' AND (
+                                    outbox.status <> 'unknown'
+                                    OR attempt.result_status <> 'unknown'
+                                    OR observation.reliability <> 'inconclusive'
+                                    OR response.current_status <> 'effect_unknown'
+                                ))
+                                OR (effect.status = 'cancelled' AND (
+                                    outbox.status <> 'cancelled'
+                                    OR response.current_status <> 'effect_cancelled'
+                                ))
+                        )
+                    FROM armi.effects AS effect
+                    JOIN armi.effect_outbox_items AS outbox
+                      ON outbox.effect_id = effect.effect_id
+                    JOIN armi.creator_response_operations AS response
+                      ON response.creator_response_operation_id
+                       = effect.creator_response_operation_id
+                    LEFT JOIN armi.effect_attempts AS attempt
+                      ON attempt.effect_attempt_id = effect.current_attempt_id
+                     AND attempt.effect_id = effect.effect_id
+                    LEFT JOIN armi.effect_observations AS observation
+                      ON observation.effect_observation_id
+                       = effect.current_observation_id
+                     AND observation.effect_id = effect.effect_id
+                     AND observation.effect_attempt_id = attempt.effect_attempt_id
+                    LEFT JOIN armi.creator_response_deliveries AS delivery
+                      ON delivery.effect_id = effect.effect_id
+                    """
+                )
+            ).fetchone()
+            assert effect_execution_counts is not None
             if int(counts[7]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
@@ -1262,7 +1328,11 @@ class PostgreSQLRuntimeRecovery:
                         key=_finding_key,
                     )
                 )
-            if int(effect_counts[1]) > 0 or int(effect_counts[3]) > 0:
+            if (
+                int(effect_counts[1]) > 0
+                or int(effect_counts[3]) > 0
+                or int(effect_execution_counts[3]) > 0
+            ):
                 blockers += 1
                 sorted_findings = tuple(
                     sorted(
@@ -1307,6 +1377,9 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_response_operation": int(response_counts[0]),
                 "resumable_effect": int(effect_counts[0]),
                 "resumable_effect_outbox": int(effect_counts[2]),
+                "resumable_effect_attempt": int(effect_execution_counts[0]),
+                "reliable_effect_observation": int(effect_execution_counts[1]),
+                "creator_response_delivery": int(effect_execution_counts[2]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -1342,6 +1415,9 @@ class PostgreSQLRuntimeRecovery:
                     resumable_response_operation_count = %s,
                     resumable_effect_count = %s,
                     resumable_effect_outbox_count = %s,
+                    resumable_effect_attempt_count = %s,
+                    reliable_effect_observation_count = %s,
+                    creator_response_delivery_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -1365,6 +1441,9 @@ class PostgreSQLRuntimeRecovery:
                     int(response_counts[0]),
                     int(effect_counts[0]),
                     int(effect_counts[2]),
+                    int(effect_execution_counts[0]),
+                    int(effect_execution_counts[1]),
+                    int(effect_execution_counts[2]),
                     critical,
                     blockers,
                     digest.value,
@@ -1397,6 +1476,9 @@ class PostgreSQLRuntimeRecovery:
             resumable_response_operation_count=int(response_counts[0]),
             resumable_effect_count=int(effect_counts[0]),
             resumable_effect_outbox_count=int(effect_counts[2]),
+            resumable_effect_attempt_count=int(effect_execution_counts[0]),
+            reliable_effect_observation_count=int(effect_execution_counts[1]),
+            creator_response_delivery_count=int(effect_execution_counts[2]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

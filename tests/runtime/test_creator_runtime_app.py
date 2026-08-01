@@ -341,7 +341,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             timeline.json(),
             {
                 "contract_version": "1.0",
-                "projection_version": "scene-timeline.v2",
+                "projection_version": "scene-timeline.v3",
                 "scene_key": "default",
                 "items": [],
             },

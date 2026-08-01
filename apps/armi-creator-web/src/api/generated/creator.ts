@@ -510,7 +510,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "scene-timeline.v2";
+      projection_version: "scene-timeline.v3";
       /**
        * Resource Kind
        * @constant
@@ -521,6 +521,8 @@ export interface components {
     };
     /** EffectResponse */
     EffectResponse: {
+      /** Attempt Count */
+      attempt_count: number;
       /** Cancelled At */
       cancelled_at?: string | null;
       /**
@@ -535,20 +537,38 @@ export interface components {
        * @constant
        */
       effect_kind: "creator_response";
+      /** Last Observation Kind */
+      last_observation_kind?:
+        ("receipt" | "query" | "rejection" | "ambiguous") | null;
+      /** Last Observation Reliability */
+      last_observation_reliability?: ("reliable" | "inconclusive") | null;
       /** Registered At */
       registered_at: string;
+      /** Response Text */
+      response_text?: string | null;
       /** Root Operation Ref */
       root_operation_ref: string;
+      /** Settled At */
+      settled_at?: string | null;
       /**
        * Status
        * @enum {string}
        */
-      status: "registered" | "cancelled";
+      status:
+        | "registered"
+        | "dispatching"
+        | "completed"
+        | "failed"
+        | "unknown"
+        | "cancelled";
+      /** Verification Action */
+      verification_action?: "verify_creator_inbox" | null;
       /**
        * Verification Status
-       * @constant
+       * @enum {string}
        */
-      verification_status: "not_started";
+      verification_status:
+        "not_started" | "pending" | "verified" | "inconclusive";
     };
     /** @enum {string} */
     ErrorCategoryValue:
@@ -619,7 +639,8 @@ export interface components {
       | components["schemas"]["CompletedOutcomeResponse"]
       | components["schemas"]["WaitingOutcomeResponse"]
       | components["schemas"]["RejectedOutcomeResponse"]
-      | components["schemas"]["FailedOutcomeResponse"];
+      | components["schemas"]["FailedOutcomeResponse"]
+      | components["schemas"]["UnknownOutcomeResponse"];
     /**
      * Readiness
      * @enum {string}
@@ -712,7 +733,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "scene-timeline.v2";
+      projection_version: "scene-timeline.v3";
       /** Scene Key */
       scene_key: string;
     };
@@ -788,6 +809,37 @@ export interface components {
       /** Trace Id */
       trace_id: string;
     };
+    /** UnknownOutcomeResponse */
+    UnknownOutcomeResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /**
+       * Custodian
+       * @constant
+       */
+      custodian: "runtime";
+      /** Message */
+      message: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Result Ref */
+      result_ref: string;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      status: "unknown";
+      /** Trace Id */
+      trace_id: string;
+      /**
+       * Verification Action
+       * @constant
+       */
+      verification_action: "verify_creator_inbox";
+    };
     /** ValidationError */
     ValidationError: {
       /** Context */
@@ -828,7 +880,8 @@ export interface components {
         | "opportunity_available"
         | "creator_evidence_accepted"
         | "response_admitted"
-        | "effect_registered";
+        | "effect_registered"
+        | "effect_settled";
       /**
        * @description discriminator enum property added by openapi-typescript
        * @enum {string}
@@ -848,6 +901,7 @@ export interface components {
         | "subject_commit"
         | "response_admission"
         | "effect_registration"
+        | "effect_dispatch"
         | "future_opportunity"
         | "new_evidence";
     };

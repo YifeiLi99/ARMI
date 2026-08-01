@@ -249,6 +249,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             effect_pipeline = compose_effect_registration_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                notifier=creator_events,
                 diagnostic=lambda event: diagnostic.emit(
                     event, result_code="EFFECT_REGISTRATION"
                 ),

@@ -44,6 +44,7 @@ _SCHEMA_FILES = (
     "migrations/0015_minimal_capability_grants.sql",
     "migrations/0016_response_and_formal_no_action.sql",
     "migrations/0017_effect_intent_and_ledger.sql",
+    "migrations/0018_effect_dispatch_observation_settlement.sql",
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")

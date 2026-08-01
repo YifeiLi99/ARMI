@@ -138,6 +138,7 @@ class CreatorContractTests(unittest.TestCase):
                 "WaitingOutcomeResponse",
                 "RejectedOutcomeResponse",
                 "FailedOutcomeResponse",
+                "UnknownOutcomeResponse",
             },
         )
 
@@ -267,7 +268,7 @@ class CreatorContractTests(unittest.TestCase):
             "event_kind": "scene.timeline.invalidated",
             "resource_kind": "scene_timeline",
             "resource_ref": "default",
-            "projection_version": "scene-timeline.v2",
+            "projection_version": "scene-timeline.v3",
             "occurred_at": INSTANT,
         }
         model = CreatorProjectionEventResponse.model_validate(sample)
@@ -300,7 +301,7 @@ class CreatorContractTests(unittest.TestCase):
         page = SceneTimelinePageResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "scene-timeline.v2",
+                "projection_version": "scene-timeline.v3",
                 "scene_key": "default",
                 "items": [item],
             }

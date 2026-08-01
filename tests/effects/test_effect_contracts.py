@@ -5,7 +5,15 @@ from datetime import UTC, datetime
 from uuid import uuid4, uuid7
 
 from armi_kernel.application import (
+    CreatorResponseDeliveryId,
+    EffectAdapterReceipt,
+    EffectAttemptId,
     EffectId,
+    EffectObservation,
+    EffectObservationId,
+    EffectObservationKind,
+    EffectObservationReliability,
+    EffectSettlement,
     EffectStatus,
     EffectVerificationStatus,
     EffectView,
@@ -13,7 +21,7 @@ from armi_kernel.application import (
     PolicyDecisionId,
     PolicyDecisionOutcome,
 )
-from armi_kernel.contracts import Instant
+from armi_kernel.contracts import Digest, Instant
 
 
 class EffectContractTests(unittest.TestCase):
@@ -53,6 +61,49 @@ class EffectContractTests(unittest.TestCase):
     def test_error_is_redacted(self) -> None:
         error = EffectViolation("EFFECT-DATABASE")
         self.assertNotIn("postgres", str(error).lower())
+
+    def test_receipt_observation_and_terminal_settlement_are_strict(self) -> None:
+        now = Instant(datetime.now(UTC))
+        effect_id = EffectId(uuid7())
+        attempt_id = EffectAttemptId(uuid7())
+        delivery_id = CreatorResponseDeliveryId(uuid7())
+        receipt = EffectAdapterReceipt(
+            delivery_id,
+            Digest.from_bytes(b"receipt"),
+            now,
+        )
+        observation = EffectObservation(
+            EffectObservationId(uuid7()),
+            attempt_id,
+            EffectObservationKind.RECEIPT,
+            EffectObservationReliability.RELIABLE,
+            receipt.receipt_digest,
+            now,
+            delivery_id.value,
+        )
+        settlement = EffectSettlement(
+            effect_id,
+            EffectStatus.COMPLETED,
+            EffectVerificationStatus.VERIFIED,
+            1,
+            observation,
+            Digest.from_bytes(b"settlement"),
+            now,
+        )
+        self.assertEqual(settlement.attempt_count, 1)
+
+    def test_unknown_requires_explicit_verification_action(self) -> None:
+        with self.assertRaises(EffectViolation) as invalid:
+            EffectView(
+                EffectId(uuid7()),
+                uuid7(),
+                "creator_response",
+                EffectStatus.UNKNOWN,
+                EffectVerificationStatus.INCONCLUSIVE,
+                Instant(datetime.now(UTC)),
+                attempt_count=1,
+            )
+        self.assertEqual(invalid.exception.code, "CON-EFFECT-VERIFICATION")
 
 
 if __name__ == "__main__":

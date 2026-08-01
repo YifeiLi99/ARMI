@@ -50,6 +50,7 @@ from armi_kernel.contracts import (
     ResultRef,
     TraceId,
     UnavailableOutcome,
+    UnknownOutcome,
     WaitingOutcome,
 )
 from fastapi import FastAPI, Request
@@ -410,6 +411,41 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
             message="The effect is registered but has not been dispatched.",
             result_ref=ResultRef(operation.effect_ref),
             custodian="runtime",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.EFFECT_DISPATCHING:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The registered effect is being dispatched.",
+            result_ref=result_ref,
+            waiting_for="effect_dispatch",
+            resume_condition="effect_settled",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.EFFECT_COMPLETED:
+        assert operation.completion_digest is not None
+        return CompletedOutcome(
+            **_outcome_common(),
+            message="The Creator response was received and verified.",
+            result_ref=result_ref,
+            completion_evidence=operation.completion_digest,
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.EFFECT_FAILED:
+        return FailedOutcome(
+            **_outcome_common(),
+            message="The Creator response was confirmed not delivered.",
+            error=ErrorDescriptor(
+                ErrorCategory.DEPENDENCY,
+                "DEPENDENCY_EFFECT_DELIVERY_FAILED",
+            ),
+            retryable=False,
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.EFFECT_UNKNOWN:
+        assert operation.effect_ref is not None
+        return UnknownOutcome(
+            **_outcome_common(),
+            message="The Creator response result requires authoritative verification.",
+            result_ref=ResultRef(operation.effect_ref),
+            custodian="runtime",
+            verification_action="verify_creator_inbox",
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_CANCELLED:
         return RejectedOutcome(
@@ -1096,7 +1132,7 @@ def create_runtime_app(
             )
         response = SceneTimelinePageResponse(
             contract_version="1.0",
-            projection_version="scene-timeline.v2",
+            projection_version="scene-timeline.v3",
             scene_key=page.scene_key.value,
             items=[
                 SceneTimelineItemResponse(
@@ -1281,6 +1317,22 @@ def create_runtime_app(
                     if view.cancelled_at is not None
                     else None
                 ),
+                attempt_count=view.attempt_count,
+                last_observation_kind=(
+                    view.last_observation_kind.value
+                    if view.last_observation_kind is not None
+                    else None
+                ),
+                last_observation_reliability=(
+                    view.last_observation_reliability.value
+                    if view.last_observation_reliability is not None
+                    else None
+                ),
+                verification_action=view.verification_action,
+                settled_at=(
+                    view.settled_at.to_wire() if view.settled_at is not None else None
+                ),
+                response_text=view.response_text,
             ).model_dump(exclude_none=True)
         )
 

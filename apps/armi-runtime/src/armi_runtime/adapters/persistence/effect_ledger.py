@@ -14,6 +14,8 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     EffectId,
+    EffectObservationKind,
+    EffectObservationReliability,
     EffectRegistrationResult,
     EffectStatus,
     EffectVerificationStatus,
@@ -212,10 +214,10 @@ class PostgreSQLEffectLedgerRepository:
                     policy_decision_id, subject_id, interaction_scene_id, creator_party_id,
                     payload_artifact_id, payload_digest, payload_bytes, effect_kind,
                     capability_kind, operation_class, audience_scope, data_scope, purpose,
-                    registration_digest, status, verification_status, schema_version
+                    registration_digest, trace_id, status, verification_status, schema_version
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'creator_response',
                     'creator.scene.reply','send','creator','creator_visible_response',
-                    'respond_to_creator',%s,'registered','not_started',1)
+                    'respond_to_creator',%s,%s,'registered','not_started',1)
                 RETURNING registered_at
                 """,
                     (
@@ -230,13 +232,19 @@ class PostgreSQLEffectLedgerRepository:
                         snapshot.payload_digest.value,
                         snapshot.payload_bytes,
                         registration_digest.value,
+                        snapshot.trace_id.value,
                     ),
                 )
             ).fetchone()
             assert row is not None
             await connection.execute(
-                "INSERT INTO armi.effect_outbox_items (effect_outbox_item_id,effect_id,message_kind,payload_digest,status,schema_version) VALUES (%s,%s,'effect.dispatch',%s,'ready',1)",
-                (outbox_id, effect_id, registration_digest.value),
+                """
+                INSERT INTO armi.effect_outbox_items (
+                    effect_outbox_item_id, effect_id, message_kind, payload_digest,
+                    status, dispatch_deadline, schema_version
+                ) VALUES (%s, %s, 'effect.dispatch', %s, 'ready', %s, 1)
+                """,
+                (outbox_id, effect_id, snapshot.payload_digest.value, valid_until),
             )
             await connection.execute(
                 """
@@ -305,11 +313,17 @@ class PostgreSQLEffectLedgerRepository:
         row = await (
             await connection.execute(
                 """
-            SELECT effect_id, operation.root_opportunity_id, effect_kind, effect.status,
-                   verification_status, registered_at, cancelled_at
+            SELECT effect.effect_id, operation.root_opportunity_id, effect_kind, effect.status,
+                   verification_status, registered_at, cancelled_at,
+                   (SELECT count(*) FROM armi.effect_attempts AS attempt
+                    WHERE attempt.effect_id = effect.effect_id),
+                   observation.observation_kind, observation.reliability,
+                   effect.settled_at
             FROM armi.effects AS effect
             JOIN armi.creator_response_operations AS operation
               ON operation.creator_response_operation_id = effect.creator_response_operation_id
+            LEFT JOIN armi.effect_observations AS observation
+              ON observation.effect_observation_id = effect.current_observation_id
             WHERE effect.effect_id=%s AND effect.creator_party_id=%s
             """,
                 (effect_id.value, creator_party_id),
@@ -325,7 +339,26 @@ class PostgreSQLEffectLedgerRepository:
             EffectVerificationStatus(str(row[4])),
             Instant(row[5]),
             Instant(row[6]) if row[6] is not None else None,
+            int(row[7]),
+            EffectObservationKind(str(row[8])) if row[8] is not None else None,
+            EffectObservationReliability(str(row[9])) if row[9] is not None else None,
+            "verify_creator_inbox" if str(row[3]) == "unknown" else None,
+            Instant(row[10]) if row[10] is not None else None,
         )
+
+    async def payload_reference(
+        self, uow: PostgreSQLUnitOfWork, effect_id: EffectId
+    ) -> tuple[UUID, Digest, int]:
+        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                "SELECT payload_artifact_id, payload_digest, payload_bytes FROM armi.effects WHERE effect_id=%s AND status='completed'",
+                (effect_id.value,),
+            )
+        ).fetchone()
+        if row is None:
+            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
+        return row[0], Digest(str(row[1])), int(row[2])
 
     async def _existing(
         self,

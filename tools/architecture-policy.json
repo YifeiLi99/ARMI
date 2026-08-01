@@ -185,6 +185,22 @@
       "allowed_callers": [
         "armi_runtime.composition.effect_pipeline"
       ]
+    },
+    {
+      "id": "effect-execution",
+      "module": "armi_runtime.adapters.persistence.effect_dispatch",
+      "owner": "effect-execution",
+      "allowed_callers": [
+        "armi_runtime.composition.effect_pipeline"
+      ]
+    },
+    {
+      "id": "creator-response-inbox",
+      "module": "armi_runtime.adapters.creator_response_inbox",
+      "owner": "creator-response-inbox",
+      "allowed_callers": [
+        "armi_runtime.composition.effect_pipeline"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -200,6 +216,17 @@
       "module": "armi_runtime.composition.effect_pipeline",
       "owner": "effect-ledger",
       "allowed_write_surfaces": ["effect-ledger", "durable-work", "normal-audit"]
+    },
+    {
+      "id": "effect-dispatch-t06",
+      "module": "armi_runtime.composition.effect_pipeline",
+      "owner": "effect-execution",
+      "allowed_write_surfaces": [
+        "effect-ledger",
+        "effect-execution",
+        "creator-response-inbox",
+        "normal-audit"
+      ]
     },
     {
       "id": "artifact-registration",
