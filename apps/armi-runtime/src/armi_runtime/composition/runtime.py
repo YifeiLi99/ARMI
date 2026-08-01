@@ -17,6 +17,7 @@ from armi_kernel.application import (
     CapabilityViolation,
     ContextViolation,
     CreatorInputViolation,
+    EffectViolation,
     ModelViolation,
     RecoveryStatus,
     RecoveryViolation,
@@ -48,6 +49,7 @@ from .database import (
     compose_capability_policy,
     compose_context_pipeline,
     compose_creator_input,
+    compose_effect_registration_pipeline,
     compose_model_pipeline,
     compose_response_admission_pipeline,
     compose_runtime_authority,
@@ -126,6 +128,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     subject_commit_pipeline = None
     capability_policy = None
     response_pipeline = None
+    effect_pipeline = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -243,6 +246,14 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 ),
             )
             await response_pipeline.open()
+            effect_pipeline = compose_effect_registration_pipeline(
+                prepared,
+                authority_admission=authority.require_writable,
+                diagnostic=lambda event: diagnostic.emit(
+                    event, result_code="EFFECT_REGISTRATION"
+                ),
+            )
+            await effect_pipeline.open()
             if "model.ark_api_key" in config.secret_locators:
                 try:
                     model_pipeline = compose_model_pipeline(
@@ -293,6 +304,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             SceneQueryViolation,
             SubjectCommitViolation,
             ResponseViolation,
+            EffectViolation,
         ):
             diagnostic.emit(
                 "runtime.creator_interface.unavailable",
@@ -312,6 +324,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await subject_commit_pipeline.close()
             if response_pipeline is not None:
                 await response_pipeline.close()
+            if effect_pipeline is not None:
+                await effect_pipeline.close()
             if capability_policy is not None:
                 await capability_policy.close()
             if authority is not None:
@@ -405,6 +419,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 response_pipeline.run_worker(),
                 name="response-admission-worker",
             )
+        if effect_pipeline is not None:
+            supervisor.start(
+                effect_pipeline.run(),
+                name="effect-registration-worker",
+            )
         if capability_policy is not None:
             supervisor.start(
                 capability_policy.run_expiry_reconciler(),
@@ -437,6 +456,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             subject_commit_pipeline.stop()
         if response_pipeline is not None:
             response_pipeline.stop()
+        if effect_pipeline is not None:
+            effect_pipeline.stop()
         if capability_policy is not None:
             capability_policy.stop()
         released = await supervisor.drain(
@@ -452,6 +473,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await subject_commit_pipeline.close()
         if response_pipeline is not None:
             await response_pipeline.close()
+        if effect_pipeline is not None:
+            await effect_pipeline.close()
         if capability_policy is not None:
             await capability_policy.close()
         if authority is not None:
@@ -524,6 +547,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             creator_input.get_subject_summary if creator_input is not None else None
         ),
         capability_policy=capability_policy,
+        effect_ledger=effect_pipeline,
         expected_authority=f"{config.creator.bind_host}:{config.creator.port}",
         request_body_max_bytes=config.creator.request_body_max_bytes,
         on_started=started,
@@ -570,6 +594,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await candidate_pipeline.close()
         if capability_policy is not None:
             await capability_policy.close()
+        if effect_pipeline is not None:
+            await effect_pipeline.close()
         if authority_port is not None:
             await authority_port.close()
     if server.force_exit:

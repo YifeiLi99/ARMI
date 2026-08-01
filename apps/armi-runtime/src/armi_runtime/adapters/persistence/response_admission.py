@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -22,10 +23,21 @@ from armi_kernel.application import (
     ResponseAdmissionResult,
     ResponseAdmissionStatus,
     ResponseViolation,
+    WorkDraft,
+    WorkId,
     WorkLease,
+    WorkOwner,
+    WorkPayloadRef,
     WorkResultRef,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import (
+    Digest,
+    IdempotencyKey,
+    Instant,
+    Purpose,
+    SubjectId,
+    TraceId,
+)
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -223,6 +235,36 @@ class PostgreSQLResponseAdmissionRepository:
         ).fetchone()
         if updated is None:
             raise ResponseViolation("RESPONSE-WORK-STALE")
+        if status is ResponseAdmissionStatus.ACCEPTED:
+            registration_work_id = uuid7()
+            now = datetime.now(UTC)
+            await unit_of_work.work.enqueue(
+                WorkDraft(
+                    WorkId(registration_work_id),
+                    "effect.register",
+                    WorkOwner("creator_response_operation", snapshot.operation_id),
+                    IdempotencyKey(f"effect-register:{snapshot.operation_id}"),
+                    completion,
+                    60,
+                    Instant(now),
+                    Instant(now + timedelta(seconds=3600)),
+                    2,
+                    snapshot.trace_id,
+                    subject_id=SubjectId(snapshot.subject_id),
+                    payload=WorkPayloadRef(
+                        "creator_response_operation", snapshot.operation_id
+                    ),
+                )
+            )
+            await connection.execute(
+                """
+                UPDATE armi.creator_response_operations
+                SET registration_work_id = %s
+                WHERE creator_response_operation_id = %s
+                  AND registration_work_id IS NULL
+                """,
+                (registration_work_id, snapshot.operation_id),
+            )
         await unit_of_work.work.complete(
             lease,
             WorkResultRef("creator_response_operation", snapshot.operation_id),

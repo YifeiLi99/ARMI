@@ -271,6 +271,7 @@ class CreatorInputRepository:
                     , response.completion_digest
                     , response.reason_code
                     , no_action.decision_kind
+                    , response.effect_id
                 FROM armi.opportunities AS requested
                 JOIN LATERAL (
                     SELECT current.*
@@ -337,7 +338,11 @@ class CreatorInputRepository:
         elif response_status == "pending":
             phase = CreatorOperationPhase.RESPONSE_ADMISSION
         elif response_status == "accepted":
-            phase = CreatorOperationPhase.RESPONSE_ACCEPTED
+            phase = CreatorOperationPhase.EFFECT_REGISTRATION
+        elif response_status == "effect_registered":
+            phase = CreatorOperationPhase.EFFECT_REGISTERED
+        elif response_status == "effect_cancelled":
+            phase = CreatorOperationPhase.EFFECT_CANCELLED
         elif response_status == "no_action" and no_action_kind == "decline":
             phase = CreatorOperationPhase.FORMAL_DECLINED
         elif response_status == "no_action" and no_action_kind == "no_action":
@@ -399,6 +404,8 @@ class CreatorInputRepository:
                 if phase
                 in {
                     CreatorOperationPhase.RESPONSE_ACCEPTED,
+                    CreatorOperationPhase.EFFECT_REGISTERED,
+                    CreatorOperationPhase.EFFECT_CANCELLED,
                     CreatorOperationPhase.FORMAL_DECLINED,
                     CreatorOperationPhase.FORMAL_NO_ACTION,
                     CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
@@ -415,11 +422,20 @@ class CreatorInputRepository:
                 CreatorOperationPhase.NEED_INFORMATION,
                 CreatorOperationPhase.STALE_CONFLICT,
                 CreatorOperationPhase.RESPONSE_ACCEPTED,
+                CreatorOperationPhase.EFFECT_REGISTERED,
+                CreatorOperationPhase.EFFECT_CANCELLED,
                 CreatorOperationPhase.FORMAL_DECLINED,
                 CreatorOperationPhase.FORMAL_NO_ACTION,
                 CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
                 CreatorOperationPhase.RESPONSE_UNAVAILABLE,
                 CreatorOperationPhase.RESPONSE_FAILED,
+            }
+            else None,
+            row[16]
+            if phase
+            in {
+                CreatorOperationPhase.EFFECT_REGISTERED,
+                CreatorOperationPhase.EFFECT_CANCELLED,
             }
             else None,
         )

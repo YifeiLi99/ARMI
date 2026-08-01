@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S028，当前设计基线为 S001 3.9，产品 schema 仍为 v16。T-05 的 policy decision、grant 次数占用、唯一 effect、专用 effect outbox、撤权竞态和安全 effect Query 已冻结；`accepted` 仍只表示回应已耐久接纳且尚未发送，尚未创建 effect attempt、observation 或 settlement，也未执行任何外部 I/O。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`，`codex.delegated-work` 在执行适配器完成前保持不可授权；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。M0-S029 已获实施授权，但不授权任何外部效果执行。
+项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S029，当前设计基线为 S001 3.9，产品 schema 为 v17。T-05 已能把 Creator reply 的 policy decision、grant 次数占用、唯一 effect 和专用 effect outbox 原子登记到账本，并提供安全 effect Query；撤回或到期只会取消尚未派发的责任，历史决定与效果事实不会被删除。这里的 `accepted` 仍只表示效果已登记、尚未派发，尚未创建 effect attempt、observation 或 settlement，也未执行任何外部 I/O。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`，`codex.delegated-work` 在执行适配器完成前保持不可授权；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。M0-S030 仅可进入计划模式，不自动授权外部效果执行。
 
 ## 关于学习与参考
 

@@ -177,6 +177,14 @@
       "allowed_callers": [
         "armi_runtime.composition.response_pipeline"
       ]
+    },
+    {
+      "id": "effect-ledger",
+      "module": "armi_runtime.adapters.persistence.effect_ledger",
+      "owner": "effect-ledger",
+      "allowed_callers": [
+        "armi_runtime.composition.effect_pipeline"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -186,6 +194,12 @@
       "module": "armi_runtime.adapters.persistence.unit_of_work",
       "owner": "transaction-coordination",
       "allowed_write_surfaces": ["normal-audit", "durable-work"]
+    },
+    {
+      "id": "effect-registration-t05",
+      "module": "armi_runtime.composition.effect_pipeline",
+      "owner": "effect-ledger",
+      "allowed_write_surfaces": ["effect-ledger", "durable-work", "normal-audit"]
     },
     {
       "id": "artifact-registration",

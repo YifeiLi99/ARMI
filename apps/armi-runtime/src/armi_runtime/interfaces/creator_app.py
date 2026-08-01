@@ -25,6 +25,9 @@ from armi_kernel.application import (
     CreatorOperation,
     CreatorOperationPhase,
     CreatorOperationQueryPort,
+    EffectId,
+    EffectLedgerPort,
+    EffectViolation,
     OpportunityId,
     SceneKey,
     SceneQueryViolation,
@@ -72,6 +75,7 @@ from .creator_contract import (
     CapabilityRequestItemResponse,
     CapabilityRequestPageResponse,
     CreatorInputRequest,
+    EffectResponse,
     LiveResponse,
     Readiness,
     ReadyResponse,
@@ -391,6 +395,28 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
             result_ref=result_ref,
             custodian="runtime",
         ).to_wire()
+    if operation.phase is CreatorOperationPhase.EFFECT_REGISTRATION:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The accepted response is waiting for effect registration.",
+            result_ref=result_ref,
+            waiting_for="effect_registration",
+            resume_condition="effect_registered",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.EFFECT_REGISTERED:
+        assert operation.effect_ref is not None
+        return AcceptedOutcome(
+            **_outcome_common(),
+            message="The effect is registered but has not been dispatched.",
+            result_ref=ResultRef(operation.effect_ref),
+            custodian="runtime",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.EFFECT_CANCELLED:
+        return RejectedOutcome(
+            **_outcome_common(),
+            message="The registered effect was cancelled before dispatch.",
+            error=ErrorDescriptor(ErrorCategory.POLICY, "POLICY_EFFECT_CANCELLED"),
+        ).to_wire()
     if operation.phase in {
         CreatorOperationPhase.FORMAL_DECLINED,
         CreatorOperationPhase.FORMAL_NO_ACTION,
@@ -525,6 +551,7 @@ def create_runtime_app(
     creator_operations: CreatorOperationQueryPort | None = None,
     subject_summary: SubjectSummaryProvider | None = None,
     capability_policy: CapabilityPolicyPort | None = None,
+    effect_ledger: EffectLedgerPort | None = None,
     on_security_event: SecurityEvent | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
@@ -1199,6 +1226,65 @@ def create_runtime_app(
         return JSONResponse(content=_operation_wire(operation))
 
     del get_creator_operation
+
+    @app.get("/v1/effects/{effect_id}")
+    async def get_effect(effect_id: str, request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or effect_ledger is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = 403 if browser_sessions is not None else 503
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_EFFECT_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            metadata = browser_sessions.verify(token)
+            view = await effect_ledger.get_effect(
+                EffectId(UUID(effect_id)), creator_party_id=metadata.creator_party_id
+            )
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code, content=_rejected(error.code)
+            )
+        except (ValueError, EffectViolation) as error:
+            if (
+                isinstance(error, EffectViolation)
+                and error.code != "SCOPE-EFFECT-NOT-VISIBLE"
+            ):
+                return JSONResponse(
+                    status_code=503,
+                    content=_unavailable("DEPENDENCY_EFFECT_QUERY_UNAVAILABLE"),
+                )
+            return JSONResponse(
+                status_code=404, content=_rejected("SCOPE_EFFECT_NOT_VISIBLE")
+            )
+        return JSONResponse(
+            content=EffectResponse(
+                contract_version="1.0",
+                effect_id=str(view.effect_id.value),
+                root_operation_ref=str(view.root_operation_ref),
+                effect_kind="creator_response",
+                status=view.status.value,
+                verification_status=view.verification_status.value,
+                registered_at=view.registered_at.to_wire(),
+                cancelled_at=(
+                    view.cancelled_at.to_wire()
+                    if view.cancelled_at is not None
+                    else None
+                ),
+            ).model_dump(exclude_none=True)
+        )
+
+    del get_effect
 
     @app.get("/v1/scenes/{scene_key}/events")
     async def get_scene_events(

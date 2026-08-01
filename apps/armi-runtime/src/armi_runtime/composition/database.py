@@ -55,6 +55,10 @@ from .creator_input import (
     EvidenceAcceptanceTransaction,
     build_evidence_acceptance_transaction,
 )
+from .effect_pipeline import (
+    EffectRegistrationPipeline,
+    build_effect_registration_pipeline,
+)
 from .environment import PreparedEnvironment
 from .model_pipeline import ModelPipeline, build_model_pipeline
 from .response_pipeline import (
@@ -756,6 +760,48 @@ def compose_runtime_recovery(
         ) from None
 
 
+def compose_effect_registration_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    diagnostic: Callable[[str], None] | None = None,
+) -> EffectRegistrationPipeline:
+    """Resolve the Runtime credential for the S029 T-05 worker."""
+
+    from armi_kernel.application import EffectViolation
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise EffectViolation("EFFECT-DATABASE")
+    try:
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.runtime")
+        ) as handle:
+
+            def create(value: memoryview) -> EffectRegistrationPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise EffectViolation("EFFECT-DATABASE") from None
+                config = prepared.effective.config
+                return build_effect_registration_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise EffectViolation("EFFECT-DATABASE") from None
+
+
 __all__ = (
     "MIGRATOR_LOCATOR_NAME",
     "RUNTIME_LOCATOR_NAME",
@@ -765,6 +811,7 @@ __all__ = (
     "compose_capability_policy",
     "compose_context_pipeline",
     "compose_creator_input",
+    "compose_effect_registration_pipeline",
     "compose_model_pipeline",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",

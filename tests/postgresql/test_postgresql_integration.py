@@ -49,6 +49,7 @@ from armi_kernel.application import (
     CreatorReplyDraft,
     CreatorSceneReplyScope,
     CredentialLocator,
+    EffectStatus,
     LockPlan,
     LockTarget,
     LockTargetKind,
@@ -100,6 +101,9 @@ from armi_runtime.adapters.persistence.capability_policy import (
 )
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
+)
+from armi_runtime.adapters.persistence.effect_ledger import (
+    PostgreSQLEffectLedgerRepository,
 )
 from armi_runtime.adapters.persistence.outbox import (
     OutboxDispatcher,
@@ -337,7 +341,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {16})
+        self.assertEqual({result.applied_version for result in results}, {17})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -404,7 +408,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 16)
+        self.assertEqual(result.applied_version, 17)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -466,7 +470,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 16)
+        self.assertEqual(result.applied_version, 17)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -526,7 +530,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(17,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(18,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -585,7 +589,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (16,),
+                    (17,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1073,6 +1077,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 DROP TABLE
+                    armi.effect_outbox_items,
+                    armi.effects,
+                    armi.policy_decisions,
                     armi.creator_response_operations,
                     armi.formal_no_action_decisions,
                     armi.action_intent_revisions,
@@ -1147,7 +1154,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 DROP COLUMN resumable_candidate_validation_count,
                 DROP COLUMN resumable_subject_commit_count,
                 DROP COLUMN resumable_capability_request_count,
-                DROP COLUMN resumable_response_operation_count
+                DROP COLUMN resumable_response_operation_count,
+                DROP COLUMN resumable_effect_count,
+                DROP COLUMN resumable_effect_outbox_count
                 """
             )
             connection.execute(
@@ -1155,13 +1164,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 16)
+        self.assertEqual(backfilled.applied_version, 17)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
@@ -2639,6 +2648,33 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertIs(
                         response_result.status, ResponseAdmissionStatus.ACCEPTED
                     )
+                    effect_claimed = await response_work.claim(
+                        work_kind="effect.register",
+                        lease_owner=ids["runtime"],
+                        lease_seconds=30,
+                        limit=1,
+                    )
+                    self.assertEqual(len(effect_claimed), 1)
+                    effect_lease = effect_claimed[0].lease
+                    assert effect_lease is not None
+                    effect_repository = PostgreSQLEffectLedgerRepository()
+                    async with response_factory.unit_of_work(
+                        LockPlan()
+                    ) as unit_of_work:
+                        effect_snapshot = await effect_repository.snapshot(
+                            unit_of_work, effect_lease
+                        )
+                    async with response_factory.unit_of_work(
+                        LockPlan()
+                    ) as unit_of_work:
+                        effect_result = await effect_repository.settle(
+                            unit_of_work,
+                            lease=effect_lease,
+                            snapshot=effect_snapshot,
+                            integrity_ok=True,
+                        )
+                    assert effect_result is not None
+                    self.assertIs(effect_result.status, EffectStatus.REGISTERED)
                 finally:
                     await response_factory.close()
                 with self.assertRaisesRegex(
@@ -2724,6 +2760,31 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 1,
                 CapabilityRequestStatus.EXPIRED.value,
             ),
+        )
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            effect_state = connection.execute(
+                """
+                SELECT effect.status, effect_outbox.status,
+                       operation.current_status, permission.consumed_uses,
+                       original_policy.is_current, current_policy.is_current,
+                       current_policy.supersedes_policy_decision_id =
+                           original_policy.policy_decision_id
+                FROM armi.effects AS effect
+                JOIN armi.effect_outbox_items AS effect_outbox USING (effect_id)
+                JOIN armi.creator_response_operations AS operation USING (effect_id)
+                JOIN armi.policy_decisions AS original_policy
+                  ON original_policy.policy_decision_id =
+                     effect.policy_decision_id
+                JOIN armi.policy_decisions AS current_policy
+                  ON current_policy.policy_decision_id =
+                     operation.current_policy_decision_id
+                JOIN armi.permission_grants AS permission
+                  ON permission.grant_id = operation.matched_grant_id
+                """
+            ).fetchone()
+        self.assertEqual(
+            effect_state,
+            ("cancelled", "cancelled", "effect_cancelled", 1, False, True, True),
         )
         live_output = (
             os.environ.get("S028_LIVE_OUTPUT")

@@ -141,6 +141,9 @@ class CreatorOperationPhase(StrEnum):
     SUBJECT_COMMITTING = "subject_committing"
     RESPONSE_ADMISSION = "response_admission"
     RESPONSE_ACCEPTED = "response_accepted"
+    EFFECT_REGISTRATION = "effect_registration"
+    EFFECT_REGISTERED = "effect_registered"
+    EFFECT_CANCELLED = "effect_cancelled"
     FORMAL_DECLINED = "formal_declined"
     FORMAL_NO_ACTION = "formal_no_action"
     RESPONSE_UNAUTHORIZED = "response_unauthorized"
@@ -161,6 +164,7 @@ class CreatorOperation:
     failure_code: str | None = None
     subject_version: int | None = None
     completion_digest: Digest | None = None
+    effect_ref: UUID | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -180,6 +184,8 @@ class CreatorOperation:
             CreatorOperationPhase.NEED_INFORMATION,
             CreatorOperationPhase.STALE_CONFLICT,
             CreatorOperationPhase.RESPONSE_ACCEPTED,
+            CreatorOperationPhase.EFFECT_REGISTERED,
+            CreatorOperationPhase.EFFECT_CANCELLED,
             CreatorOperationPhase.FORMAL_DECLINED,
             CreatorOperationPhase.FORMAL_NO_ACTION,
             CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
@@ -187,6 +193,18 @@ class CreatorOperation:
             CreatorOperationPhase.RESPONSE_FAILED,
         }
         if completed_phase != (self.completion_digest is not None):
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
+        if (
+            self.phase
+            in {
+                CreatorOperationPhase.EFFECT_REGISTERED,
+                CreatorOperationPhase.EFFECT_CANCELLED,
+            }
+        ) != (self.effect_ref is not None):
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
+        if self.effect_ref is not None and (
+            type(self.effect_ref) is not UUID or self.effect_ref.version != 7
+        ):
             raise CreatorInputViolation("CON-INPUT-OPERATION")
         if (
             self.completion_digest is not None

@@ -19,6 +19,8 @@ const waitingLabels = {
   opportunity_available: "等待新的处理机会",
   new_evidence: "需要新的证据",
   creator_evidence_accepted: "等待 Creator 提供新证据",
+  response_admission: "正在核验回应准入",
+  effect_registration: "回应已接纳，正在登记效果账本",
 } as const;
 
 export function OperationPanel({
@@ -67,7 +69,7 @@ export function OperationPanel({
         <dl>
           <div>
             <dt>状态</dt>
-            <dd>已耐久接纳</dd>
+            <dd>已登记，但尚未派发</dd>
           </div>
           <div>
             <dt>保管方</dt>

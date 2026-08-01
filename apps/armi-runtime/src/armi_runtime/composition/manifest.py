@@ -65,6 +65,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0014_t03_subject_commit.sql",
     "migrations/0015_minimal_capability_grants.sql",
     "migrations/0016_response_and_formal_no_action.sql",
+    "migrations/0017_effect_intent_and_ledger.sql",
 )
 
 

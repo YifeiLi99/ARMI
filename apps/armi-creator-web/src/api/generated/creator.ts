@@ -124,6 +124,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/effects/{effect_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Effect */
+    get: operations["getEffect"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/operations/{result_ref}": {
     parameters: {
       query?: never;
@@ -502,6 +519,37 @@ export interface components {
       /** Resource Ref */
       resource_ref: string;
     };
+    /** EffectResponse */
+    EffectResponse: {
+      /** Cancelled At */
+      cancelled_at?: string | null;
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Effect Id */
+      effect_id: string;
+      /**
+       * Effect Kind
+       * @constant
+       */
+      effect_kind: "creator_response";
+      /** Registered At */
+      registered_at: string;
+      /** Root Operation Ref */
+      root_operation_ref: string;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "registered" | "cancelled";
+      /**
+       * Verification Status
+       * @constant
+       */
+      verification_status: "not_started";
+    };
     /** @enum {string} */
     ErrorCategoryValue:
       | "input"
@@ -778,7 +826,9 @@ export interface components {
         | "candidate_validated"
         | "subject_commit_available"
         | "opportunity_available"
-        | "creator_evidence_accepted";
+        | "creator_evidence_accepted"
+        | "response_admitted"
+        | "effect_registered";
       /**
        * @description discriminator enum property added by openapi-typescript
        * @enum {string}
@@ -796,6 +846,8 @@ export interface components {
         | "model_response"
         | "candidate_validation"
         | "subject_commit"
+        | "response_admission"
+        | "effect_registration"
         | "future_opportunity"
         | "new_evidence";
     };
@@ -1186,6 +1238,73 @@ export interface operations {
       };
       /** @description Content Too Large */
       413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getEffect: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        effect_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EffectResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

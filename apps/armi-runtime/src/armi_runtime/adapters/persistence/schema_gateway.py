@@ -253,6 +253,8 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("resumable_subject_commit_count", "integer", True),
         ("resumable_capability_request_count", "integer", True),
         ("resumable_response_operation_count", "integer", True),
+        ("resumable_effect_count", "integer", True),
+        ("resumable_effect_outbox_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -639,6 +641,60 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("created_at", "timestamp(6) with time zone", True),
         ("completed_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
+        ("registration_work_id", "uuid", False),
+        ("current_policy_decision_id", "uuid", False),
+        ("effect_id", "uuid", False),
+        ("effect_registration_digest", "text", False),
+        ("effect_registered_at", "timestamp(6) with time zone", False),
+    ),
+    "policy_decisions": (
+        ("policy_decision_id", "uuid", True),
+        ("action_intent_revision_id", "uuid", True),
+        ("creator_response_operation_id", "uuid", True),
+        ("matched_grant_id", "uuid", False),
+        ("decision_outcome", "text", True),
+        ("policy_identity", "text", True),
+        ("decision_digest", "text", True),
+        ("reason_code", "text", True),
+        ("supersedes_policy_decision_id", "uuid", False),
+        ("is_current", "boolean", True),
+        ("decided_at", "timestamp(6) with time zone", True),
+        ("valid_until", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
+    "effects": (
+        ("effect_id", "uuid", True),
+        ("action_intent_revision_id", "uuid", True),
+        ("creator_response_operation_id", "uuid", True),
+        ("policy_decision_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("interaction_scene_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("payload_artifact_id", "uuid", True),
+        ("payload_digest", "text", True),
+        ("payload_bytes", "integer", True),
+        ("effect_kind", "text", True),
+        ("capability_kind", "text", True),
+        ("operation_class", "text", True),
+        ("audience_scope", "text", True),
+        ("data_scope", "text", True),
+        ("purpose", "text", True),
+        ("registration_digest", "text", True),
+        ("status", "text", True),
+        ("verification_status", "text", True),
+        ("registered_at", "timestamp(6) with time zone", True),
+        ("cancelled_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
+    "effect_outbox_items": (
+        ("effect_outbox_item_id", "uuid", True),
+        ("effect_id", "uuid", True),
+        ("message_kind", "text", True),
+        ("payload_digest", "text", True),
+        ("status", "text", True),
+        ("available_at", "timestamp(6) with time zone", True),
+        ("cancelled_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
     ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
@@ -671,7 +727,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 23, *("n",) * 24, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 25, *("n",) * 26, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
         sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
@@ -737,8 +793,13 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", *("u",) * 3))
     ),
     "creator_response_operations": tuple(
-        sorted((*("c",) * 6, *("n",) * 8, *("f",) * 8, "p", *("u",) * 4))
+        sorted((*("c",) * 8, *("n",) * 8, *("f",) * 11, "p", *("u",) * 7))
     ),
+    "policy_decisions": tuple(sorted((*("c",) * 9, *("n",) * 10, *("f",) * 4, "p"))),
+    "effects": tuple(
+        sorted((*("c",) * 14, *("n",) * 21, *("f",) * 7, "p", *("u",) * 3))
+    ),
+    "effect_outbox_items": tuple(sorted((*("c",) * 6, *("n",) * 7, "f", "p", "u"))),
 }
 
 
@@ -1187,6 +1248,12 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(response_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 17:
+            effect_tables = ("effect_outbox_items", "effects", "policy_decisions")
+            expected_objects.extend((name, "r") for name in effect_tables)
+            expected_tables.extend(effect_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -1252,9 +1319,17 @@ class PostgreSQLSchemaGateway:
         for table_name in table_names:
             expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
             if table_name == "runtime_recovery_runs" and expected is not None:
-                added_columns = max(0, 16 - max(applied_version, 9))
+                added_columns = 0
+                if applied_version < 17:
+                    added_columns = 2 + max(0, 16 - max(applied_version, 9))
                 if added_columns:
                     expected = expected[:-added_columns]
+            if (
+                table_name == "creator_response_operations"
+                and applied_version < 17
+                and expected is not None
+            ):
+                expected = expected[:-5]
             if table_name == "opportunities" and expected is not None:
                 if applied_version < 14:
                     expected = expected[:-4]
@@ -1310,10 +1385,24 @@ class PostgreSQLSchemaGateway:
             expected = _EXPECTED_CONSTRAINT_KINDS.get(table_name)
             if table_name == "runtime_recovery_runs" and expected is not None:
                 prior_kinds = list(expected)
-                added_constraints = max(0, 16 - max(applied_version, 9))
+                added_constraints = 0
+                if applied_version < 17:
+                    added_constraints = 2 + max(0, 16 - max(applied_version, 9))
                 for _ in range(added_constraints):
                     prior_kinds.remove("c")
                     prior_kinds.remove("n")
+                expected = tuple(prior_kinds)
+            if (
+                table_name == "creator_response_operations"
+                and applied_version < 17
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                prior_kinds.remove("c")
+                prior_kinds.remove("c")
+                for _ in range(3):
+                    prior_kinds.remove("f")
+                    prior_kinds.remove("u")
                 expected = tuple(prior_kinds)
             if table_name == "cognitive_episodes" and expected is not None:
                 prior_kinds = list(expected)

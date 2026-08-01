@@ -356,6 +356,8 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "model_response",
         "candidate_validation",
         "subject_commit",
+        "response_admission",
+        "effect_registration",
         "future_opportunity",
         "new_evidence",
     ]
@@ -368,6 +370,8 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "subject_commit_available",
         "opportunity_available",
         "creator_evidence_accepted",
+        "response_admitted",
+        "effect_registered",
     ]
 
     @model_validator(mode="after")
@@ -383,6 +387,8 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
             ("candidate_validation", "candidate_validation_available"),
             ("candidate_validation", "candidate_validated"),
             ("subject_commit", "subject_commit_available"),
+            ("response_admission", "response_admitted"),
+            ("effect_registration", "effect_registered"),
             ("future_opportunity", "opportunity_available"),
             ("new_evidence", "creator_evidence_accepted"),
         }:
@@ -467,6 +473,34 @@ class SubjectSummaryResponse(_StrictWireModel):
             raise ValueError("CON-SUBJECT-SUMMARY: component order is invalid")
         if Instant.from_wire(self.observed_at).to_wire() != self.observed_at:
             raise ValueError("CON-SUBJECT-SUMMARY: time is not canonical")
+        return self
+
+
+class EffectResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    root_operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    effect_kind: Literal["creator_response"]
+    status: Literal["registered", "cancelled"]
+    verification_status: Literal["not_started"]
+    registered_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    cancelled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
+
+    @model_validator(mode="after")
+    def validate_effect(self) -> EffectResponse:
+        for value in (self.effect_id, self.root_operation_ref):
+            parsed = UUID(value)
+            if parsed.version != 7 or str(parsed) != value:
+                raise ValueError("CON-EFFECT-ID: identity must be canonical UUIDv7")
+        if (self.status == "cancelled") != (self.cancelled_at is not None):
+            raise ValueError("CON-EFFECT-STATE: cancellation time mismatch")
+        if Instant.from_wire(self.registered_at).to_wire() != self.registered_at:
+            raise ValueError("CON-EFFECT-TIME: time must be canonical")
+        if (
+            self.cancelled_at is not None
+            and Instant.from_wire(self.cancelled_at).to_wire() != self.cancelled_at
+        ):
+            raise ValueError("CON-EFFECT-TIME: time must be canonical")
         return self
 
 
@@ -835,6 +869,25 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/effects/{effect_id}",
+        operation_id="getEffect",
+        response_model=EffectResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_effect(
+        effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+    ) -> EffectResponse:
+        del effect_id
+        raise NotImplementedError
+
+    @app.get(
         "/v1/scenes/{scene_key}/events",
         operation_id="streamSceneEvents",
         response_class=StreamingResponse,
@@ -885,6 +938,7 @@ def build_creator_openapi() -> dict[str, object]:
         scene_timeline,
         accept_creator_message,
         get_creator_operation,
+        get_effect,
         scene_events,
     )
     del schema_handlers
@@ -900,6 +954,7 @@ def build_creator_openapi() -> dict[str, object]:
         "422", None
     )
     schema["paths"]["/v1/operations/{result_ref}"]["get"]["responses"].pop("422", None)
+    schema["paths"]["/v1/effects/{effect_id}"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/capability-requests"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/capability-requests/{capability_request_id}/decision"]["post"][
         "responses"
@@ -926,6 +981,7 @@ __all__ = (
     "CompletedOutcomeResponse",
     "CreatorInputRequest",
     "CreatorProjectionEventResponse",
+    "EffectResponse",
     "ErrorDescriptorResponse",
     "FailedOutcomeResponse",
     "LiveResponse",

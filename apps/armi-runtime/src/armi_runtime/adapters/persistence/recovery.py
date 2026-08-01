@@ -548,6 +548,118 @@ class PostgreSQLRuntimeRecovery:
                         request_digest=Digest(str(payload_digest)),
                     )
                 )
+            response_backfill = await (
+                await connection.execute(
+                    """
+                    SELECT response.creator_response_operation_id,
+                           response.subject_id,
+                           revision.action_intent_revision_id,
+                           revision.response_digest,
+                           interaction.trace_id
+                    FROM armi.creator_response_operations AS response
+                    JOIN armi.action_intents AS intent
+                      ON intent.action_intent_id = response.action_intent_id
+                    JOIN armi.action_intent_revisions AS revision
+                      ON revision.action_intent_revision_id =
+                         intent.current_revision_id
+                    JOIN armi.opportunities AS opportunity
+                      ON opportunity.opportunity_id =
+                         response.root_opportunity_id
+                    JOIN armi.external_evidence AS evidence
+                      ON evidence.evidence_id = opportunity.evidence_id
+                    JOIN armi.creator_input_interactions AS interaction
+                      ON interaction.creator_interaction_id =
+                         evidence.creator_interaction_id
+                    WHERE response.current_status = 'accepted'
+                      AND response.registration_work_id IS NULL
+                    ORDER BY response.creator_response_operation_id
+                    FOR UPDATE OF response
+                    """
+                )
+            ).fetchall()
+            for (
+                response_operation_id,
+                subject_id,
+                action_revision_id,
+                response_digest,
+                trace_id,
+            ) in response_backfill:
+                work_id = uuid7()
+                await connection.execute(
+                    """
+                    INSERT INTO armi.durable_work (
+                        work_id, work_kind, owner_kind, owner_ref,
+                        subject_id, idempotency_key, payload_kind,
+                        payload_ref, payload_digest, priority, not_before,
+                        deadline_at, status, max_attempts, attempt_count,
+                        lease_token, trace_id, schema_version
+                    ) VALUES (
+                        %s, 'effect.register', 'creator_response_operation', %s,
+                        %s, %s, 'action_intent_revision', %s, %s, 50,
+                        statement_timestamp(),
+                        statement_timestamp() + interval '3600 seconds',
+                        'ready', 2, 0, 0, %s, 1
+                    )
+                    """,
+                    (
+                        work_id,
+                        response_operation_id,
+                        subject_id,
+                        f"effect:{response_operation_id}",
+                        action_revision_id,
+                        response_digest,
+                        trace_id,
+                    ),
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO armi.outbox_items (
+                        outbox_item_id, work_id, message_kind,
+                        payload_digest, status, available_at,
+                        claim_token, attempt_count, max_attempts,
+                        trace_id, schema_version
+                    ) VALUES (
+                        uuidv7(), %s, 'work.available', %s, 'ready',
+                        statement_timestamp(), 0, 0, 2, %s, 1
+                    )
+                    """,
+                    (work_id, response_digest, trace_id),
+                )
+                updated = await (
+                    await connection.execute(
+                        """
+                        UPDATE armi.creator_response_operations
+                        SET registration_work_id = %s
+                        WHERE creator_response_operation_id = %s
+                          AND current_status = 'accepted'
+                          AND registration_work_id IS NULL
+                        RETURNING creator_response_operation_id
+                        """,
+                        (work_id, response_operation_id),
+                    )
+                ).fetchone()
+                if updated is None:
+                    raise RecoveryViolation("REC-EFFECT-INVALID")
+                await PostgreSQLAuditWriter(connection).append(
+                    AuditDraft(
+                        AuditEventId(uuid7()),
+                        AuditReference(
+                            "runtime",
+                            fence.runtime_instance_id.value,
+                        ),
+                        Purpose("effect.registration"),
+                        "effect.registration.queued",
+                        AuditReference(
+                            "creator_response_operation",
+                            response_operation_id,
+                        ),
+                        AuditResultStatus.WAITING,
+                        TraceId(str(trace_id)),
+                        AuditSensitivity.PRIVATE,
+                        subject_id=SubjectId(subject_id),
+                        request_digest=Digest(str(response_digest)),
+                    )
+                )
             await connection.execute(
                 """
                 UPDATE armi.cognitive_attempts AS attempt
@@ -1057,6 +1169,54 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert response_counts is not None
+            effect_counts = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        count(*),
+                        count(*) FILTER (WHERE outbox.effect_id IS NULL),
+                        count(outbox.effect_id),
+                        count(*) FILTER (
+                            WHERE decision.policy_decision_id IS NULL
+                               OR decision.decision_outcome <> 'allowed'
+                               OR response.effect_id <> effect.effect_id
+                               OR current_decision.policy_decision_id IS NULL
+                               OR (
+                                   effect.status = 'registered'
+                                   AND (
+                                       outbox.status <> 'ready'
+                                       OR response.current_policy_decision_id
+                                          <> decision.policy_decision_id
+                                       OR NOT decision.is_current
+                                   )
+                               )
+                               OR (
+                                   effect.status = 'cancelled'
+                                   AND (
+                                       outbox.status <> 'cancelled'
+                                       OR current_decision.decision_outcome
+                                          <> 'denied'
+                                       OR current_decision.supersedes_policy_decision_id
+                                          <> decision.policy_decision_id
+                                       OR NOT current_decision.is_current
+                                       OR decision.is_current
+                                   )
+                               )
+                        )
+                    FROM armi.effects AS effect
+                    LEFT JOIN armi.policy_decisions AS decision
+                      ON decision.policy_decision_id = effect.policy_decision_id
+                    LEFT JOIN armi.creator_response_operations AS response
+                      ON response.creator_response_operation_id = effect.creator_response_operation_id
+                    LEFT JOIN armi.policy_decisions AS current_decision
+                      ON current_decision.policy_decision_id =
+                         response.current_policy_decision_id
+                    LEFT JOIN armi.effect_outbox_items AS outbox
+                      ON outbox.effect_id = effect.effect_id
+                    """
+                )
+            ).fetchone()
+            assert effect_counts is not None
             if int(counts[7]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
@@ -1102,6 +1262,19 @@ class PostgreSQLRuntimeRecovery:
                         key=_finding_key,
                     )
                 )
+            if int(effect_counts[1]) > 0 or int(effect_counts[3]) > 0:
+                blockers += 1
+                sorted_findings = tuple(
+                    sorted(
+                        (
+                            *sorted_findings,
+                            RecoveryFinding(
+                                "effect", RecoveryDecision.BLOCKED, "REC-EFFECT-INVALID"
+                            ),
+                        ),
+                        key=_finding_key,
+                    )
+                )
             status = (
                 RecoveryStatus.SAFE
                 if blockers == 0 and critical == 2
@@ -1132,6 +1305,8 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_subject_commit": int(counts[6]),
                 "resumable_capability_request": int(capability_counts[0]),
                 "resumable_response_operation": int(response_counts[0]),
+                "resumable_effect": int(effect_counts[0]),
+                "resumable_effect_outbox": int(effect_counts[2]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -1165,6 +1340,8 @@ class PostgreSQLRuntimeRecovery:
                     resumable_subject_commit_count = %s,
                     resumable_capability_request_count = %s,
                     resumable_response_operation_count = %s,
+                    resumable_effect_count = %s,
+                    resumable_effect_outbox_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -1186,6 +1363,8 @@ class PostgreSQLRuntimeRecovery:
                     int(counts[6]),
                     int(capability_counts[0]),
                     int(response_counts[0]),
+                    int(effect_counts[0]),
+                    int(effect_counts[2]),
                     critical,
                     blockers,
                     digest.value,
@@ -1216,6 +1395,8 @@ class PostgreSQLRuntimeRecovery:
             resumable_subject_commit_count=int(counts[6]),
             resumable_capability_request_count=int(capability_counts[0]),
             resumable_response_operation_count=int(response_counts[0]),
+            resumable_effect_count=int(effect_counts[0]),
+            resumable_effect_outbox_count=int(effect_counts[2]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

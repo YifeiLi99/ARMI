@@ -98,6 +98,8 @@ class RecoverySummary:
     resumable_subject_commit_count: int
     resumable_capability_request_count: int
     resumable_response_operation_count: int
+    resumable_effect_count: int
+    resumable_effect_outbox_count: int
     critical_artifact_count: int
     blocker_count: int
     summary_digest: Digest | None
@@ -122,6 +124,8 @@ class RecoverySummary:
             self.resumable_subject_commit_count,
             self.resumable_capability_request_count,
             self.resumable_response_operation_count,
+            self.resumable_effect_count,
+            self.resumable_effect_outbox_count,
             self.critical_artifact_count,
             self.blocker_count,
         ):

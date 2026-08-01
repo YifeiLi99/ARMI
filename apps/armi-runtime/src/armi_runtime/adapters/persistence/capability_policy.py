@@ -267,6 +267,8 @@ class PostgreSQLCreatorGrantPolicy:
                 now = now_row[0]
                 resulting_version = command.expected_version + 1
                 grant: PermissionGrant | None = None
+                cancelled_effects: tuple[tuple[UUID, UUID, Digest], ...] = ()
+                cancellation_grant_id: UUID | None = None
                 scope_digest: Digest | None = None
                 result_status: CapabilityRequestStatus
                 if command.decision in {
@@ -358,6 +360,12 @@ class PostgreSQLCreatorGrantPolicy:
                     ).fetchone()
                     if revoked is None:
                         raise CapabilityViolation("POLICY-GRANT-NOT-ACTIVE")
+                    cancellation_grant_id = UUID(str(revoked[0]))
+                    cancelled_effects = await _cancel_registered_effects(
+                        connection,
+                        grant_id=cancellation_grant_id,
+                        reason_code="POLICY-GRANT-REVOKED",
+                    )
 
                 updated = await (
                     await connection.execute(
@@ -436,6 +444,25 @@ class PostgreSQLCreatorGrantPolicy:
                         else None,
                     )
                 )
+                for effect_id, subject_id, cancellation_digest in cancelled_effects:
+                    assert cancellation_grant_id is not None
+                    await unit_of_work.audit.append(
+                        AuditDraft(
+                            AuditEventId(uuid7()),
+                            AuditReference("creator", request[3]),
+                            Purpose("respond_to_creator"),
+                            "effect.cancelled",
+                            AuditReference("effect", effect_id),
+                            AuditResultStatus.APPLIED,
+                            TraceId(secrets.token_hex(16)),
+                            AuditSensitivity.PRIVATE,
+                            subject_id=SubjectId(subject_id),
+                            request_digest=cancellation_digest,
+                            grant=AuditReference(
+                                "permission_grant", cancellation_grant_id
+                            ),
+                        )
+                    )
                 return CreatorGrantResult(
                     command.request_id,
                     resulting_version,
@@ -499,6 +526,11 @@ class PostgreSQLCreatorGrantPolicy:
                     "UPDATE armi.capability_requests SET current_status='expired', request_version=request_version+1, resolved_at=statement_timestamp() WHERE capability_request_id=%s",
                     (row[1],),
                 )
+                cancelled_effects = await _cancel_registered_effects(
+                    connection,
+                    grant_id=UUID(str(row[0])),
+                    reason_code="POLICY-GRANT-EXPIRED",
+                )
                 await connection.execute(
                     """
                     INSERT INTO armi.capability_request_decisions (
@@ -534,7 +566,127 @@ class PostgreSQLCreatorGrantPolicy:
                         grant=AuditReference("permission_grant", row[0]),
                     )
                 )
+                for effect_id, subject_id, cancellation_digest in cancelled_effects:
+                    await unit_of_work.audit.append(
+                        AuditDraft(
+                            AuditEventId(uuid7()),
+                            AuditReference("runtime", self._environment_id),
+                            Purpose("respond_to_creator"),
+                            "effect.cancelled",
+                            AuditReference("effect", effect_id),
+                            AuditResultStatus.APPLIED,
+                            TraceId(secrets.token_hex(16)),
+                            AuditSensitivity.PRIVATE,
+                            subject_id=SubjectId(subject_id),
+                            request_digest=cancellation_digest,
+                            grant=AuditReference("permission_grant", row[0]),
+                        )
+                    )
             return len(rows)
+
+
+async def _cancel_registered_effects(
+    connection: Any,
+    *,
+    grant_id: UUID,
+    reason_code: str,
+) -> tuple[tuple[UUID, UUID, Digest], ...]:
+    rows = await (
+        await connection.execute(
+            """
+            SELECT effect.effect_id, effect.subject_id,
+                   effect.action_intent_revision_id,
+                   effect.creator_response_operation_id,
+                   effect.policy_decision_id
+            FROM armi.effects AS effect
+            JOIN armi.policy_decisions AS policy
+              ON policy.policy_decision_id = effect.policy_decision_id
+             AND policy.is_current
+            JOIN armi.effect_outbox_items AS effect_outbox
+              ON effect_outbox.effect_id = effect.effect_id
+            WHERE policy.matched_grant_id = %s
+              AND effect.status = 'registered'
+              AND effect_outbox.status = 'ready'
+            ORDER BY effect.effect_id
+            FOR UPDATE OF effect, policy, effect_outbox
+            """,
+            (grant_id,),
+        )
+    ).fetchall()
+    cancelled: list[tuple[UUID, UUID, Digest]] = []
+    for row in rows:
+        effect_id = UUID(str(row[0]))
+        subject_id = UUID(str(row[1]))
+        action_revision_id = UUID(str(row[2]))
+        operation_id = UUID(str(row[3]))
+        prior_decision_id = UUID(str(row[4]))
+        decision_id = uuid7()
+        cancellation_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                cast(
+                    Any,
+                    {
+                        "schema_version": "armi.effect-cancellation.v1",
+                        "effect_id": str(effect_id),
+                        "grant_id": str(grant_id),
+                        "reason_code": reason_code,
+                    },
+                )
+            )
+        )
+        await connection.execute(
+            "UPDATE armi.policy_decisions SET is_current=false WHERE policy_decision_id=%s AND is_current",
+            (prior_decision_id,),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.policy_decisions (
+                policy_decision_id, action_intent_revision_id,
+                creator_response_operation_id, decision_outcome,
+                policy_identity, decision_digest, reason_code,
+                supersedes_policy_decision_id, schema_version
+            ) VALUES (
+                %s, %s, %s, 'denied', 'armi.policy-engine.deterministic-v1',
+                %s, %s, %s, 1
+            )
+            """,
+            (
+                decision_id,
+                action_revision_id,
+                operation_id,
+                cancellation_digest.value,
+                reason_code,
+                prior_decision_id,
+            ),
+        )
+        await connection.execute(
+            """
+            UPDATE armi.effects
+            SET status='cancelled', cancelled_at=statement_timestamp()
+            WHERE effect_id=%s AND status='registered'
+            """,
+            (effect_id,),
+        )
+        await connection.execute(
+            """
+            UPDATE armi.effect_outbox_items
+            SET status='cancelled', cancelled_at=statement_timestamp()
+            WHERE effect_id=%s AND status='ready'
+            """,
+            (effect_id,),
+        )
+        await connection.execute(
+            """
+            UPDATE armi.creator_response_operations
+            SET current_status='effect_cancelled',
+                current_policy_decision_id=%s
+            WHERE creator_response_operation_id=%s
+              AND current_status='effect_registered'
+            """,
+            (decision_id, operation_id),
+        )
+        cancelled.append((effect_id, subject_id, cancellation_digest))
+    return tuple(cancelled)
 
 
 def _validate_transition(
