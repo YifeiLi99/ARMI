@@ -48,7 +48,7 @@ _SCHEMA_FILES = (
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")
-_REMOTE_MCP_BINDING = Path("model/remote-mcp-binding.manifest.json")
+_WEB_SEARCH_BINDING = Path("model/web-search-binding.manifest.json")
 _CANDIDATE_POLICY = Path("model/candidate-validation-policy.manifest.json")
 _SUBJECT_COMMIT_POLICY = Path("model/subject-commit-policy.manifest.json")
 _CAPABILITY_CATALOG = Path("model/capability-catalog.manifest.json")
@@ -71,8 +71,8 @@ def _generate(root: Path, output: Path) -> None:
     (output / "context-policy.manifest.json").write_bytes(context_policy)
     model_binding = (root / _MODEL_BINDING).read_bytes()
     (output / "model-bindings.manifest.json").write_bytes(model_binding)
-    remote_mcp_binding = (root / _REMOTE_MCP_BINDING).read_bytes()
-    (output / "remote-mcp-binding.manifest.json").write_bytes(remote_mcp_binding)
+    web_search_binding = (root / _WEB_SEARCH_BINDING).read_bytes()
+    (output / "web-search-binding.manifest.json").write_bytes(web_search_binding)
     candidate_policy = (root / _CANDIDATE_POLICY).read_bytes()
     (output / "candidate-validation-policy.manifest.json").write_bytes(candidate_policy)
     subject_commit_policy = (root / _SUBJECT_COMMIT_POLICY).read_bytes()
@@ -95,7 +95,7 @@ def _generate(root: Path, output: Path) -> None:
         birth_contract=birth_contract,
         context_policy=context_policy,
         model_binding=model_binding,
-        remote_mcp_binding=remote_mcp_binding,
+        web_search_binding=web_search_binding,
         candidate_policy=candidate_policy,
         subject_commit_policy=subject_commit_policy,
         capability_catalog=capability_catalog,
@@ -116,7 +116,7 @@ def _files(root: Path) -> dict[str, bytes]:
             "birth-contract.manifest.json",
             "context-policy.manifest.json",
             "model-bindings.manifest.json",
-            "remote-mcp-binding.manifest.json",
+            "web-search-binding.manifest.json",
             "candidate-validation-policy.manifest.json",
             "subject-commit-policy.manifest.json",
             "capability-catalog.manifest.json",
