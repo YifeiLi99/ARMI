@@ -12,6 +12,11 @@
       "id": "creator-identity-read",
       "module": "armi_runtime.adapters.creator_identity",
       "reason": "Reads the existing unique Creator party without owning or mutating database facts."
+    },
+    {
+      "id": "admin-fixed-tool-conninfo",
+      "module": "armi_admin.application.control_plane",
+      "reason": "Parses the configured Admin or migrator conninfo into child-only PostgreSQL tool environment variables; all database reads and writes remain in registered gateways."
     }
   ],
   "write_surfaces": [
@@ -38,12 +43,27 @@
       "id": "database-role-policy-admin",
       "module": "armi_admin.persistence.role_session",
       "owner": "database-role-policy",
-      "allowed_callers": ["armi_admin.persistence.schema_gateway"]
+      "allowed_callers": [
+        "armi_admin.persistence.observation_gateway",
+        "armi_admin.persistence.schema_gateway"
+      ]
     },
     {
       "id": "admin-schema-status",
       "module": "armi_admin.persistence.schema_gateway",
       "owner": "schema-governance",
+      "allowed_callers": ["armi_admin.mcp.service"]
+    },
+    {
+      "id": "admin-environment-reset",
+      "module": "armi_admin.persistence.environment_gateway",
+      "owner": "deployment-environment-governance",
+      "allowed_callers": ["armi_admin.application.control_plane"]
+    },
+    {
+      "id": "admin-environment-observation",
+      "module": "armi_admin.persistence.observation_gateway",
+      "owner": "deployment-environment-governance",
       "allowed_callers": ["armi_admin.mcp.service"]
     },
     {
@@ -419,6 +439,16 @@
       "id": "admin-pool-reset",
       "module": "armi_admin.persistence.role_session",
       "reason": "The role-bound pool must rollback and reset contaminated sessions."
+    },
+    {
+      "id": "admin-observation-transaction",
+      "module": "armi_admin.persistence.observation_gateway",
+      "reason": "Bounded Admin observations use explicit read-only transactions; the sole environment registration insert is restricted by the Admin database role."
+    },
+    {
+      "id": "admin-environment-reset-transaction",
+      "module": "armi_admin.persistence.environment_gateway",
+      "reason": "The disposable-environment reset gateway atomically recreates only the packaged armi schema before the fixed migration entry runs."
     },
     {
       "id": "runtime-authority-control-transaction",

@@ -851,6 +851,21 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("created_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
     ),
+    "deployment_environments": (
+        ("singleton_key", "boolean", True),
+        ("environment_id", "uuid", True),
+        ("environment_kind", "text", True),
+        ("incarnation", "bigint", True),
+        ("resettable", "boolean", True),
+        ("test_controls_enabled", "boolean", True),
+        ("bundle_digest", "text", True),
+        ("config_digest", "text", True),
+        ("template_digest", "text", True),
+        ("data_root_identity_digest", "text", True),
+        ("database_identity_digest", "text", True),
+        ("registered_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
@@ -976,6 +991,9 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     ),
     "web_evidence_sources": tuple(
         sorted((*("c",) * 7, *("n",) * 11, *("f",) * 3, "p", *("u",) * 3))
+    ),
+    "deployment_environments": tuple(
+        sorted((*(("c",) * 12), *(("n",) * 13), "p", "u"))
     ),
 }
 
@@ -1455,6 +1473,11 @@ class PostgreSQLSchemaGateway:
             evidence_tables = ("web_evidence_sources", "web_research_intents")
             expected_objects.extend((name, "r") for name in evidence_tables)
             expected_tables.extend(evidence_tables)
+            expected_objects.sort()
+            expected_tables.sort()
+        if applied_version >= 21:
+            expected_objects.append(("deployment_environments", "r"))
+            expected_tables.append("deployment_environments")
             expected_objects.sort()
             expected_tables.sort()
         if objects != expected_objects:

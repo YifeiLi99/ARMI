@@ -58,6 +58,7 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 _PURPOSE: Final = "creator_message"
 Diagnostic = Callable[[str], None]
+FaultInjector = Callable[[str], None]
 
 
 async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
@@ -78,6 +79,7 @@ class EvidenceAcceptanceTransaction(
         "_catalog",
         "_creator_party_id",
         "_diagnostic",
+        "_fault_injector",
         "_notifier",
         "_repository",
         "_storage",
@@ -94,6 +96,7 @@ class EvidenceAcceptanceTransaction(
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic | None = None,
+        fault_injector: FaultInjector | None = None,
     ) -> None:
         if creator_party_id.version != 7:
             raise CreatorInputViolation("CON-INPUT-CREATOR")
@@ -104,6 +107,7 @@ class EvidenceAcceptanceTransaction(
         self._uow_factory = unit_of_work_factory
         self._notifier = notifier
         self._diagnostic = diagnostic or _ignore_diagnostic
+        self._fault_injector = fault_injector or _ignore_diagnostic
 
     async def accept(self, command: CreatorInputCommand) -> CreatorInputAcceptance:
         if type(command) is not CreatorInputCommand:
@@ -131,6 +135,7 @@ class EvidenceAcceptanceTransaction(
             raise CreatorInputViolation("ART-INPUT-PUBLISH") from None
         if published.content_digest != content_digest:
             raise CreatorInputViolation("ART-INPUT-DIGEST")
+        self._fault_injector("artifact_after_publish_before_commit")
         try:
             acceptance = await self._attempt(
                 command,
@@ -390,6 +395,7 @@ def build_evidence_acceptance_transaction(
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
     diagnostic: Diagnostic | None,
+    fault_injector: FaultInjector | None = None,
 ) -> EvidenceAcceptanceTransaction:
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
@@ -412,6 +418,7 @@ def build_evidence_acceptance_transaction(
         unit_of_work_factory=factory,
         notifier=notifier,
         diagnostic=diagnostic,
+        fault_injector=fault_injector,
     )
 
 

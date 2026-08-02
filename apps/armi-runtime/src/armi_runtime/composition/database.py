@@ -358,6 +358,7 @@ def compose_creator_input(
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
     diagnostic: Callable[[str], None] | None = None,
+    fault_injector: Callable[[str], None] | None = None,
 ) -> EvidenceAcceptanceTransaction:
     """Resolve the Runtime credential for the sole Creator input write owner."""
 
@@ -403,6 +404,7 @@ def compose_creator_input(
                     authority_admission=authority_admission,
                     notifier=notifier,
                     diagnostic=diagnostic,
+                    fault_injector=fault_injector,
                 )
 
             return handle.consume(create)
@@ -653,6 +655,7 @@ def compose_subject_commit_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
     diagnostic: Callable[[str], None] | None = None,
+    fault_injector: Callable[[str], None] | None = None,
 ) -> SubjectCommitPipeline:
     """Resolve the Runtime credential for the sole active T-03 coordinator."""
 
@@ -683,6 +686,7 @@ def compose_subject_commit_pipeline(
                     authority_admission=authority_admission,
                     notifier=notifier,
                     diagnostic=diagnostic,
+                    fault_injector=fault_injector,
                 )
 
             return handle.consume(create)
@@ -829,6 +833,7 @@ def compose_effect_registration_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
+    fault_injector: Callable[[str], None] | None = None,
 ) -> EffectRegistrationPipeline:
     """Resolve the Runtime credential for the S029 T-05 worker."""
 
@@ -860,6 +865,7 @@ def compose_effect_registration_pipeline(
                     authority_admission=authority_admission,
                     notifier=notifier,
                     diagnostic=diagnostic,
+                    fault_injector=fault_injector,
                 )
 
             return handle.consume(create)

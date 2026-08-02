@@ -29,8 +29,15 @@ from uuid import UUID
 import psycopg
 import rfc8785
 from armi_admin.application import AdminConfig, AdminCredentialPort
-from armi_admin.mcp.contracts import HealthRequest, SchemaStatusRequest
+from armi_admin.mcp.contracts import (
+    EnvironmentResetPreviewRequest,
+    EnvironmentResetRequest,
+    HealthRequest,
+    RuntimeControlRequest,
+    SchemaStatusRequest,
+)
 from armi_admin.mcp.service import AdminToolService
+from armi_admin.persistence.observation_gateway import AdminObservationGateway
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_kernel.application import (
     ArtifactId,
@@ -358,7 +365,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {20})
+        self.assertEqual({result.applied_version for result in results}, {21})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -413,10 +420,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v1",
+                "schema_version": "armi.admin-config.v2",
                 "environment_kind": "acceptance",
                 "environment_id": str(fixture.environment_id),
+                "environment_incarnation": 1,
+                "resettable": True,
+                "test_controls_enabled": True,
+                "environment_root": Path.cwd(),
+                "experiment_root": Path.cwd(),
+                "template_manifest": Path.cwd()
+                / "schema/manifests/schema-manifest.json",
+                "postgresql_tool_root": Path(
+                    os.environ.get("S003_TOOL_ROOT", Path.cwd() / ".armi-tools")
+                )
+                / "installs/postgresql/18.4/pgsql",
                 "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
+                "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
+                "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                 "expected": {
                     "package_digest": governance["package_surface_digest"],
                     "schema_manifest_digest": governance["schema_manifest_sha256"],
@@ -439,15 +459,218 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         status = service.schema_status(
             SchemaStatusRequest(environment_id=str(fixture.environment_id))
         )
-        self.assertEqual(health.status, "healthy")
-        self.assertEqual(health.role_status, "verified")
-        self.assertEqual(status.status, "current")
-        self.assertEqual(status.applied_version, 20)
+        self.assertEqual(health.status, "succeeded")
+        self.assertIsNotNone(health.result)
+        assert health.result is not None
+        self.assertEqual(health.result.role_status, "verified")
+        self.assertEqual(status.status, "succeeded")
+        self.assertIsNotNone(status.result)
+        assert status.result is not None
+        self.assertEqual(status.result.status, "current")
+        self.assertEqual(status.result.applied_version, 21)
 
         for denied_dsn in (fixture.runtime_dsn, fixture.migrator_dsn):
             denied = service_for(denied_dsn).health(HealthRequest())
-            self.assertEqual(denied.status, "misconfigured")
+            self.assertEqual(denied.status, "rejected")
             self.assertEqual(denied.error_code, "ADMIN-DB-ROLE")
+
+        observation = AdminObservationGateway(
+            fixture.admin_role_dsn, expected_role=fixture.admin_role
+        )
+        identity = "sha256:" + "1" * 64
+        observation.register_environment(
+            {
+                "environment_id": str(fixture.environment_id),
+                "environment_kind": "acceptance",
+                "incarnation": 1,
+                "resettable": True,
+                "test_controls_enabled": True,
+                "bundle_digest": identity,
+                "config_digest": identity,
+                "template_digest": identity,
+                "data_root_identity_digest": identity,
+                "database_identity_digest": identity,
+            }
+        )
+        registered = observation.environment()
+        self.assertIsNotNone(registered)
+        assert registered is not None
+        self.assertEqual(registered["incarnation"], 1)
+        self.assertRegex(
+            observation.database_catalog_digest(), r"^sha256:[0-9a-f]{64}$"
+        )
+        with (
+            psycopg.connect(fixture.admin_role_dsn, autocommit=True) as connection,
+            self.assertRaises(psycopg.errors.InsufficientPrivilege),
+        ):
+            connection.execute(
+                "UPDATE armi.deployment_environments SET incarnation = 2"
+            )
+
+    def test_admin_reset_is_preview_bound_recoverable_and_re_registers(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        governance = json.loads(
+            files("armi_admin.mcp.resources")
+            .joinpath("admin-mcp-manifest.json")
+            .read_bytes()
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            experiment_root = Path(temporary).resolve()
+            environment_root = experiment_root / "environment"
+            template_root = experiment_root / "template"
+            template_environment = template_root / "environment-template"
+            secrets_root = experiment_root / "secrets"
+            for path in (
+                environment_root / "data",
+                environment_root / "secrets",
+                template_environment / "data",
+                template_environment / "secrets",
+                secrets_root,
+            ):
+                path.mkdir(parents=True)
+            migrator_file = secrets_root / "migrator"
+            runtime_file = secrets_root / "runtime"
+            migrator_file.write_text(
+                fixture.migrator_dsn, encoding="utf-8", newline="\n"
+            )
+            runtime_file.write_text(fixture.runtime_dsn, encoding="utf-8", newline="\n")
+            environment_toml = "\n".join(
+                (
+                    "[environment]",
+                    f'environment_id = "{fixture.environment_id}"',
+                    f'data_root = "{(environment_root / "data").as_posix()}"',
+                    "",
+                    "[creator]",
+                    "port = 45681",
+                    "",
+                    "[secret_locators]",
+                    '"database.migrator" = "env:ARMI_SECRET_MIGRATOR_DATABASE"',
+                    f'"database.runtime" = "file:{runtime_file.as_posix()}"',
+                    "",
+                )
+            )
+            (environment_root / "environment.toml").write_text(
+                environment_toml, encoding="utf-8", newline="\n"
+            )
+            (template_environment / "environment.toml").write_text(
+                environment_toml, encoding="utf-8", newline="\n"
+            )
+            template_manifest = template_root / "template.json"
+            template_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "armi.admin-experiment-environment.v1",
+                        "environment_id": str(fixture.environment_id),
+                    },
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
+            config = AdminConfig.model_validate(
+                {
+                    "schema_version": "armi.admin-config.v2",
+                    "environment_kind": "acceptance",
+                    "environment_id": str(fixture.environment_id),
+                    "environment_incarnation": 1,
+                    "resettable": True,
+                    "test_controls_enabled": True,
+                    "environment_root": environment_root,
+                    "experiment_root": experiment_root,
+                    "template_manifest": template_manifest,
+                    "postgresql_tool_root": Path(
+                        os.environ.get("S003_TOOL_ROOT", Path.cwd() / ".armi-tools")
+                    )
+                    / "installs/postgresql/18.4/pgsql",
+                    "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
+                    "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
+                    "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
+                    "expected": {
+                        "package_digest": governance["package_surface_digest"],
+                        "schema_manifest_digest": governance["schema_manifest_sha256"],
+                    },
+                }
+            )
+            credentials = AdminCredentialPort(
+                locator=config.locator,
+                migrator_locator=config.migrator_locator,
+                preview_locator=config.preview_locator,
+                config_root=experiment_root,
+                environ={
+                    "ARMI_SECRET_ADMIN_DATABASE": fixture.admin_role_dsn,
+                    "ARMI_SECRET_MIGRATOR_DATABASE": fixture.migrator_dsn,
+                    "ARMI_SECRET_ADMIN_PREVIEW_KEY": "s036-preview-key",
+                },
+            )
+            service = AdminToolService(config=config, credentials=credentials)
+            service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
+            preview = service.mutate(
+                "environment_reset_preview",
+                EnvironmentResetPreviewRequest(
+                    environment_id=str(fixture.environment_id),
+                    environment_incarnation=1,
+                    idempotency_key="preview-reset-once",
+                    purpose="admin.environment_reset_preview",
+                ),
+            )
+            self.assertEqual(preview.status, "succeeded")
+            assert preview.result is not None
+            reset = service.mutate(
+                "environment_reset",
+                EnvironmentResetRequest(
+                    environment_id=str(fixture.environment_id),
+                    environment_incarnation=1,
+                    idempotency_key="apply-reset-once",
+                    purpose="admin.environment_reset",
+                    preview_token=str(preview.result["preview_token"]),
+                ),
+            )
+            self.assertEqual(reset.status, "succeeded", reset.model_dump_json())
+            replay = service.mutate(
+                "environment_reset",
+                EnvironmentResetRequest(
+                    environment_id=str(fixture.environment_id),
+                    environment_incarnation=1,
+                    idempotency_key="apply-reset-once",
+                    purpose="admin.environment_reset",
+                    preview_token=str(preview.result["preview_token"]),
+                ),
+            )
+            self.assertEqual(replay, reset)
+            reload_required = service.mutate(
+                "runtime_start",
+                RuntimeControlRequest(
+                    environment_id=str(fixture.environment_id),
+                    environment_incarnation=1,
+                    idempotency_key="start-with-stale-config",
+                    purpose="admin.runtime_start",
+                ),
+            )
+            self.assertEqual(reload_required.status, "conflict")
+            self.assertEqual(reload_required.error_code, "ADMIN-CONFIG-RELOAD-REQUIRED")
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT incarnation FROM armi.deployment_environments"
+                    ).fetchone(),
+                    (2,),
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT max(version) FROM armi.schema_migrations"
+                    ).fetchone(),
+                    (21,),
+                )
+            recovery = list(
+                (experiment_root / ".armi-admin-recovery").glob(
+                    "*/recovery-manifest.json"
+                )
+            )
+            self.assertEqual(len(recovery), 1)
 
     def test_web_observation_admission_attempt_and_result_are_atomic(self) -> None:
         live_env = os.environ.get("S033_LIVE_ENV_FILE")
@@ -772,11 +995,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertLessEqual(
             cast(int, evidence["estimated_model_cost_microyuan"]), 1_000_000
         )
-        with (
-            psycopg.connect(fixture.admin_role_dsn) as connection,
-            self.assertRaises(psycopg.errors.InsufficientPrivilege),
-        ):
-            connection.execute("SELECT * FROM armi.web_observation_requests")
+        with psycopg.connect(fixture.admin_role_dsn) as connection:
+            row = connection.execute(
+                "SELECT count(*) FROM armi.web_observation_requests"
+            ).fetchone()
+            assert row is not None
+            self.assertEqual(row[0], 1)
 
     def test_existing_version_one_transfers_owner_and_upgrades(self) -> None:
         database, provisioner_dsn = self._raw_database()
@@ -802,7 +1026,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 20)
+        self.assertEqual(result.applied_version, 21)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -864,7 +1088,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 20)
+        self.assertEqual(result.applied_version, 21)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -924,7 +1148,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(21,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(22,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -983,7 +1207,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (20,),
+                    (21,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1316,17 +1540,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                     connection.execute(cast(LiteralString, statement))
                 connection.rollback()
+        with psycopg.connect(fixture.admin_role_dsn) as connection:
+            self.assertEqual(
+                len(connection.execute("SELECT * FROM armi.artifacts").fetchall()), 1
+            )
+            self.assertEqual(
+                len(connection.execute("SELECT * FROM armi.audit_events").fetchall()),
+                2,
+            )
         with (
-            psycopg.connect(fixture.admin_role_dsn) as connection,
+            psycopg.connect(fixture.migrator_dsn) as connection,
             self.assertRaises(psycopg.errors.InsufficientPrivilege),
         ):
-            connection.execute("SELECT * FROM armi.artifacts").fetchall()
-        for dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
-            with (
-                psycopg.connect(dsn) as connection,
-                self.assertRaises(psycopg.errors.InsufficientPrivilege),
-            ):
-                connection.execute("SELECT * FROM armi.audit_events").fetchall()
+            connection.execute("SELECT * FROM armi.audit_events").fetchall()
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             public_access = connection.execute(
                 """
@@ -1471,6 +1697,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 DROP TABLE
+                    armi.deployment_environments,
                     armi.web_evidence_sources,
                     armi.web_research_intents,
                     armi.observation_tool_calls,
@@ -1574,13 +1801,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 20)
+        self.assertEqual(backfilled.applied_version, 21)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
@@ -1829,14 +2056,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (scene[0],),
                 )
             connection.rollback()
-        for denied_dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
-            with psycopg.connect(denied_dsn) as connection:
-                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                    connection.execute("SELECT * FROM armi.subjects")
-                connection.rollback()
-                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                    connection.execute("SELECT * FROM armi.scene_timeline_items")
-                connection.rollback()
+        with psycopg.connect(fixture.admin_role_dsn) as connection:
+            row = connection.execute("SELECT count(*) FROM armi.subjects").fetchone()
+            assert row is not None
+            self.assertEqual(row[0], 1)
+            connection.execute("SELECT * FROM armi.scene_timeline_items").fetchall()
+        with psycopg.connect(fixture.migrator_dsn) as connection:
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("SELECT * FROM armi.subjects")
+            connection.rollback()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("SELECT * FROM armi.scene_timeline_items")
+            connection.rollback()
 
         birth_summary_file = os.environ.get("S015_BIRTH_SUMMARY_FILE")
         if birth_summary_file is not None:
@@ -3571,12 +3802,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.rollback()
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("TRUNCATE armi.runtime_instances")
-        for dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
-            with (
-                psycopg.connect(dsn) as connection,
-                self.assertRaises(psycopg.errors.InsufficientPrivilege),
-            ):
-                connection.execute("SELECT * FROM armi.runtime_instances")
+        with psycopg.connect(fixture.admin_role_dsn) as connection:
+            connection.execute("SELECT * FROM armi.runtime_instances").fetchall()
+        with (
+            psycopg.connect(fixture.migrator_dsn) as connection,
+            self.assertRaises(psycopg.errors.InsufficientPrivilege),
+        ):
+            connection.execute("SELECT * FROM armi.runtime_instances")
 
     def test_runtime_recovery_reaches_safe_without_starting_workers(self) -> None:
         fixture = self.create_database()
@@ -4432,12 +4664,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("DELETE FROM armi.runtime_recovery_runs")
-        for dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
-            with (
-                psycopg.connect(dsn) as connection,
-                self.assertRaises(psycopg.errors.InsufficientPrivilege),
-            ):
-                connection.execute("SELECT * FROM armi.runtime_recovery_runs")
+        with psycopg.connect(fixture.admin_role_dsn) as connection:
+            connection.execute("SELECT * FROM armi.runtime_recovery_runs").fetchall()
+        with (
+            psycopg.connect(fixture.migrator_dsn) as connection,
+            self.assertRaises(psycopg.errors.InsufficientPrivilege),
+        ):
+            connection.execute("SELECT * FROM armi.runtime_recovery_runs")
 
     def _prepare_s011_schema(self, fixture: DatabaseFixture) -> None:
         PostgreSQLSchemaGateway().upgrade(
@@ -5264,16 +5497,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                 connection.rollback()
 
-        for dsn in (fixture.admin_role_dsn, fixture.migrator_dsn):
-            with psycopg.connect(dsn) as connection:
-                for table in ("durable_work", "outbox_items"):
-                    with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                        connection.execute(
-                            sql.SQL("SELECT * FROM armi.{}").format(
-                                sql.Identifier(table)
-                            )
-                        )
-                    connection.rollback()
+        with psycopg.connect(fixture.admin_role_dsn) as connection:
+            for table in ("durable_work", "outbox_items"):
+                connection.execute(
+                    sql.SQL("SELECT * FROM armi.{}").format(sql.Identifier(table))
+                ).fetchall()
+        with psycopg.connect(fixture.migrator_dsn) as connection:
+            for table in ("durable_work", "outbox_items"):
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    connection.execute(
+                        sql.SQL("SELECT * FROM armi.{}").format(sql.Identifier(table))
+                    )
+                connection.rollback()
 
 
 if __name__ == "__main__":

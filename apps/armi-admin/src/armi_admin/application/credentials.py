@@ -49,25 +49,31 @@ class _SecretHandle:
 
 
 class AdminCredentialPort(CredentialPort):
-    """Resolve only the configured Admin DB credential for one explicit purpose."""
+    """Resolve only explicitly configured Admin-process credentials."""
 
-    __slots__ = ("_config_root", "_environ", "_locator")
+    __slots__ = ("_config_root", "_environ", "_locators")
 
     def __init__(
         self,
         *,
         locator: CredentialLocator,
+        migrator_locator: CredentialLocator | None = None,
+        preview_locator: CredentialLocator | None = None,
         config_root: Path,
         environ: dict[str, str] | None = None,
     ) -> None:
-        self._locator = locator
+        self._locators = {
+            "database.admin": locator,
+            "database.migrator": migrator_locator or locator,
+            "admin.preview": preview_locator or locator,
+        }
         self._config_root = config_root.resolve(strict=True)
         self._environ = os.environ if environ is None else environ
 
     def resolve(
         self, locator: CredentialLocator, purpose: CredentialPurpose
     ) -> _SecretHandle:
-        if purpose.value != "database.admin" or locator != self._locator:
+        if self._locators.get(purpose.value) != locator:
             raise AdminSecretError("ADMIN-SECRET-SCOPE")
         if locator.scheme == "env":
             value = self._environ.get(locator.target, "").encode("utf-8")

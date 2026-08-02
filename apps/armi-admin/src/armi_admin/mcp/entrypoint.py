@@ -22,6 +22,8 @@ def main() -> None:
         config, config_path = load_admin_config()
         credentials = AdminCredentialPort(
             locator=config.locator,
+            migrator_locator=config.migrator_locator,
+            preview_locator=config.preview_locator,
             config_root=config_path.parent,
         )
         service = AdminToolService(config=config, credentials=credentials)

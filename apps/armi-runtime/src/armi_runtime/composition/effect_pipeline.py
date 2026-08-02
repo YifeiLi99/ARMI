@@ -45,6 +45,7 @@ from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkF
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 Diagnostic = Callable[[str], None]
+FaultInjector = Callable[[str], None]
 
 
 def _ignore_diagnostic(event: str) -> None:
@@ -57,6 +58,7 @@ class EffectRegistrationPipeline:
         "_diagnostic",
         "_dispatcher",
         "_factory",
+        "_fault_injector",
         "_lease_owner",
         "_notifier",
         "_repository",
@@ -73,6 +75,7 @@ class EffectRegistrationPipeline:
         notifier: CreatorProjectionNotifier | None = None,
         adapter: ActionAdapterPort | None = None,
         diagnostic: Diagnostic | None = None,
+        fault_injector: FaultInjector | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
@@ -84,6 +87,7 @@ class EffectRegistrationPipeline:
         self._stop = asyncio.Event()
         self._diagnostic: Diagnostic = diagnostic or _ignore_diagnostic
         self._notifier = notifier
+        self._fault_injector = fault_injector or _ignore_diagnostic
 
     async def open(self) -> None:
         await self._factory.open()
@@ -125,6 +129,7 @@ class EffectRegistrationPipeline:
                 result = await self._repository.settle(
                     uow, lease=lease, snapshot=snapshot, integrity_ok=integrity_ok
                 )
+                self._fault_injector("effect_after_register_before_settlement")
             await self._notify_registration(snapshot, result)
             return True
         except EffectViolation as error:
@@ -184,6 +189,7 @@ class EffectRegistrationPipeline:
                     await self._notify_dispatch(snapshot, include_scene=False)
                     return True
                 return await self._reconcile(snapshot)
+            self._fault_injector("adapter_after_dispatch_before_settlement")
             async with self._factory.unit_of_work(LockPlan()) as uow:
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
             await self._notify_dispatch(snapshot, include_scene=True)
@@ -402,6 +408,7 @@ def build_effect_registration_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Diagnostic | None = None,
+    fault_injector: FaultInjector | None = None,
 ) -> EffectRegistrationPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -424,6 +431,7 @@ def build_effect_registration_pipeline(
         ),
         notifier=notifier,
         diagnostic=diagnostic,
+        fault_injector=fault_injector,
     )
 
 

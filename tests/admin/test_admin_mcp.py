@@ -14,7 +14,11 @@ from typing import Any
 from unittest.mock import patch
 
 from armi_admin.application import AdminConfig, AdminCredentialPort
-from armi_admin.mcp.contracts import HealthRequest, SchemaStatusRequest
+from armi_admin.mcp.contracts import (
+    HealthRequest,
+    RuntimeControlRequest,
+    SchemaStatusRequest,
+)
 from armi_admin.mcp.server import create_admin_server
 from armi_admin.mcp.service import AdminToolService
 from armi_admin.persistence import AdminSchemaSnapshot
@@ -33,12 +37,22 @@ def _resources() -> tuple[dict[str, Any], dict[str, Any]]:
 
 def _config() -> AdminConfig:
     governance, _ = _resources()
+    root = Path.cwd().resolve()
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v1",
+            "schema_version": "armi.admin-config.v2",
             "environment_kind": "system_test",
             "environment_id": ENVIRONMENT_ID,
+            "environment_incarnation": 1,
+            "resettable": True,
+            "test_controls_enabled": True,
+            "environment_root": root,
+            "experiment_root": root,
+            "template_manifest": root / "schema/manifests/schema-manifest.json",
+            "postgresql_tool_root": root / ".armi-tools/installs/postgresql/18.4/pgsql",
             "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
+            "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
+            "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
             "expected": {
                 "package_digest": governance["package_surface_digest"],
                 "schema_manifest_digest": governance["schema_manifest_sha256"],
@@ -100,16 +114,46 @@ class AdminConfigurationTests(unittest.TestCase):
         self.assertEqual(governance["protocol"]["target_revision"], "2026-07-28")
         self.assertEqual(
             [tool["name"] for tool in governance["tools"]],
-            ["health", "schema_status"],
+            [
+                "advance_test_clock",
+                "arm_fault",
+                "clear_faults",
+                "environment_initialize",
+                "environment_reset",
+                "environment_reset_preview",
+                "health",
+                "inject_creator_input",
+                "inspect_scope",
+                "run_test",
+                "runtime_drain",
+                "runtime_restart",
+                "runtime_start",
+                "runtime_status",
+                "runtime_stop",
+                "schema_status",
+                "subject_snapshot",
+                "tail_diagnostics",
+                "trace_flow",
+            ],
         )
+        read_only = {
+            "health",
+            "schema_status",
+            "runtime_status",
+            "subject_snapshot",
+            "trace_flow",
+            "inspect_scope",
+            "tail_diagnostics",
+            "environment_reset_preview",
+        }
         for tool in governance["tools"]:
             self.assertEqual(
                 tool["annotations"],
                 {
-                    "destructiveHint": False,
+                    "destructiveHint": tool["name"] == "environment_reset",
                     "idempotentHint": True,
                     "openWorldHint": False,
-                    "readOnlyHint": True,
+                    "readOnlyHint": tool["name"] in read_only,
                 },
             )
 
@@ -139,6 +183,35 @@ class AdminConfigurationTests(unittest.TestCase):
 
 
 class AdminToolServiceTests(unittest.TestCase):
+    def test_control_idempotency_and_purpose_are_enforced(self) -> None:
+        service = _service()
+        request = RuntimeControlRequest(
+            environment_id=ENVIRONMENT_ID,
+            environment_incarnation=1,
+            idempotency_key="same-runtime-drain",
+            purpose="admin.runtime_drain",
+        )
+        with patch(
+            "armi_admin.application.control_plane.AdminControlPlane.send_control",
+            return_value={"runtime_state": "draining"},
+        ) as send:
+            first = service.mutate("runtime_drain", request)
+            repeated = service.mutate("runtime_drain", request)
+        self.assertEqual(first, repeated)
+        send.assert_called_once()
+        conflict = service.mutate(
+            "runtime_drain",
+            request.model_copy(
+                update={"expected_instance_id": "0198f3f4-7b8c-7def-8abc-1234567890ab"}
+            ),
+        )
+        self.assertEqual(conflict.error_code, "ADMIN-IDEMPOTENCY-CONFLICT")
+        wrong_purpose = service.mutate(
+            "runtime_drain",
+            request.model_copy(update={"purpose": "admin.runtime_stop"}),
+        )
+        self.assertEqual(wrong_purpose.error_code, "ADMIN-PURPOSE")
+
     def test_health_and_current_schema_are_read_only_safe_results(self) -> None:
         service = _service()
         with patch.object(
@@ -148,11 +221,16 @@ class AdminToolServiceTests(unittest.TestCase):
             status = service.schema_status(
                 SchemaStatusRequest(environment_id=ENVIRONMENT_ID)
             )
-        self.assertEqual(health.status, "healthy")
-        self.assertTrue(health.database_reachable)
-        self.assertEqual(health.role_status, "verified")
-        self.assertEqual(status.status, "current")
-        self.assertEqual(status.applied_version, 20)
+        self.assertEqual(health.status, "succeeded")
+        self.assertIsNotNone(health.result)
+        assert health.result is not None
+        self.assertTrue(health.result.database_reachable)
+        self.assertEqual(health.result.role_status, "verified")
+        self.assertEqual(status.status, "succeeded")
+        self.assertIsNotNone(status.result)
+        assert status.result is not None
+        self.assertEqual(status.result.status, "current")
+        self.assertEqual(status.result.applied_version, 21)
         self.assertIsNone(status.error_code)
         serialized = health.model_dump_json() + status.model_dump_json()
         self.assertNotIn("postgresql://", serialized)
@@ -178,14 +256,17 @@ class AdminToolServiceTests(unittest.TestCase):
             timezone=current.timezone,
             migrations=(
                 *current.migrations[:-1],
-                (20, "changed", current.migrations[-1][2]),
+                (21, "changed", current.migrations[-1][2]),
             ),
         )
         with patch.object(AdminToolService, "_read_snapshot", return_value=dirty):
             result = service.schema_status(
                 SchemaStatusRequest(environment_id=ENVIRONMENT_ID)
             )
-        self.assertEqual(result.status, "dirty")
+        self.assertEqual(result.status, "failed")
+        self.assertIsNotNone(result.result)
+        assert result.result is not None
+        self.assertEqual(result.result.status, "dirty")
         self.assertEqual(result.error_code, "ADMIN-SCHEMA-HASH")
 
 
@@ -203,7 +284,8 @@ class AdminProtocolTests(unittest.TestCase):
         modern, legacy, names = asyncio.run(exercise())
         self.assertEqual(modern, "2026-07-28")
         self.assertNotEqual(legacy, "")
-        self.assertEqual(names, ["health", "schema_status"])
+        self.assertEqual(len(names), 19)
+        self.assertIn("environment_reset_preview", names)
 
     def test_stdio_subprocess_has_clean_protocol_output(self) -> None:
         governance, _ = _resources()
@@ -213,10 +295,19 @@ class AdminProtocolTests(unittest.TestCase):
             config_path.write_text(
                 "\n".join(
                     (
-                        'schema_version = "armi.admin-config.v1"',
+                        'schema_version = "armi.admin-config.v2"',
                         'environment_kind = "system_test"',
                         f'environment_id = "{ENVIRONMENT_ID}"',
+                        "environment_incarnation = 1",
+                        "resettable = true",
+                        "test_controls_enabled = true",
+                        f'environment_root = "{root.as_posix()}"',
+                        f'experiment_root = "{root.as_posix()}"',
+                        f'template_manifest = "{(Path.cwd() / "schema/manifests/schema-manifest.json").as_posix()}"',
+                        f'postgresql_tool_root = "{(Path.cwd() / ".armi-tools/installs/postgresql/18.4").as_posix()}"',
                         'database_locator = "env:ARMI_SECRET_ADMIN_DATABASE"',
+                        'migrator_database_locator = "env:ARMI_SECRET_MIGRATOR_DATABASE"',
+                        'preview_key_locator = "env:ARMI_SECRET_ADMIN_PREVIEW_KEY"',
                         "[expected]",
                         f'package_digest = "{governance["package_surface_digest"]}"',
                         f'schema_manifest_digest = "{governance["schema_manifest_sha256"]}"',
@@ -258,7 +349,7 @@ class AdminProtocolTests(unittest.TestCase):
 
             version, names, is_error = asyncio.run(exercise())
         self.assertEqual(version, "2026-07-28")
-        self.assertEqual(names, ["health", "schema_status"])
+        self.assertEqual(len(names), 19)
         self.assertFalse(is_error)
 
     def test_unknown_input_field_is_rejected_by_sdk(self) -> None:

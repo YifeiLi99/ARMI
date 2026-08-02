@@ -110,6 +110,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ]
             )
             environment = dict(os.environ)
+            environment["S003_TOOL_ROOT"] = str(tool_root)
             environment["S009_ADMIN_DSN"] = (
                 f"postgresql://s009_admin:{password}@127.0.0.1:{port}/postgres"
             )

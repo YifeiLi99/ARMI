@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import selectors
 import signal
 import threading
@@ -16,6 +17,7 @@ from armi_kernel.application import (
     CandidateViolation,
     CapabilityViolation,
     ContextViolation,
+    CreatorInputCommand,
     CreatorInputViolation,
     EffectViolation,
     ModelViolation,
@@ -28,6 +30,7 @@ from armi_kernel.application import (
     SubjectCommitViolation,
     WebObservationViolation,
 )
+from armi_kernel.contracts import IdempotencyKey, TraceId
 
 from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionStore,
@@ -38,6 +41,10 @@ from armi_runtime.interfaces.creator_contract import RuntimeStatusResponse
 from armi_runtime.interfaces.creator_events import CreatorEventBroker
 from armi_runtime.interfaces.static_assets import AssetViolation, StaticAssetStore
 
+from .admin_control import (
+    RuntimeAdminControlServer,
+    load_admin_control_incarnation,
+)
 from .authority import (
     LocalAuthorityState,
     RuntimeAuthorityController,
@@ -132,6 +139,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     response_pipeline = None
     effect_pipeline = None
     web_search_pipeline = None
+    admin_control: RuntimeAdminControlServer | None = None
+
+    def inject_admin_fault(name: str) -> None:
+        if admin_control is not None:
+            admin_control.trigger_fault(name)
+
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -211,6 +224,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     event,
                     result_code="CREATOR_INPUT",
                 ),
+                fault_injector=inject_admin_fault,
             )
             await creator_input.open()
             context_pipeline = compose_context_pipeline(
@@ -239,6 +253,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     event,
                     result_code="SUBJECT_COMMIT_PIPELINE",
                 ),
+                fault_injector=inject_admin_fault,
             )
             await subject_commit_pipeline.open()
             response_pipeline = compose_response_admission_pipeline(
@@ -257,6 +272,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 diagnostic=lambda event: diagnostic.emit(
                     event, result_code="EFFECT_REGISTRATION"
                 ),
+                fault_injector=inject_admin_fault,
             )
             await effect_pipeline.open()
             if "model.ark_api_key" in config.secret_locators:
@@ -457,9 +473,13 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 capability_policy.run_expiry_reconciler(),
                 name="capability-grant-expiry",
             )
+        if admin_control is not None:
+            await admin_control.start()
 
     async def stopping() -> None:
         nonlocal drain_timed_out
+        if admin_control is not None:
+            await admin_control.close()
         lifecycle.drain()
         diagnostic.emit("runtime.lifecycle.draining", result_code="LIFE_DRAINING")
         if creator_events is not None:
@@ -566,6 +586,58 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     def security_event(event: str) -> None:
         diagnostic.emit(event, result_code="CREATOR_SECURITY_EVENT")
 
+    def admin_status() -> dict[str, object]:
+        snapshot = lifecycle.snapshot()
+        return {
+            "runtime_state": snapshot.runtime_state.value,
+            "readiness": snapshot.readiness.value,
+            "reason_codes": list(snapshot.reason_codes),
+        }
+
+    def admin_drain() -> None:
+        lifecycle.drain()
+        if authority is not None:
+            authority.begin_drain()
+        for pipeline in (
+            context_pipeline,
+            model_pipeline,
+            web_search_pipeline,
+            candidate_pipeline,
+            subject_commit_pipeline,
+            response_pipeline,
+            effect_pipeline,
+            capability_policy,
+        ):
+            if pipeline is not None:
+                pipeline.stop()
+
+    def admin_stop() -> None:
+        if lifecycle.snapshot().runtime_state.value != "draining":
+            raise RuntimeViolation(
+                "ADMIN-CONTROL-NOT-DRAINED", "runtime is not drained"
+            )
+        server.should_exit = True
+
+    async def admin_input(message: str, idempotency_key: str) -> dict[str, object]:
+        if creator_input is None:
+            raise RuntimeViolation(
+                "ADMIN-CONTROL-INPUT-UNAVAILABLE", "creator intake is unavailable"
+            )
+        acceptance = await creator_input.accept(
+            CreatorInputCommand(
+                scene_key="default",
+                message=message,
+                idempotency_key=IdempotencyKey(idempotency_key),
+                trace_id=TraceId(os.urandom(16).hex()),
+            )
+        )
+        return {
+            "interaction_id": str(acceptance.interaction_id),
+            "evidence_id": str(acceptance.evidence_id),
+            "opportunity_id": str(acceptance.opportunity_id),
+            "newly_accepted": acceptance.newly_accepted,
+        }
+
     app = create_runtime_app(
         readiness=lambda: lifecycle.snapshot().readiness,
         runtime_status=runtime_status,
@@ -601,6 +673,21 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             timeout_graceful_shutdown=config.lifecycle.graceful_shutdown_seconds,
         )
     )
+    control_incarnation = load_admin_control_incarnation(
+        prepared.root,
+        str(config.environment.environment_id),
+    )
+    if control_incarnation is not None:
+        admin_control = RuntimeAdminControlServer(
+            run_root=prepared.root / "run" / "admin-control",
+            environment_id=str(config.environment.environment_id),
+            incarnation=control_incarnation,
+            instance_id=instance_id,
+            on_status=admin_status,
+            on_drain=admin_drain,
+            on_stop=admin_stop,
+            on_input=admin_input if creator_input is not None else None,
+        )
     try:
         await server.serve()
     except SystemExit:

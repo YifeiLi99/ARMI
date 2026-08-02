@@ -1826,6 +1826,12 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                     ("armi.web_evidence_sources", "external-evidence"),
                 )
             ],
+            {
+                "kind": "table",
+                "name": "armi.deployment_environments",
+                "logical_owner": "deployment-environment-governance",
+                "activation_step": "M0-S036",
+            },
         ],
         "deferred_objects": [
             {"scope": "creator_effect_ui", "activation_step": "M0-S031"},
@@ -1845,7 +1851,50 @@ def canonical_manifest_bytes(value: dict[str, object]) -> bytes:
 
 def generated_files(root: Path) -> dict[Path, bytes]:
     schema_root = root / _SCHEMA_ROOT
-    role_manifest = canonical_manifest_bytes(build_role_manifest())
+    role_value = build_role_manifest()
+    objects = cast(list[dict[str, Any]], role_value["objects"])
+    for item in objects:
+        if item.get("kind") == "table":
+            grants = cast(dict[str, list[str]], item.setdefault("grants", {}))
+            grants["armi_admin"] = ["SELECT"]
+    objects.append(
+        {
+            "kind": "table",
+            "name": "armi.deployment_environments",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": ["SELECT"],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {},
+                "armi_admin": {
+                    "INSERT": [
+                        "singleton_key",
+                        "environment_id",
+                        "environment_kind",
+                        "incarnation",
+                        "resettable",
+                        "test_controls_enabled",
+                        "bundle_digest",
+                        "config_digest",
+                        "template_digest",
+                        "data_root_identity_digest",
+                        "database_identity_digest",
+                        "schema_version",
+                    ]
+                },
+                "armi_migrator": {},
+            },
+        }
+    )
+    security_definer = cast(dict[str, Any], role_value["security_definer"])
+    security_definer["not_applicable_reason"] = (
+        "M0-S036 has no business or administration function requiring privilege elevation."
+    )
+    role_manifest = canonical_manifest_bytes(role_value)
     manifest = canonical_manifest_bytes(build_manifest(schema_root, role_manifest))
     generated = {
         _MANIFEST: manifest,

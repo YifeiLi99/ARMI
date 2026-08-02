@@ -47,6 +47,7 @@ _SCHEMA_FILES = (
     "migrations/0018_effect_dispatch_observation_settlement.sql",
     "migrations/0019_readonly_web_search_custody.sql",
     "migrations/0020_web_search_evidence_closure.sql",
+    "migrations/0021_admin_observation_and_environment.sql",
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")

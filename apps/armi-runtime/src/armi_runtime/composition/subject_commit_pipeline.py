@@ -56,6 +56,7 @@ from .subject_commit_contract import parse_subject_change_set
 _WORK_KIND = "cognition.subject.commit"
 _LEASE_SECONDS = 30
 Diagnostic = Callable[[str], None]
+FaultInjector = Callable[[str], None]
 
 
 def _ignore_diagnostic(_event: str) -> None:
@@ -69,6 +70,7 @@ class SubjectCommitPipeline:
         "_catalog",
         "_diagnostic",
         "_factory",
+        "_fault_injector",
         "_lease_owner",
         "_notifier",
         "_repository",
@@ -84,6 +86,7 @@ class SubjectCommitPipeline:
         storage: ContentAddressedArtifactStore,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic | None = None,
+        fault_injector: FaultInjector | None = None,
     ) -> None:
         self._factory = factory
         self._catalog = ArtifactCatalogRepository()
@@ -94,6 +97,7 @@ class SubjectCommitPipeline:
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
+        self._fault_injector = fault_injector or _ignore_diagnostic
 
     async def open(self) -> None:
         try:
@@ -178,6 +182,7 @@ class SubjectCommitPipeline:
                                 snapshot,
                             )
                         )
+                self._fault_injector("subject_before_cas")
                 result = await self._repository.settle(
                     unit_of_work,
                     lease=lease,
@@ -387,6 +392,7 @@ def build_subject_commit_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
     diagnostic: Diagnostic | None,
+    fault_injector: FaultInjector | None = None,
 ) -> SubjectCommitPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -409,6 +415,7 @@ def build_subject_commit_pipeline(
         ),
         notifier=notifier,
         diagnostic=diagnostic,
+        fault_injector=fault_injector,
     )
 
 

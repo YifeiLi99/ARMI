@@ -60,7 +60,7 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 20})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 21})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
             [
@@ -84,6 +84,7 @@ class SchemaArtifactTests(unittest.TestCase):
                 18,
                 19,
                 20,
+                21,
             ],
         )
         self.assertEqual(
@@ -143,6 +144,7 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.observation_tool_calls",
                 "armi.web_research_intents",
                 "armi.web_evidence_sources",
+                "armi.deployment_environments",
             ],
         )
         self.assertNotIn("manifest_sha256", manifest)
