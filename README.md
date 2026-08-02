@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，M0-S001—M0-S032 与 M0-S035 已完成，当前设计基线为 S001 4.7，产品 schema 保持 v20。Codex 现在可按隔离配置启动本地 `stdio` Admin MCP；服务使用 MCP Python SDK 2.0.0，现代客户端协商协议 `2026-07-28`，并静态提供 `health` 与 `schema_status` 两个只读工具。Admin 只接受绑定环境的独立数据库身份，Runtime/Migrator 凭据不能冒充；真实用户 Codex 配置、Windows 服务身份和 DACL 激活仍归 S045。S033 的网页调用保管与 S034 的网页证据闭环已经实现，但正式联网验收统一延至 M0 总验收，因此两步仍不能标记为通过。生产认知继续使用 candidate v4 与 `tools=[]`，网页研究 worker 不启动，`M0-SEAM-WEB.active_binding` 保持为空。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。
+项目目前处于从零重建的实验阶段，M0-S001—M0-S032 与 M0-S035 已完成，当前设计基线为 S001 4.8，产品 schema 保持 v20。S036 已冻结为单环境绑定的 Admin 观察、生命周期控制与可丢弃隔离实验边界：MCP SDK/协议和 stdio 传输保持不变，目录扩展为 19 个静态工具，环境 reset 使用专用十分钟 preview，普通 Runtime 默认不开放控制端点；通用数据纠正仍归 S037。S033 的网页调用保管与 S034 的网页证据闭环已经实现，但正式联网验收统一延至 M0 总验收，因此两步仍不能标记为通过。生产认知继续使用 candidate v4 与 `tools=[]`，网页研究 worker 不启动，`M0-SEAM-WEB.active_binding` 保持为空。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。
 
 ## 关于学习与参考
 
