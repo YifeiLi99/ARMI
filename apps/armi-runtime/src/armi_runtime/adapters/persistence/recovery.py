@@ -1283,6 +1283,91 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert effect_execution_counts is not None
+            await connection.execute(
+                """
+                UPDATE armi.observation_attempts AS attempt
+                SET dispatch_state = 'settled', result_status = 'cancelled',
+                    error_code = 'WEB-RECOVERY-PRE-DISPATCH',
+                    settled_at = statement_timestamp()
+                FROM armi.web_observation_requests AS request,
+                     armi.durable_work AS work
+                WHERE attempt.web_observation_request_id
+                      = request.web_observation_request_id
+                  AND request.work_id = work.work_id
+                  AND attempt.dispatch_state = 'prepared'
+                  AND work.status = 'ready'
+                """
+            )
+            await connection.execute(
+                """
+                UPDATE armi.observation_attempts
+                SET dispatch_state = 'settled',
+                    result_status = 'outcome_unknown',
+                    error_code = 'WEB-RECOVERY-OUTCOME-UNKNOWN',
+                    settled_at = statement_timestamp()
+                WHERE dispatch_state = 'dispatched'
+                """
+            )
+            await connection.execute(
+                """
+                UPDATE armi.web_observation_requests AS request
+                SET status = 'unknown',
+                    last_error_code = 'WEB-RECOVERY-OUTCOME-UNKNOWN',
+                    completed_at = statement_timestamp()
+                WHERE request.status IN ('pending', 'running')
+                  AND EXISTS (
+                      SELECT 1 FROM armi.observation_attempts AS attempt
+                      WHERE attempt.web_observation_request_id
+                            = request.web_observation_request_id
+                        AND attempt.result_status = 'outcome_unknown'
+                  )
+                """
+            )
+            await connection.execute(
+                """
+                UPDATE armi.durable_work AS work
+                SET status = 'failed', current_attempt_id = NULL,
+                    lease_owner = NULL, lease_expires_at = NULL,
+                    last_error_code = 'WEB-RECOVERY-OUTCOME-UNKNOWN'
+                FROM armi.web_observation_requests AS request
+                WHERE request.work_id = work.work_id
+                  AND request.status = 'unknown'
+                  AND work.status IN ('ready', 'leased')
+                """
+            )
+            web_counts = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        count(*) FILTER (
+                            WHERE request.status IN ('pending', 'running')
+                        ),
+                        (SELECT count(*) FROM armi.observation_attempts
+                         WHERE result_status = 'outcome_unknown'),
+                        count(*) FILTER (
+                            WHERE (request.status IN ('pending', 'running')
+                                   AND work.status NOT IN ('ready', 'leased'))
+                               OR (request.status = 'succeeded' AND (
+                                   request.result_artifact_id IS NULL
+                                   OR request.result_digest IS NULL
+                                   OR work.status <> 'completed'
+                               ))
+                               OR (request.status = 'unknown' AND NOT EXISTS (
+                                   SELECT 1
+                                   FROM armi.observation_attempts AS attempt
+                                   WHERE attempt.web_observation_request_id
+                                         = request.web_observation_request_id
+                                     AND attempt.result_status
+                                         = 'outcome_unknown'
+                               ))
+                        )
+                    FROM armi.web_observation_requests AS request
+                    JOIN armi.durable_work AS work
+                      ON work.work_id = request.work_id
+                    """
+                )
+            ).fetchone()
+            assert web_counts is not None
             if int(counts[7]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
@@ -1345,6 +1430,21 @@ class PostgreSQLRuntimeRecovery:
                         key=_finding_key,
                     )
                 )
+            if int(web_counts[2]) > 0:
+                blockers += 1
+                sorted_findings = tuple(
+                    sorted(
+                        (
+                            *sorted_findings,
+                            RecoveryFinding(
+                                "web_observation",
+                                RecoveryDecision.BLOCKED,
+                                "REC-WEB-OBSERVATION-INVALID",
+                            ),
+                        ),
+                        key=_finding_key,
+                    )
+                )
             status = (
                 RecoveryStatus.SAFE
                 if blockers == 0 and critical == 2
@@ -1380,6 +1480,8 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_effect_attempt": int(effect_execution_counts[0]),
                 "reliable_effect_observation": int(effect_execution_counts[1]),
                 "creator_response_delivery": int(effect_execution_counts[2]),
+                "resumable_web_observation": int(web_counts[0]),
+                "unknown_web_observation_attempt": int(web_counts[1]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -1418,6 +1520,8 @@ class PostgreSQLRuntimeRecovery:
                     resumable_effect_attempt_count = %s,
                     reliable_effect_observation_count = %s,
                     creator_response_delivery_count = %s,
+                    resumable_web_observation_count = %s,
+                    unknown_web_observation_attempt_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -1444,6 +1548,8 @@ class PostgreSQLRuntimeRecovery:
                     int(effect_execution_counts[0]),
                     int(effect_execution_counts[1]),
                     int(effect_execution_counts[2]),
+                    int(web_counts[0]),
+                    int(web_counts[1]),
                     critical,
                     blockers,
                     digest.value,
@@ -1479,6 +1585,8 @@ class PostgreSQLRuntimeRecovery:
             resumable_effect_attempt_count=int(effect_execution_counts[0]),
             reliable_effect_observation_count=int(effect_execution_counts[1]),
             creator_response_delivery_count=int(effect_execution_counts[2]),
+            resumable_web_observation_count=int(web_counts[0]),
+            unknown_web_observation_attempt_count=int(web_counts[1]),
             critical_artifact_count=critical,
             blocker_count=blockers,
             summary_digest=digest,

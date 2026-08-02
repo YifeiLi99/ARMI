@@ -26,6 +26,7 @@ from armi_kernel.application import (
     RuntimeInstanceId,
     SceneQueryViolation,
     SubjectCommitViolation,
+    WebObservationViolation,
 )
 
 from armi_runtime.interfaces.browser_sessions import (
@@ -56,6 +57,7 @@ from .database import (
     compose_runtime_recovery,
     compose_scene_timeline_query,
     compose_subject_commit_pipeline,
+    compose_web_search_pipeline,
     inspect_creator_context,
     inspect_runtime_continuity,
     runtime_database_reason,
@@ -129,6 +131,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     capability_policy = None
     response_pipeline = None
     effect_pipeline = None
+    web_search_pipeline = None
     if continuity is ContinuityState.BORN:
         try:
             authority_port = compose_runtime_authority(prepared)
@@ -276,6 +279,23 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                         result_code="MODEL_UNAVAILABLE",
                         reason_codes=("RUNTIME_MODEL_UNAVAILABLE",),
                     )
+                try:
+                    web_search_pipeline = compose_web_search_pipeline(
+                        prepared,
+                        authority_admission=authority.require_writable,
+                        diagnostic=lambda event: diagnostic.emit(
+                            event,
+                            result_code="WEB_SEARCH_CUSTODY",
+                        ),
+                    )
+                    await web_search_pipeline.open()
+                except WebObservationViolation:
+                    web_search_pipeline = None
+                    diagnostic.emit(
+                        "runtime.web_search.unavailable",
+                        level=logging.WARNING,
+                        result_code="WEB_SEARCH_UNAVAILABLE",
+                    )
             else:
                 lifecycle.add_degradation("RUNTIME_MODEL_UNAVAILABLE")
         except DatabaseViolation, RuntimeAuthorityViolation:
@@ -406,6 +426,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     model_pipeline.run_worker(),
                     name=f"model-invoke-worker-{index + 1}",
                 )
+        if web_search_pipeline is not None:
+            for index in range(config.web.concurrency):
+                supervisor.start(
+                    web_search_pipeline.run_worker(),
+                    name=f"web-search-worker-{index + 1}",
+                )
         if candidate_pipeline is not None:
             supervisor.start(
                 candidate_pipeline.run_worker(),
@@ -452,6 +478,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             context_pipeline.stop()
         if model_pipeline is not None:
             model_pipeline.stop()
+        if web_search_pipeline is not None:
+            web_search_pipeline.stop()
         if candidate_pipeline is not None:
             candidate_pipeline.stop()
         if subject_commit_pipeline is not None:
@@ -469,6 +497,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await context_pipeline.close()
         if model_pipeline is not None:
             await model_pipeline.close()
+        if web_search_pipeline is not None:
+            await web_search_pipeline.close()
         if candidate_pipeline is not None:
             await candidate_pipeline.close()
         if subject_commit_pipeline is not None:
@@ -598,6 +628,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await capability_policy.close()
         if effect_pipeline is not None:
             await effect_pipeline.close()
+        if web_search_pipeline is not None:
+            await web_search_pipeline.close()
         if authority_port is not None:
             await authority_port.close()
     if server.force_exit:

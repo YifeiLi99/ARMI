@@ -103,6 +103,8 @@ class RecoverySummary:
     resumable_effect_attempt_count: int
     reliable_effect_observation_count: int
     creator_response_delivery_count: int
+    resumable_web_observation_count: int
+    unknown_web_observation_attempt_count: int
     critical_artifact_count: int
     blocker_count: int
     summary_digest: Digest | None
@@ -132,6 +134,8 @@ class RecoverySummary:
             self.resumable_effect_attempt_count,
             self.reliable_effect_observation_count,
             self.creator_response_delivery_count,
+            self.resumable_web_observation_count,
+            self.unknown_web_observation_attempt_count,
             self.critical_artifact_count,
             self.blocker_count,
         ):

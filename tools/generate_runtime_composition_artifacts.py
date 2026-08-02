@@ -45,10 +45,12 @@ _SCHEMA_FILES = (
     "migrations/0016_response_and_formal_no_action.sql",
     "migrations/0017_effect_intent_and_ledger.sql",
     "migrations/0018_effect_dispatch_observation_settlement.sql",
+    "migrations/0019_readonly_web_search_custody.sql",
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")
 _WEB_SEARCH_BINDING = Path("model/web-search-binding.manifest.json")
+_WEB_SEARCH_CUSTODY = Path("model/web-search-custody.manifest.json")
 _CANDIDATE_POLICY = Path("model/candidate-validation-policy.manifest.json")
 _SUBJECT_COMMIT_POLICY = Path("model/subject-commit-policy.manifest.json")
 _CAPABILITY_CATALOG = Path("model/capability-catalog.manifest.json")
@@ -73,6 +75,8 @@ def _generate(root: Path, output: Path) -> None:
     (output / "model-bindings.manifest.json").write_bytes(model_binding)
     web_search_binding = (root / _WEB_SEARCH_BINDING).read_bytes()
     (output / "web-search-binding.manifest.json").write_bytes(web_search_binding)
+    web_search_custody = (root / _WEB_SEARCH_CUSTODY).read_bytes()
+    (output / "web-search-custody.manifest.json").write_bytes(web_search_custody)
     candidate_policy = (root / _CANDIDATE_POLICY).read_bytes()
     (output / "candidate-validation-policy.manifest.json").write_bytes(candidate_policy)
     subject_commit_policy = (root / _SUBJECT_COMMIT_POLICY).read_bytes()
@@ -96,6 +100,7 @@ def _generate(root: Path, output: Path) -> None:
         context_policy=context_policy,
         model_binding=model_binding,
         web_search_binding=web_search_binding,
+        web_search_custody=web_search_custody,
         candidate_policy=candidate_policy,
         subject_commit_policy=subject_commit_policy,
         capability_catalog=capability_catalog,
@@ -117,6 +122,7 @@ def _files(root: Path) -> dict[str, bytes]:
             "context-policy.manifest.json",
             "model-bindings.manifest.json",
             "web-search-binding.manifest.json",
+            "web-search-custody.manifest.json",
             "candidate-validation-policy.manifest.json",
             "subject-commit-policy.manifest.json",
             "capability-catalog.manifest.json",

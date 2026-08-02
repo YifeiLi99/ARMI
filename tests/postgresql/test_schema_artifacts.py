@@ -60,10 +60,10 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 18})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 19})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
         )
         self.assertEqual(
             manifest["database_role_manifest"]["path"],
@@ -117,6 +117,9 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.creator_response_deliveries",
                 "armi.effect_attempts",
                 "armi.effect_observations",
+                "armi.web_observation_requests",
+                "armi.observation_attempts",
+                "armi.observation_tool_calls",
             ],
         )
         self.assertNotIn("manifest_sha256", manifest)
@@ -206,6 +209,24 @@ class SchemaArtifactTests(unittest.TestCase):
             re.compile(
                 r"(?i)\b(?:effect|episode|projection|cognition_attempt|"
                 r"CREATE\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
+                r"ALTER\s+DEFAULT\s+PRIVILEGES|SECURITY\s+DEFINER)\b"
+            ),
+        )
+
+    def test_web_observation_migration_has_only_custody_objects(self) -> None:
+        sql = Path("schema/migrations/0019_readonly_web_search_custody.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(sql.count("CREATE TABLE"), 3)
+        self.assertIn("CREATE TABLE armi.web_observation_requests", sql)
+        self.assertIn("CREATE TABLE armi.observation_attempts", sql)
+        self.assertIn("CREATE TABLE armi.observation_tool_calls", sql)
+        self.assertNotIn("external_evidence", sql)
+        self.assertNotIn("scene_timeline_items", sql)
+        self.assertNotRegex(
+            sql,
+            re.compile(
+                r"(?i)\b(?:CREATE\s+(?:ROLE|FUNCTION|PROCEDURE|TRIGGER)|"
                 r"ALTER\s+DEFAULT\s+PRIVILEGES|SECURITY\s+DEFINER)\b"
             ),
         )

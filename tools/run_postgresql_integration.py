@@ -50,6 +50,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--s027-live-output", type=Path)
     parser.add_argument("--s028-live-env-file", type=Path)
     parser.add_argument("--s028-live-output", type=Path)
+    parser.add_argument("--s033-live-env-file", type=Path)
+    parser.add_argument("--s033-live-output", type=Path)
     parser.add_argument("--test-expression")
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -151,6 +153,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             if args.s028_live_output is not None:
                 environment["S028_LIVE_OUTPUT"] = str(args.s028_live_output.resolve())
+            if args.s033_live_env_file is not None:
+                environment["S033_LIVE_ENV_FILE"] = str(
+                    args.s033_live_env_file.resolve()
+                )
+            if args.s033_live_output is not None:
+                environment["S033_LIVE_OUTPUT"] = str(args.s033_live_output.resolve())
             pytest_command = [
                 sys.executable,
                 "-m",
@@ -165,6 +173,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 test_expression = "t03_subject_commit"
             if args.s028_live_env_file is not None and test_expression is None:
                 test_expression = "t03_subject_commit"
+            if args.s033_live_env_file is not None and test_expression is None:
+                test_expression = "web_observation_admission"
             if test_expression is not None:
                 pytest_command.extend(("-k", test_expression))
             completed = subprocess.run(

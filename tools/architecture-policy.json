@@ -49,6 +49,7 @@
         "armi_runtime.composition.context_pipeline",
         "armi_runtime.composition.creator_input",
         "armi_runtime.composition.model_pipeline",
+        "armi_runtime.composition.web_search_pipeline",
         "armi_runtime.composition.candidate_pipeline",
         "armi_runtime.composition.subject_commit_pipeline"
       ]
@@ -71,6 +72,7 @@
         "armi_runtime.adapters.persistence.unit_of_work",
         "armi_runtime.composition.context_pipeline",
         "armi_runtime.composition.model_pipeline",
+        "armi_runtime.composition.web_search_pipeline",
         "armi_runtime.composition.candidate_pipeline",
         "armi_runtime.composition.subject_commit_pipeline"
       ]
@@ -201,6 +203,14 @@
       "allowed_callers": [
         "armi_runtime.composition.effect_pipeline"
       ]
+    },
+    {
+      "id": "web-observation-custody",
+      "module": "armi_runtime.adapters.persistence.web_observation",
+      "owner": "web-observation-custody",
+      "allowed_callers": [
+        "armi_runtime.composition.web_search_pipeline"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -318,6 +328,17 @@
       "owner": "cognitive-candidate-validation",
       "allowed_write_surfaces": [
         "cognitive-candidate-validation",
+        "artifact-catalog",
+        "durable-work",
+        "normal-audit"
+      ]
+    },
+    {
+      "id": "web-observation-custody",
+      "module": "armi_runtime.composition.web_search_pipeline",
+      "owner": "web-observation-custody",
+      "allowed_write_surfaces": [
+        "web-observation-custody",
         "artifact-catalog",
         "durable-work",
         "normal-audit"

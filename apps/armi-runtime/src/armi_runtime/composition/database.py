@@ -18,6 +18,7 @@ from armi_kernel.application import (
     ResponseViolation,
     RuntimeFence,
     SubjectCommitViolation,
+    WebObservationViolation,
 )
 from armi_kernel.contracts import Digest
 
@@ -69,6 +70,7 @@ from .subject_commit_pipeline import (
     SubjectCommitPipeline,
     build_subject_commit_pipeline,
 )
+from .web_search_pipeline import WebSearchPipeline, build_web_search_pipeline
 
 RUNTIME_LOCATOR_NAME: Final = "database.runtime"
 MIGRATOR_LOCATOR_NAME: Final = "database.migrator"
@@ -532,6 +534,65 @@ def compose_model_pipeline(
         raise ModelViolation("MODEL-CREDENTIAL") from None
 
 
+def compose_web_search_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    diagnostic: Callable[[str], None] | None = None,
+) -> WebSearchPipeline:
+    """Resolve the fixed database and Ark credentials for S033 custody."""
+
+    database_locator = prepared.effective.config.secret_locators.get(
+        RUNTIME_LOCATOR_NAME
+    )
+    model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
+    if database_locator is None or model_locator is None:
+        raise WebObservationViolation("WEB-CREDENTIAL")
+    try:
+        manifest_bytes = (
+            files("armi_runtime.composition.runtime_resources")
+            .joinpath("web-search-custody.manifest.json")
+            .read_bytes()
+        )
+    except OSError:
+        raise WebObservationViolation("WEB-MANIFEST") from None
+    try:
+        with prepared.credential_port.resolve(
+            database_locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> WebSearchPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise WebObservationViolation("WEB-DATABASE") from None
+                config = prepared.effective.config
+                return build_web_search_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    credential_port=prepared.credential_port,
+                    credential_locator=model_locator,
+                    manifest_bytes=manifest_bytes,
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise WebObservationViolation("WEB-CREDENTIAL") from None
+
+
 def compose_candidate_validation_pipeline(
     prepared: PreparedEnvironment,
     *,
@@ -822,6 +883,7 @@ __all__ = (
     "compose_runtime_recovery",
     "compose_scene_timeline_query",
     "compose_subject_commit_pipeline",
+    "compose_web_search_pipeline",
     "inspect_creator_context",
     "inspect_creator_party_id",
     "inspect_operator_schema",

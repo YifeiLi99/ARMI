@@ -258,6 +258,8 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("resumable_effect_attempt_count", "integer", True),
         ("reliable_effect_observation_count", "integer", True),
         ("creator_response_delivery_count", "integer", True),
+        ("resumable_web_observation_count", "integer", True),
+        ("unknown_web_observation_attempt_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -750,6 +752,65 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("observed_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
     ),
+    "web_observation_requests": (
+        ("web_observation_request_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("runtime_instance_id", "uuid", True),
+        ("fence_token", "bigint", True),
+        ("idempotency_key", "text", True),
+        ("purpose", "text", True),
+        ("operation_class", "text", True),
+        ("request_artifact_id", "uuid", True),
+        ("request_digest", "text", True),
+        ("binding_id", "text", True),
+        ("work_id", "uuid", True),
+        ("deadline_at", "timestamp(6) with time zone", True),
+        ("max_attempts", "smallint", True),
+        ("max_cost_microyuan", "bigint", True),
+        ("status", "text", True),
+        ("result_artifact_id", "uuid", False),
+        ("result_digest", "text", False),
+        ("last_error_code", "text", False),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("completed_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
+    "observation_attempts": (
+        ("observation_attempt_id", "uuid", True),
+        ("web_observation_request_id", "uuid", True),
+        ("work_id", "uuid", True),
+        ("work_attempt_id", "uuid", True),
+        ("work_lease_token", "bigint", True),
+        ("attempt_no", "smallint", True),
+        ("binding_id", "text", True),
+        ("credential_identity", "text", True),
+        ("dispatch_state", "text", True),
+        ("provider_request_digest", "text", False),
+        ("provider_model_id", "text", False),
+        ("result_artifact_id", "uuid", False),
+        ("result_digest", "text", False),
+        ("input_tokens", "integer", False),
+        ("output_tokens", "integer", False),
+        ("web_search_calls", "smallint", False),
+        ("citation_count", "smallint", False),
+        ("estimated_cost_microyuan", "bigint", False),
+        ("result_status", "text", False),
+        ("error_code", "text", False),
+        ("prepared_at", "timestamp(6) with time zone", True),
+        ("dispatched_at", "timestamp(6) with time zone", False),
+        ("settled_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
+    "observation_tool_calls": (
+        ("observation_tool_call_id", "uuid", True),
+        ("observation_attempt_id", "uuid", True),
+        ("call_no", "smallint", True),
+        ("action_type", "text", True),
+        ("provider_identity_digest", "text", True),
+        ("action_digest", "text", True),
+        ("completion_status", "text", True),
+        ("schema_version", "smallint", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
@@ -781,7 +842,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 28, *("n",) * 29, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 30, *("n",) * 31, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
         sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
@@ -860,6 +921,15 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     "effect_attempts": tuple(sorted((*("c",) * 11, *("n",) * 9, "f", "p", "u", "u"))),
     "effect_observations": tuple(
         sorted((*("c",) * 8, *("n",) * 8, "f", "f", "p", "u"))
+    ),
+    "web_observation_requests": tuple(
+        sorted((*("c",) * 15, *("n",) * 17, *("f",) * 5, "p", "u", "u"))
+    ),
+    "observation_attempts": tuple(
+        sorted((*("c",) * 20, *("n",) * 11, *("f",) * 3, "p", "u", "u"))
+    ),
+    "observation_tool_calls": tuple(
+        sorted((*("c",) * 7, *("n",) * 8, "f", "p", "u", "u"))
     ),
 }
 
@@ -1325,6 +1395,16 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(execution_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 19:
+            web_tables = (
+                "observation_attempts",
+                "observation_tool_calls",
+                "web_observation_requests",
+            )
+            expected_objects.extend((name, "r") for name in web_tables)
+            expected_tables.extend(web_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -1391,6 +1471,8 @@ class PostgreSQLSchemaGateway:
             expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
             if table_name == "runtime_recovery_runs" and expected is not None:
                 added_columns = 0
+                if applied_version < 19:
+                    added_columns += 2
                 if applied_version < 18:
                     added_columns += 3
                 if applied_version < 17:
@@ -1471,6 +1553,8 @@ class PostgreSQLSchemaGateway:
             if table_name == "runtime_recovery_runs" and expected is not None:
                 prior_kinds = list(expected)
                 added_constraints = 0
+                if applied_version < 19:
+                    added_constraints += 2
                 if applied_version < 18:
                     added_constraints += 3
                 if applied_version < 17:

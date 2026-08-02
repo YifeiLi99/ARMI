@@ -42,6 +42,7 @@ _BIRTH_CONTRACT_FILE: Final = "birth-contract.manifest.json"
 _CONTEXT_POLICY_FILE: Final = "context-policy.manifest.json"
 _MODEL_BINDING_FILE: Final = "model-bindings.manifest.json"
 _WEB_SEARCH_BINDING_FILE: Final = "web-search-binding.manifest.json"
+_WEB_SEARCH_CUSTODY_FILE: Final = "web-search-custody.manifest.json"
 _CANDIDATE_POLICY_FILE: Final = "candidate-validation-policy.manifest.json"
 _SUBJECT_COMMIT_POLICY_FILE: Final = "subject-commit-policy.manifest.json"
 _CAPABILITY_CATALOG_FILE: Final = "capability-catalog.manifest.json"
@@ -69,6 +70,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0016_response_and_formal_no_action.sql",
     "migrations/0017_effect_intent_and_ledger.sql",
     "migrations/0018_effect_dispatch_observation_settlement.sql",
+    "migrations/0019_readonly_web_search_custody.sql",
 )
 
 
@@ -85,6 +87,7 @@ def build_composition_manifest(
     context_policy: bytes,
     model_binding: bytes,
     web_search_binding: bytes,
+    web_search_custody: bytes,
     candidate_policy: bytes,
     subject_commit_policy: bytes,
     capability_catalog: bytes,
@@ -150,6 +153,7 @@ def build_composition_manifest(
             f"context/{_CONTEXT_POLICY_FILE}": _sha256(context_policy),
             f"model/{_MODEL_BINDING_FILE}": _sha256(model_binding),
             f"model/{_WEB_SEARCH_BINDING_FILE}": _sha256(web_search_binding),
+            f"model/{_WEB_SEARCH_CUSTODY_FILE}": _sha256(web_search_custody),
             f"candidate/{_CANDIDATE_POLICY_FILE}": _sha256(candidate_policy),
             f"subject-commit/{_SUBJECT_COMMIT_POLICY_FILE}": _sha256(
                 subject_commit_policy
@@ -196,6 +200,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         context_policy = resources.joinpath(_CONTEXT_POLICY_FILE).read_bytes()
         model_binding = resources.joinpath(_MODEL_BINDING_FILE).read_bytes()
         web_search_binding = resources.joinpath(_WEB_SEARCH_BINDING_FILE).read_bytes()
+        web_search_custody = resources.joinpath(_WEB_SEARCH_CUSTODY_FILE).read_bytes()
         candidate_policy = resources.joinpath(_CANDIDATE_POLICY_FILE).read_bytes()
         subject_commit_policy = resources.joinpath(
             _SUBJECT_COMMIT_POLICY_FILE
@@ -224,6 +229,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         context_policy=context_policy,
         model_binding=model_binding,
         web_search_binding=web_search_binding,
+        web_search_custody=web_search_custody,
         candidate_policy=candidate_policy,
         subject_commit_policy=subject_commit_policy,
         capability_catalog=capability_catalog,

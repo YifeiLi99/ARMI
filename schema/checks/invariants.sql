@@ -30,7 +30,7 @@ FROM (
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
                   AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-            ) <> 45
+            ) <> 48
         ),
         (
             'DB-SCHEMA-MISSING',
@@ -256,6 +256,22 @@ FROM (
                       'creator_response_deliveries',
                       'effect_attempts',
                       'effect_observations'
+                  )
+            ) <> 3
+        ),
+        (
+            'DB-SCHEMA-MISSING',
+            (
+                SELECT count(*)
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind = 'r'
+                  AND relation.relname IN (
+                      'web_observation_requests',
+                      'observation_attempts',
+                      'observation_tool_calls'
                   )
             ) <> 3
         )

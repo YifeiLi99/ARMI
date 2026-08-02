@@ -233,6 +233,8 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_effect_attempt_count",
                     "reliable_effect_observation_count",
                     "creator_response_delivery_count",
+                    "resumable_web_observation_count",
+                    "unknown_web_observation_attempt_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -258,6 +260,8 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_effect_attempt_count",
                     "reliable_effect_observation_count",
                     "creator_response_delivery_count",
+                    "resumable_web_observation_count",
+                    "unknown_web_observation_attempt_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -1023,6 +1027,122 @@ def build_role_manifest() -> dict[str, object]:
             },
         },
     ]
+    web_observation_objects = [
+        {
+            "kind": "table",
+            "name": "armi.web_observation_requests",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "web_observation_request_id",
+                        "subject_id",
+                        "runtime_instance_id",
+                        "fence_token",
+                        "idempotency_key",
+                        "purpose",
+                        "operation_class",
+                        "request_artifact_id",
+                        "request_digest",
+                        "binding_id",
+                        "work_id",
+                        "deadline_at",
+                        "max_attempts",
+                        "max_cost_microyuan",
+                        "status",
+                        "schema_version",
+                    ],
+                    "UPDATE": [
+                        "status",
+                        "result_artifact_id",
+                        "result_digest",
+                        "last_error_code",
+                        "completed_at",
+                    ],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.observation_attempts",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "observation_attempt_id",
+                        "web_observation_request_id",
+                        "work_id",
+                        "work_attempt_id",
+                        "work_lease_token",
+                        "attempt_no",
+                        "binding_id",
+                        "credential_identity",
+                        "dispatch_state",
+                        "schema_version",
+                    ],
+                    "UPDATE": [
+                        "dispatch_state",
+                        "provider_request_digest",
+                        "provider_model_id",
+                        "result_artifact_id",
+                        "result_digest",
+                        "input_tokens",
+                        "output_tokens",
+                        "web_search_calls",
+                        "citation_count",
+                        "estimated_cost_microyuan",
+                        "result_status",
+                        "error_code",
+                        "dispatched_at",
+                        "settled_at",
+                    ],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.observation_tool_calls",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "observation_tool_call_id",
+                        "observation_attempt_id",
+                        "call_no",
+                        "action_type",
+                        "provider_identity_digest",
+                        "action_digest",
+                        "completion_status",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+    ]
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -1296,12 +1416,13 @@ def build_role_manifest() -> dict[str, object]:
             *subject_commit_objects,
             *capability_objects,
             *response_objects,
+            *web_observation_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S030 has no business or administration function requiring "
+                "M0-S033 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -1597,6 +1718,19 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                     ("armi.creator_response_deliveries", "creator-response-inbox"),
                     ("armi.effect_attempts", "effect-execution"),
                     ("armi.effect_observations", "effect-execution"),
+                )
+            ],
+            *[
+                {
+                    "kind": "table",
+                    "name": name,
+                    "logical_owner": owner,
+                    "activation_step": "M0-S033",
+                }
+                for name, owner in (
+                    ("armi.web_observation_requests", "web-observation-custody"),
+                    ("armi.observation_attempts", "web-observation-custody"),
+                    ("armi.observation_tool_calls", "web-observation-custody"),
                 )
             ],
         ],

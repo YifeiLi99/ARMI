@@ -66,6 +66,10 @@ from armi_kernel.application import (
     SceneQueryViolation,
     SceneTimelinePage,
     SceneTimelineQuery,
+    WebObservationDraft,
+    WebObservationInvocationResult,
+    WebObservationRequestId,
+    WebObservationResultStatus,
     WorkAttemptId,
     WorkDraft,
     WorkId,
@@ -81,6 +85,7 @@ from armi_kernel.contracts import (
     IdempotencyKey,
     Instant,
     OpaqueCursor,
+    SubjectId,
     TraceId,
 )
 from armi_runtime.adapters.artifacts.content_store import (
@@ -90,6 +95,7 @@ from armi_runtime.adapters.creator_response_inbox import (
     PostgreSQLCreatorResponseInbox,
 )
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
+from armi_runtime.adapters.model.web_search_custody import normalize_full_response
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )
@@ -164,6 +170,7 @@ from armi_runtime.composition.model_contract import (
     parse_candidate,
 )
 from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
+from armi_runtime.composition.web_search_pipeline import build_web_search_pipeline
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -347,7 +354,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {18})
+        self.assertEqual({result.applied_version for result in results}, {19})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -390,6 +397,335 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 newline="\n",
             )
 
+    def test_web_observation_admission_attempt_and_result_are_atomic(self) -> None:
+        live_env = os.environ.get("S033_LIVE_ENV_FILE")
+        live_output = os.environ.get("S033_LIVE_OUTPUT")
+        live_secret: str | None = None
+        if live_env is not None:
+            raw = Path(live_env).resolve().read_bytes()
+            value = raw.decode("utf-8", errors="strict")
+            prefix = "ARMI_SECRET_ARK_API_KEY="
+            lines = value.splitlines()
+            if (
+                raw.startswith(b"\xef\xbb\xbf")
+                or "\r" in value
+                or len(lines) != 1
+                or not lines[0].startswith(prefix)
+            ):
+                self.fail("WEB-LIVE-CREDENTIAL")
+            live_secret = lines[0][len(prefix) :]
+            if not live_secret or live_secret != live_secret.strip():
+                self.fail("WEB-LIVE-CREDENTIAL")
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="约 16 岁少女口吻",
+            traits=("清醒",),
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="s033-web-observation-birth",
+            personality_anchor=anchor,
+            personality_anchor_digest=Digest.from_bytes(
+                rfc8785.dumps(
+                    {
+                        "schema_version": anchor.schema_version,
+                        "voice_style": anchor.voice_style,
+                        "traits": list(anchor.traits),
+                    }
+                )
+            ),
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            schema_manifest_digest=packaged["schema_manifest_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"s033-web-observation-birth"),
+        )
+
+        async def reject_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("web observation does not accept dynamic lock targets")
+
+        async def exercise(data_root: Path) -> dict[str, object]:
+            birth_factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_lock,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+            )
+            birth = BirthTransaction(
+                ContentAddressedArtifactStore(
+                    data_root / "artifacts", max_object_bytes=2 * 1024 * 1024
+                ),
+                ArtifactCatalogRepository(),
+                BirthRepository(),
+                birth_factory,
+            )
+            await birth_factory.open()
+            try:
+                born = await birth.birth(manifest)
+            finally:
+                await birth_factory.close()
+            authority = PostgreSQLRuntimeAuthority(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                expected_bundle_digest=packaged["composition_digest"].to_wire(),
+                pool_timeout_seconds=2,
+            )
+            await authority.open()
+            current = await authority.acquire(
+                runtime_instance_id=RuntimeInstanceId(_uuid7()),
+                lease_seconds=60,
+            )
+            credential_port = EnvironmentFileCredentialPort(
+                environment={
+                    "ARMI_SECRET_ARK_API_KEY": live_secret or "conformance-key"
+                },
+                secret_roots=(Path(live_env).resolve().parent,)
+                if live_env is not None
+                else (),
+            )
+            pipeline = build_web_search_pipeline(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                data_root=data_root,
+                max_object_bytes=2 * 1024 * 1024,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=10,
+                authority_admission=lambda: current.fence,
+                credential_port=credential_port,
+                credential_locator=CredentialLocator("env", "ARMI_SECRET_ARK_API_KEY"),
+                manifest_bytes=Path(
+                    "model/web-search-custody.manifest.json"
+                ).read_bytes(),
+                diagnostic=None,
+            )
+
+            class ConformanceAdapter:
+                def credential_fingerprint(self) -> str:
+                    return Digest.from_bytes(b"conformance-key").value
+
+                async def invoke(
+                    self, request_bytes: bytes
+                ) -> WebObservationInvocationResult:
+                    self.assert_request(request_bytes)
+                    response = {
+                        "id": "resp_conformance",
+                        "model": "doubao-seed-evolving",
+                        "status": "completed",
+                        "store": False,
+                        "output": [
+                            {
+                                "type": "web_search_call",
+                                "status": "completed",
+                                "action": {
+                                    "type": "search",
+                                    "query": "PostgreSQL 18 public docs",
+                                },
+                            },
+                            {
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "type": "output_text",
+                                        "text": "public documentation",
+                                        "annotations": [
+                                            {
+                                                "type": "url_citation",
+                                                "url": "https://www.postgresql.org/docs/18/",
+                                                "title": "PostgreSQL 18",
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                        ],
+                        "usage": {
+                            "input_tokens": 10,
+                            "output_tokens": 10,
+                            "tool_usage": {"web_search": 1},
+                        },
+                    }
+                    canonical, actions, usage, provider_request, model = (
+                        normalize_full_response(response)
+                    )
+                    return WebObservationInvocationResult(
+                        WebObservationResultStatus.SUCCEEDED,
+                        provider_request,
+                        model,
+                        canonical,
+                        Digest.from_bytes(canonical),
+                        actions,
+                        usage,
+                    )
+
+                @staticmethod
+                def assert_request(request_bytes: bytes) -> None:
+                    if not request_bytes:
+                        raise AssertionError("request artifact must not be empty")
+
+            if live_secret is None:
+                cast(Any, pipeline)._adapter = ConformanceAdapter()
+            await pipeline.open()
+            draft = WebObservationDraft(
+                WebObservationRequestId(_uuid7()),
+                SubjectId(born.subject_id),
+                current.fence,
+                IdempotencyKey(
+                    "s033-live-web-search"
+                    if live_secret is not None
+                    else "s033-conformance"
+                ),
+                (
+                    "请搜索 PostgreSQL 18 官方文档中关于事务隔离级别的页面,"
+                    "读取公开页面后简要回答,并给出可核验的官方来源引用。"
+                    "不得登录、下载或执行任何写操作。"
+                    if live_secret is not None
+                    else "PostgreSQL 18 官方文档"
+                ).encode(),
+                TraceId("3" * 32),
+            )
+            try:
+                admitted = await pipeline.admit(draft)
+                self.assertTrue(await pipeline.invoke_once())
+                repeated = await pipeline.admit(draft)
+                self.assertEqual(admitted.request_id, repeated.request_id)
+            finally:
+                await pipeline.close()
+                await authority.release(current.fence)
+                await authority.close()
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                row = connection.execute(
+                    """
+                        SELECT
+                            request.status, request.request_digest,
+                            request.result_digest, attempt.dispatch_state,
+                            attempt.result_status, attempt.provider_model_id,
+                            attempt.provider_request_digest,
+                            attempt.input_tokens, attempt.output_tokens,
+                            attempt.web_search_calls, attempt.citation_count,
+                            attempt.estimated_cost_microyuan,
+                            request.last_error_code, attempt.error_code,
+                            (SELECT count(*) FROM armi.web_observation_requests),
+                            (SELECT count(*) FROM armi.observation_attempts),
+                            (SELECT count(*) FROM armi.observation_tool_calls),
+                            (SELECT count(*) FROM armi.durable_work
+                             WHERE work_kind = 'web.search.invoke'
+                               AND status = 'completed')
+                        FROM armi.web_observation_requests AS request
+                        JOIN armi.observation_attempts AS attempt
+                          ON attempt.web_observation_request_id =
+                             request.web_observation_request_id
+                        """
+                ).fetchone()
+                assert row is not None
+                return {
+                    "request_status": str(row[0]),
+                    "request_digest": str(row[1]),
+                    "result_digest": str(row[2]) if row[2] else None,
+                    "dispatch_state": str(row[3]),
+                    "attempt_result": str(row[4]),
+                    "provider_model": str(row[5]) if row[5] else None,
+                    "provider_request_digest": str(row[6]) if row[6] else None,
+                    "input_tokens": int(row[7]) if row[7] is not None else None,
+                    "output_tokens": int(row[8]) if row[8] is not None else None,
+                    "web_search_calls": int(row[9]) if row[9] is not None else None,
+                    "citation_count": int(row[10]) if row[10] is not None else None,
+                    "estimated_model_cost_microyuan": int(row[11])
+                    if row[11] is not None
+                    else None,
+                    "request_error_code": str(row[12]) if row[12] else None,
+                    "attempt_error_code": str(row[13]) if row[13] else None,
+                    "request_count": int(row[14]),
+                    "attempt_count": int(row[15]),
+                    "tool_call_count": int(row[16]),
+                    "completed_work_count": int(row[17]),
+                }
+
+        with tempfile.TemporaryDirectory(dir=Path(".tmp")) as temporary:
+            evidence = asyncio.run(
+                exercise(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+        if live_secret is not None:
+            self.assertIsNotNone(live_output)
+            safe_evidence = {
+                "schema_version": "armi.web-search-custody-live-evidence.v1",
+                "status": "pass"
+                if evidence["request_status"] == "succeeded"
+                else "blocked",
+                "provider": "volcengine_ark",
+                "binding_id": "armi.model-tool.volcengine-ark-web-search-v1",
+                "store": False,
+                "request_status": evidence["request_status"],
+                "attempt_result": evidence["attempt_result"],
+                "request_error_code": evidence["request_error_code"],
+                "attempt_error_code": evidence["attempt_error_code"],
+                "provider_model": evidence["provider_model"],
+                "provider_request_digest": evidence["provider_request_digest"],
+                "request_digest": evidence["request_digest"],
+                "result_digest": evidence["result_digest"],
+                "request_count": evidence["request_count"],
+                "attempt_count": evidence["attempt_count"],
+                "tool_call_count": evidence["tool_call_count"],
+                "citation_count": evidence["citation_count"],
+                "input_tokens": evidence["input_tokens"],
+                "output_tokens": evidence["output_tokens"],
+                "web_search_calls": evidence["web_search_calls"],
+                "estimated_model_cost_microyuan": evidence[
+                    "estimated_model_cost_microyuan"
+                ],
+                "m0_seam_web": None,
+            }
+            Path(cast(str, live_output)).resolve().write_text(
+                json.dumps(
+                    safe_evidence,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        self.assertEqual(evidence["request_status"], "succeeded")
+        self.assertEqual(evidence["dispatch_state"], "settled")
+        self.assertEqual(evidence["attempt_result"], "succeeded")
+        self.assertTrue(
+            str(evidence["provider_model"]).startswith("doubao-seed-evolving")
+        )
+        self.assertEqual(evidence["request_count"], 1)
+        self.assertEqual(evidence["attempt_count"], 1)
+        self.assertGreaterEqual(cast(int, evidence["tool_call_count"]), 1)
+        self.assertEqual(evidence["completed_work_count"], 1)
+        self.assertLessEqual(
+            cast(int, evidence["estimated_model_cost_microyuan"]), 1_000_000
+        )
+        with (
+            psycopg.connect(fixture.admin_role_dsn) as connection,
+            self.assertRaises(psycopg.errors.InsufficientPrivilege),
+        ):
+            connection.execute("SELECT * FROM armi.web_observation_requests")
+
     def test_existing_version_one_transfers_owner_and_upgrades(self) -> None:
         database, provisioner_dsn = self._raw_database()
         gateway = PostgreSQLSchemaGateway()
@@ -414,7 +750,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 18)
+        self.assertEqual(result.applied_version, 19)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -476,7 +812,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 18)
+        self.assertEqual(result.applied_version, 19)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -536,7 +872,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(19,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(20,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -595,7 +931,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (18,),
+                    (19,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1083,6 +1419,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 DROP TABLE
+                    armi.observation_tool_calls,
+                    armi.observation_attempts,
+                    armi.web_observation_requests,
                     armi.effect_observations,
                     armi.effect_attempts,
                     armi.creator_response_deliveries,
@@ -1169,6 +1508,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     DROP COLUMN resumable_effect_attempt_count,
                     DROP COLUMN reliable_effect_observation_count,
                     DROP COLUMN creator_response_delivery_count
+                    , DROP COLUMN resumable_web_observation_count
+                    , DROP COLUMN unknown_web_observation_attempt_count
                 """
             )
             connection.execute(
@@ -1176,13 +1517,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 18)
+        self.assertEqual(backfilled.applied_version, 19)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(

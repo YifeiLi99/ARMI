@@ -110,6 +110,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "creator.bootstrap.verify": CREATOR_BEARER_LOCATOR,
             CREATOR_CURSOR_PURPOSE: CREATOR_BEARER_LOCATOR,
             "model.request": "model.ark_api_key",
+            "web.search": "model.ark_api_key",
         }
     try:
         prepared = prepare_environment(
