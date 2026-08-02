@@ -15,7 +15,11 @@ from unittest.mock import patch
 
 from armi_admin.application import AdminConfig, AdminCredentialPort
 from armi_admin.mcp.contracts import (
+    ApplyCorrectionRequest,
+    CorrectionStatusRequest,
     HealthRequest,
+    PreviewCorrectionRequest,
+    ReplaceSubjectComponentSpec,
     RuntimeControlRequest,
     SchemaStatusRequest,
 )
@@ -116,14 +120,17 @@ class AdminConfigurationTests(unittest.TestCase):
             [tool["name"] for tool in governance["tools"]],
             [
                 "advance_test_clock",
+                "apply_correction",
                 "arm_fault",
                 "clear_faults",
+                "correction_status",
                 "environment_initialize",
                 "environment_reset",
                 "environment_reset_preview",
                 "health",
                 "inject_creator_input",
                 "inspect_scope",
+                "preview_correction",
                 "run_test",
                 "runtime_drain",
                 "runtime_restart",
@@ -131,6 +138,7 @@ class AdminConfigurationTests(unittest.TestCase):
                 "runtime_status",
                 "runtime_stop",
                 "schema_status",
+                "settle_correction_work",
                 "subject_snapshot",
                 "tail_diagnostics",
                 "trace_flow",
@@ -145,12 +153,19 @@ class AdminConfigurationTests(unittest.TestCase):
             "inspect_scope",
             "tail_diagnostics",
             "environment_reset_preview",
+            "preview_correction",
+            "correction_status",
+        }
+        destructive = {
+            "environment_reset",
+            "apply_correction",
+            "settle_correction_work",
         }
         for tool in governance["tools"]:
             self.assertEqual(
                 tool["annotations"],
                 {
-                    "destructiveHint": tool["name"] == "environment_reset",
+                    "destructiveHint": tool["name"] in destructive,
                     "idempotentHint": True,
                     "openWorldHint": False,
                     "readOnlyHint": tool["name"] in read_only,
@@ -230,7 +245,7 @@ class AdminToolServiceTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 21)
+        self.assertEqual(status.result.applied_version, 22)
         self.assertIsNone(status.error_code)
         serialized = health.model_dump_json() + status.model_dump_json()
         self.assertNotIn("postgresql://", serialized)
@@ -256,7 +271,7 @@ class AdminToolServiceTests(unittest.TestCase):
             timezone=current.timezone,
             migrations=(
                 *current.migrations[:-1],
-                (21, "changed", current.migrations[-1][2]),
+                (22, "changed", current.migrations[-1][2]),
             ),
         )
         with patch.object(AdminToolService, "_read_snapshot", return_value=dirty):
@@ -284,8 +299,10 @@ class AdminProtocolTests(unittest.TestCase):
         modern, legacy, names = asyncio.run(exercise())
         self.assertEqual(modern, "2026-07-28")
         self.assertNotEqual(legacy, "")
-        self.assertEqual(len(names), 19)
+        self.assertEqual(len(names), 23)
         self.assertIn("environment_reset_preview", names)
+        self.assertIn("preview_correction", names)
+        self.assertIn("correction_status", names)
 
     def test_stdio_subprocess_has_clean_protocol_output(self) -> None:
         governance, _ = _resources()
@@ -349,8 +366,64 @@ class AdminProtocolTests(unittest.TestCase):
 
             version, names, is_error = asyncio.run(exercise())
         self.assertEqual(version, "2026-07-28")
-        self.assertEqual(len(names), 19)
+        self.assertEqual(len(names), 23)
         self.assertFalse(is_error)
+
+    def test_correction_contract_is_strict_and_private_payload_is_typed(self) -> None:
+        request = PreviewCorrectionRequest.model_validate_json(
+            json.dumps(
+                {
+                    "environment_id": ENVIRONMENT_ID,
+                    "environment_incarnation": 1,
+                    "idempotency_key": "preview-self-1",
+                    "purpose": "admin.preview_correction",
+                    "spec": {
+                        "correction_kind": "replace_subject_component",
+                        "component_kind": "self",
+                        "expected_component_version": 1,
+                        "replacement": {
+                            "schema_version": "armi.self.v1",
+                            "identity_kind": "electronic_person",
+                            "creator_role_awareness": "unique_primary_creator",
+                            "name": None,
+                            "self_description": None,
+                            "interests": [],
+                            "values": [],
+                            "preferences": [],
+                            "goals": [],
+                            "self_narrative": None,
+                            "tensions": [],
+                        },
+                    },
+                }
+            )
+        )
+        assert isinstance(request.spec, ReplaceSubjectComponentSpec)
+        spec = request.spec
+        self.assertEqual(spec.component_kind, "self")
+        with self.assertRaises(ValueError):
+            ApplyCorrectionRequest.model_validate(
+                {
+                    **request.model_dump(mode="json"),
+                    "purpose": "admin.apply_correction",
+                    "preview_token": "x" * 64,
+                    "spec": {
+                        **spec.model_dump(mode="json"),
+                        "replacement": {
+                            **spec.replacement.model_dump(mode="json"),
+                            "identity_kind": "human",
+                        },
+                    },
+                }
+            )
+        with self.assertRaises(ValueError):
+            CorrectionStatusRequest.model_validate(
+                {
+                    "environment_id": ENVIRONMENT_ID,
+                    "preview_token": "x" * 64,
+                    "unknown": True,
+                }
+            )
 
     def test_unknown_input_field_is_rejected_by_sdk(self) -> None:
         async def exercise() -> bool:

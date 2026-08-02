@@ -1,4 +1,4 @@
-"""Application service behind the static S036 Admin MCP tool catalog."""
+"""Application service behind the static S037 Admin MCP tool catalog."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from armi_admin.application import (
     AdminConfig,
     AdminControlError,
     AdminControlPlane,
+    AdminCorrectionCoordinator,
+    AdminCorrectionError,
     AdminCredentialPort,
 )
 from armi_admin.persistence import (
@@ -30,7 +32,9 @@ from .contracts import (
     AdminMutationRequest,
     AdminToolResult,
     AdvanceTestClockRequest,
+    ApplyCorrectionRequest,
     ArmFaultRequest,
+    CorrectionStatusRequest,
     EnvironmentInitializeRequest,
     EnvironmentResetRequest,
     HealthPayload,
@@ -39,11 +43,13 @@ from .contracts import (
     InjectCreatorInputRequest,
     InspectScopeRequest,
     ObservationRequest,
+    PreviewCorrectionRequest,
     RunTestRequest,
     RuntimeControlRequest,
     SchemaStatusPayload,
     SchemaStatusRequest,
     SchemaStatusResult,
+    SettleCorrectionWorkRequest,
     SubjectSnapshotRequest,
     TailDiagnosticsRequest,
     TraceFlowRequest,
@@ -72,6 +78,7 @@ class AdminToolService:
     __slots__ = (
         "_config",
         "_control",
+        "_corrections",
         "_credentials",
         "_identity",
         "_manifest",
@@ -89,6 +96,9 @@ class AdminToolService:
         self._config = config
         self._credentials = credentials
         self._control = AdminControlPlane(config, credentials)
+        self._corrections = AdminCorrectionCoordinator(
+            config, credentials, self._control
+        )
         schema_bytes = _resource_bytes("schema-manifest.json")
         self._manifest: dict[str, Any] = json.loads(schema_bytes)
         self._migrations = tuple(
@@ -219,7 +229,11 @@ class AdminToolService:
         if request.environment_id != self._config.environment_id:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
         try:
-            if name == "tail_diagnostics":
+            if name == "correction_status":
+                if not isinstance(request, CorrectionStatusRequest):
+                    raise ValueError("ADMIN-INPUT-CONTRACT")
+                result = self._corrections.status(str(request.preview_token))
+            elif name == "tail_diagnostics":
                 if not isinstance(request, TailDiagnosticsRequest):
                     raise ValueError("ADMIN-INPUT-CONTRACT")
                 result = self._tail_diagnostics(int(request.limit))
@@ -258,6 +272,8 @@ class AdminToolService:
                 else:
                     raise ValueError("ADMIN-TOOL-NOT-REGISTERED")
             return self._tool_success(started, result)
+        except AdminCorrectionError as exc:
+            return self._correction_failure(started, str(exc))
         except Exception:
             return self._tool_failure(started, "failed", "ADMIN-OBSERVATION-FAILED")
 
@@ -358,15 +374,54 @@ class AdminToolService:
                     raise AdminControlError("ADMIN-INPUT-CONTRACT")
                 self._require_test_controls()
                 result = self._run_test(str(request.scenario))
+            elif name == "preview_correction":
+                if not isinstance(request, PreviewCorrectionRequest):
+                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
+                result = self._corrections.preview(request.spec.model_dump(mode="json"))
+            elif name == "apply_correction":
+                if not isinstance(request, ApplyCorrectionRequest):
+                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
+                result = self._corrections.apply(
+                    request.spec.model_dump(mode="json"),
+                    str(request.preview_token),
+                )
+            elif name == "settle_correction_work":
+                if not isinstance(request, SettleCorrectionWorkRequest):
+                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
+                result = self._corrections.settle_side_work(str(request.side_work_id))
             else:
                 raise AdminControlError("ADMIN-TOOL-NOT-REGISTERED")
             outcome = self._tool_success(started, result)
+        except AdminCorrectionError as exc:
+            outcome = self._correction_failure(started, str(exc))
         except AdminControlError as exc:
             outcome = self._tool_failure(started, "rejected", str(exc))
         except Exception:
             outcome = self._tool_failure(started, "failed", "ADMIN-CONTROL-FAILED")
         self._mutation_cache[cache_key] = (request_digest, outcome)
         return outcome
+
+    def _correction_failure(
+        self, started: datetime, code: str
+    ) -> AdminToolResult[dict[str, Any]]:
+        if code == "ADMIN-CORRECTION-COMMIT-UNKNOWN":
+            status: Literal["rejected", "conflict", "failed", "unknown"] = "unknown"
+        elif code in {
+            "ADMIN-CORRECTION-PREVIEW-STALE",
+            "ADMIN-CORRECTION-PREVIEW-EXPIRED",
+            "ADMIN-CORRECTION-PREVIEW-SESSION",
+            "ADMIN-CORRECTION-COMPONENT-VERSION",
+            "ADMIN-CORRECTION-RUNTIME-ACTIVE",
+            "ADMIN-CORRECTION-COMPONENT-CAS",
+            "ADMIN-CORRECTION-WORK-CAS",
+            "ADMIN-CORRECTION-EFFECT-CAS",
+        }:
+            status = "conflict"
+        elif code.endswith("-FAILED") or code.endswith("-UNAVAILABLE"):
+            status = "failed"
+        else:
+            status = "rejected"
+        return self._tool_failure(started, status, code)
 
     def _runtime_control(
         self, request: AdminMutationRequest, command: str

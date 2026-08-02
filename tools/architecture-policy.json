@@ -44,6 +44,7 @@
       "module": "armi_admin.persistence.role_session",
       "owner": "database-role-policy",
       "allowed_callers": [
+        "armi_admin.persistence.correction_gateway",
         "armi_admin.persistence.observation_gateway",
         "armi_admin.persistence.schema_gateway"
       ]
@@ -65,6 +66,12 @@
       "module": "armi_admin.persistence.observation_gateway",
       "owner": "deployment-environment-governance",
       "allowed_callers": ["armi_admin.mcp.service"]
+    },
+    {
+      "id": "admin-t07-correction",
+      "module": "armi_admin.persistence.correction_gateway",
+      "owner": "admin-correction",
+      "allowed_callers": ["armi_admin.application.corrections"]
     },
     {
       "id": "artifact-catalog",
@@ -250,6 +257,12 @@
   ],
   "write_surfaces_not_applicable_reason": "",
   "named_coordinators": [
+    {
+      "id": "admin-t07-correction-transaction",
+      "module": "armi_admin.persistence.correction_gateway",
+      "owner": "admin-correction",
+      "allowed_write_surfaces": ["admin-t07-correction"]
+    },
     {
       "id": "runtime-unit-of-work",
       "module": "armi_runtime.adapters.persistence.unit_of_work",

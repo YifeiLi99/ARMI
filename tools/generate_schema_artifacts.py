@@ -238,6 +238,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_web_research_intent_count",
                     "pending_web_evidence_acceptance_count",
                     "resumable_web_cognition_count",
+                    "resumable_admin_correction_work_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -268,6 +269,7 @@ def build_role_manifest() -> dict[str, object]:
                     "resumable_web_research_intent_count",
                     "pending_web_evidence_acceptance_count",
                     "resumable_web_cognition_count",
+                    "resumable_admin_correction_work_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -1857,6 +1859,139 @@ def generated_files(root: Path) -> dict[Path, bytes]:
         if item.get("kind") == "table":
             grants = cast(dict[str, list[str]], item.setdefault("grants", {}))
             grants["armi_admin"] = ["SELECT"]
+    admin_column_grants: dict[str, dict[str, list[str]]] = {
+        "armi.subjects": {"UPDATE": ["state_epoch"]},
+        "armi.subject_component_heads": {
+            "UPDATE": ["current_revision_id", "component_version"]
+        },
+        "armi.subject_component_revisions": {
+            "INSERT": [
+                "component_revision_id",
+                "subject_id",
+                "component_kind",
+                "component_version",
+                "previous_revision_id",
+                "origin_kind",
+                "origin_ref",
+                "subject_commit_id",
+                "proposal_ref",
+                "semantic_digest",
+                "semantic_payload",
+                "privacy_scope",
+            ]
+        },
+        "armi.durable_work": {
+            "INSERT": [
+                "work_id",
+                "work_kind",
+                "owner_kind",
+                "owner_ref",
+                "subject_id",
+                "idempotency_key",
+                "payload_kind",
+                "payload_ref",
+                "payload_digest",
+                "priority",
+                "not_before",
+                "deadline_at",
+                "status",
+                "max_attempts",
+                "attempt_count",
+                "lease_token",
+                "trace_id",
+                "schema_version",
+            ],
+            "UPDATE": [
+                "status",
+                "not_before",
+                "current_attempt_id",
+                "lease_owner",
+                "lease_expires_at",
+                "lease_token",
+                "result_kind",
+                "result_ref",
+                "last_error_code",
+                "updated_at",
+            ],
+        },
+        "armi.outbox_items": {
+            "INSERT": [
+                "outbox_item_id",
+                "work_id",
+                "message_kind",
+                "payload_digest",
+                "status",
+                "available_at",
+                "claim_token",
+                "attempt_count",
+                "max_attempts",
+                "trace_id",
+                "schema_version",
+            ],
+            "UPDATE": [
+                "status",
+                "available_at",
+                "claimed_by",
+                "claim_expires_at",
+                "claim_token",
+                "last_error_code",
+                "delivered_at",
+                "updated_at",
+            ],
+        },
+        "armi.runtime_instances": {"UPDATE": ["status", "stopped_at"]},
+        "armi.effect_observations": {
+            "INSERT": [
+                "effect_observation_id",
+                "effect_id",
+                "effect_attempt_id",
+                "observation_kind",
+                "reliability",
+                "receiver_ref",
+                "observation_digest",
+                "schema_version",
+            ]
+        },
+        "armi.effects": {
+            "UPDATE": [
+                "status",
+                "verification_status",
+                "current_observation_id",
+                "settlement_digest",
+                "settled_at",
+            ]
+        },
+        "armi.effect_outbox_items": {
+            "UPDATE": [
+                "status",
+                "claim_owner",
+                "claim_expires_at",
+                "delivered_at",
+                "last_error_code",
+            ]
+        },
+        "armi.creator_response_operations": {
+            "UPDATE": ["current_status", "reason_code", "completed_at"]
+        },
+    }
+    admin_delete_tables = {
+        "armi.artifacts",
+        "armi.audit_events",
+        "armi.creator_input_interactions",
+        "armi.external_evidence",
+        "armi.opportunities",
+        "armi.scene_timeline_items",
+    }
+    for item in objects:
+        name = cast(str, item.get("name"))
+        if name in admin_delete_tables:
+            grants = cast(dict[str, list[str]], item["grants"])
+            grants["armi_admin"] = ["SELECT", "DELETE"]
+        if name in admin_column_grants:
+            column_grants = cast(
+                dict[str, dict[str, list[str]]], item.setdefault("column_grants", {})
+            )
+            column_grants["armi_admin"] = admin_column_grants[name]
     objects.append(
         {
             "kind": "table",
@@ -1892,7 +2027,7 @@ def generated_files(root: Path) -> dict[Path, bytes]:
     )
     security_definer = cast(dict[str, Any], role_value["security_definer"])
     security_definer["not_applicable_reason"] = (
-        "M0-S036 has no business or administration function requiring privilege elevation."
+        "M0-S037 uses fixed direct Admin grants and has no security-definer function."
     )
     role_manifest = canonical_manifest_bytes(role_value)
     manifest = canonical_manifest_bytes(build_manifest(schema_root, role_manifest))

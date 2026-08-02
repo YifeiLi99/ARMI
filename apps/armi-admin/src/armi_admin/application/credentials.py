@@ -66,6 +66,7 @@ class AdminCredentialPort(CredentialPort):
             "database.admin": locator,
             "database.migrator": migrator_locator or locator,
             "admin.preview": preview_locator or locator,
+            "admin.correction.preview": preview_locator or locator,
         }
         self._config_root = config_root.resolve(strict=True)
         self._environ = os.environ if environ is None else environ

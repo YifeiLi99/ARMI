@@ -30,11 +30,15 @@ import psycopg
 import rfc8785
 from armi_admin.application import AdminConfig, AdminCredentialPort
 from armi_admin.mcp.contracts import (
+    ApplyCorrectionRequest,
+    CorrectionStatusRequest,
     EnvironmentResetPreviewRequest,
     EnvironmentResetRequest,
     HealthRequest,
+    PreviewCorrectionRequest,
     RuntimeControlRequest,
     SchemaStatusRequest,
+    SettleCorrectionWorkRequest,
 )
 from armi_admin.mcp.service import AdminToolService
 from armi_admin.persistence.observation_gateway import AdminObservationGateway
@@ -365,7 +369,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {21})
+        self.assertEqual({result.applied_version for result in results}, {22})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -467,7 +471,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 21)
+        self.assertEqual(status.result.applied_version, 22)
 
         for denied_dsn in (fixture.runtime_dsn, fixture.migrator_dsn):
             denied = service_for(denied_dsn).health(HealthRequest())
@@ -663,7 +667,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT max(version) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (21,),
+                    (22,),
                 )
             recovery = list(
                 (experiment_root / ".armi-admin-recovery").glob(
@@ -671,6 +675,509 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             )
             self.assertEqual(len(recovery), 1)
+
+    def test_t07_component_preview_apply_status_and_role_boundary(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="约 16 岁少女口吻",
+            traits=("审慎",),
+        )
+        anchor_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                {
+                    "schema_version": anchor.schema_version,
+                    "voice_style": anchor.voice_style,
+                    "traits": list(anchor.traits),
+                }
+            )
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="s037-admin-correction-birth",
+            personality_anchor=anchor,
+            personality_anchor_digest=anchor_digest,
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            schema_manifest_digest=packaged["schema_manifest_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"s037-admin-correction-birth"),
+        )
+
+        async def reject_unexpected_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("birth must use only its fixed advisory lock")
+
+        async def birth_subject(artifact_root: Path) -> None:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_unexpected_lock,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+            )
+            transaction = BirthTransaction(
+                ContentAddressedArtifactStore(
+                    artifact_root, max_object_bytes=1024 * 1024
+                ),
+                ArtifactCatalogRepository(),
+                BirthRepository(),
+                factory,
+            )
+            await factory.open()
+            try:
+                await transaction.birth(manifest)
+            finally:
+                await factory.close()
+
+        governance = json.loads(
+            files("armi_admin.mcp.resources")
+            .joinpath("admin-mcp-manifest.json")
+            .read_bytes()
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            experiment_root = Path(temporary).resolve()
+            environment_root = experiment_root / "environment"
+            artifact_root = environment_root / "data" / "artifacts"
+            artifact_root.mkdir(parents=True)
+            template = experiment_root / "template.json"
+            template.write_text("{}", encoding="utf-8", newline="\n")
+            asyncio.run(
+                birth_subject(artifact_root),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+            config = AdminConfig.model_validate(
+                {
+                    "schema_version": "armi.admin-config.v2",
+                    "environment_kind": "system_test",
+                    "environment_id": str(fixture.environment_id),
+                    "environment_incarnation": 1,
+                    "resettable": True,
+                    "test_controls_enabled": True,
+                    "environment_root": environment_root,
+                    "experiment_root": experiment_root,
+                    "template_manifest": template,
+                    "postgresql_tool_root": Path.cwd()
+                    / ".armi-tools/installs/postgresql/18.4/pgsql",
+                    "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
+                    "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
+                    "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
+                    "expected": {
+                        "package_digest": governance["package_surface_digest"],
+                        "schema_manifest_digest": governance["schema_manifest_sha256"],
+                    },
+                }
+            )
+            secret_values = {
+                "ARMI_SECRET_ADMIN_DATABASE": fixture.admin_role_dsn,
+                "ARMI_SECRET_MIGRATOR_DATABASE": fixture.migrator_dsn,
+                "ARMI_SECRET_ADMIN_PREVIEW_KEY": "s037-preview-key",
+            }
+
+            def new_service() -> AdminToolService:
+                return AdminToolService(
+                    config=config,
+                    credentials=AdminCredentialPort(
+                        locator=config.locator,
+                        migrator_locator=config.migrator_locator,
+                        preview_locator=config.preview_locator,
+                        config_root=experiment_root,
+                        environ=secret_values,
+                    ),
+                )
+
+            service = new_service()
+            service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
+            replacement = {
+                "schema_version": "armi.mind.v1",
+                "understanding": ["我知道这次变化来自隔离管理纠正"],
+                "attention": [],
+                "emotions": [],
+                "thoughts": [],
+                "wishes": [],
+                "motivations": [],
+                "mood": None,
+            }
+            preview = service.mutate(
+                "preview_correction",
+                PreviewCorrectionRequest.model_validate_json(
+                    json.dumps(
+                        {
+                            "environment_id": str(fixture.environment_id),
+                            "environment_incarnation": 1,
+                            "idempotency_key": "s037-preview-mind",
+                            "purpose": "admin.preview_correction",
+                            "spec": {
+                                "correction_kind": "replace_subject_component",
+                                "component_kind": "mind",
+                                "expected_component_version": 1,
+                                "replacement": replacement,
+                            },
+                        }
+                    )
+                ),
+            )
+            self.assertEqual(preview.status, "succeeded", preview.model_dump_json())
+            assert preview.result is not None
+            token = str(preview.result["preview_token"])
+            apply = service.mutate(
+                "apply_correction",
+                ApplyCorrectionRequest.model_validate_json(
+                    json.dumps(
+                        {
+                            "environment_id": str(fixture.environment_id),
+                            "environment_incarnation": 1,
+                            "idempotency_key": "s037-apply-mind",
+                            "purpose": "admin.apply_correction",
+                            "preview_token": token,
+                            "spec": {
+                                "correction_kind": "replace_subject_component",
+                                "component_kind": "mind",
+                                "expected_component_version": 1,
+                                "replacement": replacement,
+                            },
+                        }
+                    )
+                ),
+            )
+            self.assertEqual(apply.status, "succeeded", apply.model_dump_json())
+            assert apply.result is not None
+            self.assertEqual(apply.result["previous_state_epoch"], 0)
+            self.assertEqual(apply.result["state_epoch"], 1)
+            self.assertEqual(apply.result["subject_version"], 0)
+            status = new_service().observe(
+                "correction_status",
+                CorrectionStatusRequest(
+                    environment_id=str(fixture.environment_id),
+                    preview_token=token,
+                ),
+            )
+            self.assertEqual(status.status, "succeeded", status.model_dump_json())
+            assert status.result is not None
+            self.assertEqual(status.result["status"], "applied")
+
+            with psycopg.connect(fixture.runtime_dsn) as runtime:
+                self.assertEqual(
+                    runtime.execute(
+                        "SELECT subject_version, state_epoch FROM armi.subjects"
+                    ).fetchone(),
+                    (0, 1),
+                )
+                head = runtime.execute(
+                    "SELECT head.component_version, revision.origin_kind, "
+                    "revision.semantic_payload, revision.previous_revision_id "
+                    "FROM armi.subject_component_heads head "
+                    "JOIN armi.subject_component_revisions revision "
+                    "ON revision.component_revision_id = head.current_revision_id "
+                    "WHERE head.component_kind = 'mind'"
+                ).fetchone()
+                assert head is not None
+                self.assertEqual(head[0:2], (2, "admin_correction"))
+                self.assertEqual(head[2], replacement)
+                bootstrap_revision_id = str(head[3])
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    runtime.execute("UPDATE armi.subjects SET state_epoch = 2")
+                runtime.rollback()
+
+            repair_preview = service.mutate(
+                "preview_correction",
+                PreviewCorrectionRequest.model_validate(
+                    {
+                        "environment_id": str(fixture.environment_id),
+                        "environment_incarnation": 1,
+                        "idempotency_key": "s037-preview-repair-mind",
+                        "purpose": "admin.preview_correction",
+                        "spec": {
+                            "correction_kind": "repair_subject_component_head",
+                            "component_kind": "mind",
+                            "expected_component_version": 2,
+                            "target_revision_id": bootstrap_revision_id,
+                        },
+                    }
+                ),
+            )
+            self.assertEqual(repair_preview.status, "succeeded")
+            assert repair_preview.result is not None
+            repair_apply = service.mutate(
+                "apply_correction",
+                ApplyCorrectionRequest.model_validate(
+                    {
+                        "environment_id": str(fixture.environment_id),
+                        "environment_incarnation": 1,
+                        "idempotency_key": "s037-apply-repair-mind",
+                        "purpose": "admin.apply_correction",
+                        "preview_token": repair_preview.result["preview_token"],
+                        "spec": {
+                            "correction_kind": "repair_subject_component_head",
+                            "component_kind": "mind",
+                            "expected_component_version": 2,
+                            "target_revision_id": bootstrap_revision_id,
+                        },
+                    }
+                ),
+            )
+            self.assertEqual(repair_apply.status, "succeeded")
+            assert repair_apply.result is not None
+            self.assertEqual(repair_apply.result["state_epoch"], 2)
+
+            runtime_instance_id = _uuid7()
+            work_id = _uuid7()
+            with psycopg.connect(fixture.provisioner_dsn) as provisioner:
+                authority_identity = provisioner.execute(
+                    "SELECT subject_id, current_generation_id, "
+                    "current_bundle_activation_id FROM armi.subjects"
+                ).fetchone()
+                assert authority_identity is not None
+                provisioner.execute(
+                    "INSERT INTO armi.runtime_instances (runtime_instance_id, "
+                    "subject_id, life_generation_id, bundle_activation_id, fence_token, "
+                    "status, lease_expires_at, stopped_at) VALUES (%s, %s, %s, %s, 1, "
+                    "'fenced', statement_timestamp() + interval '1 second', "
+                    "statement_timestamp())",
+                    (runtime_instance_id, *authority_identity),
+                )
+                provisioner.execute(
+                    "INSERT INTO armi.durable_work (work_id, work_kind, owner_kind, "
+                    "owner_ref, idempotency_key, payload_digest, priority, not_before, "
+                    "deadline_at, status, max_attempts, attempt_count, current_attempt_id, "
+                    "lease_owner, lease_expires_at, lease_token, trace_id) VALUES (%s, "
+                    "'s037.requeue', 'runtime', %s, 's037-requeue', %s, 0, "
+                    "statement_timestamp(), statement_timestamp() + interval '1 hour', "
+                    "'leased', 3, 1, %s, %s, statement_timestamp() - interval '1 second', "
+                    "1, %s)",
+                    (
+                        work_id,
+                        runtime_instance_id,
+                        Digest.from_bytes(b"s037-requeue").value,
+                        _uuid7(),
+                        runtime_instance_id,
+                        runtime_instance_id.hex,
+                    ),
+                )
+                provisioner.commit()
+            work_preview = service.mutate(
+                "preview_correction",
+                PreviewCorrectionRequest.model_validate(
+                    {
+                        "environment_id": str(fixture.environment_id),
+                        "environment_incarnation": 1,
+                        "idempotency_key": "s037-preview-requeue",
+                        "purpose": "admin.preview_correction",
+                        "spec": {
+                            "correction_kind": "requeue_stuck_work",
+                            "work_id": str(work_id),
+                        },
+                    }
+                ),
+            )
+            self.assertEqual(work_preview.status, "succeeded")
+            assert work_preview.result is not None
+            work_apply = service.mutate(
+                "apply_correction",
+                ApplyCorrectionRequest.model_validate(
+                    {
+                        "environment_id": str(fixture.environment_id),
+                        "environment_incarnation": 1,
+                        "idempotency_key": "s037-apply-requeue",
+                        "purpose": "admin.apply_correction",
+                        "preview_token": work_preview.result["preview_token"],
+                        "spec": {
+                            "correction_kind": "requeue_stuck_work",
+                            "work_id": str(work_id),
+                        },
+                    }
+                ),
+            )
+            self.assertEqual(work_apply.status, "succeeded")
+            with psycopg.connect(fixture.runtime_dsn) as runtime:
+                self.assertEqual(
+                    runtime.execute(
+                        "SELECT status, lease_token, attempt_count, lease_owner "
+                        "FROM armi.durable_work WHERE work_id = %s",
+                        (work_id,),
+                    ).fetchone(),
+                    ("ready", 2, 1, None),
+                )
+
+            content = b"s037 uncommitted creator input"
+            content_digest = hashlib.sha256(content).hexdigest()
+            artifact_id = _uuid7()
+            interaction_id = _uuid7()
+            evidence_id = _uuid7()
+            opportunity_id = _uuid7()
+            timeline_id = _uuid7()
+            audit_id = _uuid7()
+            with psycopg.connect(fixture.provisioner_dsn) as provisioner:
+                identity = provisioner.execute(
+                    "SELECT subject.subject_id, scene.scene_id, scene.primary_party_id "
+                    "FROM armi.subjects AS subject JOIN armi.interaction_scenes AS scene "
+                    "ON scene.subject_id = subject.subject_id AND scene.scene_key = 'default'"
+                ).fetchone()
+                assert identity is not None
+                subject_id, scene_id, creator_id = identity
+                locator = (
+                    f"objects/sha256/{content_digest[:2]}/{content_digest[2:4]}/"
+                    f"{content_digest}"
+                )
+                provisioner.execute(
+                    "INSERT INTO armi.artifacts (artifact_id, content_digest, media_type, "
+                    "byte_size, storage_locator, logical_kind, producer_kind, "
+                    "producer_trace_id, privacy_scope) VALUES (%s, %s, 'text/plain', %s, "
+                    "%s, 'creator.input.text', 's037_conformance', %s, 'creator_visible')",
+                    (
+                        artifact_id,
+                        f"sha256:{content_digest}",
+                        len(content),
+                        locator,
+                        interaction_id.hex,
+                    ),
+                )
+                provisioner.execute(
+                    "INSERT INTO armi.creator_input_interactions (creator_interaction_id, "
+                    "subject_id, scene_id, creator_party_id, purpose, idempotency_key, "
+                    "request_digest, content_digest, trace_id) VALUES (%s, %s, %s, %s, "
+                    "'creator_message', 's037-delete-input', %s, %s, %s)",
+                    (
+                        interaction_id,
+                        subject_id,
+                        scene_id,
+                        creator_id,
+                        Digest.from_bytes(b"s037-delete-request").value,
+                        f"sha256:{content_digest}",
+                        interaction_id.hex,
+                    ),
+                )
+                provisioner.execute(
+                    "INSERT INTO armi.external_evidence (evidence_id, "
+                    "creator_interaction_id, subject_id, scene_id, creator_party_id, "
+                    "artifact_id, source_kind, trust_status, privacy_scope, "
+                    "acceptance_status) VALUES (%s, %s, %s, %s, %s, %s, "
+                    "'creator_input', 'external_claim', 'creator_visible', 'accepted')",
+                    (
+                        evidence_id,
+                        interaction_id,
+                        subject_id,
+                        scene_id,
+                        creator_id,
+                        artifact_id,
+                    ),
+                )
+                provisioner.execute(
+                    "INSERT INTO armi.opportunities (opportunity_id, evidence_id, "
+                    "subject_id, scene_id, creator_party_id, purpose, eligibility_status, "
+                    "current_disposition, root_opportunity_id, reconsideration_no) VALUES "
+                    "(%s, %s, %s, %s, %s, 'consider_creator_input', 'eligible', 'open', "
+                    "%s, 0)",
+                    (
+                        opportunity_id,
+                        evidence_id,
+                        subject_id,
+                        scene_id,
+                        creator_id,
+                        opportunity_id,
+                    ),
+                )
+                provisioner.execute(
+                    "INSERT INTO armi.scene_timeline_items (timeline_item_id, scene_id, "
+                    "source_kind, source_ref, source_event_no, result_status, occurred_at) "
+                    "VALUES (%s, %s, 'creator_input', %s, 1, 'accepted', "
+                    "statement_timestamp())",
+                    (timeline_id, scene_id, interaction_id),
+                )
+                provisioner.execute(
+                    "INSERT INTO armi.audit_events (audit_event_id, actor_kind, actor_ref, "
+                    "purpose, operation, target_kind, target_ref, result_status, trace_id, "
+                    "sensitivity, subject_id, artifact_digest) VALUES (%s, 'runtime', %s, "
+                    "'creator_message', 'creator.input.accepted', 'creator_input', %s, "
+                    "'accepted', %s, 'private', %s, %s)",
+                    (
+                        audit_id,
+                        creator_id,
+                        interaction_id,
+                        interaction_id.hex,
+                        subject_id,
+                        f"sha256:{content_digest}",
+                    ),
+                )
+                provisioner.commit()
+            object_path = artifact_root / locator
+            object_path.parent.mkdir(parents=True, exist_ok=True)
+            object_path.write_bytes(content)
+            delete_preview = service.mutate(
+                "preview_correction",
+                PreviewCorrectionRequest.model_validate(
+                    {
+                        "environment_id": str(fixture.environment_id),
+                        "environment_incarnation": 1,
+                        "idempotency_key": "s037-preview-delete-input",
+                        "purpose": "admin.preview_correction",
+                        "spec": {
+                            "correction_kind": "delete_uncommitted_creator_input",
+                            "creator_interaction_id": str(interaction_id),
+                        },
+                    }
+                ),
+            )
+            self.assertEqual(delete_preview.status, "succeeded")
+            assert delete_preview.result is not None
+            self.assertTrue(delete_preview.result["side_work_required"])
+            delete_apply = service.mutate(
+                "apply_correction",
+                ApplyCorrectionRequest.model_validate(
+                    {
+                        "environment_id": str(fixture.environment_id),
+                        "environment_incarnation": 1,
+                        "idempotency_key": "s037-apply-delete-input",
+                        "purpose": "admin.apply_correction",
+                        "preview_token": delete_preview.result["preview_token"],
+                        "spec": {
+                            "correction_kind": "delete_uncommitted_creator_input",
+                            "creator_interaction_id": str(interaction_id),
+                        },
+                    }
+                ),
+            )
+            self.assertEqual(
+                delete_apply.status, "succeeded", delete_apply.model_dump_json()
+            )
+            assert delete_apply.result is not None
+            side_work_id = str(delete_apply.result["side_work_id"])
+            settle = service.mutate(
+                "settle_correction_work",
+                SettleCorrectionWorkRequest(
+                    environment_id=str(fixture.environment_id),
+                    environment_incarnation=1,
+                    idempotency_key="s037-settle-delete-input",
+                    purpose="admin.settle_correction_work",
+                    side_work_id=side_work_id,
+                ),
+            )
+            self.assertEqual(settle.status, "succeeded")
+            self.assertFalse(object_path.exists())
+            with psycopg.connect(fixture.runtime_dsn) as runtime:
+                facts = runtime.execute(
+                    "SELECT (SELECT state_epoch FROM armi.subjects), "
+                    "(SELECT count(*) FROM armi.creator_input_interactions WHERE "
+                    "creator_interaction_id = %s), (SELECT status FROM armi.durable_work "
+                    "WHERE work_id = %s)",
+                    (interaction_id, side_work_id),
+                ).fetchone()
+                self.assertEqual(facts, (4, 0, "completed"))
 
     def test_web_observation_admission_attempt_and_result_are_atomic(self) -> None:
         live_env = os.environ.get("S033_LIVE_ENV_FILE")
@@ -1026,7 +1533,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 21)
+        self.assertEqual(result.applied_version, 22)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -1088,7 +1595,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 21)
+        self.assertEqual(result.applied_version, 22)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -1148,7 +1655,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(22,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(23,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -1207,7 +1714,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (21,),
+                    (22,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1794,6 +2301,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     , DROP COLUMN resumable_web_research_intent_count
                     , DROP COLUMN pending_web_evidence_acceptance_count
                     , DROP COLUMN resumable_web_cognition_count
+                    , DROP COLUMN resumable_admin_correction_work_count
                 """
             )
             connection.execute(
@@ -1801,13 +2309,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 21)
+        self.assertEqual(backfilled.applied_version, 22)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(

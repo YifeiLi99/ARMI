@@ -283,6 +283,15 @@ class AdminControlPlane:
                 raise AdminControlError("ADMIN-CONTROL-STOP-TIMEOUT")
             time.sleep(0.1)
 
+    def ensure_runtime_stopped(self) -> None:
+        """Drain and stop through the private protocol, never by force."""
+
+        if not self._descriptor_path().exists():
+            return
+        self.send_control("drain", {})
+        self.send_control("stop", {})
+        self.wait_until_stopped()
+
     def start_runtime(self) -> dict[str, Any]:
         if self._descriptor_path().exists():
             return self.send_control("status", {})

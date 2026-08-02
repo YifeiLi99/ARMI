@@ -301,6 +301,22 @@ FROM (
                   AND relation.relname = 'deployment_environments'
                   AND relation.relkind = 'r'
             )
+        ),
+        (
+            'DB-SCHEMA-MISSING',
+            NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_attribute AS attribute
+                JOIN pg_catalog.pg_class AS relation
+                    ON relation.oid = attribute.attrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relname = 'runtime_recovery_runs'
+                  AND attribute.attname = 'resumable_admin_correction_work_count'
+                  AND attribute.attnum > 0
+                  AND NOT attribute.attisdropped
+            )
         )
 ) AS checks(violation_code, violated)
 WHERE violated

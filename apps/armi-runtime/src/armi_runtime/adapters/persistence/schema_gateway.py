@@ -263,6 +263,7 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("resumable_web_research_intent_count", "integer", True),
         ("pending_web_evidence_acceptance_count", "integer", True),
         ("resumable_web_cognition_count", "integer", True),
+        ("resumable_admin_correction_work_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -897,7 +898,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 33, *("n",) * 34, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 34, *("n",) * 35, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
         sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
@@ -1546,6 +1547,8 @@ class PostgreSQLSchemaGateway:
             expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
             if table_name == "runtime_recovery_runs" and expected is not None:
                 added_columns = 0
+                if applied_version < 22:
+                    added_columns += 1
                 if applied_version < 20:
                     added_columns += 3
                 if applied_version < 19:
@@ -1646,6 +1649,8 @@ class PostgreSQLSchemaGateway:
             if table_name == "runtime_recovery_runs" and expected is not None:
                 prior_kinds = list(expected)
                 added_constraints = 0
+                if applied_version < 22:
+                    added_constraints += 1
                 if applied_version < 20:
                     added_constraints += 3
                 if applied_version < 19:

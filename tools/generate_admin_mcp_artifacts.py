@@ -93,7 +93,7 @@ def _build() -> dict[Path, bytes]:
         "tool_catalog_digest": tool_catalog_digest,
     }
     manifest = {
-        "schema_version": "armi.admin-mcp.v2",
+        "schema_version": "armi.admin-mcp.v3",
         "sdk": {"name": "mcp", "version": importlib.metadata.version("mcp")},
         "protocol": {
             "target_revision": "2026-07-28",
@@ -125,9 +125,9 @@ def _build() -> dict[Path, bytes]:
             "required": True,
         },
         "activation": {
-            "current_step": "M0-S036",
+            "current_step": "M0-S037",
             "control_tools_step": "complete",
-            "correction_tools_step": "M0-S037",
+            "correction_tools_step": "complete",
             "user_config_and_windows_identity_step": "M0-S045",
         },
     }

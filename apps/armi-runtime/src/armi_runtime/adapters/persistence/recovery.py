@@ -1411,6 +1411,22 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert web_evidence_counts is not None
+            admin_correction_work_count = await (
+                await connection.execute(
+                    """
+                    SELECT count(*)
+                    FROM armi.durable_work AS work
+                    JOIN armi.outbox_items AS outbox
+                      ON outbox.work_id = work.work_id
+                     AND outbox.message_kind = 'admin.correction.available'
+                    WHERE work.work_kind = 'admin.correction.artifact-cleanup'
+                      AND work.owner_kind = 'admin_correction'
+                      AND work.status = 'ready'
+                      AND outbox.status = 'ready'
+                    """
+                )
+            ).fetchone()
+            assert admin_correction_work_count is not None
             if int(counts[7]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
@@ -1543,6 +1559,7 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_web_research_intent": int(web_evidence_counts[0]),
                 "pending_web_evidence_acceptance": int(web_evidence_counts[1]),
                 "resumable_web_cognition": int(web_evidence_counts[2]),
+                "resumable_admin_correction_work": int(admin_correction_work_count[0]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -1586,6 +1603,7 @@ class PostgreSQLRuntimeRecovery:
                     resumable_web_research_intent_count = %s,
                     pending_web_evidence_acceptance_count = %s,
                     resumable_web_cognition_count = %s,
+                    resumable_admin_correction_work_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -1617,6 +1635,7 @@ class PostgreSQLRuntimeRecovery:
                     int(web_evidence_counts[0]),
                     int(web_evidence_counts[1]),
                     int(web_evidence_counts[2]),
+                    int(admin_correction_work_count[0]),
                     critical,
                     blockers,
                     digest.value,

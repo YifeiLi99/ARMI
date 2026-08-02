@@ -12,8 +12,10 @@ from mcp.types import ToolAnnotations
 from .contracts import (
     AdminToolResult,
     AdvanceTestClockRequest,
+    ApplyCorrectionRequest,
     ArmFaultRequest,
     ClearFaultsRequest,
+    CorrectionStatusRequest,
     EnvironmentInitializeRequest,
     EnvironmentResetPreviewRequest,
     EnvironmentResetRequest,
@@ -21,11 +23,13 @@ from .contracts import (
     HealthResult,
     InjectCreatorInputRequest,
     InspectScopeRequest,
+    PreviewCorrectionRequest,
     RunTestRequest,
     RuntimeControlRequest,
     RuntimeStatusRequest,
     SchemaStatusRequest,
     SchemaStatusResult,
+    SettleCorrectionWorkRequest,
     SubjectSnapshotRequest,
     TailDiagnosticsRequest,
     TraceFlowRequest,
@@ -59,7 +63,7 @@ RESET_ANNOTATIONS = ToolAnnotations(
 
 
 def create_admin_server(service: AdminToolService) -> MCPServer:
-    """Register the exact S036 catalog without package or entry-point discovery."""
+    """Register the exact S037 catalog without package or entry-point discovery."""
 
     server = MCPServer(
         name=SERVER_NAME,
@@ -265,6 +269,50 @@ def create_admin_server(service: AdminToolService) -> MCPServer:
     )
     def run_test(request: RunTestRequest) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
         return service.mutate("run_test", request)
+
+    @server.tool(
+        name="preview_correction",
+        description="Preview one fixed T-07 correction without changing authority facts.",
+        annotations=READ_ONLY_ANNOTATIONS,
+        structured_output=True,
+    )
+    def preview_correction(
+        request: PreviewCorrectionRequest,
+    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
+        return service.mutate("preview_correction", request)
+
+    @server.tool(
+        name="apply_correction",
+        description="Apply exactly one unexpired, unchanged T-07 preview.",
+        annotations=RESET_ANNOTATIONS,
+        structured_output=True,
+    )
+    def apply_correction(
+        request: ApplyCorrectionRequest,
+    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
+        return service.mutate("apply_correction", request)
+
+    @server.tool(
+        name="correction_status",
+        description="Resolve an earlier correction commit outcome from authority facts.",
+        annotations=READ_ONLY_ANNOTATIONS,
+        structured_output=True,
+    )
+    def correction_status(
+        request: CorrectionStatusRequest,
+    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
+        return service.observe("correction_status", request)
+
+    @server.tool(
+        name="settle_correction_work",
+        description="Settle one registered unreferenced artifact cleanup responsibility.",
+        annotations=RESET_ANNOTATIONS,
+        structured_output=True,
+    )
+    def settle_correction_work(
+        request: SettleCorrectionWorkRequest,
+    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
+        return service.mutate("settle_correction_work", request)
 
     return server
 

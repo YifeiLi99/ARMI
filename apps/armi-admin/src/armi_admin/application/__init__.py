@@ -8,6 +8,7 @@ from .configuration import (
     load_admin_config,
 )
 from .control_plane import AdminControlError, AdminControlPlane
+from .corrections import AdminCorrectionCoordinator, AdminCorrectionError
 from .credentials import AdminCredentialPort, AdminSecretError
 
 __all__ = (
@@ -16,6 +17,8 @@ __all__ = (
     "AdminConfigError",
     "AdminControlError",
     "AdminControlPlane",
+    "AdminCorrectionCoordinator",
+    "AdminCorrectionError",
     "AdminCredentialPort",
     "AdminEnvironmentKind",
     "AdminSecretError",
