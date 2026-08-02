@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，M0-S001—M0-S032 已完成，当前设计基线为 S001 4.6，产品 schema 已实现至 v20。S031 的 Creator 权限与效果工作台、真实回应闭环和正式不行动验收已通过；S032 已证明 `doubao-seed-evolving` 可在 `store=false` 下调用方舟内置 `web_search` 并返回工具事件、usage 与 URL 引用。S033 的网页调用保管与 S034 的类型化研究意图、provider synthesis/source evidence、T-02、Context 和 T-03 生产实现及离线 PostgreSQL 闭环已经建立，但两步的正式联网验收统一延至 M0 总验收，因此当前均不能标记为通过。生产认知仍使用 candidate v4 与 `tools=[]`，网页研究 admission worker 不启动，`M0-SEAM-WEB.active_binding` 保持为空。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。
+项目目前处于从零重建的实验阶段，M0-S001—M0-S032 已完成，当前设计基线为 S001 4.7，产品 schema 已实现至 v20。S035 已冻结为由 Codex 启动的本地 `stdio` Admin MCP：使用 MCP Python SDK 2.0.0，目标协议为 `2026-07-28`，首批只提供 `health` 与 `schema_status` 两个只读工具；本次重冻不创建 Windows 服务、账户或系统 sandbox。S033 的网页调用保管与 S034 的类型化研究意图、provider synthesis/source evidence、T-02、Context 和 T-03 生产实现及离线 PostgreSQL 闭环已经建立，但两步的正式联网验收统一延至 M0 总验收，因此当前均不能标记为通过。生产认知仍使用 candidate v4 与 `tools=[]`，网页研究 admission worker 不启动，`M0-SEAM-WEB.active_binding` 保持为空。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。
 
 ## 关于学习与参考
 
