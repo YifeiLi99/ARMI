@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 MODEL_BINDING_VERSION = "armi.model-bindings.v1"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
 CANDIDATE_VERSION = "armi.cognition-candidate.v4"
+WEB_CANDIDATE_VERSION = "armi.cognition-candidate.v5"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -217,6 +218,22 @@ class ExperienceProposal(_StrictModel):
     payload: ExperiencePayload
 
 
+class WebAwareExperiencePayload(_StrictModel):
+    proposal_kind: Literal["experiences"]
+    fact_class: FactClass
+    first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    source_perspective: Literal["creator_claim", "web_claim"]
+    uncertainty: Summary | None
+    privacy_scope: Literal["private"]
+
+
+class WebAwareExperienceProposal(_StrictModel):
+    proposal_ref: ProposalRef
+    atomic_group_ref: AtomicGroupRef
+    basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
+    payload: WebAwareExperiencePayload
+
+
 class ComponentChangeProposal(_StrictModel):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
@@ -259,6 +276,21 @@ class ActionChoiceProposal(_StrictModel):
     payload: ActionChoicePayload
 
 
+class WebResearchRequestPayload(_StrictModel):
+    proposal_kind: Literal["web_research_requests"]
+    fact_class: Literal["subjective_understanding", "inference"]
+    purpose: Literal["public_web_research"]
+    operation_class: Literal["search_read_public"]
+    query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
+
+
+class WebResearchRequestProposal(_StrictModel):
+    proposal_ref: ProposalRef
+    atomic_group_ref: AtomicGroupRef
+    basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
+    payload: WebResearchRequestPayload
+
+
 class CandidateUncertainty(_StrictModel):
     uncertainty_ref: UncertaintyRef
     basis_refs: tuple[ContextRef, ...] = Field(max_length=8)
@@ -289,18 +321,52 @@ class CognitionCandidate(_StrictModel):
     reason_summary: Summary
 
 
+class CognitionCandidateV5(_StrictModel):
+    schema_version: Literal["armi.cognition-candidate.v5"]
+    base: CandidateBase
+    disposition: Literal[
+        "change",
+        "no_change",
+        "defer",
+        "decline",
+        "no_action",
+        "need_information",
+    ]
+    understanding: CandidateUnderstanding
+    experiences: tuple[WebAwareExperienceProposal, ...] = Field(max_length=4)
+    component_changes: tuple[ComponentChangeProposal, ...] = Field(max_length=4)
+    memory_changes: tuple[MemoryChangeProposal, ...] = Field(max_length=4)
+    relationship_changes: tuple[RelationshipChangeProposal, ...] = Field(max_length=4)
+    activity_changes: tuple[ActivityChangeProposal, ...] = Field(max_length=4)
+    capability_requests: tuple[CapabilityRequestProposal, ...] = Field(max_length=4)
+    action_choices: tuple[ActionChoiceProposal, ...] = Field(max_length=4)
+    web_research_requests: tuple[WebResearchRequestProposal, ...] = Field(
+        min_length=0,
+        max_length=1,
+    )
+    uncertainties: tuple[CandidateUncertainty, ...] = Field(max_length=8)
+    reason_summary: Summary
+
+
 _CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidate)
+_WEB_CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidateV5)
 
 
 def candidate_schema() -> dict[str, Any]:
     return _CANDIDATE_ADAPTER.json_schema()
 
 
+def candidate_v5_schema() -> dict[str, Any]:
+    """Return the frozen-but-inactive S034 output contract."""
+
+    return _WEB_CANDIDATE_ADAPTER.json_schema()
+
+
 def parse_candidate(
     value: bytes,
     *,
     allowed_context_refs: frozenset[str],
-) -> CognitionCandidate:
+) -> CognitionCandidate | CognitionCandidateV5:
     try:
         raw: object = json.loads(value)
         if type(raw) is dict:
@@ -316,7 +382,12 @@ def parse_candidate(
                 candidate_object["action_choices"] = []
                 del candidate_object["action_intents"]
             raw = candidate_object
-        candidate = _CANDIDATE_ADAPTER.validate_json(
+        use_web_candidate = (
+            type(raw) is dict
+            and cast(dict[str, Any], raw).get("schema_version") == WEB_CANDIDATE_VERSION
+        )
+        adapter = _WEB_CANDIDATE_ADAPTER if use_web_candidate else _CANDIDATE_ADAPTER
+        candidate = adapter.validate_json(
             json.dumps(raw, ensure_ascii=False, separators=(",", ":")),
             strict=True,
         )
@@ -330,6 +401,7 @@ def parse_candidate(
         *candidate.activity_changes,
         *candidate.capability_requests,
         *candidate.action_choices,
+        *getattr(candidate, "web_research_requests", ()),
     )
     if len(proposals) > 16:
         raise ModelViolation("MODEL-RESPONSE-LIMIT")
@@ -353,6 +425,18 @@ def parse_candidate(
                 or len(encoded) > 65536
                 or b"\x00" in encoded
                 or not proposal.payload.content.strip()
+            ):
+                raise ModelViolation("MODEL-RESPONSE-LIMIT")
+        if isinstance(proposal.payload, WebResearchRequestPayload):
+            try:
+                encoded_query = proposal.payload.query.encode("utf-8", errors="strict")
+            except UnicodeEncodeError:
+                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
+            if (
+                not encoded_query
+                or len(encoded_query) > 16 * 1024
+                or b"\x00" in encoded_query
+                or not proposal.payload.query.strip()
             ):
                 raise ModelViolation("MODEL-RESPONSE-LIMIT")
     if any(count > 8 for count in group_counts.values()):
@@ -481,9 +565,14 @@ __all__ = (
     "CANDIDATE_VERSION",
     "MODEL_BINDING_VERSION",
     "MODEL_REQUEST_VERSION",
+    "WEB_CANDIDATE_VERSION",
     "CognitionCandidate",
+    "CognitionCandidateV5",
+    "WebResearchRequestPayload",
+    "WebResearchRequestProposal",
     "build_request_bytes",
     "candidate_schema",
+    "candidate_v5_schema",
     "checked_model_request",
     "load_active_binding",
     "parse_candidate",

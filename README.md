@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，已完成 M0-S001—M0-S032，当前设计基线已重冻为 S001 4.6，产品 schema 已实现至 v19。S031 的 Creator 权限与效果工作台、真实回应闭环和正式不行动验收已通过；S032 已证明 `doubao-seed-evolving` 可在 `store=false` 下调用方舟内置 `web_search` 并返回工具事件、usage 与 URL 引用。S033 的内部网页准入、request/attempt/tool-call/result artifact、费用和 unknown 恢复已经实现，但正式 custody live gate 尚未通过。S034 已冻结为 candidate v5/ChangeSet v4 类型化研究意图、schema v20、provider synthesis/source/evidence、T-02 与 Context/T-03 闭环；按当前实施策略只先完成代码和离线集成，S033/S034 的真实联网验收统一延至 M0 总验收。生产认知仍使用 candidate v4 与 `tools=[]`，网页 intent worker 不启动，`M0-SEAM-WEB.active_binding` 保持为空。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。
+项目目前处于从零重建的实验阶段，M0-S001—M0-S032 已完成，当前设计基线为 S001 4.6，产品 schema 已实现至 v20。S031 的 Creator 权限与效果工作台、真实回应闭环和正式不行动验收已通过；S032 已证明 `doubao-seed-evolving` 可在 `store=false` 下调用方舟内置 `web_search` 并返回工具事件、usage 与 URL 引用。S033 的网页调用保管与 S034 的类型化研究意图、provider synthesis/source evidence、T-02、Context 和 T-03 生产实现及离线 PostgreSQL 闭环已经建立，但两步的正式联网验收统一延至 M0 总验收，因此当前均不能标记为通过。生产认知仍使用 candidate v4 与 `tools=[]`，网页研究 admission worker 不启动，`M0-SEAM-WEB.active_binding` 保持为空。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，因此还不是可用产品版本。
 
 ## 关于学习与参考
 

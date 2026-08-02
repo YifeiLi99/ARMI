@@ -354,7 +354,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {19})
+        self.assertEqual({result.applied_version for result in results}, {20})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -750,7 +750,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 19)
+        self.assertEqual(result.applied_version, 20)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -812,7 +812,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 19)
+        self.assertEqual(result.applied_version, 20)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -872,7 +872,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(20,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(21,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -931,7 +931,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (19,),
+                    (20,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -1419,6 +1419,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 DROP TABLE
+                    armi.web_evidence_sources,
+                    armi.web_research_intents,
                     armi.observation_tool_calls,
                     armi.observation_attempts,
                     armi.web_observation_requests,
@@ -1510,6 +1512,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     DROP COLUMN creator_response_delivery_count
                     , DROP COLUMN resumable_web_observation_count
                     , DROP COLUMN unknown_web_observation_attempt_count
+                    , DROP COLUMN resumable_web_research_intent_count
+                    , DROP COLUMN pending_web_evidence_acceptance_count
+                    , DROP COLUMN resumable_web_cognition_count
                 """
             )
             connection.execute(
@@ -1517,13 +1522,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 19)
+        self.assertEqual(backfilled.applied_version, 20)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(

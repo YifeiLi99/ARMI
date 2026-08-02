@@ -33,6 +33,7 @@ from armi_kernel.application import (
     SubjectCommitId,
     SubjectCommitResult,
     SubjectCommitViolation,
+    WebResearchRequestDraft,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -75,6 +76,7 @@ class SubjectCommitSnapshot:
     base_state_epoch: int
     context_digest: Digest
     trace_id: TraceId
+    opportunity_purpose: str
 
 
 class PostgreSQLSubjectCommitRepository:
@@ -128,7 +130,8 @@ class PostgreSQLSubjectCommitRepository:
                     validation.base_subject_version,
                     validation.base_state_epoch,
                     validation.context_digest,
-                    episode.trace_id
+                    episode.trace_id,
+                    opportunity.purpose
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -184,6 +187,7 @@ class PostgreSQLSubjectCommitRepository:
             int(row[15]),
             Digest(str(row[16])),
             TraceId(str(row[17])),
+            str(row[18]),
         )
 
     async def existing_result(
@@ -226,6 +230,7 @@ class PostgreSQLSubjectCommitRepository:
         snapshot: SubjectCommitSnapshot,
         change_set: SubjectChangeSet,
         response_artifact_id: ArtifactId | None = None,
+        research_artifact_id: ArtifactId | None = None,
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await _assert_lease(connection, lease, snapshot.episode_id)
@@ -282,6 +287,7 @@ class PostgreSQLSubjectCommitRepository:
             snapshot=snapshot,
             change_set=change_set,
             response_artifact_id=response_artifact_id,
+            research_artifact_id=research_artifact_id,
         )
 
     async def _settle_current(
@@ -292,6 +298,7 @@ class PostgreSQLSubjectCommitRepository:
         snapshot: SubjectCommitSnapshot,
         change_set: SubjectChangeSet,
         response_artifact_id: ArtifactId | None,
+        research_artifact_id: ArtifactId | None,
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         disposition_map = {
@@ -316,6 +323,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.components
             and not change_set.capability_requests
             and not change_set.action_choices
+            and not change_set.web_research_requests
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -367,6 +375,11 @@ class PostgreSQLSubjectCommitRepository:
             if not evidence_links:
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-BASIS")
             received_at = evidence_links[0][2]
+            experience_kind, source_perspective = (
+                ("web_observation", "web_claim")
+                if snapshot.opportunity_purpose == "consider_web_evidence"
+                else ("creator_input", "creator_claim")
+            )
             await connection.execute(
                 """
                 INSERT INTO armi.accepted_experiences (
@@ -376,8 +389,8 @@ class PostgreSQLSubjectCommitRepository:
                     source_perspective, uncertainty, privacy_scope,
                     schema_version
                 ) VALUES (
-                    %s, %s, %s, %s, 'creator_input', 'external_claim',
-                    %s, %s, %s, %s, 'creator_claim', %s, 'private', 1
+                    %s, %s, %s, %s, %s, 'external_claim',
+                    %s, %s, %s, %s, %s, %s, 'private', 1
                 )
                 """,
                 (
@@ -385,10 +398,12 @@ class PostgreSQLSubjectCommitRepository:
                     commit_id.value,
                     snapshot.episode_id,
                     experience.proposal_ref,
+                    experience_kind,
                     experience.first_person_gist,
                     snapshot.scene_id,
                     received_at,
                     received_at,
+                    source_perspective,
                     experience.uncertainty,
                 ),
             )
@@ -481,6 +496,13 @@ class PostgreSQLSubjectCommitRepository:
             change_set=change_set,
             response_artifact_id=response_artifact_id,
         )
+        await _insert_web_research_intent(
+            unit_of_work,
+            snapshot=snapshot,
+            commit_id=commit_id,
+            requests=change_set.web_research_requests,
+            query_artifact_id=research_artifact_id,
+        )
 
         updated_subject = await (
             await connection.execute(
@@ -572,7 +594,7 @@ class PostgreSQLSubjectCommitRepository:
                     predecessor_opportunity_id, reconsideration_no,
                     schema_version
                 ) VALUES (
-                    %s, %s, %s, %s, %s, 'consider_creator_input',
+                    %s, %s, %s, %s, %s, %s,
                     'eligible', 'open', %s, %s, 1, 1
                 )
                 """,
@@ -582,6 +604,7 @@ class PostgreSQLSubjectCommitRepository:
                     snapshot.subject_id,
                     snapshot.scene_id,
                     snapshot.creator_party_id,
+                    snapshot.opportunity_purpose,
                     snapshot.root_opportunity_id,
                     snapshot.opportunity_id,
                 ),
@@ -1125,6 +1148,98 @@ async def _insert_response_intent(
             action_id,
             AuditResultStatus.ACCEPTED,
             reply.content_digest,
+        )
+    )
+
+
+async def _insert_web_research_intent(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    requests: tuple[WebResearchRequestDraft, ...],
+    query_artifact_id: ArtifactId | None,
+) -> None:
+    if not requests:
+        if query_artifact_id is not None:
+            raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-ARTIFACT")
+        return
+    if len(requests) != 1 or query_artifact_id is None:
+        raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-COUNT")
+    request = requests[0]
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    item = await (
+        await connection.execute(
+            """
+            SELECT validation_status
+            FROM armi.cognitive_candidate_validation_items
+            WHERE candidate_validation_id = %s AND proposal_ref = %s
+              AND owner_kind = 'web_research'
+            """,
+            (snapshot.validation_id, request.proposal_ref),
+        )
+    ).fetchone()
+    if item is None or str(item[0]) != "accepted":
+        raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-VALIDATION")
+    now_row = await (
+        await connection.execute("SELECT statement_timestamp()")
+    ).fetchone()
+    if now_row is None:
+        raise SubjectCommitViolation("SUBJECT-DATABASE")
+    intent_id = uuid7()
+    work_id = WorkId(uuid7())
+    await unit_of_work.work.enqueue(
+        WorkDraft(
+            work_id,
+            "web.observation.admit",
+            WorkOwner("web_research_intent", intent_id),
+            IdempotencyKey(f"web-intent:{snapshot.opportunity_id}"),
+            request.query_digest,
+            40,
+            Instant(now_row[0]),
+            Instant(now_row[0] + timedelta(seconds=3600)),
+            2,
+            snapshot.trace_id,
+            SubjectId(snapshot.subject_id),
+            WorkPayloadRef("artifact", query_artifact_id.value),
+        )
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.web_research_intents (
+            web_research_intent_id, subject_commit_id, source_opportunity_id,
+            subject_id, scene_id, creator_party_id, proposal_ref, purpose,
+            operation_class, query_artifact_id, query_digest, idempotency_key,
+            admission_work_id, status, trace_id, schema_version
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, 'public_web_research',
+            'search_read_public', %s, %s, %s, %s, 'pending', %s, 1
+        )
+        """,
+        (
+            intent_id,
+            commit_id.value,
+            snapshot.opportunity_id,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.creator_party_id,
+            request.proposal_ref,
+            query_artifact_id.value,
+            request.query_digest.value,
+            f"intent:{intent_id}",
+            work_id.value,
+            snapshot.trace_id.value,
+        ),
+    )
+    await unit_of_work.audit.append(
+        _audit(
+            unit_of_work,
+            snapshot,
+            "web.research.intent.recorded",
+            "web_research_intent",
+            intent_id,
+            AuditResultStatus.ACCEPTED,
+            request.query_digest,
         )
     )
 

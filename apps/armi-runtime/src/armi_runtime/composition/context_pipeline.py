@@ -328,7 +328,7 @@ def _context_request(
             "current_purpose",
             snapshot.opportunity_id,
             1,
-            rfc8785.dumps({"purpose": "consider_creator_input"}),
+            rfc8785.dumps({"purpose": snapshot.purpose}),
             ContextTrustClass.POLICY,
             required=True,
             relevance=100,
@@ -375,6 +375,24 @@ def _context_request(
                 ContextTrustClass.EXTERNAL_CLAIM,
                 required=True,
                 relevance=100,
+                source_kind=snapshot.evidence.source_kind,
+            ),
+            _item(
+                ContextSection.CAPABILITY,
+                "web_search_availability",
+                UUID("01985d00-0000-7000-8000-000000000034"),
+                1,
+                rfc8785.dumps(
+                    {
+                        "binding": "armi.model-tool.volcengine-ark-web-search-v1",
+                        "implementation_status": "complete",
+                        "activation_status": "inactive",
+                        "operation_class": "search_read_public",
+                    }
+                ),
+                ContextTrustClass.POLICY,
+                required=False,
+                relevance=60,
             ),
             _item(
                 ContextSection.CAPABILITY,
@@ -401,7 +419,7 @@ def _context_request(
         )
     )
     return ContextRequest(
-        Purpose("consider_creator_input"),
+        Purpose(snapshot.purpose),
         snapshot.subject_id,
         snapshot.scene_id,
         snapshot.subject_version,
@@ -427,6 +445,7 @@ def _item(
     *,
     required: bool,
     relevance: int,
+    source_kind: str | None = None,
 ) -> ContextItemCandidate:
     try:
         content = value.decode("utf-8", errors="strict")
@@ -435,7 +454,12 @@ def _item(
     return ContextItemCandidate(
         section,
         kind,
-        ContextSourceIdentity(kind, source_id, version, Digest.from_bytes(value)),
+        ContextSourceIdentity(
+            source_kind or kind,
+            source_id,
+            version,
+            Digest.from_bytes(value),
+        ),
         trust,
         "private",
         content,

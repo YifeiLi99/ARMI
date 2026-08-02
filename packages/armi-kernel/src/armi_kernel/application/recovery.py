@@ -109,6 +109,9 @@ class RecoverySummary:
     blocker_count: int
     summary_digest: Digest | None
     findings: tuple[RecoveryFinding, ...] = ()
+    resumable_web_research_intent_count: int = 0
+    pending_web_evidence_acceptance_count: int = 0
+    resumable_web_cognition_count: int = 0
 
     def __post_init__(self) -> None:
         if type(self.recovery_run_id) is not RecoveryRunId:
@@ -138,6 +141,9 @@ class RecoverySummary:
             self.unknown_web_observation_attempt_count,
             self.critical_artifact_count,
             self.blocker_count,
+            self.resumable_web_research_intent_count,
+            self.pending_web_evidence_acceptance_count,
+            self.resumable_web_cognition_count,
         ):
             if type(value) is not int or value < 0:
                 raise RecoveryViolation("REC-DECLARATION")

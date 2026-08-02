@@ -235,6 +235,9 @@ def build_role_manifest() -> dict[str, object]:
                     "creator_response_delivery_count",
                     "resumable_web_observation_count",
                     "unknown_web_observation_attempt_count",
+                    "resumable_web_research_intent_count",
+                    "pending_web_evidence_acceptance_count",
+                    "resumable_web_cognition_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -262,6 +265,9 @@ def build_role_manifest() -> dict[str, object]:
                     "creator_response_delivery_count",
                     "resumable_web_observation_count",
                     "unknown_web_observation_attempt_count",
+                    "resumable_web_research_intent_count",
+                    "pending_web_evidence_acceptance_count",
+                    "resumable_web_cognition_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -351,6 +357,8 @@ def build_role_manifest() -> dict[str, object]:
                         "trust_status",
                         "privacy_scope",
                         "acceptance_status",
+                        "web_observation_request_id",
+                        "observation_attempt_id",
                         "schema_version",
                     ]
                 },
@@ -1064,6 +1072,7 @@ def build_role_manifest() -> dict[str, object]:
                         "result_digest",
                         "last_error_code",
                         "completed_at",
+                        "web_research_intent_id",
                     ],
                 },
                 "armi_admin": {},
@@ -1135,6 +1144,77 @@ def build_role_manifest() -> dict[str, object]:
                         "provider_identity_digest",
                         "action_digest",
                         "completion_status",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+    ]
+    web_evidence_objects = [
+        {
+            "kind": "table",
+            "name": "armi.web_research_intents",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "web_research_intent_id",
+                        "subject_commit_id",
+                        "source_opportunity_id",
+                        "subject_id",
+                        "scene_id",
+                        "creator_party_id",
+                        "proposal_ref",
+                        "purpose",
+                        "operation_class",
+                        "query_artifact_id",
+                        "query_digest",
+                        "idempotency_key",
+                        "admission_work_id",
+                        "status",
+                        "trace_id",
+                        "schema_version",
+                    ],
+                    "UPDATE": [
+                        "web_observation_request_id",
+                        "status",
+                        "completed_at",
+                    ],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.web_evidence_sources",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "web_evidence_source_id",
+                        "evidence_id",
+                        "observation_attempt_id",
+                        "citation_no",
+                        "source_artifact_id",
+                        "canonical_url_digest",
+                        "title_digest",
+                        "citation_digest",
+                        "acquisition_kind",
                         "schema_version",
                     ]
                 },
@@ -1417,12 +1497,13 @@ def build_role_manifest() -> dict[str, object]:
             *capability_objects,
             *response_objects,
             *web_observation_objects,
+            *web_evidence_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S033 has no business or administration function requiring "
+                "M0-S034 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -1731,6 +1812,18 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                     ("armi.web_observation_requests", "web-observation-custody"),
                     ("armi.observation_attempts", "web-observation-custody"),
                     ("armi.observation_tool_calls", "web-observation-custody"),
+                )
+            ],
+            *[
+                {
+                    "kind": "table",
+                    "name": name,
+                    "logical_owner": owner,
+                    "activation_step": "M0-S034",
+                }
+                for name, owner in (
+                    ("armi.web_research_intents", "web-research-intent"),
+                    ("armi.web_evidence_sources", "external-evidence"),
                 )
             ],
         ],

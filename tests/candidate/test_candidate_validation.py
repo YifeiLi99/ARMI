@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any, cast
 from uuid import uuid7
 
@@ -254,6 +255,81 @@ def test_external_claim_cannot_be_declared_objective_fact() -> None:
         bases=bases,
     )
     assert result.error_code == "CANDIDATE-FACT-CLASS"
+
+
+def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_default() -> (
+    None
+):
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "purpose",
+            "current_purpose",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"purpose"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "web_search_availability",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"web search"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = _candidate(context)
+    candidate["schema_version"] = "armi.cognition-candidate.v5"
+    candidate["experiences"] = []
+    candidate["component_changes"] = []
+    candidate["action_choices"] = []
+    del candidate["action_intents"]
+    candidate["web_research_requests"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2", "ctx:4", "ctx:5"],
+            "payload": {
+                "proposal_kind": "web_research_requests",
+                "fact_class": "inference",
+                "purpose": "public_web_research",
+                "operation_class": "search_read_public",
+                "query": "PostgreSQL 18 的正式发布说明",
+            },
+        }
+    ]
+    inactive = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert inactive.status is CandidateValidationStatus.REJECTED
+    assert inactive.error_code == "CANDIDATE-WEB-NOT-ACTIVE"
+
+    active_context = replace(context, web_search_active=True)
+    first = DeterministicCandidateValidator(active_context).validate(
+        _bytes(candidate), bases=extended
+    )
+    second = DeterministicCandidateValidator(active_context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert first.status is CandidateValidationStatus.ACCEPTED
+    assert first.change_set is not None and second.change_set is not None
+    assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
+    assert len(first.change_set.web_research_requests) == 1
+    assert b"armi.subject-change-set.v4" in first.change_set.canonical_bytes
+
+    candidate["web_research_requests"][0]["payload"]["query"] = (  # type: ignore[index]
+        "https://example.com/"
+    )
+    rejected = DeterministicCandidateValidator(active_context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert rejected.error_code == "CANDIDATE-WEB-URL-FORBIDDEN"
 
 
 def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:

@@ -22,11 +22,16 @@ from armi_kernel.application import (
     CandidateBasis,
     CandidateComponentDraft,
     CandidateExperienceDraft,
+    CandidateFactClass,
     CandidateOwner,
     CandidateRejection,
     CandidateValidationResult,
     CandidateValidationStatus,
     CandidateViolation,
+    CapabilityRequestDraft,
+    CreatorReplyDraft,
+    FormalNoActionDraft,
+    WebResearchRequestDraft,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -67,6 +72,7 @@ class CandidateEpisodeSnapshot:
     bases: tuple[CandidateBasis, ...]
     basis_item_ids: tuple[tuple[int, UUID], ...]
     current_components: tuple[tuple[CandidateOwner, int, bytes], ...]
+    purpose: str
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -96,7 +102,8 @@ class PostgreSQLCandidateValidationRepository:
                     episode.creator_party_id,
                     attempt.response_artifact_id,
                     attempt.candidate_schema_version,
-                    episode.trace_id
+                    episode.trace_id,
+                    episode.purpose
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -218,6 +225,7 @@ class PostgreSQLCandidateValidationRepository:
             tuple(bases),
             tuple(basis_item_ids),
             components,
+            str(row[13]),
         )
 
     async def settle(
@@ -375,17 +383,34 @@ async def _insert_items(
     assert change_set is not None
     item_id_by_ordinal = dict(snapshot.basis_item_ids)
     drafts: tuple[
-        CandidateExperienceDraft | CandidateComponentDraft | CandidateRejection,
+        CandidateExperienceDraft
+        | CandidateComponentDraft
+        | CapabilityRequestDraft
+        | CreatorReplyDraft
+        | FormalNoActionDraft
+        | WebResearchRequestDraft
+        | CandidateRejection,
         ...,
-    ] = (*change_set.experiences, *change_set.components, *change_set.rejections)
+    ] = (
+        *change_set.experiences,
+        *change_set.components,
+        *change_set.capability_requests,
+        *change_set.action_choices,
+        *change_set.web_research_requests,
+        *change_set.rejections,
+    )
     for ordinal, draft in enumerate(
         sorted(drafts, key=lambda item: item.proposal_ref), 1
     ):
         accepted = not isinstance(draft, CandidateRejection)
-        owner = (
-            CandidateOwner.EXPERIENCE
-            if isinstance(draft, CandidateExperienceDraft)
-            else draft.owner
+        owner = _owner(draft)
+        fact_class = (
+            draft.fact_class
+            if isinstance(
+                draft,
+                (CandidateExperienceDraft, CandidateComponentDraft, CandidateRejection),
+            )
+            else None
         )
         semantic = rfc8785.dumps(cast(Any, _item_semantic(draft)))
         await connection.execute(
@@ -402,7 +427,7 @@ async def _insert_items(
                 draft.proposal_ref,
                 draft.atomic_group_ref,
                 owner.value,
-                draft.fact_class.value,
+                (fact_class or _implicit_fact_class(draft)).value,
                 "accepted" if accepted else "rejected",
                 None if accepted else draft.code,
                 Digest.from_bytes(semantic).value,
@@ -431,13 +456,19 @@ async def _insert_items(
 
 
 def _item_semantic(
-    value: CandidateExperienceDraft | CandidateComponentDraft | CandidateRejection,
+    value: CandidateExperienceDraft
+    | CandidateComponentDraft
+    | CapabilityRequestDraft
+    | CreatorReplyDraft
+    | FormalNoActionDraft
+    | WebResearchRequestDraft
+    | CandidateRejection,
 ) -> dict[str, object]:
     result: dict[str, object] = {
         "proposal_ref": value.proposal_ref,
         "atomic_group_ref": value.atomic_group_ref,
         "basis_ordinals": list(value.basis_ordinals),
-        "fact_class": value.fact_class.value,
+        "fact_class": _implicit_fact_class(value).value,
     }
     if isinstance(value, CandidateExperienceDraft):
         result.update(
@@ -456,9 +487,57 @@ def _item_semantic(
                 "next_state": json.loads(value.canonical_next_state),
             }
         )
-    else:
+    elif isinstance(value, CandidateRejection):
         result.update({"owner": value.owner.value, "reason_code": value.code})
+    elif isinstance(value, WebResearchRequestDraft):
+        result.update(
+            {
+                "owner": "web_research",
+                "purpose": value.purpose,
+                "operation_class": value.operation_class,
+                "query_digest": value.query_digest.value,
+            }
+        )
+    else:
+        result.update({"owner": _owner(value).value})
     return result
+
+
+def _owner(
+    value: CandidateExperienceDraft
+    | CandidateComponentDraft
+    | CapabilityRequestDraft
+    | CreatorReplyDraft
+    | FormalNoActionDraft
+    | WebResearchRequestDraft
+    | CandidateRejection,
+) -> CandidateOwner:
+    if isinstance(value, CandidateExperienceDraft):
+        return CandidateOwner.EXPERIENCE
+    if isinstance(value, CapabilityRequestDraft):
+        return CandidateOwner.CAPABILITY
+    if isinstance(value, (CreatorReplyDraft, FormalNoActionDraft)):
+        return CandidateOwner.ACTION
+    if isinstance(value, WebResearchRequestDraft):
+        return CandidateOwner.WEB_RESEARCH
+    return value.owner
+
+
+def _implicit_fact_class(
+    value: CandidateExperienceDraft
+    | CandidateComponentDraft
+    | CapabilityRequestDraft
+    | CreatorReplyDraft
+    | FormalNoActionDraft
+    | WebResearchRequestDraft
+    | CandidateRejection,
+) -> CandidateFactClass:
+    if isinstance(
+        value,
+        (CandidateExperienceDraft, CandidateComponentDraft, CandidateRejection),
+    ):
+        return value.fact_class
+    return CandidateFactClass.INFERENCE
 
 
 async def _assert_lease(

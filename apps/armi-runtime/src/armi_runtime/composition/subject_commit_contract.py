@@ -26,6 +26,7 @@ from armi_kernel.application import (
     FormalNoActionReason,
     SubjectChangeSet,
     SubjectCommitViolation,
+    WebResearchRequestDraft,
 )
 from armi_kernel.contracts import ContractViolation, Digest
 
@@ -44,6 +45,7 @@ _TOP_KEYS_V1 = {
 }
 _TOP_KEYS_V2 = {*_TOP_KEYS_V1, "capability_requests"}
 _TOP_KEYS_V3 = {*_TOP_KEYS_V2, "action_choices"}
+_TOP_KEYS_V4 = {*_TOP_KEYS_V3, "web_research_requests"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -56,6 +58,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v1",
             "armi.subject-change-set.v2",
             "armi.subject-change-set.v3",
+            "armi.subject-change-set.v4",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -65,6 +68,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V2
             if version.endswith(".v2")
             else _TOP_KEYS_V3
+            if version.endswith(".v3")
+            else _TOP_KEYS_V4
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -93,6 +98,10 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         action_choices = tuple(
             _action(item) for item in _array(document.get("action_choices", []), 1)
         )
+        web_research_requests = tuple(
+            _web_research(item)
+            for item in _array(document.get("web_research_requests", []), 1)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -113,6 +122,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             components,
             capability_requests,
             action_choices,
+            web_research_requests,
             rejections,
         )
         proposal_refs = [
@@ -122,13 +132,17 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *components,
                 *capability_requests,
                 *action_choices,
+                *web_research_requests,
                 *rejections,
             )
         ]
         if len(proposal_refs) != len(set(proposal_refs)):
             raise ValueError
         change_material = (
-            result.experiences or result.components or result.capability_requests
+            result.experiences
+            or result.components
+            or result.capability_requests
+            or result.web_research_requests
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
@@ -212,6 +226,31 @@ def _component(value: object) -> CandidateComponentDraft:
         _positive(item["expected_version"]),
         next_state,
         Digest(_text(item["next_state_digest"])),
+    )
+
+
+def _web_research(value: object) -> WebResearchRequestDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "purpose",
+            "operation_class",
+            "query",
+            "query_digest",
+        },
+    )
+    query = _text(item["query"]).encode("utf-8", errors="strict")
+    return WebResearchRequestDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        query,
+        Digest(_text(item["query_digest"])),
+        _text(item["purpose"]),
+        _text(item["operation_class"]),
     )
 
 

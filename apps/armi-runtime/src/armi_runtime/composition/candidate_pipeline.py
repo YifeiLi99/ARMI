@@ -151,6 +151,7 @@ class CandidateValidationPipeline:
                     snapshot.scene_id,
                     snapshot.creator_party_id,
                     snapshot.current_components,
+                    snapshot.purpose,
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)

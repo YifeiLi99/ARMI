@@ -1368,6 +1368,49 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert web_counts is not None
+            web_evidence_counts = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        count(*) FILTER (
+                            WHERE intent.status IN ('pending', 'admitted')
+                        ),
+                        count(*) FILTER (
+                            WHERE intent.status = 'admitted'
+                              AND request.status IN ('pending', 'running')
+                        ),
+                        (SELECT count(*)
+                         FROM armi.opportunities
+                         WHERE purpose = 'consider_web_evidence'
+                           AND current_disposition IN ('open', 'selected')),
+                        count(*) FILTER (
+                            WHERE (intent.status = 'pending' AND (
+                                work.status NOT IN ('ready', 'leased')
+                                OR intent.web_observation_request_id IS NOT NULL
+                            ))
+                            OR (intent.status = 'admitted' AND (
+                                intent.web_observation_request_id IS NULL
+                                OR request.web_research_intent_id
+                                   IS DISTINCT FROM intent.web_research_intent_id
+                            ))
+                            OR (intent.status = 'succeeded' AND NOT EXISTS (
+                                SELECT 1
+                                FROM armi.external_evidence AS evidence
+                                WHERE evidence.web_observation_request_id
+                                      = intent.web_observation_request_id
+                                  AND evidence.source_kind = 'web_search'
+                            ))
+                        )
+                    FROM armi.web_research_intents AS intent
+                    JOIN armi.durable_work AS work
+                      ON work.work_id = intent.admission_work_id
+                    LEFT JOIN armi.web_observation_requests AS request
+                      ON request.web_observation_request_id
+                         = intent.web_observation_request_id
+                    """
+                )
+            ).fetchone()
+            assert web_evidence_counts is not None
             if int(counts[7]) > 0:
                 blockers += 1
                 sorted_findings = tuple(
@@ -1445,6 +1488,21 @@ class PostgreSQLRuntimeRecovery:
                         key=_finding_key,
                     )
                 )
+            if int(web_evidence_counts[3]) > 0:
+                blockers += 1
+                sorted_findings = tuple(
+                    sorted(
+                        (
+                            *sorted_findings,
+                            RecoveryFinding(
+                                "web_evidence",
+                                RecoveryDecision.BLOCKED,
+                                "REC-WEB-EVIDENCE-INVALID",
+                            ),
+                        ),
+                        key=_finding_key,
+                    )
+                )
             status = (
                 RecoveryStatus.SAFE
                 if blockers == 0 and critical == 2
@@ -1482,6 +1540,9 @@ class PostgreSQLRuntimeRecovery:
                 "creator_response_delivery": int(effect_execution_counts[2]),
                 "resumable_web_observation": int(web_counts[0]),
                 "unknown_web_observation_attempt": int(web_counts[1]),
+                "resumable_web_research_intent": int(web_evidence_counts[0]),
+                "pending_web_evidence_acceptance": int(web_evidence_counts[1]),
+                "resumable_web_cognition": int(web_evidence_counts[2]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
                 "findings": [
@@ -1522,6 +1583,9 @@ class PostgreSQLRuntimeRecovery:
                     creator_response_delivery_count = %s,
                     resumable_web_observation_count = %s,
                     unknown_web_observation_attempt_count = %s,
+                    resumable_web_research_intent_count = %s,
+                    pending_web_evidence_acceptance_count = %s,
+                    resumable_web_cognition_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
@@ -1550,6 +1614,9 @@ class PostgreSQLRuntimeRecovery:
                     int(effect_execution_counts[2]),
                     int(web_counts[0]),
                     int(web_counts[1]),
+                    int(web_evidence_counts[0]),
+                    int(web_evidence_counts[1]),
+                    int(web_evidence_counts[2]),
                     critical,
                     blockers,
                     digest.value,
@@ -1591,6 +1658,9 @@ class PostgreSQLRuntimeRecovery:
             blocker_count=blockers,
             summary_digest=digest,
             findings=tuple(sorted_findings),
+            resumable_web_research_intent_count=int(web_evidence_counts[0]),
+            pending_web_evidence_acceptance_count=int(web_evidence_counts[1]),
+            resumable_web_cognition_count=int(web_evidence_counts[2]),
         )
 
     async def _record_artifact_failures(

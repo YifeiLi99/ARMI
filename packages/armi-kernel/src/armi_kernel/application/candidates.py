@@ -12,6 +12,7 @@ from armi_kernel.contracts import Digest
 
 from .capability import CapabilityRequestDraft
 from .response import ResponseChoiceDraft
+from .web_evidence import WebResearchRequestDraft
 
 _CODE = re.compile(r"^(?:CON|CANDIDATE)-[A-Z0-9-]+$", re.ASCII)
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
@@ -46,6 +47,7 @@ class CandidateOwner(StrEnum):
     ACTIVITY = "activity"
     CAPABILITY = "capability"
     ACTION = "action"
+    WEB_RESEARCH = "web_research"
 
 
 class CandidateValidationStatus(StrEnum):
@@ -222,6 +224,7 @@ class SubjectChangeSet:
     components: tuple[CandidateComponentDraft, ...]
     capability_requests: tuple[CapabilityRequestDraft, ...]
     action_choices: tuple[ResponseChoiceDraft, ...]
+    web_research_requests: tuple[WebResearchRequestDraft, ...]
     rejections: tuple[CandidateRejection, ...]
 
     def __post_init__(self) -> None:

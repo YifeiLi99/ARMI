@@ -31,6 +31,7 @@ from armi_kernel.application import (
     WebObservationRecord,
     WebObservationResultStatus,
     WebObservationViolation,
+    WebResearchViolation,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -60,11 +61,16 @@ from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWork,
     PostgreSQLUnitOfWorkFactory,
 )
+from armi_runtime.adapters.persistence.web_evidence import (
+    PostgreSQLWebEvidenceRepository,
+)
 from armi_runtime.adapters.persistence.web_observation import (
     PostgreSQLWebObservationRepository,
     WebObservationSnapshot,
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
+
+from .web_evidence import normalize_web_evidence
 
 _WORK_KIND = "web.search.invoke"
 _LEASE_SECONDS = 30
@@ -87,6 +93,7 @@ class WebSearchPipeline:
         "_adapter",
         "_catalog",
         "_diagnostic",
+        "_evidence_repository",
         "_factory",
         "_lease_owner",
         "_policy",
@@ -112,6 +119,7 @@ class WebSearchPipeline:
         self._policy = load_custody_policy(manifest_bytes)
         self._catalog = ArtifactCatalogRepository()
         self._repository = PostgreSQLWebObservationRepository()
+        self._evidence_repository = PostgreSQLWebEvidenceRepository()
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -360,6 +368,37 @@ class WebSearchPipeline:
                 logical_kind="web.search.result",
                 trace_id=snapshot.trace_id,
             )
+            try:
+                normalized_evidence = (
+                    normalize_web_evidence(result.canonical_result_bytes)
+                    if snapshot.research_intent_id is not None
+                    else None
+                )
+            except WebResearchViolation:
+                raise WebObservationViolation("WEB-EVIDENCE-INVALID") from None
+            published_evidence = (
+                await self._publish(
+                    normalized_evidence.canonical_bytes,
+                    logical_kind="web.evidence.provider-synthesis",
+                    trace_id=snapshot.trace_id,
+                )
+                if normalized_evidence is not None
+                else None
+            )
+            published_sources = (
+                tuple(
+                    [
+                        await self._publish(
+                            source.canonical_bytes,
+                            logical_kind="web.evidence.source-reference",
+                            trace_id=snapshot.trace_id,
+                        )
+                        for source in normalized_evidence.sources
+                    ]
+                )
+                if normalized_evidence is not None
+                else ()
+            )
             async with self._factory.unit_of_work(LockPlan()) as unit:
                 registration = await self._catalog.register(
                     unit,
@@ -379,6 +418,53 @@ class WebSearchPipeline:
                     result=result,
                     action_digests=result_action_digests(result.canonical_result_bytes),
                 )
+                if normalized_evidence is not None and published_evidence is not None:
+                    evidence_registration = await self._catalog.register(
+                        unit,
+                        ArtifactId(uuid7()),
+                        published_evidence,
+                    )
+                    source_registrations = tuple(
+                        [
+                            await self._catalog.register(
+                                unit,
+                                ArtifactId(uuid7()),
+                                source,
+                            )
+                            for source in published_sources
+                        ]
+                    )
+                    for evidence_item in (
+                        evidence_registration,
+                        *source_registrations,
+                    ):
+                        if evidence_item.inserted:
+                            await unit.audit.append(
+                                _result_artifact_audit(
+                                    unit,
+                                    evidence_item.ref,
+                                    snapshot,
+                                )
+                            )
+                    await self._evidence_repository.accept_evidence(
+                        unit,
+                        request_id=snapshot.request_id,
+                        attempt_id=attempt_id,
+                        evidence_artifact_id=evidence_registration.ref.artifact_id,
+                        source_artifact_ids=tuple(
+                            item.ref.artifact_id for item in source_registrations
+                        ),
+                        evidence_digest=normalized_evidence.digest,
+                        sources=tuple(
+                            (
+                                source.ordinal,
+                                source.canonical_url_digest,
+                                source.title_digest,
+                                source.citation_digest,
+                            )
+                            for source in normalized_evidence.sources
+                        ),
+                    )
                 await unit.audit.append(
                     _settlement_audit(
                         unit,

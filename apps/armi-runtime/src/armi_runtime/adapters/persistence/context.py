@@ -50,6 +50,7 @@ class ContextArtifactSource:
     ref: ArtifactRef
     source_id: UUID
     source_version: int
+    source_kind: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,7 @@ class ContextEpisodeSnapshot:
     subject_id: UUID
     scene_id: UUID
     creator_party_id: UUID
+    purpose: str
     subject_version: int
     state_epoch: int
     bundle_activation_id: UUID
@@ -96,17 +98,24 @@ class PostgreSQLContextRepository:
                     opportunity.subject_id,
                     opportunity.scene_id,
                     opportunity.creator_party_id,
-                    interaction.trace_id,
+                    COALESCE(interaction.trace_id, intent.trace_id),
                     subject.subject_version,
                     subject.state_epoch,
                     subject.current_bundle_activation_id,
-                    statement_timestamp()
+                    statement_timestamp(),
+                    opportunity.purpose
                 FROM armi.opportunities AS opportunity
                 JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = opportunity.evidence_id
-                JOIN armi.creator_input_interactions AS interaction
+                LEFT JOIN armi.creator_input_interactions AS interaction
                   ON interaction.creator_interaction_id
                     = evidence.creator_interaction_id
+                LEFT JOIN armi.web_observation_requests AS observation
+                  ON observation.web_observation_request_id
+                    = evidence.web_observation_request_id
+                LEFT JOIN armi.web_research_intents AS intent
+                  ON intent.web_research_intent_id
+                    = observation.web_research_intent_id
                 JOIN armi.subjects AS subject
                   ON subject.subject_id = opportunity.subject_id
                  AND subject.singleton_key = 1
@@ -157,7 +166,7 @@ class PostgreSQLContextRepository:
                 schema_version
             )
             VALUES (
-                %s, %s, %s, %s, %s, 'consider_creator_input', 'preparing',
+                %s, %s, %s, %s, %s, %s, 'preparing',
                 %s, %s, %s, %s, %s, %s, %s, 1
             )
             """,
@@ -167,6 +176,7 @@ class PostgreSQLContextRepository:
                 row[1],
                 row[2],
                 row[3],
+                row[9],
                 row[5],
                 row[6],
                 row[7],
@@ -248,7 +258,9 @@ class PostgreSQLContextRepository:
                     scene.scene_kind,
                     scene.audience_scope,
                     scene.current_status,
-                    scene.schema_version
+                    scene.schema_version,
+                    episode.purpose,
+                    evidence.source_kind
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -333,6 +345,7 @@ class PostgreSQLContextRepository:
             row[2],
             row[3],
             row[4],
+            str(row[20]),
             int(row[5]),
             int(row[6]),
             row[7],
@@ -346,11 +359,13 @@ class PostgreSQLContextRepository:
                 await self._artifact_ref(connection, row[12]),
                 row[11],
                 1,
+                str(row[21]),
             ),
             ContextArtifactSource(
                 await self._artifact_ref(connection, row[14]),
                 row[13],
                 1,
+                "fixed_prompt",
             ),
         )
 

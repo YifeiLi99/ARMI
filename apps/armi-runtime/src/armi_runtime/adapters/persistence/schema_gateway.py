@@ -260,6 +260,9 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("creator_response_delivery_count", "integer", True),
         ("resumable_web_observation_count", "integer", True),
         ("unknown_web_observation_attempt_count", "integer", True),
+        ("resumable_web_research_intent_count", "integer", True),
+        ("pending_web_evidence_acceptance_count", "integer", True),
+        ("resumable_web_cognition_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -300,7 +303,7 @@ _EXPECTED_TABLE_COLUMNS: Final = {
     ),
     "external_evidence": (
         ("evidence_id", "uuid", True),
-        ("creator_interaction_id", "uuid", True),
+        ("creator_interaction_id", "uuid", False),
         ("subject_id", "uuid", True),
         ("scene_id", "uuid", True),
         ("creator_party_id", "uuid", True),
@@ -311,6 +314,8 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("acceptance_status", "text", True),
         ("received_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
+        ("web_observation_request_id", "uuid", False),
+        ("observation_attempt_id", "uuid", False),
     ),
     "opportunities": (
         ("opportunity_id", "uuid", True),
@@ -774,6 +779,7 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("created_at", "timestamp(6) with time zone", True),
         ("completed_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
+        ("web_research_intent_id", "uuid", False),
     ),
     "observation_attempts": (
         ("observation_attempt_id", "uuid", True),
@@ -811,6 +817,40 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("completion_status", "text", True),
         ("schema_version", "smallint", True),
     ),
+    "web_research_intents": (
+        ("web_research_intent_id", "uuid", True),
+        ("subject_commit_id", "uuid", True),
+        ("source_opportunity_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("scene_id", "uuid", True),
+        ("creator_party_id", "uuid", True),
+        ("proposal_ref", "text", True),
+        ("purpose", "text", True),
+        ("operation_class", "text", True),
+        ("query_artifact_id", "uuid", True),
+        ("query_digest", "text", True),
+        ("idempotency_key", "text", True),
+        ("admission_work_id", "uuid", True),
+        ("web_observation_request_id", "uuid", False),
+        ("status", "text", True),
+        ("trace_id", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("completed_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
+    "web_evidence_sources": (
+        ("web_evidence_source_id", "uuid", True),
+        ("evidence_id", "uuid", True),
+        ("observation_attempt_id", "uuid", True),
+        ("citation_no", "smallint", True),
+        ("source_artifact_id", "uuid", True),
+        ("canonical_url_digest", "text", True),
+        ("title_digest", "text", True),
+        ("citation_digest", "text", True),
+        ("acquisition_kind", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
 }
 _EXPECTED_CONSTRAINT_KINDS: Final = {
     "schema_migrations": tuple(sorted(("c", "c", "c", "n", "n", "n", "n", "n", "p"))),
@@ -842,7 +882,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 30, *("n",) * 31, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 33, *("n",) * 34, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
         sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
@@ -852,7 +892,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 7, *("n",) * 11, "f", "p", *("u",) * 2))
     ),
     "external_evidence": tuple(
-        sorted((*("c",) * 6, *("n",) * 12, *("f",) * 2, "p", *("u",) * 2))
+        sorted((*("c",) * 7, *("n",) * 11, *("f",) * 4, "p", *("u",) * 4))
     ),
     "opportunities": tuple(
         sorted((*("c",) * 9, *("n",) * 12, *("f",) * 3, "p", *("u",) * 3))
@@ -879,7 +919,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 9, *("n",) * 16, *("f",) * 6, "p", *("u",) * 3))
     ),
     "accepted_experiences": tuple(
-        sorted((*("c",) * 9, *("n",) * 14, *("f",) * 3, "p", "u"))
+        sorted((*("c",) * 10, *("n",) * 14, *("f",) * 3, "p", "u"))
     ),
     "experience_evidence_links": tuple(
         sorted((*("c",) * 2, *("n",) * 5, *("f",) * 3, "p", "u"))
@@ -923,13 +963,19 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 8, *("n",) * 8, "f", "f", "p", "u"))
     ),
     "web_observation_requests": tuple(
-        sorted((*("c",) * 15, *("n",) * 17, *("f",) * 5, "p", "u", "u"))
+        sorted((*("c",) * 15, *("n",) * 17, *("f",) * 6, "p", *("u",) * 3))
     ),
     "observation_attempts": tuple(
         sorted((*("c",) * 20, *("n",) * 11, *("f",) * 3, "p", "u", "u"))
     ),
     "observation_tool_calls": tuple(
         sorted((*("c",) * 7, *("n",) * 8, "f", "p", "u", "u"))
+    ),
+    "web_research_intents": tuple(
+        sorted((*("c",) * 10, *("n",) * 17, *("f",) * 8, "p", *("u",) * 5))
+    ),
+    "web_evidence_sources": tuple(
+        sorted((*("c",) * 7, *("n",) * 11, *("f",) * 3, "p", *("u",) * 3))
     ),
 }
 
@@ -1405,6 +1451,12 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(web_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 20:
+            evidence_tables = ("web_evidence_sources", "web_research_intents")
+            expected_objects.extend((name, "r") for name in evidence_tables)
+            expected_tables.extend(evidence_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -1471,6 +1523,8 @@ class PostgreSQLSchemaGateway:
             expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
             if table_name == "runtime_recovery_runs" and expected is not None:
                 added_columns = 0
+                if applied_version < 20:
+                    added_columns += 3
                 if applied_version < 19:
                     added_columns += 2
                 if applied_version < 18:
@@ -1479,6 +1533,22 @@ class PostgreSQLSchemaGateway:
                     added_columns += 2 + max(0, 16 - max(applied_version, 9))
                 if added_columns:
                     expected = expected[:-added_columns]
+            if (
+                table_name == "external_evidence"
+                and applied_version < 20
+                and expected is not None
+            ):
+                expected = (
+                    (expected[0][0], expected[0][1], expected[0][2]),
+                    (expected[1][0], expected[1][1], True),
+                    *expected[2:-2],
+                )
+            if (
+                table_name == "web_observation_requests"
+                and applied_version < 20
+                and expected is not None
+            ):
+                expected = expected[:-1]
             if (
                 table_name == "effects"
                 and applied_version < 18
@@ -1553,6 +1623,8 @@ class PostgreSQLSchemaGateway:
             if table_name == "runtime_recovery_runs" and expected is not None:
                 prior_kinds = list(expected)
                 added_constraints = 0
+                if applied_version < 20:
+                    added_constraints += 3
                 if applied_version < 19:
                     added_constraints += 2
                 if applied_version < 18:
@@ -1562,6 +1634,34 @@ class PostgreSQLSchemaGateway:
                 for _ in range(added_constraints):
                     prior_kinds.remove("c")
                     prior_kinds.remove("n")
+                expected = tuple(prior_kinds)
+            if (
+                table_name == "external_evidence"
+                and applied_version < 20
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                prior_kinds.remove("c")
+                for kind in ("f", "f", "u", "u"):
+                    prior_kinds.remove(kind)
+                prior_kinds.append("n")
+                expected = tuple(sorted(prior_kinds))
+            if (
+                table_name == "accepted_experiences"
+                and applied_version < 20
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                prior_kinds.remove("c")
+                expected = tuple(prior_kinds)
+            if (
+                table_name == "web_observation_requests"
+                and applied_version < 20
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                prior_kinds.remove("f")
+                prior_kinds.remove("u")
                 expected = tuple(prior_kinds)
             if (
                 table_name == "effects"

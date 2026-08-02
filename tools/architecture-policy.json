@@ -211,6 +211,15 @@
       "allowed_callers": [
         "armi_runtime.composition.web_search_pipeline"
       ]
+    },
+    {
+      "id": "web-evidence-custody",
+      "module": "armi_runtime.adapters.persistence.web_evidence",
+      "owner": "web-evidence-custody",
+      "allowed_callers": [
+        "armi_runtime.composition.web_research_pipeline",
+        "armi_runtime.composition.web_search_pipeline"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -339,6 +348,19 @@
       "owner": "web-observation-custody",
       "allowed_write_surfaces": [
         "web-observation-custody",
+        "web-evidence-custody",
+        "artifact-catalog",
+        "durable-work",
+        "normal-audit"
+      ]
+    },
+    {
+      "id": "web-research-admission",
+      "module": "armi_runtime.composition.web_research_pipeline",
+      "owner": "web-evidence-custody",
+      "allowed_write_surfaces": [
+        "web-evidence-custody",
+        "web-observation-custody",
         "artifact-catalog",
         "durable-work",
         "normal-audit"
@@ -350,6 +372,7 @@
       "owner": "subject-continuity",
       "allowed_write_surfaces": [
         "subject-commit",
+        "web-evidence-custody",
         "artifact-catalog",
         "durable-work",
         "normal-audit"

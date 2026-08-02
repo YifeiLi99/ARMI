@@ -71,6 +71,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0017_effect_intent_and_ledger.sql",
     "migrations/0018_effect_dispatch_observation_settlement.sql",
     "migrations/0019_readonly_web_search_custody.sql",
+    "migrations/0020_web_search_evidence_closure.sql",
 )
 
 

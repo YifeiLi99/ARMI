@@ -32,6 +32,7 @@ from armi_kernel.application import (
     SceneKey,
     SubjectCommitResult,
     SubjectCommitViolation,
+    WebResearchRequestDraft,
     WorkLease,
     WorkViolation,
 )
@@ -136,8 +137,17 @@ class SubjectCommitPipeline:
             published_reply = (
                 await self._publish_response(replies[0], snapshot) if replies else None
             )
+            research_requests = change_set.web_research_requests
+            if len(research_requests) > 1:
+                raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-COUNT")
+            published_research = (
+                await self._publish_research(research_requests[0], snapshot)
+                if research_requests
+                else None
+            )
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 response_artifact_id = None
+                research_artifact_id = None
                 if published_reply is not None:
                     registration = await self._catalog.register(
                         unit_of_work,
@@ -153,12 +163,28 @@ class SubjectCommitPipeline:
                                 snapshot,
                             )
                         )
+                if published_research is not None:
+                    research_registration = await self._catalog.register(
+                        unit_of_work,
+                        ArtifactId(uuid7()),
+                        published_research,
+                    )
+                    research_artifact_id = research_registration.ref.artifact_id
+                    if research_registration.inserted:
+                        await unit_of_work.audit.append(
+                            _research_artifact_audit(
+                                unit_of_work,
+                                research_registration.ref,
+                                snapshot,
+                            )
+                        )
                 result = await self._repository.settle(
                     unit_of_work,
                     lease=lease,
                     snapshot=snapshot,
                     change_set=change_set,
                     response_artifact_id=response_artifact_id,
+                    research_artifact_id=research_artifact_id,
                 )
             await self._notify(snapshot, result)
             return True
@@ -255,6 +281,23 @@ class SubjectCommitPipeline:
             ArtifactPolicy(
                 "text/plain",
                 "creator.response.text",
+                "subject.commit",
+                snapshot.trace_id,
+                ArtifactPrivacyScope.PRIVATE,
+            ),
+        )
+        return await self._storage.publish(staged)
+
+    async def _publish_research(
+        self,
+        request: WebResearchRequestDraft,
+        snapshot: SubjectCommitSnapshot,
+    ):
+        staged = await self._storage.stage(
+            _one_chunk(request.query_bytes),
+            ArtifactPolicy(
+                "text/plain",
+                "web.research.query",
                 "subject.commit",
                 snapshot.trace_id,
                 ArtifactPrivacyScope.PRIVATE,
@@ -381,6 +424,26 @@ def _response_artifact_audit(
         AuditEventId(uuid7()),
         AuditReference("runtime", unit_of_work.environment_id),
         Purpose("cognition.response"),
+        "artifact.catalog.registered",
+        AuditReference("artifact", ref.artifact_id.value),
+        AuditResultStatus.APPLIED,
+        snapshot.trace_id,
+        AuditSensitivity.RESTRICTED,
+        subject_id=SubjectId(snapshot.subject_id),
+        request=AuditReference("cognitive_episode", snapshot.episode_id),
+        artifact_digest=ref.content_digest,
+    )
+
+
+def _research_artifact_audit(
+    unit_of_work: PostgreSQLUnitOfWork,
+    ref: ArtifactRef,
+    snapshot: SubjectCommitSnapshot,
+) -> AuditDraft:
+    return AuditDraft(
+        AuditEventId(uuid7()),
+        AuditReference("runtime", unit_of_work.environment_id),
+        Purpose("public_web_research"),
         "artifact.catalog.registered",
         AuditReference("artifact", ref.artifact_id.value),
         AuditResultStatus.APPLIED,

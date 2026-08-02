@@ -32,22 +32,26 @@ from armi_kernel.application import (
     FormalNoActionReason,
     ModelViolation,
     SubjectChangeSet,
+    WebResearchRequestDraft,
 )
 from armi_kernel.contracts import Digest
 
 from .model_contract import (
     ActionChoiceProposal,
     CognitionCandidate,
+    CognitionCandidateV5,
     ComponentChangeProposal,
     CreatorReplyPayload,
     ExperienceProposal,
     FormalNoActionPayload,
+    WebResearchRequestProposal,
     parse_candidate,
 )
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v1"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
 CHANGE_SET_VERSION = "armi.subject-change-set.v3"
+WEB_CHANGE_SET_VERSION = "armi.subject-change-set.v4"
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +67,8 @@ class CandidateValidationContext:
     scene_id: UUID
     creator_party_id: UUID
     current_components: tuple[tuple[CandidateOwner, int, bytes], ...]
+    purpose: str = "consider_creator_input"
+    web_search_active: bool = False
 
     def __post_init__(self) -> None:
         if any(
@@ -174,7 +180,8 @@ class DeterministicCandidateValidator:
             | CandidateComponentDraft
             | CapabilityRequestDraft
             | CreatorReplyDraft
-            | FormalNoActionDraft,
+            | FormalNoActionDraft
+            | WebResearchRequestDraft,
         ] = {}
         rejected: dict[str, CandidateRejection] = {}
         group_members: dict[str, list[str]] = defaultdict(list)
@@ -184,6 +191,15 @@ class DeterministicCandidateValidator:
             group_members[proposal.atomic_group_ref].append(proposal.proposal_ref)
             proposal_bases = tuple(basis_by_ref[ref] for ref in proposal.basis_refs)
             failure = _basis_failure(owner, proposal_bases, proposal.payload.fact_class)
+            if failure is None and owner is CandidateOwner.EXPERIENCE:
+                experience = cast(ExperienceProposal, proposal)
+                expected_perspective = (
+                    "web_claim"
+                    if self._context.purpose == "consider_web_evidence"
+                    else "creator_claim"
+                )
+                if experience.payload.source_perspective != expected_perspective:
+                    failure = "CANDIDATE-EXPERIENCE-SOURCE"
             if failure is None and owner is CandidateOwner.EXPERIENCE:
                 experience = cast(ExperienceProposal, proposal)
                 accepted[proposal.proposal_ref] = CandidateExperienceDraft(
@@ -276,6 +292,26 @@ class DeterministicCandidateValidator:
                         FormalNoActionReason(action.payload.reason_class),
                     )
                     continue
+            if failure is None and owner is CandidateOwner.WEB_RESEARCH:
+                research = cast(WebResearchRequestProposal, proposal)
+                failure = _web_research_failure(
+                    research,
+                    proposal_bases,
+                    active=self._context.web_search_active,
+                    purpose=self._context.purpose,
+                )
+                if failure is None:
+                    query_bytes = research.payload.query.encode(
+                        "utf-8", errors="strict"
+                    )
+                    accepted[proposal.proposal_ref] = WebResearchRequestDraft(
+                        proposal.proposal_ref,
+                        proposal.atomic_group_ref,
+                        tuple(basis.ordinal for basis in proposal_bases),
+                        query_bytes,
+                        Digest.from_bytes(query_bytes),
+                    )
+                    continue
             if failure is None:
                 failure = "CANDIDATE-OWNER-NOT-ACTIVE"
             rejected[proposal.proposal_ref] = CandidateRejection(
@@ -346,10 +382,19 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, (CreatorReplyDraft, FormalNoActionDraft))
         )
+        web_research_requests = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, WebResearchRequestDraft)
+        )
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
         change_set_value = {
-            "schema_version": CHANGE_SET_VERSION,
+            "schema_version": (
+                WEB_CHANGE_SET_VERSION
+                if candidate.schema_version == "armi.cognition-candidate.v5"
+                else CHANGE_SET_VERSION
+            ),
             "subject_id": str(self._context.subject_id),
             "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
@@ -370,6 +415,10 @@ class DeterministicCandidateValidator:
             "action_choices": [_action_wire(item) for item in action_choices],
             "rejections": [_rejection_wire(item) for item in rejections],
         }
+        if candidate.schema_version == "armi.cognition-candidate.v5":
+            change_set_value["web_research_requests"] = [
+                _web_research_wire(item) for item in web_research_requests
+            ]
         canonical = rfc8785.dumps(cast(Any, change_set_value))
         change_set = SubjectChangeSet(
             canonical,
@@ -388,6 +437,7 @@ class DeterministicCandidateValidator:
             components,
             capability_requests,
             action_choices,
+            web_research_requests,
             rejections,
         )
         status = (
@@ -404,7 +454,9 @@ class DeterministicCandidateValidator:
             None,
         )
 
-    def _base_matches(self, candidate: CognitionCandidate) -> bool:
+    def _base_matches(
+        self, candidate: CognitionCandidate | CognitionCandidateV5
+    ) -> bool:
         base = candidate.base
         return (
             base.subject_version == self._context.base_subject_version
@@ -415,7 +467,7 @@ class DeterministicCandidateValidator:
 
 
 def _all_proposals(
-    candidate: CognitionCandidate,
+    candidate: CognitionCandidate | CognitionCandidateV5,
 ) -> tuple[tuple[CandidateOwner, Any], ...]:
     return (
         *((CandidateOwner.EXPERIENCE, item) for item in candidate.experiences),
@@ -431,6 +483,10 @@ def _all_proposals(
         *((CandidateOwner.ACTIVITY, item) for item in candidate.activity_changes),
         *((CandidateOwner.CAPABILITY, item) for item in candidate.capability_requests),
         *((CandidateOwner.ACTION, item) for item in candidate.action_choices),
+        *(
+            (CandidateOwner.WEB_RESEARCH, item)
+            for item in getattr(candidate, "web_research_requests", ())
+        ),
     )
 
 
@@ -585,6 +641,40 @@ def _action_failure(
     )
 
 
+def _web_research_failure(
+    proposal: WebResearchRequestProposal,
+    bases: tuple[CandidateBasis, ...],
+    *,
+    active: bool,
+    purpose: str,
+) -> str | None:
+    if not active:
+        return "CANDIDATE-WEB-NOT-ACTIVE"
+    if purpose != "consider_creator_input":
+        return "CANDIDATE-WEB-RECURSION-FORBIDDEN"
+    if proposal.payload.fact_class not in {"subjective_understanding", "inference"}:
+        return "CANDIDATE-WEB-FACT"
+    if not any(
+        basis.item_kind == "current_evidence" and basis.trust_class == "external_claim"
+        for basis in bases
+    ):
+        return "CANDIDATE-WEB-EVIDENCE-BASIS"
+    if not any(
+        basis.item_kind == "current_purpose" and basis.trust_class == "policy"
+        for basis in bases
+    ):
+        return "CANDIDATE-WEB-PURPOSE-BASIS"
+    if not any(
+        basis.item_kind == "web_search_availability" and basis.trust_class == "policy"
+        for basis in bases
+    ):
+        return "CANDIDATE-WEB-AVAILABILITY-BASIS"
+    lowered = proposal.payload.query.casefold()
+    if "http://" in lowered or "https://" in lowered:
+        return "CANDIDATE-WEB-URL-FORBIDDEN"
+    return None
+
+
 def _rejected(code: str) -> CandidateValidationResult:
     return CandidateValidationResult(
         CandidateValidationId(uuid7()),
@@ -609,7 +699,8 @@ def _draft_owner(
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
-    | FormalNoActionDraft,
+    | FormalNoActionDraft
+    | WebResearchRequestDraft,
 ) -> CandidateOwner:
     if isinstance(draft, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
@@ -617,6 +708,8 @@ def _draft_owner(
         return CandidateOwner.CAPABILITY
     if isinstance(draft, (CreatorReplyDraft, FormalNoActionDraft)):
         return CandidateOwner.ACTION
+    if isinstance(draft, WebResearchRequestDraft):
+        return CandidateOwner.WEB_RESEARCH
     return draft.owner
 
 
@@ -625,11 +718,14 @@ def _draft_fact_class(
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
-    | FormalNoActionDraft,
+    | FormalNoActionDraft
+    | WebResearchRequestDraft,
 ) -> CandidateFactClass:
     if isinstance(
         draft, (CapabilityRequestDraft, CreatorReplyDraft, FormalNoActionDraft)
     ):
+        return CandidateFactClass.INFERENCE
+    if isinstance(draft, WebResearchRequestDraft):
         return CandidateFactClass.INFERENCE
     return draft.fact_class
 
@@ -643,6 +739,18 @@ def _experience_wire(value: CandidateExperienceDraft) -> dict[str, object]:
         "first_person_gist": value.first_person_gist,
         "uncertainty": value.uncertainty,
         "privacy_scope": value.privacy_scope,
+    }
+
+
+def _web_research_wire(value: WebResearchRequestDraft) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "purpose": value.purpose,
+        "operation_class": value.operation_class,
+        "query": value.query_bytes.decode("utf-8", errors="strict"),
+        "query_digest": value.query_digest.value,
     }
 
 
