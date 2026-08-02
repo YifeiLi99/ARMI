@@ -21,12 +21,16 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, LiteralString, cast
 from uuid import UUID
 
 import psycopg
 import rfc8785
+from armi_admin.application import AdminConfig, AdminCredentialPort
+from armi_admin.mcp.contracts import HealthRequest, SchemaStatusRequest
+from armi_admin.mcp.service import AdminToolService
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_kernel.application import (
     ArtifactId,
@@ -396,6 +400,54 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
+
+    def test_admin_mcp_health_and_schema_status_use_only_admin_identity(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        resource_root = files("armi_admin.mcp.resources")
+        governance = json.loads(
+            resource_root.joinpath("admin-mcp-manifest.json").read_bytes()
+        )
+        config = AdminConfig.model_validate(
+            {
+                "schema_version": "armi.admin-config.v1",
+                "environment_kind": "acceptance",
+                "environment_id": str(fixture.environment_id),
+                "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
+                "expected": {
+                    "package_digest": governance["package_surface_digest"],
+                    "schema_manifest_digest": governance["schema_manifest_sha256"],
+                },
+            }
+        )
+
+        def service_for(dsn: str) -> AdminToolService:
+            return AdminToolService(
+                config=config,
+                credentials=AdminCredentialPort(
+                    locator=config.locator,
+                    config_root=Path.cwd(),
+                    environ={"ARMI_SECRET_ADMIN_DATABASE": dsn},
+                ),
+            )
+
+        service = service_for(fixture.admin_role_dsn)
+        health = service.health(HealthRequest())
+        status = service.schema_status(
+            SchemaStatusRequest(environment_id=str(fixture.environment_id))
+        )
+        self.assertEqual(health.status, "healthy")
+        self.assertEqual(health.role_status, "verified")
+        self.assertEqual(status.status, "current")
+        self.assertEqual(status.applied_version, 20)
+
+        for denied_dsn in (fixture.runtime_dsn, fixture.migrator_dsn):
+            denied = service_for(denied_dsn).health(HealthRequest())
+            self.assertEqual(denied.status, "misconfigured")
+            self.assertEqual(denied.error_code, "ADMIN-DB-ROLE")
 
     def test_web_observation_admission_attempt_and_result_are_atomic(self) -> None:
         live_env = os.environ.get("S033_LIVE_ENV_FILE")

@@ -38,7 +38,13 @@
       "id": "database-role-policy-admin",
       "module": "armi_admin.persistence.role_session",
       "owner": "database-role-policy",
-      "allowed_callers": []
+      "allowed_callers": ["armi_admin.persistence.schema_gateway"]
+    },
+    {
+      "id": "admin-schema-status",
+      "module": "armi_admin.persistence.schema_gateway",
+      "owner": "schema-governance",
+      "allowed_callers": ["armi_admin.mcp.service"]
     },
     {
       "id": "artifact-catalog",

@@ -28,7 +28,7 @@ try {
 if (
     $policy.schema_version -ne "armi.windows-credential-acl.v1" -or
     $policy.active -ne $false -or
-    $policy.activation_step -ne "M0-S035" -or
+    $policy.activation_step -ne "M0-S045" -or
     @($policy.allowed_control_sids).Count -ne 2 -or
     @($policy.forbidden_broad_sids).Count -ne 3
 ) {
@@ -36,7 +36,7 @@ if (
 }
 
 if ([string]::IsNullOrEmpty($Sddl)) {
-    [Console]::Out.WriteLine("windows-credential-acl-policy: pass (inactive until M0-S035)")
+    [Console]::Out.WriteLine("windows-credential-acl-policy: pass (inactive until M0-S045)")
     exit 0
 }
 if ([string]::IsNullOrEmpty($ExpectedReaderSid)) {

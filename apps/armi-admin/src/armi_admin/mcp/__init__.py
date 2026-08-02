@@ -1,3 +1,5 @@
 """Isolated administration MCP boundary."""
 
-__all__ = ()
+from .server import create_admin_server
+
+__all__ = ("create_admin_server",)

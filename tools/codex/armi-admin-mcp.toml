@@ -1,0 +1,9 @@
+# Copy this table into an isolated or user Codex config only when S045 activates it.
+[mcp_servers.armi_admin]
+command = "armi-admin-mcp"
+env_vars = ["ARMI_ADMIN_CONFIG"]
+enabled_tools = ["health", "schema_status"]
+required = true
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 10
+tool_timeout_sec = 30

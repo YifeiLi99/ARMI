@@ -10,6 +10,7 @@ from psycopg.pq import TransactionStatus
 from psycopg_pool import ConnectionPool
 
 _SEARCH_PATH = "pg_catalog, armi"
+_POOL_OPEN_TIMEOUT_SECONDS = 5.0
 
 
 class AdminRoleSessionError(RuntimeError):
@@ -38,7 +39,7 @@ class AdminRoleBoundPool:
         )
 
     def open(self) -> None:
-        self._pool.open(wait=True)
+        self._pool.open(wait=True, timeout=_POOL_OPEN_TIMEOUT_SECONDS)
 
     def close(self) -> None:
         self._pool.close()
@@ -51,7 +52,6 @@ class AdminRoleBoundPool:
 
     def _configure(self, connection: psycopg.Connection[Any]) -> None:
         connection.execute("SET search_path TO pg_catalog, armi")
-        self._verify(connection)
         connection.commit()
 
     def _reset(self, connection: psycopg.Connection[Any]) -> None:

@@ -1511,7 +1511,7 @@ def build_role_manifest() -> dict[str, object]:
         },
         "credential_acl": {
             "policy": "tools/windows-credential-acl-policy.json",
-            "activation_step": "M0-S035",
+            "activation_step": "M0-S045",
             "active": False,
         },
     }

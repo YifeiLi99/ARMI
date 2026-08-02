@@ -11,6 +11,9 @@ dependencies = [
     "rfc8785==0.1.4",
 ]
 
+[project.scripts]
+armi-admin-mcp = "armi_admin.mcp.entrypoint:main"
+
 [tool.uv.sources]
 armi-kernel = { workspace = true }
 

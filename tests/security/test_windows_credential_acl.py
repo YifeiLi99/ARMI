@@ -42,7 +42,7 @@ class WindowsCredentialAclTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("inactive until M0-S035", completed.stdout)
+        self.assertIn("inactive until M0-S045", completed.stdout)
 
     def test_synthetic_exact_matrix_passes(self) -> None:
         completed = self.run_checker(
