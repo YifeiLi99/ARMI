@@ -52,7 +52,11 @@ def _read_key(path: Path) -> str:
 def _rates(root: Path) -> tuple[int, int]:
     try:
         manifest = json.loads(
-            (root / "model/model-bindings.manifest.json").read_text(encoding="utf-8")
+            (
+                root
+                / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
+                "model-bindings.manifest.json"
+            ).read_text(encoding="utf-8")
         )
         binding = next(
             item for item in manifest["bindings"] if item["model_id"] == MODEL

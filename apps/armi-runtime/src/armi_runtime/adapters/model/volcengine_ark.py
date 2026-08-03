@@ -86,6 +86,9 @@ class ArkTransport(Protocol):
 
 
 class CandidateValue(Protocol):
+    @property
+    def schema_version(self) -> str: ...
+
     def model_dump(self, *, mode: str) -> dict[str, Any]: ...
 
 
@@ -101,10 +104,25 @@ class CandidateParser(Protocol):
 class OpenAIArkTransport:
     """OpenAI SDK transport pinned to the Ark API base."""
 
-    __slots__ = ("_candidate_schema",)
+    __slots__ = ("_candidate_schema", "_instructions", "_schema_name")
 
-    def __init__(self, candidate_schema: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        candidate_schema: dict[str, Any],
+        *,
+        instructions: str = _INSTRUCTIONS,
+        schema_name: str = "armi_cognition_candidate_v7",
+    ) -> None:
+        if (
+            type(instructions) is not str
+            or not instructions
+            or type(schema_name) is not str
+            or not schema_name
+        ):
+            raise ModelViolation("MODEL-BINDING")
         self._candidate_schema = candidate_schema
+        self._instructions = instructions
+        self._schema_name = schema_name
 
     async def tokenize(
         self,
@@ -120,7 +138,17 @@ class OpenAIArkTransport:
                 cast_to=cast(Any, dict[str, Any]),
                 body={
                     "model": binding.model_id,
-                    "text": request_bytes.decode("utf-8"),
+                    "text": "\n".join(
+                        (
+                            self._instructions,
+                            request_bytes.decode("utf-8"),
+                            json.dumps(
+                                self._candidate_schema,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                        )
+                    ),
                 },
             )
         finally:
@@ -166,7 +194,7 @@ class OpenAIArkTransport:
         try:
             response = await client.responses.create(
                 model=binding.model_id,
-                instructions=_INSTRUCTIONS,
+                instructions=self._instructions,
                 input=request.canonical_bytes.decode("utf-8"),
                 store=False,
                 max_output_tokens=request.max_output_tokens,
@@ -174,7 +202,7 @@ class OpenAIArkTransport:
                 text={
                     "format": {
                         "type": "json_schema",
-                        "name": "armi_cognition_candidate_v7",
+                        "name": self._schema_name,
                         "strict": True,
                         "schema": self._candidate_schema,
                     }
@@ -222,6 +250,8 @@ class VolcengineArkModelAdapter(ModelPort):
         locator: CredentialLocator,
         candidate_schema: dict[str, Any],
         candidate_parser: CandidateParser,
+        instructions: str = _INSTRUCTIONS,
+        schema_name: str = "armi_cognition_candidate_v7",
         transport: ArkTransport | None = None,
     ) -> None:
         if (
@@ -235,7 +265,11 @@ class VolcengineArkModelAdapter(ModelPort):
         self._credential_port = credential_port
         self._locator = locator
         self._parse_candidate = candidate_parser
-        self._transport = transport or OpenAIArkTransport(candidate_schema)
+        self._transport = transport or OpenAIArkTransport(
+            candidate_schema,
+            instructions=instructions,
+            schema_name=schema_name,
+        )
 
     @property
     def binding(self) -> ModelBinding:
@@ -350,7 +384,8 @@ class VolcengineArkModelAdapter(ModelPort):
         try:
             request_value = json.loads(request.canonical_bytes)
             allowed_refs = frozenset(
-                str(item["ref"]) for item in request_value["included_context_refs"]
+                str(item["ref"])
+                for item in request_value.get("included_context_refs", ())
             )
             candidate = self._parse_candidate(
                 output_text.encode("utf-8"),

@@ -143,7 +143,6 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
     if not isinstance(codex_runner, dict) or codex_runner != {
         "entry_point": "armi-codex-runner",
         "module_prefix": "armi_runtime.adapters.codex",
-        "manifest": "model/codex-runner.manifest.json",
         "active_binding": "armi.codex-runner.openai-python-sdk-v1",
         "forbidden_import_prefixes": [
             "armi_admin",

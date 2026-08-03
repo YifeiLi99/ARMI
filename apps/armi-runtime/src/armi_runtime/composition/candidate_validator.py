@@ -38,6 +38,11 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 
+from .dialogue_candidate_contract import (
+    DIALOGUE_CANDIDATE_VERSION,
+    CreatorDialogueCandidate,
+    DialogueReplyDecision,
+)
 from .model_contract import (
     ActionChoiceProposal,
     CodexDelegationPayload,
@@ -125,7 +130,7 @@ class DeterministicCandidateValidator:
         if len(basis_by_ref) != len(bases):
             raise CandidateViolation("CANDIDATE-BASIS-DUPLICATE")
         try:
-            candidate = parse_candidate(
+            parsed_candidate = parse_candidate(
                 candidate_bytes,
                 allowed_context_refs=frozenset(basis_by_ref),
             )
@@ -147,8 +152,19 @@ class DeterministicCandidateValidator:
             )
             return _rejected(code)
         candidate_digest = Digest.from_bytes(
-            rfc8785.dumps(cast(Any, candidate.model_dump(mode="json")))
+            rfc8785.dumps(cast(Any, parsed_candidate.model_dump(mode="json")))
         )
+        source_version = parsed_candidate.schema_version
+        if isinstance(parsed_candidate, CreatorDialogueCandidate):
+            candidate, expansion_error = _expand_dialogue_candidate(
+                parsed_candidate,
+                bases=bases,
+                context=self._context,
+            )
+            if candidate is None:
+                return _rejected(expansion_error or "CANDIDATE-CONTRACT")
+        else:
+            candidate = parsed_candidate
         if not self._base_matches(candidate):
             return _rejected("CANDIDATE-BASE-MISMATCH")
         if not _fact_supported(
@@ -449,11 +465,15 @@ class DeterministicCandidateValidator:
         change_set_value = {
             "schema_version": (
                 RUNTIME_BOUND_CHANGE_SET_VERSION
-                if candidate.schema_version == "armi.cognition-candidate.v7"
+                if source_version
+                in {
+                    "armi.cognition-candidate.v7",
+                    DIALOGUE_CANDIDATE_VERSION,
+                }
                 else CODEX_CHANGE_SET_VERSION
-                if candidate.schema_version == "armi.cognition-candidate.v6"
+                if source_version == "armi.cognition-candidate.v6"
                 else WEB_CHANGE_SET_VERSION
-                if candidate.schema_version == "armi.cognition-candidate.v5"
+                if source_version == "armi.cognition-candidate.v5"
                 else CHANGE_SET_VERSION
             ),
             "subject_id": str(self._context.subject_id),
@@ -476,11 +496,12 @@ class DeterministicCandidateValidator:
             "action_choices": [_action_wire(item) for item in action_choices],
             "rejections": [_rejection_wire(item) for item in rejections],
         }
-        if candidate.schema_version == "armi.cognition-candidate.v5":
+        if source_version == "armi.cognition-candidate.v5":
             change_set_value["web_research_requests"] = [
                 _web_research_wire(item) for item in web_research_requests
             ]
-        if candidate.schema_version in {
+        if source_version in {
+            DIALOGUE_CANDIDATE_VERSION,
             "armi.cognition-candidate.v6",
             "armi.cognition-candidate.v7",
         }:
@@ -539,6 +560,168 @@ class DeterministicCandidateValidator:
             and base.bundle_activation_id == str(self._context.bundle_activation_id)
             and base.context_digest == self._context.context_digest.value
         )
+
+
+def _expand_dialogue_candidate(
+    source: CreatorDialogueCandidate,
+    *,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[CognitionCandidateV7, None] | tuple[None, str]:
+    evidence = next(
+        (
+            item
+            for item in bases
+            if item.item_kind == "current_evidence"
+            and item.trust_class == "external_claim"
+        ),
+        None,
+    )
+    scene = next(
+        (
+            item
+            for item in bases
+            if item.item_kind == "current_scene" and item.source_ref == context.scene_id
+        ),
+        None,
+    )
+    if evidence is None:
+        return None, "CANDIDATE-EVIDENCE-REQUIRED"
+    evidence_ref = f"ctx:{evidence.ordinal}"
+    scene_ref = None if scene is None else f"ctx:{scene.ordinal}"
+    decision = source.decision
+    disposition = decision.kind
+    experiences: list[dict[str, Any]] = []
+    capability_requests: list[dict[str, Any]] = []
+    action_choices: list[dict[str, Any]] = []
+    if isinstance(decision, DialogueReplyDecision):
+        catalog = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "capability_catalog"
+                and item.trust_class == "policy"
+            ),
+            None,
+        )
+        if scene_ref is None:
+            return None, "CANDIDATE-ACTION-SCENE-BASIS"
+        if catalog is None:
+            return None, "CANDIDATE-ACTION-CAPABILITY-BASIS"
+        catalog_ref = f"ctx:{catalog.ordinal}"
+        proposal_no = 1
+        if decision.experience is not None:
+            experiences.append(
+                {
+                    "proposal_ref": f"proposal:{proposal_no}",
+                    "atomic_group_ref": "group:1",
+                    "basis_refs": (evidence_ref,),
+                    "payload": {
+                        "proposal_kind": "experiences",
+                        "fact_class": "external_claim",
+                        "first_person_gist": decision.experience.first_person_gist,
+                        "source_perspective": "creator_claim",
+                        "uncertainty": decision.experience.uncertainty,
+                        "privacy_scope": "private",
+                    },
+                }
+            )
+            proposal_no += 1
+        shared_bases = (evidence_ref, scene_ref, catalog_ref)
+        capability_requests.append(
+            {
+                "proposal_ref": f"proposal:{proposal_no}",
+                "atomic_group_ref": "group:1",
+                "basis_refs": shared_bases,
+                "payload": {
+                    "proposal_kind": "capability_requests",
+                    "fact_class": "inference",
+                    "capability_kind": "creator.scene.reply",
+                    "operation": "send",
+                    "audience_scope": "creator",
+                    "data_scope": "creator_visible_response",
+                    "purpose": "respond_to_creator",
+                    "valid_for_seconds": 3600,
+                    "max_uses": 1,
+                    "max_payload_bytes": len(decision.content.encode("utf-8")),
+                },
+            }
+        )
+        proposal_no += 1
+        action_choices.append(
+            {
+                "proposal_ref": f"proposal:{proposal_no}",
+                "atomic_group_ref": "group:1",
+                "basis_refs": shared_bases,
+                "payload": {
+                    "proposal_kind": "action_choices",
+                    "action_kind": "creator_reply",
+                    "fact_class": "subjective_understanding",
+                    "capability_kind": "creator.scene.reply",
+                    "operation": "send",
+                    "audience_scope": "creator",
+                    "data_scope": "creator_visible_response",
+                    "purpose": "respond_to_creator",
+                    "media_type": "text/plain",
+                    "content": decision.content,
+                },
+            }
+        )
+        disposition = "change"
+    elif decision.kind in {"decline", "no_action"}:
+        if scene_ref is None:
+            return None, "CANDIDATE-ACTION-SCENE-BASIS"
+        action_choices.append(
+            {
+                "proposal_ref": "proposal:1",
+                "atomic_group_ref": "group:1",
+                "basis_refs": (evidence_ref, scene_ref),
+                "payload": {
+                    "proposal_kind": "action_choices",
+                    "action_kind": "formal_no_action",
+                    "fact_class": "subjective_understanding",
+                    "decision": decision.kind,
+                    "reason_class": (
+                        "subjective_refusal"
+                        if decision.kind == "decline"
+                        else "subjective_silence"
+                    ),
+                },
+            }
+        )
+    try:
+        return (
+            CognitionCandidateV7.model_validate(
+                {
+                    "schema_version": "armi.cognition-candidate.v7",
+                    "base": {
+                        "subject_version": context.base_subject_version,
+                        "state_epoch": context.base_state_epoch,
+                        "bundle_activation_id": str(context.bundle_activation_id),
+                        "context_digest": context.context_digest.value,
+                    },
+                    "disposition": disposition,
+                    "understanding": {
+                        "text": source.reason_summary,
+                        "fact_class": "inference",
+                        "basis_refs": (evidence_ref,),
+                    },
+                    "experiences": tuple(experiences),
+                    "component_changes": (),
+                    "memory_changes": (),
+                    "relationship_changes": (),
+                    "activity_changes": (),
+                    "capability_requests": tuple(capability_requests),
+                    "action_choices": tuple(action_choices),
+                    "uncertainties": (),
+                    "reason_summary": source.reason_summary,
+                },
+                strict=True,
+            ),
+            None,
+        )
+    except Exception:
+        return None, "CANDIDATE-CONTRACT"
 
 
 def _all_proposals(

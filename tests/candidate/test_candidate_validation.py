@@ -631,6 +631,100 @@ def test_v7_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() ->
     assert rejected.error_code == "CANDIDATE-CONTRACT"
 
 
+def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = {
+        "schema_version": "armi.creator-dialogue-candidate.v1",
+        "decision": {
+            "kind": "reply",
+            "content": "Hello, I am here.",
+            "experience": None,
+        },
+        "reason_summary": "Reply to the Creator's greeting.",
+    }
+    validator = DeterministicCandidateValidator(context)
+    first = validator.validate(_bytes(candidate), bases=extended)
+    second = validator.validate(_bytes(candidate), bases=extended)
+    assert first.status is CandidateValidationStatus.ACCEPTED
+    assert first.change_set is not None and second.change_set is not None
+    assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
+    assert first.change_set.digest == second.change_set.digest
+    assert len(first.change_set.capability_requests) == 1
+    assert len(first.change_set.action_choices) == 1
+    assert first.change_set.experiences == ()
+    scope = first.change_set.capability_requests[0].scope
+    assert isinstance(scope, CreatorSceneReplyScope)
+    assert scope.subject_id == context.subject_id
+    assert scope.scene_id == context.scene_id
+    assert scope.creator_party_id == context.creator_party_id
+    assert scope.max_payload_bytes == len(b"Hello, I am here.")
+    reply = first.change_set.action_choices[0]
+    assert isinstance(reply, CreatorReplyDraft)
+    assert reply.subject_id == context.subject_id
+    assert reply.scene_id == context.scene_id
+    assert reply.creator_party_id == context.creator_party_id
+    assert b"armi.subject-change-set.v6" in first.change_set.canonical_bytes
+    assert parse_subject_change_set(first.change_set.canonical_bytes).digest == (
+        first.change_set.digest
+    )
+
+
+def test_compact_dialogue_no_action_remains_a_subjective_decision() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "schema_version": "armi.creator-dialogue-candidate.v1",
+                "decision": {"kind": "no_action"},
+                "reason_summary": "I choose silence for now.",
+            }
+        ),
+        bases=extended,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.disposition == "no_action"
+    assert result.change_set.experiences == ()
+    assert result.change_set.components == ()
+    assert len(result.change_set.action_choices) == 1
+
+
 def test_v4_creator_reply_is_admitted_as_exact_action_choice() -> None:
     context, bases = _fixture()
     extended = (

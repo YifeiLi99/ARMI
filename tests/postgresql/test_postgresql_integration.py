@@ -63,6 +63,7 @@ from armi_kernel.application import (
     CreatorCodexTaskCommand,
     CreatorGrantCommand,
     CreatorGrantDecision,
+    CreatorInputAcceptance,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
     CredentialLocator,
@@ -372,7 +373,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {26})
+        self.assertEqual({result.applied_version for result in results}, {27})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -459,7 +460,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             del connection, target
             raise AssertionError("Creator Codex intake uses no dynamic lock target")
 
-        async def exercise(root: Path) -> tuple[object, object, object]:
+        async def exercise(
+            root: Path,
+        ) -> tuple[
+            CreatorInputAcceptance,
+            CreatorInputAcceptance,
+            CreatorCodexTaskCommand,
+        ]:
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -595,7 +602,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 26)
+        self.assertEqual(status.result.applied_version, 27)
 
         for denied_dsn in (fixture.runtime_dsn, fixture.migrator_dsn):
             denied = service_for(denied_dsn).health(HealthRequest())
@@ -791,7 +798,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT max(version) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (26,),
+                    (27,),
                 )
             recovery = list(
                 (experiment_root / ".armi-admin-recovery").glob(
@@ -1418,7 +1425,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 credential_port=credential_port,
                 credential_locator=CredentialLocator("env", "ARMI_SECRET_ARK_API_KEY"),
                 manifest_bytes=Path(
-                    "model/web-search-custody.manifest.json"
+                    "apps/armi-runtime/src/armi_runtime/composition/"
+                    "runtime_resources/web-search-custody.manifest.json"
                 ).read_bytes(),
                 diagnostic=None,
             )
@@ -1657,7 +1665,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 26)
+        self.assertEqual(result.applied_version, 27)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -1719,7 +1727,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 26)
+        self.assertEqual(result.applied_version, 27)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -1779,7 +1787,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(27,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(28,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -1838,7 +1846,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (26,),
+                    (27,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -2439,13 +2447,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 26)
+        self.assertEqual(backfilled.applied_version, 27)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(

@@ -56,10 +56,13 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .model_contract import (
+    DIALOGUE_CANDIDATE_VERSION,
+    DIALOGUE_INSTRUCTIONS,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
     load_active_binding,
+    load_purpose_binding,
     parse_candidate,
 )
 from .work_wakeup import CANDIDATE_VALIDATE, MODEL_INVOKE, WorkWakeupBus
@@ -82,7 +85,7 @@ class ModelPipeline:
     """Claim model work and preserve every physical provider attempt."""
 
     __slots__ = (
-        "_adapter",
+        "_adapters",
         "_catalog",
         "_diagnostic",
         "_factory",
@@ -104,16 +107,32 @@ class ModelPipeline:
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
-        binding = load_active_binding()
+        default_binding = load_active_binding()
+        dialogue_binding = load_purpose_binding("consider_creator_input")
         self._factory = factory
         self._storage = storage
-        self._adapter = VolcengineArkModelAdapter(
-            binding=binding,
-            credential_port=credential_port,
-            locator=credential_locator,
-            candidate_schema=candidate_schema(),
-            candidate_parser=parse_candidate,
-        )
+        self._adapters = {
+            "__default__": VolcengineArkModelAdapter(
+                binding=default_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    default_binding.response_contract_version
+                ),
+                candidate_parser=parse_candidate,
+            ),
+            "consider_creator_input": VolcengineArkModelAdapter(
+                binding=dialogue_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    dialogue_binding.response_contract_version
+                ),
+                candidate_parser=parse_candidate,
+                instructions=DIALOGUE_INSTRUCTIONS,
+                schema_name="armi_creator_dialogue_candidate_v1",
+            ),
+        }
         self._catalog = ArtifactCatalogRepository()
         self._repository = PostgreSQLCognitiveModelRepository()
         self._work = PostgreSQLDurableWorkGateway(factory)
@@ -154,9 +173,10 @@ class ModelPipeline:
         assert lease is not None
         try:
             snapshot = await self._snapshot(lease)
+            adapter = self._adapter_for(snapshot.purpose)
             context_bytes = await self._read_context(snapshot)
             request_bytes = build_request_bytes(
-                binding=self._adapter.binding,
+                binding=adapter.binding,
                 compiled_context=context_bytes,
                 context_digest=snapshot.context_digest,
                 base_subject_version=snapshot.base_subject_version,
@@ -164,9 +184,9 @@ class ModelPipeline:
                 bundle_activation_id=snapshot.bundle_activation_id,
                 included_context_refs=snapshot.included_context_refs,
             )
-            input_tokens = await self._adapter.tokenize(request_bytes)
+            input_tokens = await adapter.tokenize(request_bytes)
             request = checked_model_request(
-                binding=self._adapter.binding,
+                binding=adapter.binding,
                 request_bytes=request_bytes,
                 context_digest=snapshot.context_digest,
                 input_tokens=input_tokens,
@@ -194,7 +214,7 @@ class ModelPipeline:
                     unit_of_work,
                     lease=lease,
                     snapshot=snapshot,
-                    binding=self._adapter.binding,
+                    binding=adapter.binding,
                     request_artifact_id=request_registration.ref.artifact_id,
                     request_digest=request.digest,
                 )
@@ -205,7 +225,7 @@ class ModelPipeline:
                     attempt_id=attempt_id,
                     episode_id=snapshot.episode_id,
                 )
-            result, lease = await self._invoke_with_renewal(request, lease)
+            result, lease = await self._invoke_with_renewal(adapter, request, lease)
             if result.status is ModelResultStatus.SUCCEEDED:
                 assert result.response_bytes is not None
                 published_response = await self._publish(
@@ -351,11 +371,12 @@ class ModelPipeline:
 
     async def _invoke_with_renewal(
         self,
+        adapter: VolcengineArkModelAdapter,
         request: ModelRequest,
         lease: WorkLease,
     ) -> tuple[ModelInvocationResult, WorkLease]:
         task = asyncio.create_task(
-            self._adapter.invoke(request),
+            adapter.invoke(request),
             name=f"model-attempt-{lease.attempt_id}",
         )
         current_lease = lease
@@ -377,6 +398,15 @@ class ModelPipeline:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             raise
+
+    def _adapter_for(self, purpose: str) -> VolcengineArkModelAdapter:
+        adapter = self._adapters.get(purpose, self._adapters["__default__"])
+        if (
+            purpose == "consider_creator_input"
+            and adapter.binding.response_contract_version != DIALOGUE_CANDIDATE_VERSION
+        ):
+            raise ModelViolation("MODEL-BINDING")
+        return adapter
 
     async def _settle_failure(
         self,

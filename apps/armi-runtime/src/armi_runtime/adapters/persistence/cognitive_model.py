@@ -49,6 +49,7 @@ _VALIDATION_WORK_KIND = "cognition.candidate.validate"
 class ModelEpisodeSnapshot:
     episode_id: UUID
     subject_id: UUID
+    purpose: str
     base_subject_version: int
     base_state_epoch: int
     bundle_activation_id: UUID
@@ -75,6 +76,7 @@ class PostgreSQLCognitiveModelRepository:
                 SELECT
                     episode.cognitive_episode_id,
                     episode.subject_id,
+                    episode.purpose,
                     episode.base_subject_version,
                     episode.base_state_epoch,
                     episode.bundle_activation_id,
@@ -120,11 +122,12 @@ class PostgreSQLCognitiveModelRepository:
         return ModelEpisodeSnapshot(
             row[0],
             row[1],
-            int(row[2]),
+            str(row[2]),
             int(row[3]),
-            row[4],
-            Digest(str(row[5])),
-            await self._artifact_ref(connection, row[6]),
+            int(row[4]),
+            row[5],
+            Digest(str(row[6])),
+            await self._artifact_ref(connection, row[7]),
             tuple(
                 {
                     "ref": f"ctx:{int(item[0])}",
@@ -133,7 +136,7 @@ class PostgreSQLCognitiveModelRepository:
                 }
                 for item in refs
             ),
-            TraceId(str(row[7])),
+            TraceId(str(row[8])),
         )
 
     async def prepare_attempt(

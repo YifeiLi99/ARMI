@@ -245,7 +245,7 @@ class AdminToolServiceTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 26)
+        self.assertEqual(status.result.applied_version, 27)
         self.assertIsNone(status.error_code)
         serialized = health.model_dump_json() + status.model_dump_json()
         self.assertNotIn("postgresql://", serialized)
@@ -271,7 +271,7 @@ class AdminToolServiceTests(unittest.TestCase):
             timezone=current.timezone,
             migrations=(
                 *current.migrations[:-1],
-                (26, "changed", current.migrations[-1][2]),
+                (27, "changed", current.migrations[-1][2]),
             ),
         )
         with patch.object(AdminToolService, "_read_snapshot", return_value=dirty):

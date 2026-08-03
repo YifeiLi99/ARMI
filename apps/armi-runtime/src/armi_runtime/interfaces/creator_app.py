@@ -246,20 +246,26 @@ def _creator_visible_codex_artifact(
         content.decode("utf-8", errors="strict")
         return content, media_type
     try:
-        value = json.loads(
-            content.decode("utf-8", errors="strict"),
-            object_pairs_hook=_strict_object_pairs,
-            parse_constant=lambda _value: (_ for _ in ()).throw(
-                ValueError("non-finite JSON")
+        value = cast(
+            object,
+            json.loads(
+                content.decode("utf-8", errors="strict"),
+                object_pairs_hook=_strict_object_pairs,
+                parse_constant=lambda _value: (_ for _ in ()).throw(
+                    ValueError("non-finite JSON")
+                ),
             ),
         )
-        if type(value) is not dict or set(value) != {
+        if type(value) is not dict:
+            raise ValueError
+        document = cast(dict[str, object], value)
+        if set(document) != {
             "summary",
             "changed_paths",
             "deliverable",
         }:
             raise ValueError
-        deliverable = value["deliverable"]
+        deliverable = document["deliverable"]
         if type(deliverable) is not str or not deliverable.strip():
             raise ValueError
         projected = deliverable.encode("utf-8", errors="strict")

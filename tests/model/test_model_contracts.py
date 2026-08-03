@@ -22,10 +22,12 @@ from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
+    DIALOGUE_CANDIDATE_VERSION,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
     load_active_binding,
+    load_purpose_binding,
     parse_candidate,
 )
 
@@ -56,6 +58,18 @@ def _candidate() -> dict[str, object]:
         "action_choices": [],
         "uncertainties": [],
         "reason_summary": "No proposal is warranted by the provided context.",
+    }
+
+
+def _dialogue_candidate() -> dict[str, object]:
+    return {
+        "schema_version": DIALOGUE_CANDIDATE_VERSION,
+        "decision": {
+            "kind": "reply",
+            "content": "Hello, I am here.",
+            "experience": None,
+        },
+        "reason_summary": "Reply to the Creator's greeting.",
     }
 
 
@@ -93,9 +107,35 @@ def test_only_evolving_binding_is_active_and_digest_is_stable() -> None:
     assert _request(first).digest == _request(second).digest
 
 
+def test_creator_dialogue_uses_compact_purpose_contract() -> None:
+    legacy = load_active_binding()
+    dialogue = load_purpose_binding("consider_creator_input")
+    assert dialogue.model_id == legacy.model_id == ACTIVE_MODEL_ID
+    assert dialogue.profile == "creator_dialogue"
+    assert dialogue.response_contract_version == DIALOGUE_CANDIDATE_VERSION
+    assert dialogue.output_token_limit == 1024
+    dialogue_schema = candidate_schema(DIALOGUE_CANDIDATE_VERSION)
+    legacy_schema = candidate_schema()
+    assert len(json.dumps(dialogue_schema, separators=(",", ":"))) < 4_096
+    assert len(json.dumps(dialogue_schema)) < len(json.dumps(legacy_schema)) // 4
+
+    request = json.loads(_request(dialogue).canonical_bytes)
+    assert "candidate_base" not in request
+    assert "included_context_refs" not in request
+    assert request["output_contract"]["schema_version"] == DIALOGUE_CANDIDATE_VERSION
+    parsed = parse_candidate(
+        json.dumps(_dialogue_candidate(), ensure_ascii=False).encode(),
+        allowed_context_refs=frozenset(),
+    )
+    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
+
+
 def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:
     manifest = json.loads(
-        Path("model/model-bindings.manifest.json").read_text(encoding="utf-8")
+        Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
+            "model-bindings.manifest.json"
+        ).read_text(encoding="utf-8")
     )
     manifest["bindings"].append(dict(manifest["bindings"][0]))
     path = tmp_path / "model-bindings.manifest.json"

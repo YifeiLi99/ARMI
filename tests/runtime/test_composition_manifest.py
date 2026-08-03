@@ -75,6 +75,7 @@ class CompositionManifestTests(unittest.TestCase):
             all(not seam["runtime_discovery"] for seam in manifest["seams"])
         )
         self.assertTrue(manifest["runtime_business_contract"])
+        self.assertNotIn("resources", manifest)
 
     def test_s023_selector_is_the_only_active_work_selection_binding(self) -> None:
         verified = verify_packaged_composition()
