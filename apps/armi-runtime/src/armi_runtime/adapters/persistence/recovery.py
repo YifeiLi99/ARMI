@@ -877,7 +877,9 @@ class PostgreSQLRuntimeRecovery:
                              AND interaction.scene_id = evidence.scene_id
                              AND interaction.creator_party_id
                                = evidence.creator_party_id
-                            WHERE evidence.evidence_id IS NULL
+                            WHERE opportunity.purpose = 'consider_creator_input'
+                              AND (
+                                  evidence.evidence_id IS NULL
                                OR interaction.creator_interaction_id IS NULL
                                OR opportunity.current_disposition
                                   NOT IN (
@@ -1047,6 +1049,7 @@ class PostgreSQLRuntimeRecovery:
                                          )
                                    )
                                )
+                              )
                         )
                     FROM armi.durable_work
                     """
@@ -1234,9 +1237,19 @@ class PostgreSQLRuntimeRecovery:
                                 OR (effect.status = 'dispatching' AND (
                                     outbox.status <> 'claimed'
                                     OR attempt.dispatch_state <> 'dispatching'
-                                    OR response.current_status <> 'effect_dispatching'
+                                    OR (
+                                        effect.effect_kind = 'creator_response'
+                                        AND response.current_status <> 'effect_dispatching'
+                                    )
+                                    OR (
+                                        effect.effect_kind = 'codex_delegation'
+                                        AND response.current_status <> 'codex_dispatching'
+                                    )
                                 ))
-                                OR (effect.status = 'completed' AND (
+                                OR (
+                                    effect.status = 'completed'
+                                    AND effect.effect_kind = 'creator_response'
+                                    AND (
                                     outbox.status <> 'delivered'
                                     OR attempt.result_status NOT IN ('succeeded', 'unknown')
                                     OR observation.reliability <> 'reliable'
@@ -1245,22 +1258,71 @@ class PostgreSQLRuntimeRecovery:
                                     OR observation.receiver_ref
                                        <> delivery.creator_response_delivery_id
                                     OR response.current_status <> 'effect_completed'
-                                ))
+                                    )
+                                )
+                                OR (
+                                    effect.status = 'completed'
+                                    AND effect.effect_kind = 'codex_delegation'
+                                    AND (
+                                        outbox.status <> 'delivered'
+                                        OR attempt.result_status <> 'succeeded'
+                                        OR observation.reliability <> 'reliable'
+                                        OR observation.observation_kind <> 'runner_verified'
+                                        OR delivery.effect_id IS NOT NULL
+                                        OR response.current_status NOT IN (
+                                            'codex_result_pending',
+                                            'codex_result_accepted'
+                                        )
+                                    )
+                                )
                                 OR (effect.status = 'failed' AND (
                                     outbox.status <> 'dead'
                                     OR attempt.result_status NOT IN ('failed', 'unknown')
                                     OR observation.reliability <> 'reliable'
-                                    OR response.current_status <> 'effect_failed'
+                                    OR (
+                                        effect.effect_kind = 'creator_response'
+                                        AND response.current_status <> 'effect_failed'
+                                    )
+                                    OR (
+                                        effect.effect_kind = 'codex_delegation'
+                                        AND (
+                                            observation.observation_kind
+                                                <> 'runner_failed'
+                                            OR response.current_status <> 'codex_failed'
+                                        )
+                                    )
                                 ))
                                 OR (effect.status = 'unknown' AND (
                                     outbox.status <> 'unknown'
                                     OR attempt.result_status <> 'unknown'
                                     OR observation.reliability <> 'inconclusive'
-                                    OR response.current_status <> 'effect_unknown'
+                                    OR (
+                                        effect.effect_kind = 'creator_response'
+                                        AND response.current_status <> 'effect_unknown'
+                                    )
+                                    OR (
+                                        effect.effect_kind = 'codex_delegation'
+                                        AND (
+                                            observation.observation_kind
+                                                <> 'runner_unknown'
+                                            OR response.current_status <> 'codex_unknown'
+                                        )
+                                    )
                                 ))
                                 OR (effect.status = 'cancelled' AND (
                                     outbox.status <> 'cancelled'
-                                    OR response.current_status <> 'effect_cancelled'
+                                    OR (
+                                        effect.effect_kind = 'creator_response'
+                                        AND response.current_status <> 'effect_cancelled'
+                                    )
+                                    OR (
+                                        effect.effect_kind = 'codex_delegation'
+                                        AND (
+                                            observation.observation_kind
+                                                <> 'runner_cancelled'
+                                            OR response.current_status <> 'codex_cancelled'
+                                        )
+                                    )
                                 ))
                         )
                     FROM armi.effects AS effect

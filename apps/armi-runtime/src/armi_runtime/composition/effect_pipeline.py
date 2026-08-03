@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -152,14 +153,43 @@ class EffectRegistrationPipeline:
     ) -> EffectView:
         async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
             view = await self._repository.get_effect(uow, effect_id, creator_party_id)
-            if (
-                view.status.value != "completed"
-                or view.effect_kind != "creator_response"
-            ):
-                return view
-            artifact_id, digest, size = await self._repository.payload_reference(
-                uow, effect_id
+            if view.effect_kind == "codex_delegation" and view.status.value in {
+                "completed",
+                "failed",
+                "unknown",
+            }:
+                manifest_reference = await self._repository.codex_manifest_reference(
+                    uow,
+                    effect_id,
+                )
+            else:
+                manifest_reference = None
+            payload_reference = (
+                await self._repository.payload_reference(uow, effect_id)
+                if view.status.value == "completed"
+                and view.effect_kind == "creator_response"
+                else None
             )
+        if manifest_reference is not None:
+            artifact_id, digest, size = manifest_reference
+            value = await self._read_payload(artifact_id, digest.value, size)
+            if value is None:
+                raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
+            try:
+                document = json.loads(value)
+                model_id = document["model_id"]
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE") from None
+            if model_id not in {
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+            }:
+                raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
+            return replace(view, model_id=model_id)
+        if payload_reference is None:
+            return view
+        artifact_id, digest, size = payload_reference
         value = await self._read_payload(artifact_id, digest.value, size)
         if value is None:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")

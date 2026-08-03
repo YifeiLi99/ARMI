@@ -466,6 +466,35 @@ class PostgreSQLEffectLedgerRepository:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
         return row[0], Digest(str(row[1])), int(row[2])
 
+    async def codex_manifest_reference(
+        self,
+        uow: PostgreSQLUnitOfWork,
+        effect_id: EffectId,
+    ) -> tuple[UUID, Digest, int]:
+        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                SELECT artifact.artifact_id, artifact.content_digest,
+                       artifact.byte_size
+                FROM armi.effects AS effect
+                JOIN armi.action_intent_revisions AS revision
+                  ON revision.action_intent_revision_id
+                   = effect.action_intent_revision_id
+                JOIN armi.codex_task_sources AS source
+                  ON source.codex_task_source_id = revision.codex_task_source_id
+                JOIN armi.artifacts AS artifact
+                  ON artifact.artifact_id = source.task_manifest_artifact_id
+                WHERE effect.effect_id=%s
+                  AND effect.effect_kind='codex_delegation'
+                """,
+                (effect_id.value,),
+            )
+        ).fetchone()
+        if row is None:
+            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
+        return row[0], Digest(str(row[1])), int(row[2])
+
     async def codex_artifact_reference(
         self,
         uow: PostgreSQLUnitOfWork,

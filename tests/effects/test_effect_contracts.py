@@ -105,6 +105,24 @@ class EffectContractTests(unittest.TestCase):
             )
         self.assertEqual(invalid.exception.code, "CON-EFFECT-VERIFICATION")
 
+    def test_codex_effect_allows_model_identity_enrichment_from_manifest(self) -> None:
+        view = EffectView(
+            EffectId(uuid7()),
+            uuid7(),
+            "codex_delegation",
+            EffectStatus.COMPLETED,
+            EffectVerificationStatus.VERIFIED,
+            Instant(datetime.now(UTC)),
+            attempt_count=1,
+            sdk_identity="openai-codex==0.144.4",
+            source_tree_digest=Digest.from_bytes(b"source"),
+            validation_status="passed",
+            cleanup_status="succeeded",
+            result_acceptance_status="accepted",
+        )
+
+        self.assertIsNone(view.model_id)
+
 
 if __name__ == "__main__":
     unittest.main()

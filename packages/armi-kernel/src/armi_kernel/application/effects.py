@@ -283,7 +283,6 @@ class EffectView:
             } and any(
                 value is None
                 for value in (
-                    self.model_id,
                     self.sdk_identity,
                     self.source_tree_digest,
                     self.validation_status,

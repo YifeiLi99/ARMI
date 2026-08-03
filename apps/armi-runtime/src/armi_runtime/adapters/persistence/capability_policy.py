@@ -220,7 +220,11 @@ class PostgreSQLCreatorGrantPolicy:
                 "request_version": int(row[15]),
                 "created_at": row[16],
                 "capability_availability": str(row[18]),
-                "resolution_reason_code": row[19],
+                "resolution_reason_code": (
+                    str(row[19]).upper().replace("_", "-")
+                    if row[19] is not None
+                    else None
+                ),
                 "effective_grant": (
                     (
                         {
