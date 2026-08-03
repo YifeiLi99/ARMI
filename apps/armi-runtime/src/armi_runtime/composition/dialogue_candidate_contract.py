@@ -20,16 +20,24 @@ class DialogueExperience(_StrictModel):
         str,
         StringConstraints(min_length=1, max_length=1024),
     ]
-    uncertainty: Summary | None
+    uncertainty: Summary | None = None
 
 
-class DialogueReplyDecision(_StrictModel):
+class CreatorDialogueCandidate(_StrictModel):
+    """A subjective dialogue choice; wire metadata belongs to the adapter."""
+
+    @property
+    def schema_version(self) -> str:
+        return DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueReplyDecision(CreatorDialogueCandidate):
     kind: Literal["reply"]
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
-    experience: DialogueExperience | None
+    experience: DialogueExperience | None = None
 
 
-class DialogueTerminalDecision(_StrictModel):
+class DialogueTerminalDecision(CreatorDialogueCandidate):
     kind: Literal[
         "decline",
         "no_action",
@@ -39,21 +47,12 @@ class DialogueTerminalDecision(_StrictModel):
     ]
 
 
-type DialogueDecision = Annotated[
+DialogueDecision = Annotated[
     DialogueReplyDecision | DialogueTerminalDecision,
     Field(discriminator="kind"),
 ]
 
-
-class CreatorDialogueCandidate(_StrictModel):
-    """Only subjective choices that are meaningful for ordinary dialogue."""
-
-    schema_version: Literal["armi.creator-dialogue-candidate.v1"]
-    decision: DialogueDecision
-    reason_summary: Summary
-
-
-_ADAPTER = TypeAdapter(CreatorDialogueCandidate)
+_ADAPTER: TypeAdapter[DialogueDecision] = TypeAdapter(DialogueDecision)
 
 
 def dialogue_candidate_schema() -> dict[str, Any]:

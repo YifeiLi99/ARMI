@@ -89,7 +89,12 @@ class CandidateValue(Protocol):
     @property
     def schema_version(self) -> str: ...
 
-    def model_dump(self, *, mode: str) -> dict[str, Any]: ...
+    def model_dump(
+        self,
+        *,
+        mode: str,
+        exclude_none: bool = False,
+    ) -> dict[str, Any]: ...
 
 
 class CandidateParser(Protocol):
@@ -424,7 +429,7 @@ class VolcengineArkModelAdapter(ModelPort):
             "schema_version": "armi.model-response-artifact.v1",
             "provider_request_id": provider_request_id,
             "provider_model_id": model_id,
-            "candidate": candidate.model_dump(mode="json"),
+            "candidate": candidate.model_dump(mode="json", exclude_none=True),
             "usage": usage_value,
         }
         response_bytes = rfc8785.dumps(cast(Any, safe_response)) + b"\n"

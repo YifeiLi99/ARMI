@@ -63,13 +63,8 @@ def _candidate() -> dict[str, object]:
 
 def _dialogue_candidate() -> dict[str, object]:
     return {
-        "schema_version": DIALOGUE_CANDIDATE_VERSION,
-        "decision": {
-            "kind": "reply",
-            "content": "Hello, I am here.",
-            "experience": None,
-        },
-        "reason_summary": "Reply to the Creator's greeting.",
+        "kind": "reply",
+        "content": "Hello, I am here.",
     }
 
 
@@ -116,8 +111,12 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert dialogue.output_token_limit == 1024
     dialogue_schema = candidate_schema(DIALOGUE_CANDIDATE_VERSION)
     legacy_schema = candidate_schema()
+    dialogue_schema_text = json.dumps(dialogue_schema, separators=(",", ":"))
     assert len(json.dumps(dialogue_schema, separators=(",", ":"))) < 4_096
     assert len(json.dumps(dialogue_schema)) < len(json.dumps(legacy_schema)) // 4
+    assert '"schema_version"' not in dialogue_schema_text
+    assert '"reason_summary"' not in dialogue_schema_text
+    assert '"decision"' not in dialogue_schema_text
 
     request = json.loads(_request(dialogue).canonical_bytes)
     assert "candidate_base" not in request
@@ -128,6 +127,11 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         allowed_context_refs=frozenset(),
     )
     assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
+    assert parsed.model_dump(mode="json") == {
+        "kind": "reply",
+        "content": "Hello, I am here.",
+        "experience": None,
+    }
 
 
 def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:
@@ -245,6 +249,42 @@ async def test_adapter_records_provider_resolved_model_identity_without_fallback
     assert result.response_bytes is not None
     assert b"credential" not in result.response_bytes
     assert transport.keys_seen == [b"test-credential"]
+
+
+@pytest.mark.asyncio
+async def test_dialogue_artifact_keeps_call_metadata_outside_minimal_candidate() -> None:
+    binding = load_purpose_binding("consider_creator_input")
+    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
+    adapter = VolcengineArkModelAdapter(
+        binding=binding,
+        credential_port=EnvironmentFileCredentialPort(
+            environment={"ARMI_SECRET_MODEL_TEST": "test-credential"},
+            secret_roots=(Path.cwd(),),
+        ),
+        locator=locator,
+        candidate_schema=candidate_schema(DIALOGUE_CANDIDATE_VERSION),
+        candidate_parser=parse_candidate,
+        transport=_Transport(
+            provider_model_id="doubao-seed-evolving-20260731",
+            candidate=_dialogue_candidate(),
+        ),
+    )
+
+    result = await adapter.invoke(_request(binding))
+
+    assert result.status is ModelResultStatus.SUCCEEDED
+    assert result.response_bytes is not None
+    artifact = json.loads(result.response_bytes)
+    assert artifact["candidate"] == {
+        "kind": "reply",
+        "content": "Hello, I am here.",
+    }
+    assert artifact["provider_model_id"] == "doubao-seed-evolving-20260731"
+    assert artifact["usage"] == {
+        "input_tokens": 128,
+        "output_tokens": 64,
+        "cached_input_tokens": 0,
+    }
 
 
 @pytest.mark.asyncio

@@ -657,13 +657,8 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
         ),
     )
     candidate = {
-        "schema_version": "armi.creator-dialogue-candidate.v1",
-        "decision": {
-            "kind": "reply",
-            "content": "Hello, I am here.",
-            "experience": None,
-        },
-        "reason_summary": "Reply to the Creator's greeting.",
+        "kind": "reply",
+        "content": "Hello, I am here.",
     }
     validator = DeterministicCandidateValidator(context)
     first = validator.validate(_bytes(candidate), bases=extended)
@@ -710,9 +705,7 @@ def test_compact_dialogue_no_action_remains_a_subjective_decision() -> None:
     result = DeterministicCandidateValidator(context).validate(
         _bytes(
             {
-                "schema_version": "armi.creator-dialogue-candidate.v1",
-                "decision": {"kind": "no_action"},
-                "reason_summary": "I choose silence for now.",
+                "kind": "no_action",
             }
         ),
         bases=extended,

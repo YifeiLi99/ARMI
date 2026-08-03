@@ -42,6 +42,7 @@ from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueReplyDecision,
+    DialogueTerminalDecision,
 )
 from .model_contract import (
     ActionChoiceProposal,
@@ -589,7 +590,17 @@ def _expand_dialogue_candidate(
         return None, "CANDIDATE-EVIDENCE-REQUIRED"
     evidence_ref = f"ctx:{evidence.ordinal}"
     scene_ref = None if scene is None else f"ctx:{scene.ordinal}"
-    decision = source.decision
+    if not isinstance(source, (DialogueReplyDecision, DialogueTerminalDecision)):
+        return None, "CANDIDATE-CONTRACT"
+    decision = source
+    summary = {
+        "reply": "Creator dialogue reply selected.",
+        "decline": "Creator dialogue decline selected.",
+        "no_action": "Creator dialogue no action selected.",
+        "no_change": "Creator dialogue no change selected.",
+        "defer": "Creator dialogue defer selected.",
+        "need_information": "Creator dialogue needs information.",
+    }[decision.kind]
     disposition = decision.kind
     experiences: list[dict[str, Any]] = []
     capability_requests: list[dict[str, Any]] = []
@@ -702,7 +713,7 @@ def _expand_dialogue_candidate(
                     },
                     "disposition": disposition,
                     "understanding": {
-                        "text": source.reason_summary,
+                        "text": summary,
                         "fact_class": "inference",
                         "basis_refs": (evidence_ref,),
                     },
@@ -714,7 +725,7 @@ def _expand_dialogue_candidate(
                     "capability_requests": tuple(capability_requests),
                     "action_choices": tuple(action_choices),
                     "uncertainties": (),
-                    "reason_summary": source.reason_summary,
+                    "reason_summary": summary,
                 },
                 strict=True,
             ),
