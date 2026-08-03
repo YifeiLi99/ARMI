@@ -73,6 +73,7 @@ class CandidateEpisodeSnapshot:
     basis_item_ids: tuple[tuple[int, UUID], ...]
     current_components: tuple[tuple[CandidateOwner, int, bytes], ...]
     purpose: str
+    codex_task_sources: tuple[tuple[UUID, Digest, str], ...] = ()
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -208,6 +209,23 @@ class PostgreSQLCandidateValidationRepository:
             )
             for item in component_rows
         )
+        codex_rows = await (
+            await connection.execute(
+                """
+                SELECT source.codex_task_source_id,
+                       source.task_manifest_digest, source.validator_id
+                FROM armi.cognitive_episodes AS episode
+                JOIN armi.opportunities AS opportunity
+                  ON opportunity.opportunity_id=episode.opportunity_id
+                JOIN armi.external_evidence AS evidence
+                  ON evidence.evidence_id=opportunity.evidence_id
+                JOIN armi.codex_task_sources AS source
+                  ON source.codex_task_source_id=evidence.codex_task_source_id
+                WHERE episode.cognitive_episode_id=%s
+                """,
+                (row[0],),
+            )
+        ).fetchall()
         return CandidateEpisodeSnapshot(
             row[0],
             row[1],
@@ -226,6 +244,7 @@ class PostgreSQLCandidateValidationRepository:
             tuple(basis_item_ids),
             components,
             str(row[13]),
+            tuple((item[0], Digest(str(item[1])), str(item[2])) for item in codex_rows),
         )
 
     async def settle(

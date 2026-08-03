@@ -239,6 +239,9 @@ def build_role_manifest() -> dict[str, object]:
                     "pending_web_evidence_acceptance_count",
                     "resumable_web_cognition_count",
                     "resumable_admin_correction_work_count",
+                    "resumable_codex_task_count",
+                    "resumable_codex_effect_count",
+                    "pending_codex_result_acceptance_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "schema_version",
@@ -270,6 +273,9 @@ def build_role_manifest() -> dict[str, object]:
                     "pending_web_evidence_acceptance_count",
                     "resumable_web_cognition_count",
                     "resumable_admin_correction_work_count",
+                    "resumable_codex_task_count",
+                    "resumable_codex_effect_count",
+                    "pending_codex_result_acceptance_count",
                     "critical_artifact_count",
                     "blocker_count",
                     "summary_digest",
@@ -361,6 +367,8 @@ def build_role_manifest() -> dict[str, object]:
                         "acceptance_status",
                         "web_observation_request_id",
                         "observation_attempt_id",
+                        "codex_task_source_id",
+                        "codex_verification_id",
                         "schema_version",
                     ]
                 },
@@ -758,6 +766,7 @@ def build_role_manifest() -> dict[str, object]:
                         "creator_party_id",
                         "root_opportunity_id",
                         "purpose",
+                        "action_kind",
                         "current_revision_id",
                         "schema_version",
                     ],
@@ -795,6 +804,9 @@ def build_role_manifest() -> dict[str, object]:
                         "candidate_validation_id",
                         "proposal_ref",
                         "subject_commit_id",
+                        "codex_task_source_id",
+                        "task_manifest_digest",
+                        "validator_id",
                         "schema_version",
                     ]
                 },
@@ -861,6 +873,7 @@ def build_role_manifest() -> dict[str, object]:
                         "effect_id",
                         "effect_registration_digest",
                         "effect_registered_at",
+                        "operation_kind",
                         "schema_version",
                     ],
                     "UPDATE": [
@@ -1228,6 +1241,41 @@ def build_role_manifest() -> dict[str, object]:
             },
         },
     ]
+    codex_delegation_objects = [
+        {
+            "kind": "table",
+            "name": "armi.codex_task_sources",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.codex_verification_results",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.codex_result_sources",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+        },
+    ]
     return {
         "schema_version": "armi.database-roles.v1",
         "postgresql_version": "18.4",
@@ -1503,12 +1551,13 @@ def build_role_manifest() -> dict[str, object]:
             *response_objects,
             *web_observation_objects,
             *web_evidence_objects,
+            *codex_delegation_objects,
         ],
         "default_privileges": [],
         "security_definer": {
             "entries": [],
             "not_applicable_reason": (
-                "M0-S034 has no business or administration function requiring "
+                "M0-S039 has no business or administration function requiring "
                 "privilege elevation."
             ),
             "required_search_path": ["pg_catalog", "armi", "pg_temp"],
@@ -1837,6 +1886,19 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "logical_owner": "deployment-environment-governance",
                 "activation_step": "M0-S036",
             },
+            *[
+                {
+                    "kind": "table",
+                    "name": name,
+                    "logical_owner": owner,
+                    "activation_step": "M0-S039",
+                }
+                for name, owner in (
+                    ("armi.codex_task_sources", "codex-task-custody"),
+                    ("armi.codex_verification_results", "codex-verification"),
+                    ("armi.codex_result_sources", "external-evidence"),
+                )
+            ],
         ],
         "deferred_objects": [
             {"scope": "creator_effect_ui", "activation_step": "M0-S031"},
@@ -1858,10 +1920,17 @@ def generated_files(root: Path) -> dict[Path, bytes]:
     schema_root = root / _SCHEMA_ROOT
     role_value = build_role_manifest()
     objects = cast(list[dict[str, Any]], role_value["objects"])
+    runtime_only_tables = {
+        "armi.codex_task_sources",
+        "armi.codex_verification_results",
+        "armi.codex_result_sources",
+    }
     for item in objects:
         if item.get("kind") == "table":
             grants = cast(dict[str, list[str]], item.setdefault("grants", {}))
-            grants["armi_admin"] = ["SELECT"]
+            grants["armi_admin"] = (
+                [] if item.get("name") in runtime_only_tables else ["SELECT"]
+            )
     admin_column_grants: dict[str, dict[str, list[str]]] = {
         "armi.subjects": {"UPDATE": ["state_epoch"]},
         "armi.subject_component_heads": {

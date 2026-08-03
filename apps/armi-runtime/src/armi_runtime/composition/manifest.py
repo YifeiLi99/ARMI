@@ -76,6 +76,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0021_admin_observation_and_environment.sql",
     "migrations/0022_t07_admin_correction.sql",
     "migrations/0023_codex_runner_activation.sql",
+    "migrations/0024_codex_delegation_acceptance.sql",
 )
 
 
@@ -132,6 +133,8 @@ def build_composition_manifest(
             if seam_id == "M0-SEAM-POLICY"
             else "armi.creator-response-adapter.postgresql-inbox-v1"
             if seam_id == "M0-SEAM-EFFECT"
+            else "armi.codex-runner.openai-python-sdk-v1"
+            if seam_id == "M0-SEAM-CODEX"
             else None
         )
         seams.append(

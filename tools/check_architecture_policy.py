@@ -124,6 +124,7 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
             ),
             "M0-SEAM-WORK-SELECTION": ("armi.opportunity-selector.creator-fifo-v1"),
             "M0-SEAM-POLICY": "armi.policy-engine.deterministic-v1",
+            "M0-SEAM-CODEX": "armi.codex-runner.openai-python-sdk-v1",
             "M0-SEAM-CREATOR-PROJECTION": "armi.creator-projection-workbench.v1",
             "M0-SEAM-CREATOR-UI": "armi.creator-workbench.v1",
         },
@@ -143,7 +144,7 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
         "entry_point": "armi-codex-runner",
         "module_prefix": "armi_runtime.adapters.codex",
         "manifest": "model/codex-runner.manifest.json",
-        "active_binding": None,
+        "active_binding": "armi.codex-runner.openai-python-sdk-v1",
         "forbidden_import_prefixes": [
             "armi_admin",
             "armi_runtime.adapters.persistence",
@@ -160,7 +161,7 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
                 "ARC-CODEX-RUNNER-MANIFEST",
                 path,
                 1,
-                "Codex runner policy must declare the exact inactive boundary",
+                "Codex runner policy must declare the exact active boundary",
             )
         )
     return violations

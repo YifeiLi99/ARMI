@@ -1411,6 +1411,35 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchone()
             assert web_evidence_counts is not None
+            codex_counts = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        (SELECT count(*)
+                         FROM armi.opportunities
+                         WHERE purpose='consider_codex_task'
+                           AND current_disposition IN ('open', 'selected')),
+                        (SELECT count(*)
+                         FROM armi.effects
+                         WHERE effect_kind='codex_delegation'
+                           AND status IN ('registered', 'dispatching', 'unknown')),
+                        (SELECT count(*)
+                         FROM armi.opportunities
+                         WHERE purpose='consider_codex_result'
+                           AND current_disposition IN ('open', 'selected')),
+                        (SELECT count(*)
+                         FROM armi.codex_result_sources AS source
+                         JOIN armi.codex_verification_results AS verification
+                           ON verification.codex_verification_id=source.codex_verification_id
+                         JOIN armi.effects AS effect ON effect.effect_id=verification.effect_id
+                         WHERE (effect.status='completed'
+                                AND verification.execution_status<>'verified')
+                            OR (effect.status IN ('failed','unknown','cancelled')
+                                AND verification.execution_status='verified'))
+                    """
+                )
+            ).fetchone()
+            assert codex_counts is not None
             admin_correction_work_count = await (
                 await connection.execute(
                     """
@@ -1519,6 +1548,21 @@ class PostgreSQLRuntimeRecovery:
                         key=_finding_key,
                     )
                 )
+            if int(codex_counts[3]) > 0:
+                blockers += 1
+                sorted_findings = tuple(
+                    sorted(
+                        (
+                            *sorted_findings,
+                            RecoveryFinding(
+                                "codex_delegation",
+                                RecoveryDecision.BLOCKED,
+                                "REC-CODEX-DELEGATION-INVALID",
+                            ),
+                        ),
+                        key=_finding_key,
+                    )
+                )
             status = (
                 RecoveryStatus.SAFE
                 if blockers == 0 and critical == 2
@@ -1559,6 +1603,9 @@ class PostgreSQLRuntimeRecovery:
                 "resumable_web_research_intent": int(web_evidence_counts[0]),
                 "pending_web_evidence_acceptance": int(web_evidence_counts[1]),
                 "resumable_web_cognition": int(web_evidence_counts[2]),
+                "resumable_codex_task": int(codex_counts[0]),
+                "resumable_codex_effect": int(codex_counts[1]),
+                "pending_codex_result_acceptance": int(codex_counts[2]),
                 "resumable_admin_correction_work": int(admin_correction_work_count[0]),
                 "critical_artifacts": critical,
                 "blockers": blockers,
@@ -1603,6 +1650,9 @@ class PostgreSQLRuntimeRecovery:
                     resumable_web_research_intent_count = %s,
                     pending_web_evidence_acceptance_count = %s,
                     resumable_web_cognition_count = %s,
+                    resumable_codex_task_count = %s,
+                    resumable_codex_effect_count = %s,
+                    pending_codex_result_acceptance_count = %s,
                     resumable_admin_correction_work_count = %s,
                     critical_artifact_count = %s,
                     blocker_count = %s,
@@ -1635,6 +1685,9 @@ class PostgreSQLRuntimeRecovery:
                     int(web_evidence_counts[0]),
                     int(web_evidence_counts[1]),
                     int(web_evidence_counts[2]),
+                    int(codex_counts[0]),
+                    int(codex_counts[1]),
+                    int(codex_counts[2]),
                     int(admin_correction_work_count[0]),
                     critical,
                     blockers,
@@ -1680,6 +1733,9 @@ class PostgreSQLRuntimeRecovery:
             resumable_web_research_intent_count=int(web_evidence_counts[0]),
             pending_web_evidence_acceptance_count=int(web_evidence_counts[1]),
             resumable_web_cognition_count=int(web_evidence_counts[2]),
+            resumable_codex_task_count=int(codex_counts[0]),
+            resumable_codex_effect_count=int(codex_counts[1]),
+            pending_codex_result_acceptance_count=int(codex_counts[2]),
         )
 
     async def _record_artifact_failures(

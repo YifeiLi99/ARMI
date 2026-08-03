@@ -264,6 +264,9 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("pending_web_evidence_acceptance_count", "integer", True),
         ("resumable_web_cognition_count", "integer", True),
         ("resumable_admin_correction_work_count", "integer", True),
+        ("resumable_codex_task_count", "integer", True),
+        ("resumable_codex_effect_count", "integer", True),
+        ("pending_codex_result_acceptance_count", "integer", True),
     ),
     "interaction_scenes": (
         ("scene_id", "uuid", True),
@@ -317,6 +320,8 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("schema_version", "smallint", True),
         ("web_observation_request_id", "uuid", False),
         ("observation_attempt_id", "uuid", False),
+        ("codex_task_source_id", "uuid", False),
+        ("codex_verification_id", "uuid", False),
     ),
     "opportunities": (
         ("opportunity_id", "uuid", True),
@@ -607,25 +612,29 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("current_revision_id", "uuid", False),
         ("created_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
+        ("action_kind", "text", True),
     ),
     "action_intent_revisions": (
         ("action_intent_revision_id", "uuid", True),
         ("action_intent_id", "uuid", True),
         ("revision_no", "bigint", True),
-        ("response_artifact_id", "uuid", True),
-        ("response_digest", "text", True),
-        ("response_bytes", "integer", True),
-        ("media_type", "text", True),
+        ("response_artifact_id", "uuid", False),
+        ("response_digest", "text", False),
+        ("response_bytes", "integer", False),
+        ("media_type", "text", False),
         ("capability_kind", "text", True),
         ("operation_class", "text", True),
-        ("audience_scope", "text", True),
-        ("data_scope", "text", True),
+        ("audience_scope", "text", False),
+        ("data_scope", "text", False),
         ("purpose", "text", True),
         ("candidate_validation_id", "uuid", True),
         ("proposal_ref", "text", True),
         ("subject_commit_id", "uuid", True),
         ("created_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
+        ("codex_task_source_id", "uuid", False),
+        ("task_manifest_digest", "text", False),
+        ("validator_id", "text", False),
     ),
     "formal_no_action_decisions": (
         ("formal_no_action_id", "uuid", True),
@@ -660,6 +669,7 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("effect_id", "uuid", False),
         ("effect_registration_digest", "text", False),
         ("effect_registered_at", "timestamp(6) with time zone", False),
+        ("operation_kind", "text", True),
     ),
     "policy_decisions": (
         ("policy_decision_id", "uuid", True),
@@ -690,8 +700,8 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("effect_kind", "text", True),
         ("capability_kind", "text", True),
         ("operation_class", "text", True),
-        ("audience_scope", "text", True),
-        ("data_scope", "text", True),
+        ("audience_scope", "text", False),
+        ("data_scope", "text", False),
         ("purpose", "text", True),
         ("registration_digest", "text", True),
         ("status", "text", True),
@@ -855,6 +865,54 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("created_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
     ),
+    "codex_task_sources": (
+        ("codex_task_source_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("source_bundle_artifact_id", "uuid", True),
+        ("source_bundle_digest", "text", True),
+        ("source_tree_digest", "text", True),
+        ("task_manifest_artifact_id", "uuid", True),
+        ("task_manifest_digest", "text", True),
+        ("path_scope_digest", "text", True),
+        ("validator_id", "text", True),
+        ("deadline_seconds", "integer", True),
+        ("trace_id", "text", True),
+        ("admitted_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "codex_verification_results": (
+        ("codex_verification_id", "uuid", True),
+        ("effect_id", "uuid", True),
+        ("effect_attempt_id", "uuid", True),
+        ("execution_status", "text", True),
+        ("cleanup_status", "text", True),
+        ("source_tree_digest", "text", True),
+        ("final_tree_digest", "text", False),
+        ("patch_digest", "text", False),
+        ("event_transcript_artifact_id", "uuid", False),
+        ("final_result_artifact_id", "uuid", False),
+        ("patch_artifact_id", "uuid", False),
+        ("result_bundle_artifact_id", "uuid", False),
+        ("diagnostics_artifact_id", "uuid", False),
+        ("validation_report_artifact_id", "uuid", False),
+        ("validation_digest", "text", True),
+        ("changed_path_count", "integer", True),
+        ("execution_error_code", "text", False),
+        ("cleanup_error_code", "text", False),
+        ("completed_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "codex_result_sources": (
+        ("codex_result_source_id", "uuid", True),
+        ("codex_verification_id", "uuid", True),
+        ("evidence_id", "uuid", True),
+        ("opportunity_id", "uuid", True),
+        ("result_kind", "text", True),
+        ("evidence_artifact_id", "uuid", True),
+        ("evidence_digest", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
     "deployment_environments": (
         ("singleton_key", "boolean", True),
         ("environment_id", "uuid", True),
@@ -901,7 +959,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", "u"))
     ),
     "runtime_recovery_runs": tuple(
-        sorted((*("c",) * 34, *("n",) * 35, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 37, *("n",) * 38, *("f",) * 4, "p", "u"))
     ),
     "interaction_scenes": tuple(
         sorted((*("c",) * 8, *("n",) * 9, *("f",) * 2, "p", *("u",) * 2))
@@ -911,7 +969,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 7, *("n",) * 11, "f", "p", *("u",) * 2))
     ),
     "external_evidence": tuple(
-        sorted((*("c",) * 7, *("n",) * 11, *("f",) * 4, "p", *("u",) * 4))
+        sorted((*("c",) * 7, *("n",) * 11, *("f",) * 6, "p", *("u",) * 6))
     ),
     "opportunities": tuple(
         sorted((*("c",) * 9, *("n",) * 12, *("f",) * 3, "p", *("u",) * 3))
@@ -959,19 +1017,19 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     "permission_grants": tuple(
         sorted((*("c",) * 6, *("n",) * 15, *("f",) * 5, "p", "u"))
     ),
-    "action_intents": tuple(sorted((*("c",) * 3, *("n",) * 8, *("f",) * 5, "p", "u"))),
+    "action_intents": tuple(sorted((*("c",) * 4, *("n",) * 9, *("f",) * 5, "p", "u"))),
     "action_intent_revisions": tuple(
-        sorted((*("c",) * 12, *("n",) * 17, *("f",) * 4, "p", *("u",) * 3))
+        sorted((*("c",) * 7, *("n",) * 11, *("f",) * 5, "p", *("u",) * 3))
     ),
     "formal_no_action_decisions": tuple(
         sorted((*("c",) * 6, *("n",) * 10, *("f",) * 3, "p", *("u",) * 3))
     ),
     "creator_response_operations": tuple(
-        sorted((*("c",) * 8, *("n",) * 8, *("f",) * 11, "p", *("u",) * 7))
+        sorted((*("c",) * 9, *("n",) * 9, *("f",) * 11, "p", *("u",) * 7))
     ),
     "policy_decisions": tuple(sorted((*("c",) * 9, *("n",) * 10, *("f",) * 4, "p"))),
     "effects": tuple(
-        sorted((*("c",) * 16, *("n",) * 22, *("f",) * 9, "p", *("u",) * 3))
+        sorted((*("c",) * 12, *("n",) * 20, *("f",) * 9, "p", *("u",) * 3))
     ),
     "effect_outbox_items": tuple(sorted((*("c",) * 11, *("n",) * 11, "f", "p", "u"))),
     "creator_response_deliveries": tuple(
@@ -995,6 +1053,15 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     ),
     "web_evidence_sources": tuple(
         sorted((*("c",) * 7, *("n",) * 11, *("f",) * 3, "p", *("u",) * 3))
+    ),
+    "codex_task_sources": tuple(
+        sorted((*("c",) * 9, *("n",) * 13, *("f",) * 3, "p", *("u",) * 3))
+    ),
+    "codex_verification_results": tuple(
+        sorted((*("c",) * 12, *("n",) * 10, *("f",) * 8, "p", *("u",) * 2))
+    ),
+    "codex_result_sources": tuple(
+        sorted((*("c",) * 4, *("n",) * 9, *("f",) * 4, "p", *("u",) * 3))
     ),
     "deployment_environments": tuple(
         sorted((*(("c",) * 12), *(("n",) * 13), "p", "u"))
@@ -1484,6 +1551,16 @@ class PostgreSQLSchemaGateway:
             expected_tables.append("deployment_environments")
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 24:
+            codex_tables = (
+                "codex_result_sources",
+                "codex_task_sources",
+                "codex_verification_results",
+            )
+            expected_objects.extend((name, "r") for name in codex_tables)
+            expected_tables.extend(codex_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -1548,9 +1625,14 @@ class PostgreSQLSchemaGateway:
                 (str(name), str(type_name), bool(not_null))
             )
         for table_name in table_names:
-            expected = _EXPECTED_TABLE_COLUMNS.get(table_name)
+            expected = cast(
+                tuple[tuple[str, str, bool], ...] | None,
+                _EXPECTED_TABLE_COLUMNS.get(table_name),
+            )
             if table_name == "runtime_recovery_runs" and expected is not None:
                 added_columns = 0
+                if applied_version < 24:
+                    added_columns += 3
                 if applied_version < 22:
                     added_columns += 1
                 if applied_version < 20:
@@ -1565,6 +1647,12 @@ class PostgreSQLSchemaGateway:
                     expected = expected[:-added_columns]
             if (
                 table_name == "external_evidence"
+                and applied_version < 24
+                and expected is not None
+            ):
+                expected = expected[:-2]
+            if (
+                table_name == "external_evidence"
                 and applied_version < 20
                 and expected is not None
             ):
@@ -1573,6 +1661,28 @@ class PostgreSQLSchemaGateway:
                     (expected[1][0], expected[1][1], True),
                     *expected[2:-2],
                 )
+            if table_name == "action_intents" and applied_version < 24:
+                assert expected is not None
+                expected = expected[:-1]
+            if table_name == "action_intent_revisions" and applied_version < 24:
+                assert expected is not None
+                expected = tuple(
+                    (name, type_name, True)
+                    if name
+                    in {
+                        "response_artifact_id",
+                        "response_digest",
+                        "response_bytes",
+                        "media_type",
+                        "audience_scope",
+                        "data_scope",
+                    }
+                    else (name, type_name, not_null)
+                    for name, type_name, not_null in expected[:-3]
+                )
+            if table_name == "creator_response_operations" and applied_version < 24:
+                assert expected is not None
+                expected = expected[:-1]
             if (
                 table_name == "web_observation_requests"
                 and applied_version < 20
@@ -1585,6 +1695,14 @@ class PostgreSQLSchemaGateway:
                 and expected is not None
             ):
                 expected = expected[:-5]
+            if table_name == "effects" and applied_version < 24:
+                assert expected is not None
+                expected = tuple(
+                    (name, type_name, True)
+                    if name in {"audience_scope", "data_scope"}
+                    else (name, type_name, not_null)
+                    for name, type_name, not_null in expected
+                )
             if (
                 table_name == "effect_outbox_items"
                 and applied_version < 18
@@ -1664,6 +1782,8 @@ class PostgreSQLSchemaGateway:
             if table_name == "runtime_recovery_runs" and expected is not None:
                 prior_kinds = list(expected)
                 added_constraints = 0
+                if applied_version < 24:
+                    added_constraints += 3
                 if applied_version < 22:
                     added_constraints += 1
                 if applied_version < 20:
@@ -1677,6 +1797,15 @@ class PostgreSQLSchemaGateway:
                 for _ in range(added_constraints):
                     prior_kinds.remove("c")
                     prior_kinds.remove("n")
+                expected = tuple(prior_kinds)
+            if (
+                table_name == "external_evidence"
+                and applied_version < 24
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                for kind in ("f", "f", "u", "u"):
+                    prior_kinds.remove(kind)
                 expected = tuple(prior_kinds)
             if (
                 table_name == "external_evidence"
@@ -1697,6 +1826,27 @@ class PostgreSQLSchemaGateway:
                 prior_kinds = list(expected)
                 prior_kinds.remove("c")
                 expected = tuple(prior_kinds)
+            if table_name == "action_intents" and applied_version < 24:
+                assert expected is not None
+                prior_kinds = list(expected)
+                prior_kinds.remove("c")
+                prior_kinds.remove("n")
+                expected = tuple(prior_kinds)
+            if table_name == "action_intent_revisions" and applied_version < 24:
+                assert expected is not None
+                prior_kinds = list(expected)
+                prior_kinds.remove("f")
+                prior_kinds.extend((*(("c",) * 5), *(("n",) * 6)))
+                expected = tuple(sorted(prior_kinds))
+            if table_name == "creator_response_operations" and applied_version < 24:
+                assert expected is not None
+                prior_kinds = list(expected)
+                prior_kinds.remove("c")
+                prior_kinds.remove("n")
+                expected = tuple(prior_kinds)
+            if table_name == "effects" and applied_version < 24:
+                assert expected is not None
+                expected = tuple(sorted((*expected, "c", "c", "c", "c", "n", "n")))
             if (
                 table_name == "web_observation_requests"
                 and applied_version < 20

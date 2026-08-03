@@ -16,6 +16,7 @@ import uvicorn
 from armi_kernel.application import (
     CandidateViolation,
     CapabilityViolation,
+    CodexDelegationViolation,
     ContextViolation,
     CreatorInputCommand,
     CreatorInputViolation,
@@ -55,6 +56,7 @@ from .database import (
     DatabaseViolation,
     compose_candidate_validation_pipeline,
     compose_capability_policy,
+    compose_codex_pipeline,
     compose_context_pipeline,
     compose_creator_input,
     compose_effect_registration_pipeline,
@@ -139,6 +141,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     response_pipeline = None
     effect_pipeline = None
     web_search_pipeline = None
+    codex_pipeline = None
     admin_control: RuntimeAdminControlServer | None = None
 
     def inject_admin_fault(name: str) -> None:
@@ -275,6 +278,24 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 fault_injector=inject_admin_fault,
             )
             await effect_pipeline.open()
+            if "codex.auth_json" in config.secret_locators:
+                try:
+                    codex_pipeline = compose_codex_pipeline(
+                        prepared,
+                        authority_admission=authority.require_writable,
+                        diagnostic=lambda event: diagnostic.emit(
+                            event, result_code="CODEX_DELEGATION"
+                        ),
+                    )
+                    await codex_pipeline.open()
+                except CodexDelegationViolation:
+                    codex_pipeline = None
+                    lifecycle.add_degradation("RUNTIME_CODEX_UNAVAILABLE")
+                    diagnostic.emit(
+                        "runtime.codex.unavailable",
+                        level=logging.WARNING,
+                        result_code="CODEX_UNAVAILABLE",
+                    )
             if "model.ark_api_key" in config.secret_locators:
                 try:
                     model_pipeline = compose_model_pipeline(
@@ -364,6 +385,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await response_pipeline.close()
             if effect_pipeline is not None:
                 await effect_pipeline.close()
+            if codex_pipeline is not None:
+                await codex_pipeline.close()
             if capability_policy is not None:
                 await capability_policy.close()
             if authority is not None:
@@ -468,6 +491,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 effect_pipeline.run(),
                 name="effect-registration-worker",
             )
+        if codex_pipeline is not None:
+            supervisor.start(
+                codex_pipeline.run_worker(),
+                name="codex-delegation-worker",
+            )
         if capability_policy is not None:
             supervisor.start(
                 capability_policy.run_expiry_reconciler(),
@@ -508,6 +536,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             response_pipeline.stop()
         if effect_pipeline is not None:
             effect_pipeline.stop()
+        if codex_pipeline is not None:
+            codex_pipeline.stop()
         if capability_policy is not None:
             capability_policy.stop()
         released = await supervisor.drain(
@@ -527,6 +557,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await response_pipeline.close()
         if effect_pipeline is not None:
             await effect_pipeline.close()
+        if codex_pipeline is not None:
+            await codex_pipeline.close()
         if capability_policy is not None:
             await capability_policy.close()
         if authority is not None:
@@ -606,6 +638,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             subject_commit_pipeline,
             response_pipeline,
             effect_pipeline,
+            codex_pipeline,
             capability_policy,
         ):
             if pipeline is not None:
@@ -715,6 +748,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await capability_policy.close()
         if effect_pipeline is not None:
             await effect_pipeline.close()
+        if codex_pipeline is not None:
+            await codex_pipeline.close()
         if web_search_pipeline is not None:
             await web_search_pipeline.close()
         if authority_port is not None:

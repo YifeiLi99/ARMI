@@ -12,6 +12,7 @@ from armi_kernel.application import (
     CandidateBasis,
     CandidateOwner,
     CandidateValidationStatus,
+    CodexDelegationDraft,
     CreatorReplyDraft,
 )
 from armi_kernel.contracts import Digest
@@ -330,6 +331,138 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
         _bytes(candidate), bases=extended
     )
     assert rejected.error_code == "CANDIDATE-WEB-URL-FORBIDDEN"
+
+
+def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis() -> (
+    None
+):
+    context, bases = _fixture()
+    task_source_id = uuid7()
+    task_digest = Digest.from_bytes(b"codex task manifest")
+    validator_id = "codex.python-unit.v1"
+    task_basis = CandidateBasis(
+        4,
+        "current_evidence",
+        "codex_task_source",
+        task_source_id,
+        1,
+        task_digest,
+        "external_claim",
+        "private",
+    )
+    capability_basis = CandidateBasis(
+        5,
+        "capability",
+        "capability_catalog",
+        uuid7(),
+        1,
+        Digest.from_bytes(b"codex catalog"),
+        "policy",
+        "private",
+    )
+    scene_basis = CandidateBasis(
+        6,
+        "scene",
+        "current_scene",
+        context.scene_id,
+        1,
+        Digest.from_bytes(b"scene"),
+        "runtime_authority",
+        "private",
+    )
+    candidate = _candidate(context)
+    candidate["schema_version"] = "armi.cognition-candidate.v6"
+    candidate["experiences"] = []
+    candidate["component_changes"] = []
+    candidate["capability_requests"] = [
+        {
+            "proposal_ref": "proposal:2",
+            "atomic_group_ref": "group:2",
+            "basis_refs": ["ctx:2", "ctx:5", "ctx:6"],
+            "payload": {
+                "proposal_kind": "capability_requests",
+                "fact_class": "inference",
+                "capability_kind": "codex.delegated-work",
+                "operation": "execute",
+                "workspace_scope": "isolated_ephemeral",
+                "artifact_scope": "explicit_only",
+                "network_access": False,
+                "max_uses": 1,
+                "valid_for_seconds": 600,
+            },
+        }
+    ]
+    candidate["action_choices"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:4", "ctx:5"],
+            "payload": {
+                "proposal_kind": "action_choices",
+                "action_kind": "codex_delegation",
+                "fact_class": "inference",
+                "task_source_id": str(task_source_id),
+                "task_manifest_digest": task_digest.value,
+                "capability_kind": "codex.delegated-work",
+                "operation": "execute",
+                "purpose": "delegate_codex_work",
+                "validator_id": validator_id,
+            },
+        }
+    ]
+    del candidate["action_intents"]
+    inactive = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=(*bases, task_basis, capability_basis, scene_basis)
+    )
+    assert inactive.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert inactive.change_set is not None
+    assert any(
+        item.code == "CANDIDATE-CODEX-NOT-ACTIVE"
+        for item in inactive.change_set.rejections
+    )
+
+    active_context = replace(
+        context,
+        codex_active=True,
+        codex_task_sources=((task_source_id, task_digest, validator_id),),
+    )
+    first = DeterministicCandidateValidator(active_context).validate(
+        _bytes(candidate), bases=(*bases, task_basis, capability_basis, scene_basis)
+    )
+    second = DeterministicCandidateValidator(active_context).validate(
+        _bytes(candidate), bases=(*bases, task_basis, capability_basis, scene_basis)
+    )
+    assert first.status is CandidateValidationStatus.ACCEPTED
+    assert first.change_set is not None and second.change_set is not None
+    assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
+    assert first.change_set.digest == second.change_set.digest
+    assert len(first.change_set.codex_delegations) == 1
+    assert len(first.change_set.capability_requests) == 1
+    assert isinstance(first.change_set.codex_delegations[0], CodexDelegationDraft)
+    assert (
+        first.change_set.codex_delegations[0].atomic_group_ref
+        != first.change_set.capability_requests[0].atomic_group_ref
+    )
+    assert b"armi.subject-change-set.v5" in first.change_set.canonical_bytes
+
+    mismatched = replace(active_context, codex_task_sources=())
+    rejected = DeterministicCandidateValidator(mismatched).validate(
+        _bytes(candidate), bases=(*bases, task_basis, capability_basis, scene_basis)
+    )
+    assert rejected.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert rejected.change_set is not None
+    assert any(
+        item.code == "CANDIDATE-CODEX-TASK-SOURCE"
+        for item in rejected.change_set.rejections
+    )
+
+    without_request = dict(candidate)
+    without_request["capability_requests"] = []
+    missing_request = DeterministicCandidateValidator(active_context).validate(
+        _bytes(without_request),
+        bases=(*bases, task_basis, capability_basis, scene_basis),
+    )
+    assert missing_request.error_code == "CANDIDATE-CODEX-CAPABILITY-REQUEST"
 
 
 def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:

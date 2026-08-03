@@ -11,6 +11,7 @@ from uuid import UUID
 from armi_kernel.contracts import Digest
 
 from .capability import CapabilityRequestDraft
+from .codex_delegation import CodexDelegationDraft
 from .response import ResponseChoiceDraft
 from .web_evidence import WebResearchRequestDraft
 
@@ -48,6 +49,7 @@ class CandidateOwner(StrEnum):
     CAPABILITY = "capability"
     ACTION = "action"
     WEB_RESEARCH = "web_research"
+    CODEX_DELEGATION = "codex_delegation"
 
 
 class CandidateValidationStatus(StrEnum):
@@ -226,6 +228,7 @@ class SubjectChangeSet:
     action_choices: tuple[ResponseChoiceDraft, ...]
     web_research_requests: tuple[WebResearchRequestDraft, ...]
     rejections: tuple[CandidateRejection, ...]
+    codex_delegations: tuple[CodexDelegationDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (

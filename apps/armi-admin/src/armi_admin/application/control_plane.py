@@ -352,7 +352,8 @@ class AdminControlPlane:
         if not executable.is_file() or executable.is_symlink():
             raise AdminControlError("ADMIN-RESET-PG-DUMP")
         with self._credentials.resolve(
-            self._config.locator, CredentialPurpose("database.admin")
+            self._config.migrator_locator,
+            CredentialPurpose("database.migrator"),
         ) as handle:
             conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
         environment = self._runtime_environment()
@@ -369,7 +370,13 @@ class AdminControlPlane:
             if value := connection.get(key):
                 environment[variable] = str(value)
         completed = subprocess.run(
-            [os.fspath(executable), "--format=custom", "--file", os.fspath(output)],
+            [
+                os.fspath(executable),
+                "--role=armi_owner",
+                "--format=custom",
+                "--file",
+                os.fspath(output),
+            ],
             env=environment,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

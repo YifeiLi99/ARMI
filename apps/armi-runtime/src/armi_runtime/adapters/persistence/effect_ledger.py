@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -26,6 +26,7 @@ from armi_kernel.application import (
     WorkResultRef,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from psycopg import sql
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -42,6 +43,10 @@ class EffectRegistrationSnapshot:
     payload_digest: Digest
     payload_bytes: int
     trace_id: TraceId
+    effect_kind: str
+    capability_kind: str
+    operation_class: str
+    purpose: str
 
 
 class PostgreSQLEffectLedgerRepository:
@@ -57,8 +62,11 @@ class PostgreSQLEffectLedgerRepository:
             SELECT operation.creator_response_operation_id, operation.root_opportunity_id,
                    revision.action_intent_revision_id, operation.subject_id,
                    operation.interaction_scene_id, operation.creator_party_id,
-                   revision.response_artifact_id, revision.response_digest,
-                   revision.response_bytes, work.trace_id
+                   COALESCE(revision.response_artifact_id, source.task_manifest_artifact_id),
+                   COALESCE(revision.response_digest, revision.task_manifest_digest),
+                   artifact.byte_size, work.trace_id,
+                   operation.operation_kind, revision.capability_kind,
+                   revision.operation_class, revision.purpose
             FROM armi.durable_work AS work
             JOIN armi.creator_response_operations AS operation
               ON operation.registration_work_id = work.work_id
@@ -66,6 +74,12 @@ class PostgreSQLEffectLedgerRepository:
             JOIN armi.action_intents AS intent ON intent.action_intent_id = operation.action_intent_id
             JOIN armi.action_intent_revisions AS revision
               ON revision.action_intent_revision_id = intent.current_revision_id
+            LEFT JOIN armi.codex_task_sources AS source
+              ON source.codex_task_source_id = revision.codex_task_source_id
+            JOIN armi.artifacts AS artifact
+              ON artifact.artifact_id = COALESCE(
+                    revision.response_artifact_id, source.task_manifest_artifact_id
+                 )
             WHERE work.work_id = %s AND work.work_kind = 'effect.register'
               AND work.status = 'leased' AND work.current_attempt_id = %s
               AND work.lease_owner = %s AND work.lease_token = %s
@@ -87,6 +101,12 @@ class PostgreSQLEffectLedgerRepository:
             Digest(str(row[7])),
             int(row[8]),
             TraceId(str(row[9])),
+            "codex_delegation"
+            if str(row[10]) == "codex_delegation"
+            else "creator_response",
+            str(row[11]),
+            str(row[12]),
+            str(row[13]),
         )
 
     async def settle(
@@ -125,7 +145,8 @@ class PostgreSQLEffectLedgerRepository:
         else:
             capability = await (
                 await connection.execute(
-                    "SELECT availability_status FROM armi.capabilities WHERE capability_kind = 'creator.scene.reply' AND operation_class = 'send'"
+                    "SELECT availability_status FROM armi.capabilities WHERE capability_kind = %s AND operation_class = %s",
+                    (snapshot.capability_kind, snapshot.operation_class),
                 )
             ).fetchone()
             if capability is None or str(capability[0]) != "available":
@@ -136,18 +157,28 @@ class PostgreSQLEffectLedgerRepository:
                         """
                     SELECT grant_id, valid_until FROM armi.permission_grants
                     WHERE subject_id = %s AND interaction_scene_id = %s AND creator_party_id = %s
-                      AND operation_class = 'send' AND audience_scope = 'creator'
-                      AND data_scope = 'creator_visible_response' AND purpose = 'respond_to_creator'
+                      AND operation_class = %s AND purpose = %s
                       AND status = 'active' AND valid_from <= statement_timestamp()
                       AND statement_timestamp() < valid_until AND consumed_uses < max_uses
-                      AND %s <= max_payload_bytes
+                      AND (
+                        (%s = 'creator_response' AND audience_scope = 'creator'
+                          AND data_scope = 'creator_visible_response'
+                          AND %s <= max_payload_bytes)
+                        OR (%s = 'codex_delegation' AND workspace_scope = 'isolated_ephemeral'
+                          AND artifact_scope = 'explicit_only' AND network_access = false
+                          AND max_uses = 1)
+                      )
                     ORDER BY valid_until, grant_id LIMIT 1 FOR UPDATE
                     """,
                         (
                             snapshot.subject_id,
                             snapshot.scene_id,
                             snapshot.creator_party_id,
+                            snapshot.operation_class,
+                            snapshot.purpose,
+                            snapshot.effect_kind,
                             snapshot.payload_bytes,
+                            snapshot.effect_kind,
                         ),
                     )
                 ).fetchone()
@@ -215,9 +246,8 @@ class PostgreSQLEffectLedgerRepository:
                     payload_artifact_id, payload_digest, payload_bytes, effect_kind,
                     capability_kind, operation_class, audience_scope, data_scope, purpose,
                     registration_digest, trace_id, status, verification_status, schema_version
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'creator_response',
-                    'creator.scene.reply','send','creator','creator_visible_response',
-                    'respond_to_creator',%s,%s,'registered','not_started',1)
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,%s,'registered','not_started',1)
                 RETURNING registered_at
                 """,
                     (
@@ -231,6 +261,16 @@ class PostgreSQLEffectLedgerRepository:
                         snapshot.artifact_id,
                         snapshot.payload_digest.value,
                         snapshot.payload_bytes,
+                        snapshot.effect_kind,
+                        snapshot.capability_kind,
+                        snapshot.operation_class,
+                        "creator"
+                        if snapshot.effect_kind == "creator_response"
+                        else None,
+                        "creator_visible_response"
+                        if snapshot.effect_kind == "creator_response"
+                        else None,
+                        snapshot.purpose,
                         registration_digest.value,
                         snapshot.trace_id.value,
                     ),
@@ -241,10 +281,16 @@ class PostgreSQLEffectLedgerRepository:
                 """
                 INSERT INTO armi.effect_outbox_items (
                     effect_outbox_item_id, effect_id, message_kind, payload_digest,
-                    status, dispatch_deadline, schema_version
-                ) VALUES (%s, %s, 'effect.dispatch', %s, 'ready', %s, 1)
+                    status, dispatch_deadline, max_attempts, schema_version
+                ) VALUES (%s, %s, 'effect.dispatch', %s, 'ready', %s, %s, 1)
                 """,
-                (outbox_id, effect_id, snapshot.payload_digest.value, valid_until),
+                (
+                    outbox_id,
+                    effect_id,
+                    snapshot.payload_digest.value,
+                    valid_until,
+                    1 if snapshot.effect_kind == "codex_delegation" else 2,
+                ),
             )
             await connection.execute(
                 """
@@ -318,12 +364,22 @@ class PostgreSQLEffectLedgerRepository:
                    (SELECT count(*) FROM armi.effect_attempts AS attempt
                     WHERE attempt.effect_id = effect.effect_id),
                    observation.observation_kind, observation.reliability,
-                   effect.settled_at
+                   effect.settled_at,
+                   verification.execution_status, verification.cleanup_status,
+                   verification.source_tree_digest, verification.final_tree_digest,
+                   verification.patch_digest, verification.changed_path_count,
+                   result_opportunity.current_disposition
             FROM armi.effects AS effect
             JOIN armi.creator_response_operations AS operation
               ON operation.creator_response_operation_id = effect.creator_response_operation_id
             LEFT JOIN armi.effect_observations AS observation
               ON observation.effect_observation_id = effect.current_observation_id
+            LEFT JOIN armi.codex_verification_results AS verification
+              ON verification.effect_id = effect.effect_id
+            LEFT JOIN armi.codex_result_sources AS result_source
+              ON result_source.codex_verification_id = verification.codex_verification_id
+            LEFT JOIN armi.opportunities AS result_opportunity
+              ON result_opportunity.opportunity_id = result_source.opportunity_id
             WHERE effect.effect_id=%s AND effect.creator_party_id=%s
             """,
                 (effect_id.value, creator_party_id),
@@ -331,19 +387,67 @@ class PostgreSQLEffectLedgerRepository:
         ).fetchone()
         if row is None:
             raise EffectViolation("SCOPE-EFFECT-NOT-VISIBLE")
+        raw_effect_kind = str(row[2])
+        if raw_effect_kind not in {"creator_response", "codex_delegation"}:
+            raise EffectViolation("CON-EFFECT-KIND")
+        effect_kind = cast(
+            Literal["creator_response", "codex_delegation"], raw_effect_kind
+        )
+        execution_status = None if row[11] is None else str(row[11])
         return EffectView(
-            EffectId(row[0]),
-            row[1],
-            str(row[2]),
-            EffectStatus(str(row[3])),
-            EffectVerificationStatus(str(row[4])),
-            Instant(row[5]),
-            Instant(row[6]) if row[6] is not None else None,
-            int(row[7]),
-            EffectObservationKind(str(row[8])) if row[8] is not None else None,
-            EffectObservationReliability(str(row[9])) if row[9] is not None else None,
-            "verify_creator_inbox" if str(row[3]) == "unknown" else None,
-            Instant(row[10]) if row[10] is not None else None,
+            effect_id=EffectId(row[0]),
+            root_operation_ref=row[1],
+            effect_kind=effect_kind,
+            status=EffectStatus(str(row[3])),
+            verification_status=EffectVerificationStatus(str(row[4])),
+            registered_at=Instant(row[5]),
+            cancelled_at=Instant(row[6]) if row[6] is not None else None,
+            attempt_count=int(row[7]),
+            last_observation_kind=(
+                EffectObservationKind(str(row[8])) if row[8] is not None else None
+            ),
+            last_observation_reliability=(
+                EffectObservationReliability(str(row[9]))
+                if row[9] is not None
+                else None
+            ),
+            verification_action=(
+                (
+                    "verify_codex_result"
+                    if effect_kind == "codex_delegation"
+                    else "verify_creator_inbox"
+                )
+                if str(row[3]) == "unknown"
+                else None
+            ),
+            settled_at=Instant(row[10]) if row[10] is not None else None,
+            model_id="gpt-5.6-sol" if execution_status is not None else None,
+            sdk_identity="openai-codex==0.144.4"
+            if execution_status is not None
+            else None,
+            source_tree_digest=Digest(str(row[13])) if row[13] is not None else None,
+            result_tree_digest=Digest(str(row[14])) if row[14] is not None else None,
+            patch_digest=Digest(str(row[15])) if row[15] is not None else None,
+            changed_path_count=int(row[16]) if row[16] is not None else None,
+            validation_status=(
+                "passed"
+                if execution_status == "verified"
+                else (
+                    "not_run"
+                    if execution_status in {"unknown", "cancelled"}
+                    else "failed"
+                )
+            )
+            if execution_status is not None
+            else None,
+            cleanup_status=("succeeded" if str(row[12]) == "clean" else "failed")
+            if row[12] is not None
+            else None,
+            result_acceptance_status=(
+                "accepted" if str(row[17]) == "resolved" else "pending"
+            )
+            if row[17] is not None
+            else None,
         )
 
     async def payload_reference(
@@ -360,6 +464,46 @@ class PostgreSQLEffectLedgerRepository:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
         return row[0], Digest(str(row[1])), int(row[2])
 
+    async def codex_artifact_reference(
+        self,
+        uow: PostgreSQLUnitOfWork,
+        effect_id: EffectId,
+        creator_party_id: UUID,
+        kind: str,
+    ) -> tuple[UUID, Digest, int, str]:
+        column = {
+            "patch": "patch_artifact_id",
+            "final_result": "final_result_artifact_id",
+            "validation_report": "validation_report_artifact_id",
+        }.get(kind)
+        if column is None:
+            raise EffectViolation("EFFECT-ARTIFACT-KIND")
+        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                sql.SQL(
+                    """
+                SELECT artifact.artifact_id, artifact.content_digest,
+                       artifact.byte_size, artifact.media_type
+                FROM armi.effects AS effect
+                JOIN armi.codex_verification_results AS verification
+                  ON verification.effect_id = effect.effect_id
+                JOIN armi.artifacts AS artifact
+                  ON artifact.artifact_id = verification.{column}
+                WHERE effect.effect_id=%s
+                  AND effect.creator_party_id=%s
+                  AND effect.effect_kind='codex_delegation'
+                  AND effect.status='completed'
+                  AND effect.verification_status='verified'
+                """
+                ).format(column=sql.Identifier(column)),
+                (effect_id.value, creator_party_id),
+            )
+        ).fetchone()
+        if row is None:
+            raise EffectViolation("SCOPE-EFFECT-NOT-VISIBLE")
+        return row[0], Digest(str(row[1])), int(row[2]), str(row[3])
+
     async def _existing(
         self,
         connection: Any,
@@ -372,9 +516,9 @@ class PostgreSQLEffectLedgerRepository:
             SELECT effect.effect_id, effect.policy_decision_id, effect.status,
                    effect.verification_status, effect.registration_digest, effect.registered_at
             FROM armi.effects AS effect
-            WHERE effect.action_intent_revision_id=%s AND effect.effect_kind='creator_response'
+            WHERE effect.action_intent_revision_id=%s AND effect.effect_kind=%s
             """,
-                (snapshot.action_revision_id,),
+                (snapshot.action_revision_id, snapshot.effect_kind),
             )
         ).fetchone()
         if row is None:
@@ -399,13 +543,13 @@ def _registration_digest(snapshot: EffectRegistrationSnapshot) -> Digest:
                 {
                     "schema_version": "armi.effect-registration.v1",
                     "action_intent_revision_id": str(snapshot.action_revision_id),
-                    "effect_kind": "creator_response",
+                    "effect_kind": snapshot.effect_kind,
                     "subject_id": str(snapshot.subject_id),
                     "scene_id": str(snapshot.scene_id),
                     "creator_party_id": str(snapshot.creator_party_id),
                     "payload_digest": snapshot.payload_digest.value,
                     "payload_bytes": snapshot.payload_bytes,
-                    "purpose": "respond_to_creator",
+                    "purpose": snapshot.purpose,
                 },
             )
         )

@@ -27,6 +27,7 @@ from armi_kernel.application import (
     CreatorOperationPhase,
     CreatorOperationQueryPort,
     CreatorProjectionInvalidation,
+    EffectArtifactKind,
     EffectId,
     EffectLedgerPort,
     EffectViolation,
@@ -455,6 +456,71 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             message="The registered effect was cancelled before dispatch.",
             error=ErrorDescriptor(ErrorCategory.POLICY, "POLICY_EFFECT_CANCELLED"),
         ).to_wire()
+    if operation.phase is CreatorOperationPhase.CODEX_CAPABILITY_DECISION:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The Codex delegation is waiting for a Creator capability decision.",
+            result_ref=result_ref,
+            waiting_for="capability_decision",
+            resume_condition="codex_grant_resolved",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CODEX_DISPATCHING:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The Codex delegation is running in its isolated workspace.",
+            result_ref=result_ref,
+            waiting_for="codex_dispatch",
+            resume_condition="codex_dispatched",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CODEX_VERIFYING:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The Codex result is being independently verified.",
+            result_ref=result_ref,
+            waiting_for="codex_verification",
+            resume_condition="codex_verified",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE:
+        return WaitingOutcome(
+            **_outcome_common(),
+            message="The verified Codex result is waiting for cognition acceptance.",
+            result_ref=result_ref,
+            waiting_for="codex_result_acceptance",
+            resume_condition="codex_result_accepted",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CODEX_COMPLETED:
+        assert operation.completion_digest is not None
+        return CompletedOutcome(
+            **_outcome_common(),
+            message="The Codex result was verified and accepted through cognition.",
+            result_ref=result_ref,
+            completion_evidence=operation.completion_digest,
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CODEX_FAILED:
+        return FailedOutcome(
+            **_outcome_common(),
+            message="The Codex delegation was confirmed failed.",
+            error=ErrorDescriptor(
+                ErrorCategory.DEPENDENCY,
+                "DEPENDENCY_CODEX_DELEGATION_FAILED",
+            ),
+            retryable=False,
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CODEX_UNKNOWN:
+        assert operation.effect_ref is not None
+        return UnknownOutcome(
+            **_outcome_common(),
+            message="The Codex delegation result requires authoritative verification.",
+            result_ref=ResultRef(operation.effect_ref),
+            custodian="runtime",
+            verification_action="verify_codex_result",
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.CODEX_CANCELLED:
+        return RejectedOutcome(
+            **_outcome_common(),
+            message="The Codex delegation was cancelled before completion.",
+            error=ErrorDescriptor(ErrorCategory.POLICY, "POLICY_CODEX_CANCELLED"),
+        ).to_wire()
     if operation.phase in {
         CreatorOperationPhase.FORMAL_DECLINED,
         CreatorOperationPhase.FORMAL_NO_ACTION,
@@ -585,6 +651,17 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
         CreatorOperationPhase.RESPONSE_FAILED,
     }:
         completion_kind = "response_effect"
+    elif phase in {
+        CreatorOperationPhase.CODEX_CAPABILITY_DECISION,
+        CreatorOperationPhase.CODEX_DISPATCHING,
+        CreatorOperationPhase.CODEX_VERIFYING,
+        CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE,
+        CreatorOperationPhase.CODEX_COMPLETED,
+        CreatorOperationPhase.CODEX_FAILED,
+        CreatorOperationPhase.CODEX_UNKNOWN,
+        CreatorOperationPhase.CODEX_CANCELLED,
+    }:
+        completion_kind = "codex_effect"
     else:
         completion_kind = "cognition"
     delivery_state = {
@@ -596,6 +673,14 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
         CreatorOperationPhase.EFFECT_FAILED: "failed",
         CreatorOperationPhase.EFFECT_UNKNOWN: "unknown",
         CreatorOperationPhase.EFFECT_CANCELLED: "cancelled",
+        CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "not_started",
+        CreatorOperationPhase.CODEX_DISPATCHING: "dispatching",
+        CreatorOperationPhase.CODEX_VERIFYING: "dispatching",
+        CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "completed",
+        CreatorOperationPhase.CODEX_COMPLETED: "completed",
+        CreatorOperationPhase.CODEX_FAILED: "failed",
+        CreatorOperationPhase.CODEX_UNKNOWN: "unknown",
+        CreatorOperationPhase.CODEX_CANCELLED: "cancelled",
     }.get(phase)
     wire["details"] = {
         "projection_version": "creator-operation.v1",
@@ -1423,7 +1508,7 @@ def create_runtime_app(
                 projection_version="creator-effect.v1",
                 effect_id=str(view.effect_id.value),
                 root_operation_ref=str(view.root_operation_ref),
-                effect_kind="creator_response",
+                effect_kind=view.effect_kind,
                 status=view.status.value,
                 verification_status=view.verification_status.value,
                 registered_at=view.registered_at.to_wire(),
@@ -1448,10 +1533,84 @@ def create_runtime_app(
                     view.settled_at.to_wire() if view.settled_at is not None else None
                 ),
                 response_text=view.response_text,
+                model_id=view.model_id,
+                sdk_identity=view.sdk_identity,
+                source_tree_digest=(
+                    view.source_tree_digest.value
+                    if view.source_tree_digest is not None
+                    else None
+                ),
+                result_tree_digest=(
+                    view.result_tree_digest.value
+                    if view.result_tree_digest is not None
+                    else None
+                ),
+                patch_digest=(
+                    view.patch_digest.value if view.patch_digest is not None else None
+                ),
+                changed_path_count=view.changed_path_count,
+                validation_status=view.validation_status,
+                cleanup_status=view.cleanup_status,
+                result_acceptance_status=view.result_acceptance_status,
             ).model_dump(exclude_none=True)
         )
 
     del get_effect
+
+    @app.get("/v1/effects/{effect_id}/artifacts/{artifact_kind}")
+    async def get_effect_artifact(
+        effect_id: str, artifact_kind: str, request: Request
+    ) -> Response:
+        if (
+            browser_sessions is None
+            or effect_ledger is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = 403 if browser_sessions is not None else 503
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_EFFECT_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            metadata = browser_sessions.verify(token)
+            kind = EffectArtifactKind(artifact_kind)
+            artifact = await effect_ledger.read_artifact(
+                EffectId(UUID(effect_id)),
+                creator_party_id=metadata.creator_party_id,
+                kind=kind,
+            )
+            artifact.content.decode("utf-8", errors="strict")
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code, content=_rejected(error.code)
+            )
+        except UnicodeDecodeError:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_EFFECT_QUERY_UNAVAILABLE"),
+            )
+        except (ValueError, EffectViolation) as error:
+            if isinstance(error, EffectViolation) and error.code not in {
+                "SCOPE-EFFECT-NOT-VISIBLE",
+                "EFFECT-ARTIFACT-KIND",
+            }:
+                return JSONResponse(
+                    status_code=503,
+                    content=_unavailable("DEPENDENCY_EFFECT_QUERY_UNAVAILABLE"),
+                )
+            return JSONResponse(
+                status_code=404, content=_rejected("SCOPE_EFFECT_NOT_VISIBLE")
+            )
+        return Response(content=artifact.content, media_type=artifact.media_type)
+
+    del get_effect_artifact
 
     @app.get("/v1/scenes/{scene_key}/events")
     async def get_scene_events(

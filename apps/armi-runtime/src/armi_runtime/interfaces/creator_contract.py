@@ -23,7 +23,7 @@ from armi_kernel.contracts import (
     WaitingOutcome,
 )
 from fastapi import FastAPI, Header, Query, Security
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.security import HTTPBearer
 from pydantic import (
     BaseModel,
@@ -415,6 +415,10 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "response_admission",
         "effect_registration",
         "effect_dispatch",
+        "capability_decision",
+        "codex_dispatch",
+        "codex_verification",
+        "codex_result_acceptance",
         "future_opportunity",
         "new_evidence",
     ]
@@ -430,6 +434,10 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "response_admitted",
         "effect_registered",
         "effect_settled",
+        "codex_grant_resolved",
+        "codex_dispatched",
+        "codex_verified",
+        "codex_result_accepted",
     ]
 
     @model_validator(mode="after")
@@ -448,6 +456,10 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
             ("response_admission", "response_admitted"),
             ("effect_registration", "effect_registered"),
             ("effect_dispatch", "effect_settled"),
+            ("capability_decision", "codex_grant_resolved"),
+            ("codex_dispatch", "codex_dispatched"),
+            ("codex_verification", "codex_verified"),
+            ("codex_result_acceptance", "codex_result_accepted"),
             ("future_opportunity", "opportunity_available"),
             ("new_evidence", "creator_evidence_accepted"),
         }:
@@ -503,7 +515,7 @@ class UnknownOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["unknown"]
     result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     custodian: Literal["runtime"]
-    verification_action: Literal["verify_creator_inbox"]
+    verification_action: Literal["verify_creator_inbox", "verify_codex_result"]
 
     @model_validator(mode="after")
     def validate_kernel_contract(self) -> UnknownOutcomeResponse:
@@ -533,6 +545,7 @@ class CreatorOperationDetails(_StrictWireModel):
         "formal_no_action",
         "no_change",
         "response_effect",
+        "codex_effect",
     ]
     delivery_state: (
         Literal[
@@ -648,7 +661,7 @@ class EffectResponse(_StrictWireModel):
     projection_version: Literal["creator-effect.v1"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     root_operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    effect_kind: Literal["creator_response"]
+    effect_kind: Literal["creator_response", "codex_delegation"]
     status: Literal[
         "registered", "dispatching", "completed", "failed", "unknown", "cancelled"
     ]
@@ -657,12 +670,37 @@ class EffectResponse(_StrictWireModel):
     cancelled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
     attempt_count: Annotated[int, Field(ge=0, le=2)]
     last_observation_kind: (
-        Literal["receipt", "query", "rejection", "ambiguous"] | None
+        Literal[
+            "receipt",
+            "query",
+            "rejection",
+            "ambiguous",
+            "runner_verified",
+            "runner_failed",
+            "runner_unknown",
+            "runner_cancelled",
+        ]
+        | None
     ) = None
     last_observation_reliability: Literal["reliable", "inconclusive"] | None = None
-    verification_action: Literal["verify_creator_inbox"] | None = None
+    verification_action: (
+        Literal["verify_creator_inbox", "verify_codex_result"] | None
+    ) = None
     settled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
     response_text: Annotated[str, Field(min_length=1, max_length=65536)] | None = None
+    model_id: Literal["gpt-5.6-sol"] | None = None
+    sdk_identity: Literal["openai-codex==0.144.4"] | None = None
+    source_tree_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")] | None = (
+        None
+    )
+    result_tree_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")] | None = (
+        None
+    )
+    patch_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")] | None = None
+    changed_path_count: Annotated[int, Field(ge=0, le=500)] | None = None
+    validation_status: Literal["passed", "failed", "not_run"] | None = None
+    cleanup_status: Literal["succeeded", "failed"] | None = None
+    result_acceptance_status: Literal["pending", "accepted"] | None = None
 
     @model_validator(mode="after")
     def validate_effect(self) -> EffectResponse:
@@ -678,8 +716,35 @@ class EffectResponse(_StrictWireModel):
             raise ValueError("CON-EFFECT-OBSERVATION: observation is incomplete")
         if (self.status == "unknown") != (self.verification_action is not None):
             raise ValueError("CON-EFFECT-VERIFICATION: action is inconsistent")
-        if (self.status == "completed") != (self.response_text is not None):
+        if self.effect_kind == "creator_response" and (
+            (self.status == "completed") != (self.response_text is not None)
+        ):
             raise ValueError("CON-EFFECT-VISIBILITY: response visibility is invalid")
+        if self.effect_kind == "codex_delegation" and self.response_text is not None:
+            raise ValueError("CON-EFFECT-VISIBILITY: response visibility is invalid")
+        codex_fields = (
+            self.model_id,
+            self.sdk_identity,
+            self.source_tree_digest,
+            self.validation_status,
+            self.cleanup_status,
+            self.result_acceptance_status,
+        )
+        if self.effect_kind == "creator_response" and any(
+            value is not None for value in codex_fields
+        ):
+            raise ValueError("CON-EFFECT-VISIBILITY: Codex fields are invalid")
+        if (
+            self.effect_kind == "codex_delegation"
+            and self.status
+            in {
+                "completed",
+                "failed",
+                "unknown",
+            }
+            and any(value is None for value in codex_fields)
+        ):
+            raise ValueError("CON-EFFECT-VERIFICATION: Codex result is incomplete")
         if Instant.from_wire(self.registered_at).to_wire() != self.registered_at:
             raise ValueError("CON-EFFECT-TIME: time must be canonical")
         if (
@@ -1121,6 +1186,33 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/effects/{effect_id}/artifacts/{artifact_kind}",
+        operation_id="getEffectArtifact",
+        response_class=Response,
+        responses={
+            200: {
+                "description": "Explicit verified Codex result artifact.",
+                "content": {
+                    "text/plain": {"schema": {"type": "string"}},
+                    "application/json": {"schema": {"type": "string"}},
+                },
+            },
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_effect_artifact(
+        effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+        artifact_kind: Literal["patch", "final_result", "validation_report"],
+    ) -> Response:
+        del effect_id, artifact_kind
+        raise NotImplementedError
+
+    @app.get(
         "/v1/scenes/{scene_key}/events",
         operation_id="streamSceneEvents",
         response_class=StreamingResponse,
@@ -1172,6 +1264,7 @@ def build_creator_openapi() -> dict[str, object]:
         accept_creator_message,
         get_creator_operation,
         get_effect,
+        get_effect_artifact,
         scene_events,
     )
     del schema_handlers
@@ -1188,6 +1281,9 @@ def build_creator_openapi() -> dict[str, object]:
     )
     schema["paths"]["/v1/operations/{result_ref}"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/effects/{effect_id}"]["get"]["responses"].pop("422", None)
+    schema["paths"]["/v1/effects/{effect_id}/artifacts/{artifact_kind}"]["get"][
+        "responses"
+    ].pop("422", None)
     schema["paths"]["/v1/capability-requests"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/capability-requests/{capability_request_id}/decision"]["post"][
         "responses"

@@ -84,7 +84,8 @@
         "armi_runtime.composition.model_pipeline",
         "armi_runtime.composition.web_search_pipeline",
         "armi_runtime.composition.candidate_pipeline",
-        "armi_runtime.composition.subject_commit_pipeline"
+        "armi_runtime.composition.subject_commit_pipeline",
+        "armi_runtime.composition.codex_pipeline"
       ]
     },
     {
@@ -253,6 +254,14 @@
         "armi_runtime.composition.web_research_pipeline",
         "armi_runtime.composition.web_search_pipeline"
       ]
+    },
+    {
+      "id": "codex-delegation-custody",
+      "module": "armi_runtime.adapters.persistence.codex_delegation",
+      "owner": "codex-delegation",
+      "allowed_callers": [
+        "armi_runtime.composition.codex_pipeline"
+      ]
     }
   ],
   "write_surfaces_not_applicable_reason": "",
@@ -406,6 +415,17 @@
       ]
     },
     {
+      "id": "codex-delegation-execution",
+      "module": "armi_runtime.composition.codex_pipeline",
+      "owner": "codex-delegation",
+      "allowed_write_surfaces": [
+        "codex-delegation-custody",
+        "artifact-catalog",
+        "durable-work",
+        "normal-audit"
+      ]
+    },
+    {
       "id": "t03-subject-commit",
       "module": "armi_runtime.composition.subject_commit_pipeline",
       "owner": "subject-continuity",
@@ -491,7 +511,7 @@
     "entry_point": "armi-codex-runner",
     "module_prefix": "armi_runtime.adapters.codex",
     "manifest": "model/codex-runner.manifest.json",
-    "active_binding": null,
+    "active_binding": "armi.codex-runner.openai-python-sdk-v1",
     "forbidden_import_prefixes": [
       "armi_admin",
       "armi_runtime.adapters.persistence",
@@ -556,6 +576,7 @@
       "M0-SEAM-COGNITIVE-CANDIDATE": "armi.candidate-validator.deterministic-v1",
       "M0-SEAM-POLICY": "armi.policy-engine.deterministic-v1",
       "M0-SEAM-WORK-SELECTION": "armi.opportunity-selector.creator-fifo-v1",
+      "M0-SEAM-CODEX": "armi.codex-runner.openai-python-sdk-v1",
       "M0-SEAM-CREATOR-PROJECTION": "armi.creator-projection-workbench.v1",
       "M0-SEAM-CREATOR-UI": "armi.creator-workbench.v1"
     },

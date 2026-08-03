@@ -63,6 +63,7 @@ class PostgreSQLEffectDispatchRepository:
                   AND statement_timestamp() < outbox.dispatch_deadline
                   AND outbox.attempt_count < outbox.max_attempts
                   AND effect.status = 'registered'
+                  AND effect.effect_kind = 'creator_response'
                 ORDER BY outbox.available_at, outbox.effect_outbox_item_id
                 FOR UPDATE OF outbox, effect SKIP LOCKED
                 LIMIT 1
@@ -159,6 +160,7 @@ class PostgreSQLEffectDispatchRepository:
                 WHERE outbox.status = 'claimed'
                   AND outbox.claim_expires_at <= statement_timestamp()
                   AND effect.status = 'dispatching'
+                  AND effect.effect_kind = 'creator_response'
                   AND attempt.dispatch_state IN ('prepared', 'dispatching')
                 ORDER BY outbox.claim_expires_at, outbox.effect_outbox_item_id
                 FOR UPDATE OF outbox, effect, attempt SKIP LOCKED
@@ -209,6 +211,7 @@ class PostgreSQLEffectDispatchRepository:
                   ON scene.scene_id = effect.interaction_scene_id
                 WHERE outbox.status = 'unknown'
                   AND effect.status = 'unknown'
+                  AND effect.effect_kind = 'creator_response'
                   AND attempt.dispatch_state = 'settled'
                   AND attempt.result_status = 'unknown'
                 ORDER BY effect.settled_at, effect.effect_id

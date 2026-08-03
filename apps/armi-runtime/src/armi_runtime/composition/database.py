@@ -10,6 +10,7 @@ from uuid import UUID
 from armi_kernel.application import (
     CandidateViolation,
     CapabilityViolation,
+    CodexDelegationViolation,
     ContextViolation,
     CreatorProjectionNotifier,
     CredentialPort,
@@ -22,6 +23,8 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 
+from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
+from armi_runtime.adapters.codex.runner import IsolatedCodexRunner
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
@@ -44,12 +47,14 @@ from armi_runtime.adapters.persistence.schema_gateway import (
     PostgreSQLSchemaGateway,
     SchemaStatus,
 )
+from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 
 from .birth_manifest import packaged_birth_digests
 from .candidate_pipeline import (
     CandidateValidationPipeline,
     build_candidate_validation_pipeline,
 )
+from .codex_pipeline import CodexEffectPipeline
 from .configuration import ConfigurationViolation
 from .context_pipeline import ContextPipeline, build_context_pipeline
 from .creator_input import (
@@ -75,6 +80,7 @@ from .web_search_pipeline import WebSearchPipeline, build_web_search_pipeline
 RUNTIME_LOCATOR_NAME: Final = "database.runtime"
 MIGRATOR_LOCATOR_NAME: Final = "database.migrator"
 MODEL_LOCATOR_NAME: Final = "model.ark_api_key"
+CODEX_LOCATOR_NAME: Final = "codex.auth_json"
 
 _REASON_BY_CODE: Final = {
     "DB-CONNECTION-UNAVAILABLE": "RUNTIME_DATABASE_UNAVAILABLE",
@@ -873,13 +879,80 @@ def compose_effect_registration_pipeline(
         raise EffectViolation("EFFECT-DATABASE") from None
 
 
+def compose_codex_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    diagnostic: Callable[[str], None] | None = None,
+) -> CodexEffectPipeline:
+    """Compose the one active S039 Codex dispatcher without exposing auth."""
+
+    database_locator = prepared.effective.config.secret_locators.get(
+        RUNTIME_LOCATOR_NAME
+    )
+    auth_locator = prepared.effective.config.secret_locators.get(CODEX_LOCATOR_NAME)
+    if database_locator is None or auth_locator is None:
+        raise CodexDelegationViolation("CODEX-DELEGATION-CREDENTIAL")
+    try:
+        with prepared.credential_port.resolve(
+            database_locator, CredentialPurpose("database.runtime")
+        ) as handle:
+
+            def create(value: memoryview) -> CodexEffectPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise CodexDelegationViolation(
+                        "CODEX-DELEGATION-DATABASE"
+                    ) from None
+                config = prepared.effective.config
+
+                async def reject_dynamic_lock(
+                    connection: object, target: object
+                ) -> None:
+                    del connection, target
+                    raise CodexDelegationViolation("CODEX-DELEGATION-LOCK")
+
+                factory = PostgreSQLUnitOfWorkFactory(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    lock_acquirer=reject_dynamic_lock,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
+                )
+                run_root = prepared.data_root / "codex-runner"
+                return CodexEffectPipeline(
+                    factory=factory,
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
+                    ),
+                    run_root=run_root,
+                    runner=IsolatedCodexRunner(
+                        run_root=run_root,
+                        credential_port=prepared.credential_port,
+                        auth_locator=auth_locator,
+                    ),
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise CodexDelegationViolation("CODEX-DELEGATION-CREDENTIAL") from None
+
+
 __all__ = (
+    "CODEX_LOCATOR_NAME",
     "MIGRATOR_LOCATOR_NAME",
     "RUNTIME_LOCATOR_NAME",
     "ContinuityState",
     "DatabaseViolation",
     "compose_candidate_validation_pipeline",
     "compose_capability_policy",
+    "compose_codex_pipeline",
     "compose_context_pipeline",
     "compose_creator_input",
     "compose_effect_registration_pipeline",

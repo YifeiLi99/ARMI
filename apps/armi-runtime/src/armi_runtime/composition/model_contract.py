@@ -14,7 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 MODEL_BINDING_VERSION = "armi.model-bindings.v1"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
-CANDIDATE_VERSION = "armi.cognition-candidate.v4"
+CANDIDATE_VERSION = "armi.cognition-candidate.v6"
+HISTORICAL_CANDIDATE_VERSION = "armi.cognition-candidate.v4"
 WEB_CANDIDATE_VERSION = "armi.cognition-candidate.v5"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
@@ -211,6 +212,27 @@ type ActionChoicePayload = Annotated[
 ]
 
 
+class CodexDelegationPayload(_StrictModel):
+    proposal_kind: Literal["action_choices"]
+    action_kind: Literal["codex_delegation"]
+    fact_class: Literal["subjective_understanding", "inference"]
+    task_source_id: Uuid7Value
+    task_manifest_digest: DigestValue
+    capability_kind: Literal["codex.delegated-work"]
+    operation: Literal["execute"]
+    purpose: Literal["delegate_codex_work"]
+    validator_id: Annotated[
+        str,
+        StringConstraints(pattern=r"^codex\.[a-z0-9.-]{1,96}\.v[1-9][0-9]*$"),
+    ]
+
+
+type ActionChoicePayloadV6 = Annotated[
+    CreatorReplyPayload | FormalNoActionPayload | CodexDelegationPayload,
+    Field(discriminator="action_kind"),
+]
+
+
 class ExperienceProposal(_StrictModel):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
@@ -232,6 +254,22 @@ class WebAwareExperienceProposal(_StrictModel):
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: WebAwareExperiencePayload
+
+
+class CodexAwareExperiencePayload(_StrictModel):
+    proposal_kind: Literal["experiences"]
+    fact_class: FactClass
+    first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    source_perspective: Literal["creator_claim", "codex_observation"]
+    uncertainty: Summary | None
+    privacy_scope: Literal["private"]
+
+
+class CodexAwareExperienceProposal(_StrictModel):
+    proposal_ref: ProposalRef
+    atomic_group_ref: AtomicGroupRef
+    basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
+    payload: CodexAwareExperiencePayload
 
 
 class ComponentChangeProposal(_StrictModel):
@@ -274,6 +312,13 @@ class ActionChoiceProposal(_StrictModel):
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: ActionChoicePayload
+
+
+class ActionChoiceProposalV6(_StrictModel):
+    proposal_ref: ProposalRef
+    atomic_group_ref: AtomicGroupRef
+    basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
+    payload: ActionChoicePayloadV6
 
 
 class WebResearchRequestPayload(_StrictModel):
@@ -348,12 +393,36 @@ class CognitionCandidateV5(_StrictModel):
     reason_summary: Summary
 
 
+class CognitionCandidateV6(_StrictModel):
+    schema_version: Literal["armi.cognition-candidate.v6"]
+    base: CandidateBase
+    disposition: Literal[
+        "change",
+        "no_change",
+        "defer",
+        "decline",
+        "no_action",
+        "need_information",
+    ]
+    understanding: CandidateUnderstanding
+    experiences: tuple[CodexAwareExperienceProposal, ...] = Field(max_length=4)
+    component_changes: tuple[ComponentChangeProposal, ...] = Field(max_length=4)
+    memory_changes: tuple[MemoryChangeProposal, ...] = Field(max_length=4)
+    relationship_changes: tuple[RelationshipChangeProposal, ...] = Field(max_length=4)
+    activity_changes: tuple[ActivityChangeProposal, ...] = Field(max_length=4)
+    capability_requests: tuple[CapabilityRequestProposal, ...] = Field(max_length=4)
+    action_choices: tuple[ActionChoiceProposalV6, ...] = Field(max_length=4)
+    uncertainties: tuple[CandidateUncertainty, ...] = Field(max_length=8)
+    reason_summary: Summary
+
+
 _CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidate)
 _WEB_CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidateV5)
+_CODEX_CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidateV6)
 
 
 def candidate_schema() -> dict[str, Any]:
-    return _CANDIDATE_ADAPTER.json_schema()
+    return _CODEX_CANDIDATE_ADAPTER.json_schema()
 
 
 def candidate_v5_schema() -> dict[str, Any]:
@@ -366,7 +435,7 @@ def parse_candidate(
     value: bytes,
     *,
     allowed_context_refs: frozenset[str],
-) -> CognitionCandidate | CognitionCandidateV5:
+) -> CognitionCandidate | CognitionCandidateV5 | CognitionCandidateV6:
     try:
         raw: object = json.loads(value)
         if type(raw) is dict:
@@ -377,16 +446,23 @@ def parse_candidate(
             ):
                 candidate_object = {
                     **candidate_object,
-                    "schema_version": CANDIDATE_VERSION,
+                    "schema_version": HISTORICAL_CANDIDATE_VERSION,
                 }
                 candidate_object["action_choices"] = []
                 del candidate_object["action_intents"]
             raw = candidate_object
-        use_web_candidate = (
-            type(raw) is dict
-            and cast(dict[str, Any], raw).get("schema_version") == WEB_CANDIDATE_VERSION
+        version = (
+            cast(dict[str, Any], raw).get("schema_version")
+            if type(raw) is dict
+            else None
         )
-        adapter = _WEB_CANDIDATE_ADAPTER if use_web_candidate else _CANDIDATE_ADAPTER
+        adapter = (
+            _CODEX_CANDIDATE_ADAPTER
+            if version == CANDIDATE_VERSION
+            else _WEB_CANDIDATE_ADAPTER
+            if version == WEB_CANDIDATE_VERSION
+            else _CANDIDATE_ADAPTER
+        )
         candidate = adapter.validate_json(
             json.dumps(raw, ensure_ascii=False, separators=(",", ":")),
             strict=True,
@@ -566,8 +642,10 @@ __all__ = (
     "MODEL_BINDING_VERSION",
     "MODEL_REQUEST_VERSION",
     "WEB_CANDIDATE_VERSION",
+    "CodexDelegationPayload",
     "CognitionCandidate",
     "CognitionCandidateV5",
+    "CognitionCandidateV6",
     "WebResearchRequestPayload",
     "WebResearchRequestProposal",
     "build_request_bytes",

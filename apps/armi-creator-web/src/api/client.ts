@@ -240,3 +240,26 @@ export async function getEffectDetail(
   });
   return requireJson(response);
 }
+
+export type CodexEffectArtifactKind =
+  "patch" | "final_result" | "validation_report";
+
+export async function getEffectArtifact(
+  token: string,
+  effectId: string,
+  kind: CodexEffectArtifactKind,
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await fetch(
+    `/v1/effects/${encodeURIComponent(effectId)}/artifacts/${kind}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  if (!response.ok) {
+    throw new ApiFailure(response.status, await safeErrorCode(response));
+  }
+  return response.text();
+}

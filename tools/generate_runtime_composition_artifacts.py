@@ -50,6 +50,7 @@ _SCHEMA_FILES = (
     "migrations/0021_admin_observation_and_environment.sql",
     "migrations/0022_t07_admin_correction.sql",
     "migrations/0023_codex_runner_activation.sql",
+    "migrations/0024_codex_delegation_acceptance.sql",
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")

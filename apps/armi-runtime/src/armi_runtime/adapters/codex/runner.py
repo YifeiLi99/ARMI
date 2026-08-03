@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 import shutil
 import stat
 import subprocess
+import zipfile
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, cast
 
+import rfc8785
 from armi_kernel.application import (
     CodexRunnerPort,
     CodexRunnerViolation,
@@ -28,7 +32,13 @@ from openai_codex import ApprovalMode, AsyncCodex, CodexConfig, Sandbox
 
 from .sdk_codec import SdkTurnEvidence, normalize_sdk_turn, validate_final_output
 from .validation import validate_fixed_result
-from .workspace import changed_paths, extract_source_bundle, patch_digest, snapshot_tree
+from .workspace import (
+    TreeSnapshot,
+    changed_paths,
+    extract_source_bundle,
+    patch_digest,
+    snapshot_tree,
+)
 
 _PURPOSE = CredentialPurpose("codex.runner.auth")
 _MODEL: Final = "gpt-5.6-sol"
@@ -38,6 +48,16 @@ _SDK_IDENTITY = Digest.from_bytes(
 )
 _PLATFORM_STATE = "runner-state.json"
 _PERSISTENT_PLATFORM_CHILDREN = frozenset({".sandbox", _PLATFORM_STATE})
+
+
+@dataclass(frozen=True, slots=True)
+class CodexRunArtifactSet:
+    event_transcript: bytes
+    final_result: bytes
+    patch: bytes
+    result_bundle: bytes
+    diagnostics: bytes
+    validation_report: bytes
 
 
 class IsolatedCodexRunner(CodexRunnerPort):
@@ -57,6 +77,12 @@ class IsolatedCodexRunner(CodexRunnerPort):
         self._auth_locator = auth_locator
 
     async def run(self, task: CodexTaskManifest) -> CodexRunResult:
+        result, _artifacts = await self.run_custodied(task)
+        return result
+
+    async def run_custodied(
+        self, task: CodexTaskManifest
+    ) -> tuple[CodexRunResult, CodexRunArtifactSet]:
         if type(task) is not CodexTaskManifest:
             raise CodexRunnerViolation("CODEX-TASK-MANIFEST")
         execution = task.execution_id.value.hex
@@ -71,6 +97,7 @@ class IsolatedCodexRunner(CodexRunnerPort):
         self._prepare_roots(private, temp, platform_home)
         execution_error: CodexRunnerViolation | None = None
         result: CodexRunResult | None = None
+        artifacts: CodexRunArtifactSet | None = None
         try:
             before = extract_source_bundle(bundle, workspace, task)
             self._write_auth(platform_home)
@@ -89,6 +116,13 @@ class IsolatedCodexRunner(CodexRunnerPort):
                 task=task,
                 workspace=workspace,
                 changed_paths=paths,
+            )
+            artifacts = _custody_artifacts(
+                workspace=workspace,
+                evidence=evidence,
+                before=before,
+                after=after,
+                paths=paths,
             )
             result = CodexRunResult(
                 execution_id=task.execution_id,
@@ -117,9 +151,9 @@ class IsolatedCodexRunner(CodexRunnerPort):
                 execution_error.record_cleanup_failure(cleanup_error.code)
         if execution_error is not None:
             raise execution_error from None
-        if result is None:
+        if result is None or artifacts is None:
             raise CodexRunnerViolation("CODEX-UNEXPECTED")
-        return result
+        return result, artifacts
 
     def _prepare_roots(
         self,
@@ -294,6 +328,98 @@ _BASE_INSTRUCTIONS = (
     "task contract and workspace facts. Never use web search, MCP, apps, skills, hooks, "
     "credentials, or paths outside the workspace."
 )
+
+
+def _custody_artifacts(
+    *,
+    workspace: Path,
+    evidence: SdkTurnEvidence,
+    before: TreeSnapshot,
+    after: TreeSnapshot,
+    paths: tuple[str, ...],
+) -> CodexRunArtifactSet:
+    old = {path: digest for path, digest, _ in before.files}
+    new = {path: digest for path, digest, _ in after.files}
+    patch = rfc8785.dumps(
+        cast(
+            Any,
+            {
+                "schema_version": "armi.codex-normalized-patch.v1",
+                "changes": [
+                    {
+                        "path": path,
+                        "before": old.get(path),
+                        "after": new.get(path),
+                    }
+                    for path in paths
+                ],
+            },
+        )
+    )
+    diagnostics = rfc8785.dumps(
+        cast(
+            Any,
+            {
+                "schema_version": "armi.codex-diagnostics.v1",
+                "commands": [
+                    {
+                        "command_digest": Digest.from_bytes(
+                            command.command.encode("utf-8")
+                        ).value,
+                        "output_digest": Digest.from_bytes(
+                            command.output.encode("utf-8")
+                        ).value,
+                        "exit_code": command.exit_code,
+                        "status": command.status,
+                    }
+                    for command in evidence.commands
+                ],
+            },
+        )
+    )
+    validation = rfc8785.dumps(
+        cast(
+            Any,
+            {
+                "schema_version": "armi.codex-verification-report.v1",
+                "status": "verified",
+                "source_tree_digest": before.digest.value,
+                "final_tree_digest": after.digest.value,
+                "changed_paths": list(paths),
+            },
+        )
+    )
+    return CodexRunArtifactSet(
+        evidence.transcript,
+        evidence.final_response,
+        patch,
+        _result_bundle(workspace),
+        diagnostics,
+        validation,
+    )
+
+
+def _result_bundle(workspace: Path) -> bytes:
+    output = io.BytesIO()
+    try:
+        with zipfile.ZipFile(
+            output,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=9,
+        ) as archive:
+            for path in sorted(item for item in workspace.rglob("*") if item.is_file()):
+                relative = path.relative_to(workspace).as_posix()
+                info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o100600 << 16
+                archive.writestr(info, path.read_bytes())
+    except OSError, zipfile.BadZipFile:
+        raise CodexRunnerViolation("CODEX-RESULT-CUSTODY") from None
+    value = output.getvalue()
+    if not value or len(value) > 100 * 1024 * 1024:
+        raise CodexRunnerViolation("CODEX-OUTPUT-LIMIT")
+    return value
 
 
 def _prompt(task: CodexTaskManifest) -> str:
@@ -488,4 +614,4 @@ def _make_writable_and_retry(
     function(path)
 
 
-__all__ = ("IsolatedCodexRunner",)
+__all__ = ("CodexRunArtifactSet", "IsolatedCodexRunner")

@@ -141,6 +141,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/effects/{effect_id}/artifacts/{artifact_kind}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Effect Artifact */
+    get: operations["getEffectArtifact"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/operations/{result_ref}": {
     parameters: {
       query?: never;
@@ -528,7 +545,8 @@ export interface components {
         | "formal_decline"
         | "formal_no_action"
         | "no_change"
-        | "response_effect";
+        | "response_effect"
+        | "codex_effect";
       /** Delivery State */
       delivery_state?:
         | (
@@ -628,6 +646,10 @@ export interface components {
       attempt_count: number;
       /** Cancelled At */
       cancelled_at?: string | null;
+      /** Changed Path Count */
+      changed_path_count?: number | null;
+      /** Cleanup Status */
+      cleanup_status?: ("succeeded" | "failed") | null;
       /**
        * Contract Version
        * @constant
@@ -637,14 +659,28 @@ export interface components {
       effect_id: string;
       /**
        * Effect Kind
-       * @constant
+       * @enum {string}
        */
-      effect_kind: "creator_response";
+      effect_kind: "creator_response" | "codex_delegation";
       /** Last Observation Kind */
       last_observation_kind?:
-        ("receipt" | "query" | "rejection" | "ambiguous") | null;
+        | (
+            | "receipt"
+            | "query"
+            | "rejection"
+            | "ambiguous"
+            | "runner_verified"
+            | "runner_failed"
+            | "runner_unknown"
+            | "runner_cancelled"
+          )
+        | null;
       /** Last Observation Reliability */
       last_observation_reliability?: ("reliable" | "inconclusive") | null;
+      /** Model Id */
+      model_id?: "gpt-5.6-sol" | null;
+      /** Patch Digest */
+      patch_digest?: string | null;
       /**
        * Projection Version
        * @constant
@@ -654,10 +690,18 @@ export interface components {
       registered_at: string;
       /** Response Text */
       response_text?: string | null;
+      /** Result Acceptance Status */
+      result_acceptance_status?: ("pending" | "accepted") | null;
+      /** Result Tree Digest */
+      result_tree_digest?: string | null;
       /** Root Operation Ref */
       root_operation_ref: string;
+      /** Sdk Identity */
+      sdk_identity?: "openai-codex==0.144.4" | null;
       /** Settled At */
       settled_at?: string | null;
+      /** Source Tree Digest */
+      source_tree_digest?: string | null;
       /**
        * Status
        * @enum {string}
@@ -669,8 +713,11 @@ export interface components {
         | "failed"
         | "unknown"
         | "cancelled";
+      /** Validation Status */
+      validation_status?: ("passed" | "failed" | "not_run") | null;
       /** Verification Action */
-      verification_action?: "verify_creator_inbox" | null;
+      verification_action?:
+        ("verify_creator_inbox" | "verify_codex_result") | null;
       /**
        * Verification Status
        * @enum {string}
@@ -901,9 +948,9 @@ export interface components {
       trace_id: string;
       /**
        * Verification Action
-       * @constant
+       * @enum {string}
        */
-      verification_action: "verify_creator_inbox";
+      verification_action: "verify_creator_inbox" | "verify_codex_result";
     };
     /** OperationWaitingOutcomeResponse */
     OperationWaitingOutcomeResponse: {
@@ -934,7 +981,11 @@ export interface components {
         | "creator_evidence_accepted"
         | "response_admitted"
         | "effect_registered"
-        | "effect_settled";
+        | "effect_settled"
+        | "codex_grant_resolved"
+        | "codex_dispatched"
+        | "codex_verified"
+        | "codex_result_accepted";
       /**
        * @description discriminator enum property added by openapi-typescript
        * @enum {string}
@@ -955,6 +1006,10 @@ export interface components {
         | "response_admission"
         | "effect_registration"
         | "effect_dispatch"
+        | "capability_decision"
+        | "codex_dispatch"
+        | "codex_verification"
+        | "codex_result_acceptance"
         | "future_opportunity"
         | "new_evidence";
     };
@@ -1567,6 +1622,75 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["EffectResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getEffectArtifact: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        effect_id: string;
+        artifact_kind: "patch" | "final_result" | "validation_report";
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Explicit verified Codex result artifact. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": string;
+          "text/plain": string;
         };
       };
       /** @description Bad Request */

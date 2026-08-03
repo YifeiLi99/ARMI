@@ -19,6 +19,8 @@ from armi_kernel.application import (
     CapabilityOperation,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
+    CodexDelegationDraft,
+    CodexTaskSourceId,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
     FormalNoActionDraft,
@@ -46,6 +48,7 @@ _TOP_KEYS_V1 = {
 _TOP_KEYS_V2 = {*_TOP_KEYS_V1, "capability_requests"}
 _TOP_KEYS_V3 = {*_TOP_KEYS_V2, "action_choices"}
 _TOP_KEYS_V4 = {*_TOP_KEYS_V3, "web_research_requests"}
+_TOP_KEYS_V5 = {*_TOP_KEYS_V3, "codex_delegations"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -59,6 +62,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v2",
             "armi.subject-change-set.v3",
             "armi.subject-change-set.v4",
+            "armi.subject-change-set.v5",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -70,6 +74,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V3
             if version.endswith(".v3")
             else _TOP_KEYS_V4
+            if version.endswith(".v4")
+            else _TOP_KEYS_V5
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -102,6 +108,10 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             _web_research(item)
             for item in _array(document.get("web_research_requests", []), 1)
         )
+        codex_delegations = tuple(
+            _codex_delegation(item)
+            for item in _array(document.get("codex_delegations", []), 1)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -124,6 +134,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             action_choices,
             web_research_requests,
             rejections,
+            codex_delegations,
         )
         proposal_refs = [
             item.proposal_ref
@@ -133,6 +144,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *capability_requests,
                 *action_choices,
                 *web_research_requests,
+                *codex_delegations,
                 *rejections,
             )
         ]
@@ -143,6 +155,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.components
             or result.capability_requests
             or result.web_research_requests
+            or result.codex_delegations
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
@@ -251,6 +264,37 @@ def _web_research(value: object) -> WebResearchRequestDraft:
         Digest(_text(item["query_digest"])),
         _text(item["purpose"]),
         _text(item["operation_class"]),
+    )
+
+
+def _codex_delegation(value: object) -> CodexDelegationDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "task_source_id",
+            "task_manifest_digest",
+            "validator_id",
+            "capability_kind",
+            "operation",
+            "purpose",
+        },
+    )
+    if (
+        item["capability_kind"] != "codex.delegated-work"
+        or item["operation"] != "execute"
+        or item["purpose"] != "delegate_codex_work"
+    ):
+        raise ValueError
+    return CodexDelegationDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        CodexTaskSourceId(_uuid7(item["task_source_id"])),
+        Digest(_text(item["task_manifest_digest"])),
+        _text(item["validator_id"]),
     )
 
 

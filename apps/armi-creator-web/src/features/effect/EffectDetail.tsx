@@ -1,7 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { ApiFailure, getEffectDetail } from "../../api/client";
+import {
+  ApiFailure,
+  type CodexEffectArtifactKind,
+  getEffectArtifact,
+  getEffectDetail,
+} from "../../api/client";
 
 type EffectDetailProps = {
   token: string;
@@ -17,6 +22,11 @@ export function EffectDetail({
   onUnauthorized,
 }: EffectDetailProps) {
   const closeButton = useRef<HTMLButtonElement>(null);
+  const [artifact, setArtifact] = useState<{
+    kind: CodexEffectArtifactKind;
+    content: string;
+  } | null>(null);
+  const [artifactFailure, setArtifactFailure] = useState(false);
   const effect = useQuery({
     queryKey: ["creator-effect", effectRef],
     enabled: effectRef !== null,
@@ -27,6 +37,8 @@ export function EffectDetail({
     if (effectRef !== null) {
       closeButton.current?.focus();
     }
+    setArtifact(null);
+    setArtifactFailure(false);
   }, [effectRef]);
   useEffect(() => {
     if (effect.error instanceof ApiFailure && effect.error.status === 401) {
@@ -100,6 +112,28 @@ export function EffectDetail({
               <dt>安全引用</dt>
               <dd>{effect.data.effect_id}</dd>
             </div>
+            {effect.data.effect_kind === "codex_delegation" ? (
+              <>
+                <div>
+                  <dt>模型与 SDK</dt>
+                  <dd>
+                    {effect.data.model_id ?? "尚未运行"} ·{" "}
+                    {effect.data.sdk_identity ?? "尚未运行"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>独立核验</dt>
+                  <dd>
+                    {effect.data.validation_status ?? "pending"} · cleanup{" "}
+                    {effect.data.cleanup_status ?? "pending"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>变更路径数</dt>
+                  <dd>{effect.data.changed_path_count ?? 0}</dd>
+                </div>
+              </>
+            ) : null}
           </dl>
           {effect.data.status === "completed" &&
           effect.data.response_text !== undefined &&
@@ -107,6 +141,53 @@ export function EffectDetail({
             <div className="verified-response">
               <h3>已核验回应</h3>
               <pre>{effect.data.response_text}</pre>
+            </div>
+          ) : null}
+          {effect.data.effect_kind === "codex_delegation" &&
+          effect.data.status === "completed" ? (
+            <div className="verified-response">
+              <h3>已核验 Codex 产物</h3>
+              <div className="timeline-heading-row">
+                {(["patch", "final_result", "validation_report"] as const).map(
+                  (kind) => (
+                    <button
+                      type="button"
+                      className="secondary"
+                      key={kind}
+                      onClick={() => {
+                        setArtifactFailure(false);
+                        void getEffectArtifact(
+                          token,
+                          effect.data.effect_id,
+                          kind,
+                        )
+                          .then((content) => setArtifact({ kind, content }))
+                          .catch((error: unknown) => {
+                            if (
+                              error instanceof ApiFailure &&
+                              error.status === 401
+                            ) {
+                              onUnauthorized();
+                            } else {
+                              setArtifactFailure(true);
+                            }
+                          });
+                      }}
+                    >
+                      查看 {kind}
+                    </button>
+                  ),
+                )}
+              </div>
+              {artifact === null ? null : (
+                <div>
+                  <h4>{artifact.kind}</h4>
+                  <pre>{artifact.content}</pre>
+                </div>
+              )}
+              {artifactFailure ? (
+                <p role="status">当前无法核验该产物。</p>
+              ) : null}
             </div>
           ) : null}
           {effect.data.status === "unknown" ? (

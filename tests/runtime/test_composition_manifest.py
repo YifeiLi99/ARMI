@@ -51,6 +51,10 @@ class CompositionManifestTests(unittest.TestCase):
                     "armi.creator-response-adapter.postgresql-inbox-v1",
                 ),
                 (
+                    "M0-SEAM-CODEX",
+                    "armi.codex-runner.openai-python-sdk-v1",
+                ),
+                (
                     "M0-SEAM-CREATOR-PROJECTION",
                     "armi.creator-projection-workbench.v1",
                 ),

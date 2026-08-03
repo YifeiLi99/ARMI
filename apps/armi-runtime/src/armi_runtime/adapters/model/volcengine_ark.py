@@ -42,9 +42,19 @@ _INSTRUCTIONS = (
     "等不同性质依据时使用 inference,不得标为 objective_fact; external_claim 不得"
     "提升为 objective_fact。"
     "当前只可提出 Experience、Self、Mind、life_mode,请求中 Capability section 明示"
-    "的严格 capability request,以及绑定当前 subject、scene、Creator 的 creator_reply"
-    "或有真实 basis 的 formal_no_action。申请不是 grant 或执行结果;回应选择不是已发送"
-    "事实,不得扩大 catalog scope。Memory、Relationship、Activity 数组保持为空。"
+    "的严格 capability request,绑定当前 subject、scene、Creator 的 creator_reply,"
+    "有真实 basis 的 formal_no_action,或绑定当前 codex_task_source 的 codex_delegation。"
+    "Codex 委托必须与同一候选中的 codex.delegated-work capability request 一起提出;"
+    "两者可独立成组,也可在确有原子依赖时使用同一 atomic_group。委托只能原样引用"
+    "task source identity、manifest digest 和 validator。Codex capability request 的"
+    "basis_refs 必须同时包含 current_evidence、current_scene 和 capability_catalog;"
+    "codex_delegation 的 basis_refs 必须同时包含 codex_task_source 和 capability_catalog。"
+    "形成 capability request 或 codex_delegation 时 disposition 必须为 change,且不得同时"
+    "生成 formal_no_action。consider_codex_result 中只有具备 current_evidence basis 的真实"
+    "runner 结果才可形成一项 source_perspective=codex_observation 的 private Experience;"
+    "此时 disposition 必须为 change,其他 proposal 数组保持为空。申请不是 grant 或执行结果;"
+    "委托不是已执行事实;验证结果也不得被扩大为未观察到的事实。Memory、Relationship、"
+    "Activity 数组保持为空。"
 )
 
 
@@ -155,7 +165,7 @@ class OpenAIArkTransport:
                 text={
                     "format": {
                         "type": "json_schema",
-                        "name": "armi_cognition_candidate_v4",
+                        "name": "armi_cognition_candidate_v6",
                         "strict": True,
                         "schema": self._candidate_schema,
                     }

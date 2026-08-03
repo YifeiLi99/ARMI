@@ -368,7 +368,11 @@ def _context_request(
             _unavailable(ContextSection.MEMORY, "memory"),
             _item(
                 ContextSection.EVIDENCE,
-                "current_evidence",
+                (
+                    "codex_task_source"
+                    if snapshot.evidence.source_kind == "codex_task_source"
+                    else "current_evidence"
+                ),
                 snapshot.evidence.source_id,
                 snapshot.evidence.source_version,
                 evidence_bytes,

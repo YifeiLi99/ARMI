@@ -148,6 +148,14 @@ class CreatorOperationPhase(StrEnum):
     EFFECT_FAILED = "effect_failed"
     EFFECT_UNKNOWN = "effect_unknown"
     EFFECT_CANCELLED = "effect_cancelled"
+    CODEX_CAPABILITY_DECISION = "codex_capability_decision"
+    CODEX_DISPATCHING = "codex_dispatching"
+    CODEX_VERIFYING = "codex_verifying"
+    CODEX_RESULT_ACCEPTANCE = "codex_result_acceptance"
+    CODEX_COMPLETED = "codex_completed"
+    CODEX_FAILED = "codex_failed"
+    CODEX_UNKNOWN = "codex_unknown"
+    CODEX_CANCELLED = "codex_cancelled"
     FORMAL_DECLINED = "formal_declined"
     FORMAL_NO_ACTION = "formal_no_action"
     RESPONSE_UNAUTHORIZED = "response_unauthorized"
@@ -193,6 +201,10 @@ class CreatorOperation:
             CreatorOperationPhase.EFFECT_FAILED,
             CreatorOperationPhase.EFFECT_UNKNOWN,
             CreatorOperationPhase.EFFECT_CANCELLED,
+            CreatorOperationPhase.CODEX_COMPLETED,
+            CreatorOperationPhase.CODEX_FAILED,
+            CreatorOperationPhase.CODEX_UNKNOWN,
+            CreatorOperationPhase.CODEX_CANCELLED,
             CreatorOperationPhase.FORMAL_DECLINED,
             CreatorOperationPhase.FORMAL_NO_ACTION,
             CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
@@ -210,6 +222,13 @@ class CreatorOperation:
                 CreatorOperationPhase.EFFECT_FAILED,
                 CreatorOperationPhase.EFFECT_UNKNOWN,
                 CreatorOperationPhase.EFFECT_CANCELLED,
+                CreatorOperationPhase.CODEX_DISPATCHING,
+                CreatorOperationPhase.CODEX_VERIFYING,
+                CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE,
+                CreatorOperationPhase.CODEX_COMPLETED,
+                CreatorOperationPhase.CODEX_FAILED,
+                CreatorOperationPhase.CODEX_UNKNOWN,
+                CreatorOperationPhase.CODEX_CANCELLED,
             }
         ) != (self.effect_ref is not None):
             raise CreatorInputViolation("CON-INPUT-OPERATION")
@@ -247,6 +266,8 @@ class CreatorOperation:
             CreatorOperationPhase.RESPONSE_FAILED,
             CreatorOperationPhase.EFFECT_FAILED,
             CreatorOperationPhase.EFFECT_UNKNOWN,
+            CreatorOperationPhase.CODEX_FAILED,
+            CreatorOperationPhase.CODEX_UNKNOWN,
         }:
             if self.failure_code is None:
                 raise CreatorInputViolation("CON-INPUT-OPERATION")

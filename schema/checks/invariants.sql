@@ -30,7 +30,7 @@ FROM (
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
                   AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-            ) <> 51
+            ) <> 54
         ),
         (
             'DB-SCHEMA-MISSING',
@@ -153,6 +153,22 @@ FROM (
                       'creator_input_interactions',
                       'external_evidence',
                       'opportunities'
+                  )
+            ) <> 3
+        ),
+        (
+            'DB-SCHEMA-MISSING',
+            (
+                SELECT count(*)
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind = 'r'
+                  AND relation.relname IN (
+                      'codex_task_sources',
+                      'codex_verification_results',
+                      'codex_result_sources'
                   )
             ) <> 3
         ),
@@ -333,6 +349,26 @@ FROM (
                       'workspace_scope',
                       'artifact_scope',
                       'network_access'
+                  )
+                  AND attribute.attnum > 0
+                  AND NOT attribute.attisdropped
+            ) <> 3
+        ),
+        (
+            'DB-SCHEMA-MISSING',
+            (
+                SELECT count(*)
+                FROM pg_catalog.pg_attribute AS attribute
+                JOIN pg_catalog.pg_class AS relation
+                    ON relation.oid = attribute.attrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relname = 'runtime_recovery_runs'
+                  AND attribute.attname IN (
+                      'resumable_codex_task_count',
+                      'resumable_codex_effect_count',
+                      'pending_codex_result_acceptance_count'
                   )
                   AND attribute.attnum > 0
                   AND NOT attribute.attisdropped

@@ -25,6 +25,8 @@ from armi_kernel.application import (
     CapabilityOperation,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
+    CodexDelegationDraft,
+    CodexTaskSourceId,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
     FormalNoActionDraft,
@@ -38,8 +40,10 @@ from armi_kernel.contracts import Digest
 
 from .model_contract import (
     ActionChoiceProposal,
+    CodexDelegationPayload,
     CognitionCandidate,
     CognitionCandidateV5,
+    CognitionCandidateV6,
     ComponentChangeProposal,
     CreatorReplyPayload,
     ExperienceProposal,
@@ -52,6 +56,7 @@ CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v1"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
 CHANGE_SET_VERSION = "armi.subject-change-set.v3"
 WEB_CHANGE_SET_VERSION = "armi.subject-change-set.v4"
+CODEX_CHANGE_SET_VERSION = "armi.subject-change-set.v5"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +74,8 @@ class CandidateValidationContext:
     current_components: tuple[tuple[CandidateOwner, int, bytes], ...]
     purpose: str = "consider_creator_input"
     web_search_active: bool = False
+    codex_active: bool = False
+    codex_task_sources: tuple[tuple[UUID, Digest, str], ...] = ()
 
     def __post_init__(self) -> None:
         if any(
@@ -181,7 +188,8 @@ class DeterministicCandidateValidator:
             | CapabilityRequestDraft
             | CreatorReplyDraft
             | FormalNoActionDraft
-            | WebResearchRequestDraft,
+            | WebResearchRequestDraft
+            | CodexDelegationDraft,
         ] = {}
         rejected: dict[str, CandidateRejection] = {}
         group_members: dict[str, list[str]] = defaultdict(list)
@@ -196,6 +204,8 @@ class DeterministicCandidateValidator:
                 expected_perspective = (
                     "web_claim"
                     if self._context.purpose == "consider_web_evidence"
+                    else "codex_observation"
+                    if self._context.purpose == "consider_codex_result"
                     else "creator_claim"
                 )
                 if experience.payload.source_perspective != expected_perspective:
@@ -312,6 +322,24 @@ class DeterministicCandidateValidator:
                         Digest.from_bytes(query_bytes),
                     )
                     continue
+            if failure is None and owner is CandidateOwner.CODEX_DELEGATION:
+                action = cast(ActionChoiceProposal, proposal)
+                payload = cast(CodexDelegationPayload, action.payload)
+                failure = _codex_delegation_failure(
+                    payload,
+                    proposal_bases,
+                    context=self._context,
+                )
+                if failure is None:
+                    accepted[proposal.proposal_ref] = CodexDelegationDraft(
+                        proposal.proposal_ref,
+                        proposal.atomic_group_ref,
+                        tuple(basis.ordinal for basis in proposal_bases),
+                        CodexTaskSourceId(UUID(payload.task_source_id)),
+                        Digest(payload.task_manifest_digest),
+                        payload.validator_id,
+                    )
+                    continue
             if failure is None:
                 failure = "CANDIDATE-OWNER-NOT-ACTIVE"
             rejected[proposal.proposal_ref] = CandidateRejection(
@@ -335,6 +363,23 @@ class DeterministicCandidateValidator:
                     draft.fact_class,
                     draft.owner,
                     "CANDIDATE-EXPERIENCE-REQUIRED",
+                )
+                accepted.pop(proposal_ref)
+
+        has_codex_request = any(
+            isinstance(value, CapabilityRequestDraft)
+            and isinstance(value.scope, CodexDelegatedWorkScope)
+            for value in accepted.values()
+        )
+        for proposal_ref, draft in tuple(accepted.items()):
+            if isinstance(draft, CodexDelegationDraft) and not has_codex_request:
+                rejected[proposal_ref] = CandidateRejection(
+                    proposal_ref,
+                    draft.atomic_group_ref,
+                    draft.basis_ordinals,
+                    CandidateFactClass.INFERENCE,
+                    CandidateOwner.CODEX_DELEGATION,
+                    "CANDIDATE-CODEX-CAPABILITY-REQUEST",
                 )
                 accepted.pop(proposal_ref)
 
@@ -387,11 +432,18 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, WebResearchRequestDraft)
         )
+        codex_delegations = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, CodexDelegationDraft)
+        )
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
         change_set_value = {
             "schema_version": (
-                WEB_CHANGE_SET_VERSION
+                CODEX_CHANGE_SET_VERSION
+                if candidate.schema_version == "armi.cognition-candidate.v6"
+                else WEB_CHANGE_SET_VERSION
                 if candidate.schema_version == "armi.cognition-candidate.v5"
                 else CHANGE_SET_VERSION
             ),
@@ -419,6 +471,10 @@ class DeterministicCandidateValidator:
             change_set_value["web_research_requests"] = [
                 _web_research_wire(item) for item in web_research_requests
             ]
+        if candidate.schema_version == "armi.cognition-candidate.v6":
+            change_set_value["codex_delegations"] = [
+                _codex_delegation_wire(item) for item in codex_delegations
+            ]
         canonical = rfc8785.dumps(cast(Any, change_set_value))
         change_set = SubjectChangeSet(
             canonical,
@@ -439,6 +495,7 @@ class DeterministicCandidateValidator:
             action_choices,
             web_research_requests,
             rejections,
+            codex_delegations,
         )
         status = (
             CandidateValidationStatus.PARTIALLY_ACCEPTED
@@ -455,7 +512,8 @@ class DeterministicCandidateValidator:
         )
 
     def _base_matches(
-        self, candidate: CognitionCandidate | CognitionCandidateV5
+        self,
+        candidate: CognitionCandidate | CognitionCandidateV5 | CognitionCandidateV6,
     ) -> bool:
         base = candidate.base
         return (
@@ -467,7 +525,7 @@ class DeterministicCandidateValidator:
 
 
 def _all_proposals(
-    candidate: CognitionCandidate | CognitionCandidateV5,
+    candidate: CognitionCandidate | CognitionCandidateV5 | CognitionCandidateV6,
 ) -> tuple[tuple[CandidateOwner, Any], ...]:
     return (
         *((CandidateOwner.EXPERIENCE, item) for item in candidate.experiences),
@@ -482,7 +540,15 @@ def _all_proposals(
         ),
         *((CandidateOwner.ACTIVITY, item) for item in candidate.activity_changes),
         *((CandidateOwner.CAPABILITY, item) for item in candidate.capability_requests),
-        *((CandidateOwner.ACTION, item) for item in candidate.action_choices),
+        *(
+            (
+                CandidateOwner.CODEX_DELEGATION
+                if isinstance(item.payload, CodexDelegationPayload)
+                else CandidateOwner.ACTION,
+                item,
+            )
+            for item in candidate.action_choices
+        ),
         *(
             (CandidateOwner.WEB_RESEARCH, item)
             for item in getattr(candidate, "web_research_requests", ())
@@ -675,6 +741,43 @@ def _web_research_failure(
     return None
 
 
+def _codex_delegation_failure(
+    payload: CodexDelegationPayload,
+    bases: tuple[CandidateBasis, ...],
+    *,
+    context: CandidateValidationContext,
+) -> str | None:
+    if not context.codex_active:
+        return "CANDIDATE-CODEX-NOT-ACTIVE"
+    source_id = UUID(payload.task_source_id)
+    source = next(
+        (item for item in context.codex_task_sources if item[0] == source_id),
+        None,
+    )
+    if source is None:
+        return "CANDIDATE-CODEX-TASK-SOURCE"
+    if (
+        source[1].value != payload.task_manifest_digest
+        or source[2] != payload.validator_id
+    ):
+        return "CANDIDATE-CODEX-TASK-IDENTITY"
+    if not any(
+        basis.item_kind == "codex_task_source"
+        and basis.source_ref == source_id
+        and basis.source_digest == source[1]
+        for basis in bases
+    ):
+        return "CANDIDATE-CODEX-TASK-BASIS"
+    if not any(
+        basis.section == "capability"
+        and basis.item_kind == "capability_catalog"
+        and basis.trust_class == "policy"
+        for basis in bases
+    ):
+        return "CANDIDATE-CODEX-CAPABILITY-BASIS"
+    return None
+
+
 def _rejected(code: str) -> CandidateValidationResult:
     return CandidateValidationResult(
         CandidateValidationId(uuid7()),
@@ -700,7 +803,8 @@ def _draft_owner(
     | CapabilityRequestDraft
     | CreatorReplyDraft
     | FormalNoActionDraft
-    | WebResearchRequestDraft,
+    | WebResearchRequestDraft
+    | CodexDelegationDraft,
 ) -> CandidateOwner:
     if isinstance(draft, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
@@ -710,6 +814,8 @@ def _draft_owner(
         return CandidateOwner.ACTION
     if isinstance(draft, WebResearchRequestDraft):
         return CandidateOwner.WEB_RESEARCH
+    if isinstance(draft, CodexDelegationDraft):
+        return CandidateOwner.CODEX_DELEGATION
     return draft.owner
 
 
@@ -719,13 +825,14 @@ def _draft_fact_class(
     | CapabilityRequestDraft
     | CreatorReplyDraft
     | FormalNoActionDraft
-    | WebResearchRequestDraft,
+    | WebResearchRequestDraft
+    | CodexDelegationDraft,
 ) -> CandidateFactClass:
     if isinstance(
         draft, (CapabilityRequestDraft, CreatorReplyDraft, FormalNoActionDraft)
     ):
         return CandidateFactClass.INFERENCE
-    if isinstance(draft, WebResearchRequestDraft):
+    if isinstance(draft, (WebResearchRequestDraft, CodexDelegationDraft)):
         return CandidateFactClass.INFERENCE
     return draft.fact_class
 
@@ -751,6 +858,20 @@ def _web_research_wire(value: WebResearchRequestDraft) -> dict[str, object]:
         "operation_class": value.operation_class,
         "query": value.query_bytes.decode("utf-8", errors="strict"),
         "query_digest": value.query_digest.value,
+    }
+
+
+def _codex_delegation_wire(value: CodexDelegationDraft) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "task_source_id": str(value.task_source_id.value),
+        "task_manifest_digest": value.task_manifest_digest.value,
+        "validator_id": value.validator_id,
+        "capability_kind": value.capability_kind,
+        "operation": value.operation,
+        "purpose": value.purpose,
     }
 
 
@@ -844,6 +965,7 @@ __all__ = (
     "CANDIDATE_POLICY_VERSION",
     "CANDIDATE_VALIDATOR_IDENTITY",
     "CHANGE_SET_VERSION",
+    "CODEX_CHANGE_SET_VERSION",
     "CandidateValidationContext",
     "DeterministicCandidateValidator",
 )

@@ -353,6 +353,22 @@ class CreatorInputRepository:
             phase = CreatorOperationPhase.EFFECT_UNKNOWN
         elif response_status == "effect_cancelled":
             phase = CreatorOperationPhase.EFFECT_CANCELLED
+        elif response_status == "codex_waiting_grant":
+            phase = CreatorOperationPhase.CODEX_CAPABILITY_DECISION
+        elif response_status == "codex_dispatching":
+            phase = CreatorOperationPhase.CODEX_DISPATCHING
+        elif response_status == "codex_verifying":
+            phase = CreatorOperationPhase.CODEX_VERIFYING
+        elif response_status == "codex_result_pending":
+            phase = CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE
+        elif response_status in {"codex_completed", "codex_result_accepted"}:
+            phase = CreatorOperationPhase.CODEX_COMPLETED
+        elif response_status == "codex_failed":
+            phase = CreatorOperationPhase.CODEX_FAILED
+        elif response_status == "codex_unknown":
+            phase = CreatorOperationPhase.CODEX_UNKNOWN
+        elif response_status == "codex_cancelled":
+            phase = CreatorOperationPhase.CODEX_CANCELLED
         elif response_status == "no_action" and no_action_kind == "decline":
             phase = CreatorOperationPhase.FORMAL_DECLINED
         elif response_status == "no_action" and no_action_kind == "no_action":
@@ -396,6 +412,8 @@ class CreatorInputRepository:
                     CreatorOperationPhase.RESPONSE_FAILED,
                     CreatorOperationPhase.EFFECT_FAILED,
                     CreatorOperationPhase.EFFECT_UNKNOWN,
+                    CreatorOperationPhase.CODEX_FAILED,
+                    CreatorOperationPhase.CODEX_UNKNOWN,
                 }
                 else str(row[7])
                 if phase
@@ -418,6 +436,10 @@ class CreatorInputRepository:
                     CreatorOperationPhase.EFFECT_COMPLETED,
                     CreatorOperationPhase.EFFECT_FAILED,
                     CreatorOperationPhase.EFFECT_UNKNOWN,
+                    CreatorOperationPhase.CODEX_COMPLETED,
+                    CreatorOperationPhase.CODEX_FAILED,
+                    CreatorOperationPhase.CODEX_UNKNOWN,
+                    CreatorOperationPhase.CODEX_CANCELLED,
                 }
                 else str(row[13])
                 if phase
@@ -446,6 +468,10 @@ class CreatorInputRepository:
                 CreatorOperationPhase.EFFECT_FAILED,
                 CreatorOperationPhase.EFFECT_UNKNOWN,
                 CreatorOperationPhase.EFFECT_CANCELLED,
+                CreatorOperationPhase.CODEX_COMPLETED,
+                CreatorOperationPhase.CODEX_FAILED,
+                CreatorOperationPhase.CODEX_UNKNOWN,
+                CreatorOperationPhase.CODEX_CANCELLED,
                 CreatorOperationPhase.FORMAL_DECLINED,
                 CreatorOperationPhase.FORMAL_NO_ACTION,
                 CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
@@ -462,6 +488,13 @@ class CreatorInputRepository:
                 CreatorOperationPhase.EFFECT_FAILED,
                 CreatorOperationPhase.EFFECT_UNKNOWN,
                 CreatorOperationPhase.EFFECT_CANCELLED,
+                CreatorOperationPhase.CODEX_DISPATCHING,
+                CreatorOperationPhase.CODEX_VERIFYING,
+                CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE,
+                CreatorOperationPhase.CODEX_COMPLETED,
+                CreatorOperationPhase.CODEX_FAILED,
+                CreatorOperationPhase.CODEX_UNKNOWN,
+                CreatorOperationPhase.CODEX_CANCELLED,
             }
             else None,
         )

@@ -52,11 +52,34 @@ class EffectObservationKind(StrEnum):
     QUERY = "query"
     REJECTION = "rejection"
     AMBIGUOUS = "ambiguous"
+    RUNNER_VERIFIED = "runner_verified"
+    RUNNER_FAILED = "runner_failed"
+    RUNNER_UNKNOWN = "runner_unknown"
+    RUNNER_CANCELLED = "runner_cancelled"
 
 
 class EffectObservationReliability(StrEnum):
     RELIABLE = "reliable"
     INCONCLUSIVE = "inconclusive"
+
+
+class EffectArtifactKind(StrEnum):
+    PATCH = "patch"
+    FINAL_RESULT = "final_result"
+    VALIDATION_REPORT = "validation_report"
+
+
+@dataclass(frozen=True, slots=True)
+class EffectArtifactContent:
+    kind: EffectArtifactKind
+    media_type: str
+    content: bytes
+
+    def __post_init__(self) -> None:
+        if self.media_type not in {"application/json", "text/plain"}:
+            raise EffectViolation("CON-EFFECT-ARTIFACT")
+        if not self.content or len(self.content) > 20 * 1024 * 1024:
+            raise EffectViolation("CON-EFFECT-ARTIFACT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +213,7 @@ class EffectRegistrationResult:
 class EffectView:
     effect_id: EffectId
     root_operation_ref: UUID
-    effect_kind: str
+    effect_kind: Literal["creator_response", "codex_delegation"]
     status: EffectStatus
     verification_status: EffectVerificationStatus
     registered_at: Instant
@@ -198,13 +221,24 @@ class EffectView:
     attempt_count: int = 0
     last_observation_kind: EffectObservationKind | None = None
     last_observation_reliability: EffectObservationReliability | None = None
-    verification_action: Literal["verify_creator_inbox"] | None = None
+    verification_action: (
+        Literal["verify_creator_inbox", "verify_codex_result"] | None
+    ) = None
     settled_at: Instant | None = None
     response_text: str | None = None
+    model_id: Literal["gpt-5.6-sol"] | None = None
+    sdk_identity: Literal["openai-codex==0.144.4"] | None = None
+    source_tree_digest: Digest | None = None
+    result_tree_digest: Digest | None = None
+    patch_digest: Digest | None = None
+    changed_path_count: int | None = None
+    validation_status: Literal["passed", "failed", "not_run"] | None = None
+    cleanup_status: Literal["succeeded", "failed"] | None = None
+    result_acceptance_status: Literal["pending", "accepted"] | None = None
 
     def __post_init__(self) -> None:
         _uuid7(self.root_operation_ref)
-        if self.effect_kind != "creator_response":
+        if self.effect_kind not in {"creator_response", "codex_delegation"}:
             raise EffectViolation("CON-EFFECT-KIND")
         if (self.status is EffectStatus.CANCELLED) != (self.cancelled_at is not None):
             raise EffectViolation("CON-EFFECT-STATE")
@@ -224,6 +258,42 @@ class EffectView:
             not self.response_text.strip() or "\x00" in self.response_text
         ):
             raise EffectViolation("CON-EFFECT-PAYLOAD")
+        codex_fields = (
+            self.model_id,
+            self.sdk_identity,
+            self.source_tree_digest,
+            self.result_tree_digest,
+            self.patch_digest,
+            self.changed_path_count,
+            self.validation_status,
+            self.cleanup_status,
+            self.result_acceptance_status,
+        )
+        if self.effect_kind == "creator_response" and any(
+            value is not None for value in codex_fields
+        ):
+            raise EffectViolation("CON-EFFECT-VISIBILITY")
+        if self.effect_kind == "codex_delegation":
+            if self.response_text is not None:
+                raise EffectViolation("CON-EFFECT-VISIBILITY")
+            if self.status in {
+                EffectStatus.COMPLETED,
+                EffectStatus.FAILED,
+                EffectStatus.UNKNOWN,
+            } and any(
+                value is None
+                for value in (
+                    self.model_id,
+                    self.sdk_identity,
+                    self.source_tree_digest,
+                    self.validation_status,
+                    self.cleanup_status,
+                    self.result_acceptance_status,
+                )
+            ):
+                raise EffectViolation("CON-EFFECT-VERIFICATION")
+            if self.changed_path_count is not None and self.changed_path_count < 0:
+                raise EffectViolation("CON-EFFECT-VERIFICATION")
 
 
 class EffectViolation(RuntimeError):
@@ -253,6 +323,14 @@ class EffectLedgerPort(Protocol):
         self, effect_id: EffectId, *, creator_party_id: UUID
     ) -> EffectView: ...
 
+    async def read_artifact(
+        self,
+        effect_id: EffectId,
+        *,
+        creator_party_id: UUID,
+        kind: EffectArtifactKind,
+    ) -> EffectArtifactContent: ...
+
 
 @runtime_checkable
 class ActionAdapterPort(Protocol):
@@ -274,6 +352,8 @@ __all__ = (
     "ActionAdapterPort",
     "CreatorResponseDeliveryId",
     "EffectAdapterReceipt",
+    "EffectArtifactContent",
+    "EffectArtifactKind",
     "EffectAttemptId",
     "EffectAttemptResult",
     "EffectAttemptState",

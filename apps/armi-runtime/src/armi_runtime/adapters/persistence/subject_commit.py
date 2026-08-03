@@ -25,6 +25,7 @@ from armi_kernel.application import (
     CandidateOwner,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
+    CodexDelegationDraft,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
     ExperienceId,
@@ -324,6 +325,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.capability_requests
             and not change_set.action_choices
             and not change_set.web_research_requests
+            and not change_set.codex_delegations
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -375,11 +377,10 @@ class PostgreSQLSubjectCommitRepository:
             if not evidence_links:
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-BASIS")
             received_at = evidence_links[0][2]
-            experience_kind, source_perspective = (
-                ("web_observation", "web_claim")
-                if snapshot.opportunity_purpose == "consider_web_evidence"
-                else ("creator_input", "creator_claim")
-            )
+            experience_kind, source_perspective = {
+                "consider_web_evidence": ("web_observation", "web_claim"),
+                "consider_codex_result": ("codex_observation", "codex_observation"),
+            }.get(snapshot.opportunity_purpose, ("creator_input", "creator_claim"))
             await connection.execute(
                 """
                 INSERT INTO armi.accepted_experiences (
@@ -502,6 +503,12 @@ class PostgreSQLSubjectCommitRepository:
             commit_id=commit_id,
             requests=change_set.web_research_requests,
             query_artifact_id=research_artifact_id,
+        )
+        await _insert_codex_delegation_intent(
+            unit_of_work,
+            snapshot=snapshot,
+            commit_id=commit_id,
+            delegations=change_set.codex_delegations,
         )
 
         updated_subject = await (
@@ -764,6 +771,38 @@ async def _finish_episode_and_work(
         """,
         (snapshot.opportunity_id,),
     )
+    if snapshot.opportunity_purpose == "consider_codex_result" and status in {
+        CandidateApplicationStatus.APPLIED,
+        CandidateApplicationStatus.NO_CHANGE,
+        CandidateApplicationStatus.DECLINED,
+        CandidateApplicationStatus.NO_ACTION,
+    }:
+        completion = await (
+            await connection.execute(
+                """
+                SELECT completion_digest
+                FROM armi.cognitive_candidate_applications
+                WHERE candidate_application_id=%s
+                """,
+                (result_ref,),
+            )
+        ).fetchone()
+        if completion is None:
+            raise SubjectCommitViolation("SUBJECT-CODEX-RESULT-LINK")
+        await connection.execute(
+            """
+            UPDATE armi.creator_response_operations AS operation
+            SET current_status='codex_result_accepted',
+                completion_digest=%s, completed_at=statement_timestamp()
+            FROM armi.codex_result_sources AS source
+            JOIN armi.codex_verification_results AS verification
+              ON verification.codex_verification_id=source.codex_verification_id
+            WHERE source.opportunity_id=%s
+              AND operation.effect_id=verification.effect_id
+              AND operation.current_status='codex_result_pending'
+            """,
+            (str(completion[0]), snapshot.opportunity_id),
+        )
     await unit_of_work.work.complete(
         lease, WorkResultRef("candidate_application", result_ref)
     )
@@ -1240,6 +1279,130 @@ async def _insert_web_research_intent(
             intent_id,
             AuditResultStatus.ACCEPTED,
             request.query_digest,
+        )
+    )
+
+
+async def _insert_codex_delegation_intent(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    delegations: tuple[CodexDelegationDraft, ...],
+) -> None:
+    if not delegations:
+        return
+    if len(delegations) != 1:
+        raise SubjectCommitViolation("SUBJECT-CODEX-DELEGATION-COUNT")
+    draft = delegations[0]
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    validation = await (
+        await connection.execute(
+            """
+            SELECT validation_status
+            FROM armi.cognitive_candidate_validation_items
+            WHERE candidate_validation_id = %s AND proposal_ref = %s
+              AND owner_kind = 'codex_delegation'
+            """,
+            (snapshot.validation_id, draft.proposal_ref),
+        )
+    ).fetchone()
+    source = await (
+        await connection.execute(
+            """
+            SELECT task_manifest_digest, validator_id
+            FROM armi.codex_task_sources
+            WHERE codex_task_source_id = %s AND subject_id = %s
+            """,
+            (draft.task_source_id.value, snapshot.subject_id),
+        )
+    ).fetchone()
+    if (
+        validation is None
+        or str(validation[0]) != "accepted"
+        or source is None
+        or str(source[0]) != draft.task_manifest_digest.value
+        or str(source[1]) != draft.validator_id
+    ):
+        raise SubjectCommitViolation("SUBJECT-CODEX-DELEGATION-VALIDATION")
+    action_id = uuid7()
+    revision_id = uuid7()
+    await connection.execute(
+        """
+        INSERT INTO armi.action_intents (
+            action_intent_id, subject_id, interaction_scene_id,
+            creator_party_id, root_opportunity_id, purpose,
+            action_kind, current_revision_id, schema_version
+        ) VALUES (
+            %s, %s, %s, %s, %s, 'delegate_codex_work',
+            'codex_delegation', NULL, 1
+        )
+        """,
+        (
+            action_id,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.creator_party_id,
+            snapshot.root_opportunity_id,
+        ),
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.action_intent_revisions (
+            action_intent_revision_id, action_intent_id, revision_no,
+            capability_kind, operation_class, purpose,
+            candidate_validation_id, proposal_ref, subject_commit_id,
+            codex_task_source_id, task_manifest_digest, validator_id,
+            schema_version
+        ) VALUES (
+            %s, %s, 1, 'codex.delegated-work', 'execute',
+            'delegate_codex_work', %s, %s, %s, %s, %s, %s, 1
+        )
+        """,
+        (
+            revision_id,
+            action_id,
+            snapshot.validation_id,
+            draft.proposal_ref,
+            commit_id.value,
+            draft.task_source_id.value,
+            draft.task_manifest_digest.value,
+            draft.validator_id,
+        ),
+    )
+    await connection.execute(
+        "UPDATE armi.action_intents SET current_revision_id = %s WHERE action_intent_id = %s",
+        (revision_id, action_id),
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.creator_response_operations (
+            creator_response_operation_id, root_opportunity_id, subject_id,
+            interaction_scene_id, creator_party_id, action_intent_id,
+            current_status, operation_kind, schema_version
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s,
+            'codex_waiting_grant', 'codex_delegation', 1
+        )
+        """,
+        (
+            snapshot.root_opportunity_id,
+            snapshot.root_opportunity_id,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.creator_party_id,
+            action_id,
+        ),
+    )
+    await unit_of_work.audit.append(
+        _audit(
+            unit_of_work,
+            snapshot,
+            "codex.delegation.intent.recorded",
+            "action_intent",
+            action_id,
+            AuditResultStatus.ACCEPTED,
+            draft.task_manifest_digest,
         )
     )
 

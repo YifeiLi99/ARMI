@@ -112,6 +112,9 @@ class RecoverySummary:
     resumable_web_research_intent_count: int = 0
     pending_web_evidence_acceptance_count: int = 0
     resumable_web_cognition_count: int = 0
+    resumable_codex_task_count: int = 0
+    resumable_codex_effect_count: int = 0
+    pending_codex_result_acceptance_count: int = 0
 
     def __post_init__(self) -> None:
         if type(self.recovery_run_id) is not RecoveryRunId:
@@ -144,6 +147,9 @@ class RecoverySummary:
             self.resumable_web_research_intent_count,
             self.pending_web_evidence_acceptance_count,
             self.resumable_web_cognition_count,
+            self.resumable_codex_task_count,
+            self.resumable_codex_effect_count,
+            self.pending_codex_result_acceptance_count,
         ):
             if type(value) is not int or value < 0:
                 raise RecoveryViolation("REC-DECLARATION")

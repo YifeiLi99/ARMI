@@ -37,8 +37,19 @@ from armi_kernel.application import (
     PermissionGrant,
     PermissionGrantId,
     RuntimeFence,
+    WorkDraft,
+    WorkId,
+    WorkOwner,
+    WorkPayloadRef,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import (
+    Digest,
+    IdempotencyKey,
+    Instant,
+    Purpose,
+    SubjectId,
+    TraceId,
+)
 
 from .unit_of_work import PostgreSQLUnitOfWorkFactory
 
@@ -517,6 +528,16 @@ class PostgreSQLCreatorGrantPolicy:
                         command.reason_code,
                     ),
                 )
+                if (
+                    grant is not None
+                    and capability is CapabilityKind.CODEX_DELEGATED_WORK
+                ):
+                    await _activate_codex_registration(
+                        unit_of_work,
+                        capability_request_id=UUID(str(request[0])),
+                        grant_id=grant.grant_id.value,
+                        valid_until=grant.valid_until,
+                    )
                 result_digest = Digest.from_bytes(
                     rfc8785.dumps(
                         cast(
@@ -928,6 +949,95 @@ def _command_digest(command: CreatorGrantCommand) -> Digest:
             )
         )
     )
+
+
+async def _activate_codex_registration(
+    unit_of_work: Any,
+    *,
+    capability_request_id: UUID,
+    grant_id: UUID,
+    valid_until: datetime,
+) -> None:
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    row = await (
+        await connection.execute(
+            """
+            SELECT operation.creator_response_operation_id, operation.subject_id,
+                   revision.task_manifest_digest, revision.codex_task_source_id,
+                   commit.trace_id
+            FROM armi.capability_requests AS request
+            JOIN armi.action_intent_revisions AS revision
+              ON revision.subject_commit_id = request.subject_commit_id
+             AND revision.capability_kind = 'codex.delegated-work'
+            JOIN armi.action_intents AS intent
+              ON intent.current_revision_id = revision.action_intent_revision_id
+            JOIN armi.creator_response_operations AS operation
+              ON operation.action_intent_id = intent.action_intent_id
+             AND operation.operation_kind = 'codex_delegation'
+            JOIN armi.subject_commits AS commit
+              ON commit.subject_commit_id = request.subject_commit_id
+            WHERE request.capability_request_id = %s
+              AND operation.current_status = 'codex_waiting_grant'
+            FOR UPDATE OF operation
+            """,
+            (capability_request_id,),
+        )
+    ).fetchone()
+    if row is None:
+        return
+    now_row = await (
+        await connection.execute("SELECT statement_timestamp()")
+    ).fetchone()
+    if now_row is None or valid_until <= now_row[0]:
+        raise CapabilityViolation("POLICY-GRANT-NOT-ACTIVE")
+    completion = Digest.from_bytes(
+        rfc8785.dumps(
+            cast(
+                Any,
+                {
+                    "schema_version": "armi.codex-delegation.v1",
+                    "operation_id": str(row[0]),
+                    "task_source_id": str(row[3]),
+                    "task_manifest_digest": str(row[2]),
+                    "grant_id": str(grant_id),
+                    "delivery_state": "not_started",
+                },
+            )
+        )
+    )
+    work_id = WorkId(uuid7())
+    await unit_of_work.work.enqueue(
+        WorkDraft(
+            work_id,
+            "effect.register",
+            WorkOwner("creator_response_operation", row[0]),
+            IdempotencyKey(f"effect-register:{row[0]}"),
+            completion,
+            60,
+            Instant(now_row[0]),
+            Instant(valid_until),
+            2,
+            TraceId(str(row[4])),
+            subject_id=SubjectId(row[1]),
+            payload=WorkPayloadRef("creator_response_operation", row[0]),
+        )
+    )
+    updated = await (
+        await connection.execute(
+            """
+            UPDATE armi.creator_response_operations
+            SET current_status = 'accepted', matched_grant_id = %s,
+                completion_digest = %s, completed_at = statement_timestamp(),
+                registration_work_id = %s
+            WHERE creator_response_operation_id = %s
+              AND current_status = 'codex_waiting_grant'
+            RETURNING creator_response_operation_id
+            """,
+            (grant_id, completion.value, work_id.value, row[0]),
+        )
+    ).fetchone()
+    if updated is None:
+        raise CapabilityViolation("CONFLICT-POLICY-VERSION")
 
 
 async def _load_result(

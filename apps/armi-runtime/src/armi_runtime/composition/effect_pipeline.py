@@ -17,6 +17,8 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     EffectAdapterReceipt,
+    EffectArtifactContent,
+    EffectArtifactKind,
     EffectId,
     EffectRegistrationResult,
     EffectView,
@@ -145,7 +147,10 @@ class EffectRegistrationPipeline:
     ) -> EffectView:
         async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
             view = await self._repository.get_effect(uow, effect_id, creator_party_id)
-            if view.status.value != "completed":
+            if (
+                view.status.value != "completed"
+                or view.effect_kind != "creator_response"
+            ):
                 return view
             artifact_id, digest, size = await self._repository.payload_reference(
                 uow, effect_id
@@ -158,6 +163,29 @@ class EffectRegistrationPipeline:
         except UnicodeDecodeError:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE") from None
         return replace(view, response_text=text)
+
+    async def read_artifact(
+        self,
+        effect_id: EffectId,
+        *,
+        creator_party_id: UUID,
+        kind: EffectArtifactKind,
+    ) -> EffectArtifactContent:
+        async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
+            (
+                artifact_id,
+                digest,
+                size,
+                media_type,
+            ) = await self._repository.codex_artifact_reference(
+                uow, effect_id, creator_party_id, kind.value
+            )
+        value = await self._read_payload(artifact_id, digest.value, size)
+        if value is None:
+            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
+        if media_type not in {"application/json", "text/plain"}:
+            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
+        return EffectArtifactContent(kind, media_type, value)
 
     async def dispatch_once(self) -> bool:
         try:

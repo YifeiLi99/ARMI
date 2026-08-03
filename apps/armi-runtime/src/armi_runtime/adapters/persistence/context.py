@@ -98,7 +98,12 @@ class PostgreSQLContextRepository:
                     opportunity.subject_id,
                     opportunity.scene_id,
                     opportunity.creator_party_id,
-                    COALESCE(interaction.trace_id, intent.trace_id),
+                    COALESCE(
+                        interaction.trace_id,
+                        intent.trace_id,
+                        task_source.trace_id,
+                        result_task_source.trace_id
+                    ),
                     subject.subject_version,
                     subject.state_epoch,
                     subject.current_bundle_activation_id,
@@ -116,6 +121,16 @@ class PostgreSQLContextRepository:
                 LEFT JOIN armi.web_research_intents AS intent
                   ON intent.web_research_intent_id
                     = observation.web_research_intent_id
+                LEFT JOIN armi.codex_task_sources AS task_source
+                  ON task_source.codex_task_source_id=evidence.codex_task_source_id
+                LEFT JOIN armi.codex_verification_results AS verification
+                  ON verification.codex_verification_id=evidence.codex_verification_id
+                LEFT JOIN armi.effects AS result_effect
+                  ON result_effect.effect_id=verification.effect_id
+                LEFT JOIN armi.action_intent_revisions AS result_revision
+                  ON result_revision.action_intent_revision_id=result_effect.action_intent_revision_id
+                LEFT JOIN armi.codex_task_sources AS result_task_source
+                  ON result_task_source.codex_task_source_id=result_revision.codex_task_source_id
                 JOIN armi.subjects AS subject
                   ON subject.subject_id = opportunity.subject_id
                  AND subject.singleton_key = 1
@@ -250,7 +265,7 @@ class PostgreSQLContextRepository:
                     episode.policy_digest,
                     episode.mechanism_config_digest,
                     episode.trace_id,
-                    evidence.evidence_id,
+                    COALESCE(evidence.codex_task_source_id, evidence.evidence_id),
                     evidence.artifact_id,
                     prompt.prompt_revision_id,
                     prompt.content_artifact_id,

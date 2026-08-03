@@ -23,6 +23,10 @@ const waitingLabels = {
   response_admission: "正在核验回应准入",
   effect_registration: "回应已接纳，正在登记效果账本",
   effect_dispatch: "效果已登记，正在等待接收与核验",
+  capability_decision: "Codex 委托正在等待创造者授权",
+  codex_dispatch: "Codex 效果已登记，正在等待受限执行",
+  codex_verification: "Codex 执行结束，正在核验结果",
+  codex_result_acceptance: "Codex 结果已保管，正在等待主体接纳",
 } as const;
 
 const completionLabels = {
@@ -32,6 +36,7 @@ const completionLabels = {
   formal_no_action: "ARMI 正式选择不行动",
   no_change: "认知完成，本次没有形成变化",
   response_effect: "回应效果责任",
+  codex_effect: "Codex 委托效果责任",
 } as const;
 
 export function OperationPanel({
