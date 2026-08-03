@@ -63,6 +63,9 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                 self.assertTrue(
                     options["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP
                 )
+                self.assertTrue(
+                    options["creationflags"] & subprocess.CREATE_BREAKAWAY_FROM_JOB
+                )
             state = json.loads(
                 (root / "run" / "runtime-process.json").read_text(encoding="utf-8")
             )
