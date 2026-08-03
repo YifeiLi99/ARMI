@@ -536,8 +536,25 @@ export interface components {
        * @constant
        */
       contract_version: "1.0";
+      /**
+       * Model Id
+       * @default gpt-5.6-sol
+       * @enum {string}
+       */
+      model_id: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
       /** Objective */
       objective: string;
+      /**
+       * Reasoning Effort
+       * @default medium
+       * @enum {string}
+       */
+      reasoning_effort: "low" | "medium" | "high" | "xhigh" | "max";
+      /**
+       * Web Search
+       * @default false
+       */
+      web_search: boolean;
     };
     /** CreatorInputAcceptanceDetails */
     CreatorInputAcceptanceDetails: {
@@ -705,7 +722,7 @@ export interface components {
       /** Last Observation Reliability */
       last_observation_reliability?: ("reliable" | "inconclusive") | null;
       /** Model Id */
-      model_id?: "gpt-5.6-sol" | null;
+      model_id?: ("gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna") | null;
       /** Patch Digest */
       patch_digest?: string | null;
       /**

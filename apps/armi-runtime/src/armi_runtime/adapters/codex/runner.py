@@ -32,7 +32,7 @@ from armi_kernel.contracts import Digest
 from openai_codex import ApprovalMode, AsyncCodex, CodexConfig, Sandbox
 
 from .sdk_codec import SdkTurnEvidence, normalize_sdk_turn, validate_final_output
-from .validation import validate_fixed_result
+from .validation import materialize_output_artifact, validate_fixed_result
 from .workspace import (
     TreeSnapshot,
     changed_paths,
@@ -42,7 +42,6 @@ from .workspace import (
 )
 
 _PURPOSE = CredentialPurpose("codex.runner.auth")
-_MODEL: Final = "gpt-5.6-sol"
 _SDK_VERSION: Final = "0.144.4"
 _SDK_IDENTITY = Digest.from_bytes(
     b"openai-codex==0.144.4\nopenai-codex-cli-bin==0.144.4\n"
@@ -114,6 +113,11 @@ class IsolatedCodexRunner(CodexRunnerPort):
             )
             if len(evidence.final_response) > task.output_limit_bytes:
                 raise CodexRunnerViolation("CODEX-OUTPUT-LIMIT")
+            materialize_output_artifact(
+                task=task,
+                workspace=workspace,
+                final_response=evidence.final_response,
+            )
             after = snapshot_tree(workspace, byte_limit=task.workspace_limit_bytes)
             paths = changed_paths(before, after, task)
             deliverable = validate_fixed_result(
@@ -136,7 +140,7 @@ class IsolatedCodexRunner(CodexRunnerPort):
             result = CodexRunResult(
                 execution_id=task.execution_id,
                 status=CodexRunStatus.SUCCEEDED,
-                model_id=_MODEL,
+                model_id=_model(task),
                 tool_digest=_SDK_IDENTITY,
                 source_tree_digest=before.digest,
                 final_tree_digest=after.digest,
@@ -240,7 +244,7 @@ async def _invoke_sdk(
     config = CodexConfig(
         cwd=str(workspace),
         env=environment,
-        config_overrides=_CONFIG,
+        config_overrides=_config(task),
         client_name="armi_codex_runner",
         client_title="ARMI Codex Runner",
         client_version="2",
@@ -256,17 +260,17 @@ async def _invoke_sdk(
                 raise CodexRunnerViolation("CODEX-RUNTIME-VERSION")
             thread = await codex.thread_start(
                 approval_mode=ApprovalMode.deny_all,
-                base_instructions=_BASE_INSTRUCTIONS,
+                base_instructions=_base_instructions(task),
                 cwd=str(workspace),
                 ephemeral=True,
-                model=_MODEL,
+                model=_model(task),
                 sandbox=Sandbox.workspace_write,
             )
             turn = await thread.turn(
                 _prompt(task),
                 approval_mode=ApprovalMode.deny_all,
                 cwd=str(workspace),
-                model=_MODEL,
+                model=_model(task),
                 output_schema=cast(Any, _output_schema(task)),
                 sandbox=Sandbox.workspace_write,
             )
@@ -291,23 +295,33 @@ async def _invoke_sdk(
                     timeout=min(0.25, remaining),
                 )
             sdk_result = await turn_task
-        return normalize_sdk_turn(sdk_result)
+        return normalize_sdk_turn(
+            sdk_result,
+            allow_web_search=(
+                task.web_search
+            ),
+        )
     except CodexRunnerViolation:
         raise
     except asyncio.CancelledError:
         raise
+    except RuntimeError as error:
+        if "stream disconnected before completion" in str(error):
+            raise CodexRunnerViolation(
+                "CODEX-STREAM-DISCONNECTED",
+                outcome_unknown=True,
+            ) from None
+        raise CodexRunnerViolation("CODEX-SDK") from None
     except Exception:
         raise CodexRunnerViolation("CODEX-SDK") from None
 
 
-_CONFIG = (
+_BASE_CONFIG = (
     'approval_policy="never"',
     'windows.sandbox="unelevated"',
     "windows.sandbox_private_desktop=false",
     "sandbox_workspace_write.network_access=false",
     'shell_environment_policy.inherit="none"',
-    'web_search="disabled"',
-    "tools.web_search=false",
     "features.multi_agent=false",
     "features.multi_agent_v2=false",
     "features.enable_fanout=false",
@@ -331,6 +345,22 @@ _CONFIG = (
     'history.persistence="none"',
     "allow_login_shell=false",
 )
+
+def _config(task: CodexTaskManifest) -> tuple[str, ...]:
+    web = (
+        ('web_search="live"', "tools.web_search=true")
+        if task.web_search
+        else ('web_search="disabled"', "tools.web_search=false")
+    )
+    return (
+        *_BASE_CONFIG,
+        *web,
+        f'model_reasoning_effort="{task.reasoning_effort.value}"',
+    )
+
+
+def _model(task: CodexTaskManifest) -> str:
+    return task.model_id.value
 
 _OUTPUT_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -366,10 +396,22 @@ def _output_schema(task: CodexTaskManifest) -> dict[str, object]:
 
 
 _BASE_INSTRUCTIONS = (
-    "You are a one-shot isolated code modification worker. Follow only the supplied "
-    "task contract and workspace facts. Never use web search, MCP, apps, skills, hooks, "
-    "credentials, or paths outside the workspace."
+    "You are a one-shot delegated task worker. Follow the supplied task contract and "
+    "workspace facts. Never use MCP, apps, skills, hooks, credentials, or paths outside "
+    "the temporary workspace. Respect every forbidden path in the task contract."
 )
+
+_WEB_SEARCH_INSTRUCTIONS = (
+    " Built-in Web Search is allowed for public read-only research. Do not log in, "
+    "download, upload, purchase, submit forms, send messages, or perform any external "
+    "write action. Cite source URLs and publication dates in the deliverable."
+)
+
+
+def _base_instructions(task: CodexTaskManifest) -> str:
+    if task.web_search:
+        return _BASE_INSTRUCTIONS + _WEB_SEARCH_INSTRUCTIONS
+    return _BASE_INSTRUCTIONS + " Web Search is disabled for this task."
 
 
 def _custody_artifacts(
@@ -469,10 +511,21 @@ def _prompt(task: CodexTaskManifest) -> str:
         ["Only replace result.txt with ARMI_CODEX_CONFORMANCE_OK followed by LF."]
         if task.validator_id == "codex.conformance.minimal-edit.v1"
         else [
-            "Complete the objective and write the full deliverable to result.md.",
-            "Replace the PENDING marker and do not modify .armi-task-id.",
-            "Return the exact result.md text in the deliverable output field.",
+            "Complete the objective and return the full result in the deliverable field.",
+            "Do not edit the workspace; the runner will persist deliverable as result.md.",
+            "Report changed_paths as exactly [\"result.md\"].",
         ]
+    )
+    network_rule = (
+        "Use built-in Web Search when it helps the objective; external writes, login, "
+        "downloads and credential use remain forbidden."
+        if task.web_search
+        else "Web Search and external network access are disabled for this task."
+    )
+    path_rule = (
+        "Only modify allowed_paths and never modify forbidden_paths."
+        if task.allowed_paths
+        else "The disposable workspace is writable except for forbidden_paths."
     )
     value = {
         "objective": task.objective,
@@ -482,9 +535,9 @@ def _prompt(task: CodexTaskManifest) -> str:
         "rules": [
             "Make the smallest necessary change.",
             *task_rules,
-            "Do not use network, web search, MCP, apps, skills, hooks, or credentials.",
+            network_rule,
             "Do not read or write outside the workspace.",
-            "Only modify allowed_paths and never modify forbidden_paths.",
+            path_rule,
             "Return strict JSON with summary and the exact sorted changed_paths.",
         ],
     }

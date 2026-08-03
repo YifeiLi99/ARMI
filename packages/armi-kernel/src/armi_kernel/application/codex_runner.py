@@ -34,6 +34,20 @@ class CodexRunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class CodexModel(StrEnum):
+    SOL = "gpt-5.6-sol"
+    TERRA = "gpt-5.6-terra"
+    LUNA = "gpt-5.6-luna"
+
+
+class CodexReasoningEffort(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
+
+
 class CodexRunnerViolation(RuntimeError):
     """Expose a stable failure code without task, path, output or auth content."""
 
@@ -108,6 +122,9 @@ class CodexTaskManifest:
     diff_limit_bytes: int = 20 * 1024 * 1024
     modified_file_limit: int = 500
     output_limit_bytes: int = 100 * 1024 * 1024
+    model_id: CodexModel = CodexModel.SOL
+    reasoning_effort: CodexReasoningEffort = CodexReasoningEffort.MEDIUM
+    web_search: bool = False
     schema_version: str = "armi.codex-task-manifest.v1"
 
     def __post_init__(self) -> None:
@@ -123,6 +140,9 @@ class CodexTaskManifest:
             or self.diff_limit_bytes != 20 * 1024 * 1024
             or self.modified_file_limit != 500
             or self.output_limit_bytes != 100 * 1024 * 1024
+            or type(self.model_id) is not CodexModel
+            or type(self.reasoning_effort) is not CodexReasoningEffort
+            or type(self.web_search) is not bool
             or _VALIDATOR.fullmatch(self.validator_id) is None
         ):
             raise CodexRunnerViolation("CODEX-TASK-MANIFEST")
@@ -134,7 +154,6 @@ class CodexTaskManifest:
             or not 1 <= len(self.facts) <= _MAX_FACTS
             or any(_invalid_text(value) for value in self.facts)
             or type(self.allowed_paths) is not tuple
-            or not self.allowed_paths
             or len(set(value.casefold() for value in self.allowed_paths))
             != len(self.allowed_paths)
             or type(self.forbidden_paths) is not tuple
@@ -166,7 +185,7 @@ class CodexRunResult:
         if (
             type(self.execution_id) is not CodexExecutionId
             or type(self.status) is not CodexRunStatus
-            or self.model_id != "gpt-5.6-sol"
+            or self.model_id not in {model.value for model in CodexModel}
             or type(self.tool_digest) is not Digest
             or type(self.source_tree_digest) is not Digest
             or type(self.modified_file_count) is not int
@@ -239,6 +258,8 @@ def _relative_path(value: object) -> None:
 
 __all__ = (
     "CodexExecutionId",
+    "CodexModel",
+    "CodexReasoningEffort",
     "CodexRunResult",
     "CodexRunStatus",
     "CodexRunnerPort",

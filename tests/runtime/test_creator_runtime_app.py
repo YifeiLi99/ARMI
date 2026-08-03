@@ -6,6 +6,7 @@ from uuid import UUID, uuid7
 
 from armi_kernel.application import (
     CapabilityRequestStatus,
+    CodexModel,
     CreatorCodexTaskCommand,
     CreatorGrantCommand,
     CreatorGrantResult,
@@ -501,6 +502,20 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "objective": "整理一份可核验的交付说明。",
                 },
             )
+            research = client.post(
+                "/v1/scenes/default/codex-tasks",
+                headers={
+                    **self._browser_headers(token),
+                    "Idempotency-Key": "codex-task-research-1",
+                },
+                json={
+                    "contract_version": "1.0",
+                    "objective": "查询今天的公开新闻并附来源。",
+                    "model_id": "gpt-5.6-luna",
+                    "reasoning_effort": "low",
+                    "web_search": True,
+                },
+            )
             blank = client.post(
                 "/v1/scenes/default/codex-tasks",
                 headers={
@@ -520,11 +535,14 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             )
 
         self.assertEqual(accepted.status_code, 202)
+        self.assertEqual(research.status_code, 202)
         self.assertEqual(accepted.json()["status"], "accepted")
         self.assertEqual(
             self.creator_codex_task.commands[0].objective,
             "整理一份可核验的交付说明。",
         )
+        self.assertIs(self.creator_codex_task.commands[1].model_id, CodexModel.LUNA)
+        self.assertTrue(self.creator_codex_task.commands[1].web_search)
         self.assertEqual(blank.status_code, 400)
         self.assertEqual(wrong_origin.status_code, 403)
 

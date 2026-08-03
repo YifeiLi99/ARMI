@@ -39,7 +39,11 @@ class SdkTurnEvidence:
     commands: tuple[SdkCommandEvidence, ...]
 
 
-def normalize_sdk_turn(result: TurnResult) -> SdkTurnEvidence:
+def normalize_sdk_turn(
+    result: TurnResult,
+    *,
+    allow_web_search: bool = False,
+) -> SdkTurnEvidence:
     if result.status.value != "completed" or result.error is not None:
         raise CodexRunnerViolation("CODEX-SDK-TURN")
     if type(result.final_response) is not str or not result.final_response:
@@ -65,6 +69,8 @@ def normalize_sdk_turn(result: TurnResult) -> SdkTurnEvidence:
         if type(item_type) is not str:
             raise CodexRunnerViolation("CODEX-SDK-EVENT")
         policy_code = _FORBIDDEN_ITEM_CODES.get(item_type)
+        if item_type == "webSearch" and allow_web_search:
+            policy_code = None
         if policy_code is not None:
             raise CodexRunnerViolation(policy_code)
         item_id = getattr(root, "id", None)

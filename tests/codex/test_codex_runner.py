@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid7
 
 import pytest
 from armi_kernel.application import (
     CodexExecutionId,
+    CodexModel,
+    CodexReasoningEffort,
     CodexRunnerViolation,
     CodexRunResult,
     CodexRunStatus,
@@ -27,7 +30,8 @@ from armi_runtime.adapters.codex.custody_codec import (
 )
 from armi_runtime.adapters.codex.runner import CodexRunArtifactSet, IsolatedCodexRunner
 from armi_runtime.adapters.codex.sdk_codec import SdkTurnEvidence
-from armi_runtime.adapters.codex.workspace import snapshot_tree
+from armi_runtime.adapters.codex.subprocess_client import _decode_failure
+from armi_runtime.adapters.codex.workspace import changed_paths, snapshot_tree
 
 
 class _Handle:
@@ -166,6 +170,71 @@ def test_custodied_runner_envelope_round_trips_without_paths(tmp_path: Path) -> 
         decode_custodied_result(encoded + b"trailing")
 
 
+def test_subprocess_failure_preserves_unknown_outcome() -> None:
+    error = _decode_failure(
+        b'{"cleanup_error_code":null,"code":"CODEX-STREAM-DISCONNECTED",'
+        b'"message":"Codex runner operation failed","outcome_unknown":true,'
+        b'"status":"blocked"}'
+    )
+    assert error.code == "CODEX-STREAM-DISCONNECTED"
+    assert error.outcome_unknown is True
+
+
+def test_task_options_use_luna_low_reasoning_and_live_search(
+    tmp_path: Path,
+) -> None:
+    task, _run_root = _prepare(tmp_path)
+    task = replace(
+        task,
+        model_id=CodexModel.LUNA,
+        reasoning_effort=CodexReasoningEffort.LOW,
+        web_search=True,
+    )
+    config = runner_module._config(task)
+
+    assert runner_module._model(task) == "gpt-5.6-luna"
+    assert 'model_reasoning_effort="low"' in config
+    assert 'web_search="live"' in config
+    assert "tools.web_search=true" in config
+    assert "sandbox_workspace_write.network_access=false" in config
+    assert 'web_search="disabled"' not in config
+    prompt = json.loads(runner_module._prompt(task))
+    assert any("Use built-in Web Search" in rule for rule in prompt["rules"])
+    assert all("Do not use network" not in rule for rule in prompt["rules"])
+    result = CodexRunResult(
+        execution_id=task.execution_id,
+        status=CodexRunStatus.SUCCEEDED,
+        model_id="gpt-5.6-luna",
+        tool_digest=Digest.from_bytes(b"sdk"),
+        source_tree_digest=task.source_tree_digest,
+        final_tree_digest=Digest.from_bytes(b"tree"),
+        patch_digest=Digest.from_bytes(b"patch"),
+        output_digest=Digest.from_bytes(b"output"),
+        usage=CodexUsage(3, 1, 2),
+        modified_file_count=1,
+        validation_passed=True,
+    )
+    assert result.model_id == "gpt-5.6-luna"
+
+
+def test_empty_allow_list_uses_workspace_with_explicit_blacklist(
+    tmp_path: Path,
+) -> None:
+    source, bundle = _bundle(tmp_path)
+    task = replace(_task(bundle, source), allowed_paths=(), forbidden_paths=("secret",))
+    before = snapshot_tree(source, byte_limit=1024 * 1024)
+    (source / "notes.md").write_text("ok\n", encoding="utf-8", newline="\n")
+    after = snapshot_tree(source, byte_limit=1024 * 1024)
+    assert changed_paths(before, after, task) == ("notes.md",)
+
+    (source / "secret").mkdir()
+    before = snapshot_tree(source, byte_limit=1024 * 1024)
+    (source / "secret" / "token.txt").write_text("blocked\n", encoding="utf-8")
+    after = snapshot_tree(source, byte_limit=1024 * 1024)
+    with pytest.raises(CodexRunnerViolation, match="CODEX-SCOPE"):
+        changed_paths(before, after, task)
+
+
 def test_task_codec_rejects_duplicate_keys_and_paths(tmp_path: Path) -> None:
     source, bundle = _bundle(tmp_path)
     task = _task(bundle, source)
@@ -268,8 +337,8 @@ async def test_output_artifact_validator_custodies_real_deliverable(
     deliverable = "# 交付结果\n\n这是经独立验证的任务结果。\n"
 
     async def fake_invoke_sdk(**values):  # type: ignore[no-untyped-def]
-        (values["workspace"] / "result.md").write_text(
-            deliverable, encoding="utf-8", newline="\n"
+        assert (values["workspace"] / "result.md").read_text(encoding="utf-8") == (
+            "PENDING\n"
         )
         output = json.dumps(
             {

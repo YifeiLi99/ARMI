@@ -31,6 +31,8 @@ from armi_kernel.application import (
     CodexCleanupStatus,
     CodexDelegationViolation,
     CodexExecutionId,
+    CodexModel,
+    CodexReasoningEffort,
     CodexRunnerViolation,
     CodexRunStatus,
     CodexTaskManifest,
@@ -127,12 +129,15 @@ class CodexTaskSourceGateway(
                 cast(
                     Any,
                     {
-                        "schema_version": "armi.creator-codex-task.v1",
+                        "schema_version": "armi.creator-codex-task.v2",
                         "environment_id": str(self._factory.environment_id),
                         "subject_id": str(context.subject_id),
                         "scene_id": str(context.scene_id),
                         "creator_party_id": str(context.creator_party_id),
                         "objective_digest": objective_digest.value,
+                        "model_id": command.model_id.value,
+                        "reasoning_effort": command.reasoning_effort.value,
+                        "web_search": command.web_search,
                     },
                 )
             )
@@ -146,6 +151,9 @@ class CodexTaskSourceGateway(
             task_source_id,
             command.objective,
             source_tree_digest,
+            command.model_id,
+            command.reasoning_effort,
+            command.web_search,
         )
         try:
             published_bundle = await self._storage.publish(
@@ -216,7 +224,7 @@ class CodexTaskSourceGateway(
                         manifest_registration.ref.artifact_id,
                         manifest_registration.ref.content_digest,
                         "codex.output-artifact.v1",
-                        ("result.md",),
+                        (),
                         (".armi-task-id",),
                         900,
                         command.trace_id,
@@ -676,23 +684,36 @@ def _creator_task_manifest(
     task_source_id: CodexTaskSourceId,
     objective: str,
     source_tree_digest: Digest,
+    model_id: CodexModel,
+    reasoning_effort: CodexReasoningEffort,
+    web_search: bool,
 ) -> bytes:
+    facts = [
+        "result.md is the only Creator-visible task deliverable.",
+        f"The stable task source identity is {task_source_id.value}.",
+    ]
+    if web_search:
+        facts.append(
+            "Codex built-in Web Search is enabled for public read-only research; "
+            "credentials, login, downloads and external write actions remain forbidden."
+        )
+    else:
+        facts.append("Codex built-in Web Search is disabled for this task.")
     return rfc8785.dumps(
         cast(
             Any,
             {
-                "schema_version": "armi.codex-task-source.v1",
+                "schema_version": "armi.codex-task-source.v2",
                 "objective": objective,
-                "facts": [
-                    "result.md is the only Creator-visible task deliverable.",
-                    f"The stable task source identity is {task_source_id.value}.",
-                    "The workspace is isolated and has no network access.",
-                ],
-                "allowed_paths": ["result.md"],
+                "facts": facts,
+                "allowed_paths": [],
                 "forbidden_paths": [".armi-task-id"],
                 "validator_id": "codex.output-artifact.v1",
                 "deadline_seconds": 900,
                 "source_tree_digest": source_tree_digest.value,
+                "model_id": model_id.value,
+                "reasoning_effort": reasoning_effort.value,
+                "web_search": web_search,
             },
         )
     )
@@ -722,20 +743,24 @@ def _task_manifest(snapshot: CodexDispatchSnapshot, value: bytes) -> CodexTaskMa
         if type(raw) is not dict:
             raise ValueError
         document = cast(dict[str, Any], raw)
-        if (
-            set(document)
-            != {
-                "schema_version",
-                "objective",
-                "facts",
-                "allowed_paths",
-                "forbidden_paths",
-                "validator_id",
-                "deadline_seconds",
-                "source_tree_digest",
-            }
-            or document["schema_version"] != "armi.codex-task-source.v1"
-        ):
+        version = document.get("schema_version")
+        expected_keys = {
+            "schema_version",
+            "objective",
+            "facts",
+            "allowed_paths",
+            "forbidden_paths",
+            "validator_id",
+            "deadline_seconds",
+            "source_tree_digest",
+        }
+        if version == "armi.codex-task-source.v2":
+            expected_keys.update({"model_id", "reasoning_effort", "web_search"})
+            if type(document.get("web_search")) is not bool:
+                raise ValueError
+        elif version != "armi.codex-task-source.v1":
+            raise ValueError
+        if set(document) != expected_keys:
             raise ValueError
         if (
             document["validator_id"] != snapshot.validator_id
@@ -758,6 +783,21 @@ def _task_manifest(snapshot: CodexDispatchSnapshot, value: bytes) -> CodexTaskMa
             forbidden,
             snapshot.validator_id,
             snapshot.deadline_seconds,
+            model_id=(
+                CodexModel(document["model_id"])
+                if version == "armi.codex-task-source.v2"
+                else CodexModel.SOL
+            ),
+            reasoning_effort=(
+                CodexReasoningEffort(document["reasoning_effort"])
+                if version == "armi.codex-task-source.v2"
+                else CodexReasoningEffort.MEDIUM
+            ),
+            web_search=(
+                document["web_search"]
+                if version == "armi.codex-task-source.v2"
+                else False
+            ),
         )
     except TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError:
         raise CodexDelegationViolation("CODEX-TASK-MANIFEST") from None

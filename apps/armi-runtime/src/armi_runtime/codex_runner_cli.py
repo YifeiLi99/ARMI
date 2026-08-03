@@ -61,6 +61,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "status": "blocked",
                     "code": error.code,
                     "cleanup_error_code": cleanup_error,
+                    "outcome_unknown": (
+                        error.outcome_unknown
+                        if isinstance(error, CodexRunnerViolation)
+                        else False
+                    ),
                     "message": "Codex runner operation failed",
                 },
                 ensure_ascii=False,

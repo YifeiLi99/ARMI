@@ -27,7 +27,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.codex.codec import decode_result, encode_task
 from armi_runtime.adapters.codex.runner import (
-    _CONFIG,
+    _config,
     _owner_only,
     _sanitize_platform_home,
     _validate_platform_home,
@@ -346,6 +346,11 @@ def _preflight(root: Path) -> dict[str, object]:
     }
     try:
         _binary, binary_digest = _runtime_binary()
+        default_task, _bundle = _task(
+            preflight_root / "contract",
+            CodexExecutionId(uuid7()),
+        )
+        runner_config = _config(default_task)
         temp = preflight_root / "temp"
         platform_home = preflight_root / "data" / "codex-runner" / "platform-home"
         temp.mkdir()
@@ -364,7 +369,7 @@ def _preflight(root: Path) -> dict[str, object]:
                 'history.persistence="none"',
             }
         )
-        if not required_config <= frozenset(_CONFIG):
+        if not required_config <= frozenset(runner_config):
             raise RuntimeError("CODEX-PREFLIGHT-CONFIG")
         runner_environment = _runner_environment(temp)
         forbidden = frozenset(
@@ -404,7 +409,7 @@ def _preflight(root: Path) -> dict[str, object]:
             "runtime_version": _SDK_VERSION,
             "runtime_binary_digest": binary_digest,
             "configuration_digest": Digest.from_bytes(
-                rfc8785.dumps(cast(Any, list(_CONFIG)))
+                rfc8785.dumps(cast(Any, list(runner_config)))
             ).to_wire(),
             "sandbox": "windows_unelevated",
             "sandbox_runtime_verification": "live_sdk_turn_required",

@@ -16,6 +16,8 @@ from armi_kernel.application import (
     CapabilityRequestId,
     CapabilityViolation,
     CodexDelegationViolation,
+    CodexModel,
+    CodexReasoningEffort,
     CreatorCodexTaskAdmissionPort,
     CreatorCodexTaskCommand,
     CreatorEventResourceKind,
@@ -1533,6 +1535,9 @@ def create_runtime_app(
                     model.objective,
                     IdempotencyKey(idempotency_value),
                     TraceId(secrets.token_hex(16)),
+                    CodexModel(model.model_id),
+                    CodexReasoningEffort(model.reasoning_effort),
+                    model.web_search,
                 )
             )
         except (ContractViolation, CodexDelegationViolation) as error:

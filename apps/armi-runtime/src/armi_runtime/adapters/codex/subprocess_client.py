@@ -127,19 +127,27 @@ def _decode_failure(value: bytes) -> CodexRunnerViolation:
             raise ValueError
         data = cast(dict[str, object], parsed)
         if frozenset(data) != frozenset(
-            {"status", "code", "cleanup_error_code", "message"}
+            {
+                "status",
+                "code",
+                "cleanup_error_code",
+                "outcome_unknown",
+                "message",
+            }
         ):
             raise ValueError
         code = data["code"]
         cleanup = data["cleanup_error_code"]
+        outcome_unknown = data["outcome_unknown"]
         if (
             data["status"] != "blocked"
             or type(code) is not str
             or not code.startswith("CODEX-")
             or (cleanup is not None and type(cleanup) is not str)
+            or type(outcome_unknown) is not bool
         ):
             raise ValueError
-        error = CodexRunnerViolation(code)
+        error = CodexRunnerViolation(code, outcome_unknown=outcome_unknown)
         if type(cleanup) is str:
             error.record_cleanup_failure(cleanup)
         return error

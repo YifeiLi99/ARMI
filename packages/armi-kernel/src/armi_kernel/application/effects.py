@@ -226,7 +226,7 @@ class EffectView:
     ) = None
     settled_at: Instant | None = None
     response_text: str | None = None
-    model_id: Literal["gpt-5.6-sol"] | None = None
+    model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] | None = None
     sdk_identity: Literal["openai-codex==0.144.4"] | None = None
     source_tree_digest: Digest | None = None
     result_tree_digest: Digest | None = None

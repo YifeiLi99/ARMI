@@ -421,7 +421,9 @@ class PostgreSQLEffectLedgerRepository:
                 else None
             ),
             settled_at=Instant(row[10]) if row[10] is not None else None,
-            model_id="gpt-5.6-sol" if execution_status is not None else None,
+            # The current schema does not persist the selected execution profile.
+            # Do not guess a model identity in a public projection.
+            model_id=None,
             sdk_identity="openai-codex==0.144.4"
             if execution_status is not None
             else None,

@@ -292,6 +292,11 @@ class CreatorInputRequest(_StrictWireModel):
 class CreatorCodexTaskRequest(_StrictWireModel):
     contract_version: Literal["1.0"]
     objective: Annotated[str, Field(min_length=1, max_length=16384)]
+    model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] = (
+        "gpt-5.6-sol"
+    )
+    reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    web_search: bool = False
 
 
 class RuntimeStatusResponse(_StrictWireModel):
@@ -693,7 +698,7 @@ class EffectResponse(_StrictWireModel):
     ) = None
     settled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
     response_text: Annotated[str, Field(min_length=1, max_length=65536)] | None = None
-    model_id: Literal["gpt-5.6-sol"] | None = None
+    model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] | None = None
     sdk_identity: Literal["openai-codex==0.144.4"] | None = None
     source_tree_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")] | None = (
         None

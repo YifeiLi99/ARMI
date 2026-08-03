@@ -11,6 +11,7 @@ from uuid import UUID
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 
 from .artifacts import ArtifactId
+from .codex_runner import CodexModel, CodexReasoningEffort
 from .creator_input import CreatorInputAcceptance
 from .effects import EffectId
 
@@ -110,7 +111,9 @@ class CodexTaskSourceDraft:
             or not 60 <= self.deadline_seconds <= 1800
         ):
             raise CodexDelegationViolation("CODEX-TASK-SOURCE")
-        _paths(self.allowed_paths, required=True)
+        # Empty means the disposable workspace is writable; forbidden_paths is the
+        # authoritative blacklist. Non-empty values remain readable for legacy tasks.
+        _paths(self.allowed_paths, required=False)
         _paths(self.forbidden_paths, required=False)
 
 
@@ -120,6 +123,9 @@ class CreatorCodexTaskCommand:
     objective: str
     idempotency_key: IdempotencyKey
     trace_id: TraceId
+    model_id: CodexModel = CodexModel.SOL
+    reasoning_effort: CodexReasoningEffort = CodexReasoningEffort.MEDIUM
+    web_search: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -130,6 +136,9 @@ class CreatorCodexTaskCommand:
             or not self.objective.strip()
             or type(self.idempotency_key) is not IdempotencyKey
             or type(self.trace_id) is not TraceId
+            or type(self.model_id) is not CodexModel
+            or type(self.reasoning_effort) is not CodexReasoningEffort
+            or type(self.web_search) is not bool
         ):
             raise CodexDelegationViolation("CODEX-TASK-REQUEST")
         try:

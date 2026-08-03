@@ -9,6 +9,8 @@ from uuid import UUID
 import rfc8785
 from armi_kernel.application import (
     CodexExecutionId,
+    CodexModel,
+    CodexReasoningEffort,
     CodexRunnerViolation,
     CodexRunResult,
     CodexRunStatus,
@@ -37,6 +39,9 @@ _TASK_KEYS = frozenset(
         "diff_limit_bytes",
         "modified_file_limit",
         "output_limit_bytes",
+        "model_id",
+        "reasoning_effort",
+        "web_search",
     }
 )
 _RESULT_KEYS = frozenset(
@@ -85,6 +90,11 @@ def decode_task(value: bytes) -> CodexTaskManifest:
             diff_limit_bytes=_integer(data["diff_limit_bytes"]),
             modified_file_limit=_integer(data["modified_file_limit"]),
             output_limit_bytes=_integer(data["output_limit_bytes"]),
+            model_id=CodexModel(_string(data["model_id"])),
+            reasoning_effort=CodexReasoningEffort(
+                _string(data["reasoning_effort"])
+            ),
+            web_search=_boolean(data["web_search"]),
             schema_version=_string(data["schema_version"]),
         )
     except KeyError, TypeError, ValueError:
@@ -137,6 +147,9 @@ def encode_task(task: CodexTaskManifest) -> bytes:
         "diff_limit_bytes": task.diff_limit_bytes,
         "modified_file_limit": task.modified_file_limit,
         "output_limit_bytes": task.output_limit_bytes,
+        "model_id": task.model_id.value,
+        "reasoning_effort": task.reasoning_effort.value,
+        "web_search": task.web_search,
     }
     encoded = rfc8785.dumps(cast(Any, value))
     if len(encoded) > _MAX_TASK_BYTES:

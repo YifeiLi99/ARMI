@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import cast
 
 from armi_kernel.application import CodexRunnerViolation, CodexTaskManifest
 
@@ -10,6 +12,32 @@ _CONFORMANCE_VALIDATOR = "codex.conformance.minimal-edit.v1"
 _OUTPUT_VALIDATOR = "codex.output-artifact.v1"
 _RESULT = b"ARMI_CODEX_CONFORMANCE_OK\n"
 _MAX_DELIVERABLE_BYTES = 1024 * 1024
+
+
+def materialize_output_artifact(
+    *, task: CodexTaskManifest, workspace: Path, final_response: bytes
+) -> None:
+    """Persist a declared deliverable; the model need not duplicate this via shell."""
+
+    if task.validator_id != _OUTPUT_VALIDATOR:
+        return
+    try:
+        parsed = cast(object, json.loads(final_response.decode("utf-8", errors="strict")))
+        if type(parsed) is not dict:
+            raise ValueError
+        value = cast(dict[str, object], parsed).get("deliverable")
+        if (
+            type(value) is not str
+            or not value.strip()
+            or "\x00" in value
+            or len(value.encode("utf-8")) > _MAX_DELIVERABLE_BYTES
+        ):
+            raise ValueError
+        (workspace / "result.md").write_text(
+            value, encoding="utf-8", errors="strict", newline=""
+        )
+    except OSError, UnicodeDecodeError, ValueError:
+        raise CodexRunnerViolation("CODEX-FINAL-OUTPUT") from None
 
 
 def validate_fixed_result(
@@ -58,4 +86,4 @@ def _validate_output_artifact(workspace: Path, changed_paths: tuple[str, ...]) -
     return text
 
 
-__all__ = ("validate_fixed_result",)
+__all__ = ("materialize_output_artifact", "validate_fixed_result")

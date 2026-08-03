@@ -88,6 +88,8 @@ from .codex_delegation import (
 )
 from .codex_runner import (
     CodexExecutionId,
+    CodexModel,
+    CodexReasoningEffort,
     CodexRunnerPort,
     CodexRunnerViolation,
     CodexRunResult,
@@ -337,6 +339,8 @@ __all__ = (
     "CodexDelegationPort",
     "CodexDelegationViolation",
     "CodexExecutionId",
+    "CodexModel",
+    "CodexReasoningEffort",
     "CodexResultEvidence",
     "CodexResultEvidenceKind",
     "CodexResultSourceId",
