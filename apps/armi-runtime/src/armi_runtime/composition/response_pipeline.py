@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -27,6 +26,8 @@ from armi_runtime.adapters.persistence.response_admission import (
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
+from .work_wakeup import EFFECT_REGISTER, RESPONSE_ADMIT, WorkWakeupBus
+
 _WORK_KIND = "cognition.response.admit"
 _LEASE_SECONDS = 30
 Diagnostic = Callable[[str], None]
@@ -44,6 +45,7 @@ class ResponseAdmissionPipeline:
         "_repository",
         "_stop",
         "_storage",
+        "_wakeups",
         "_work",
     )
 
@@ -52,6 +54,7 @@ class ResponseAdmissionPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
@@ -60,6 +63,7 @@ class ResponseAdmissionPipeline:
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
+        self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic: Diagnostic = diagnostic or _ignore_diagnostic
 
     async def open(self) -> None:
@@ -99,6 +103,7 @@ class ResponseAdmissionPipeline:
                     snapshot=snapshot,
                     integrity_ok=integrity_ok,
                 )
+            self._wakeups.notify(EFFECT_REGISTER)
             return True
         except ResponseViolation as error:
             if error.code == "RESPONSE-WORK-STALE":
@@ -126,6 +131,7 @@ class ResponseAdmissionPipeline:
         )
 
     async def run_worker(self) -> None:
+        observed = self._wakeups.version(RESPONSE_ADMIT)
         while not self._stop.is_set():
             try:
                 worked = await self.admit_once()
@@ -134,8 +140,12 @@ class ResponseAdmissionPipeline:
             if worked:
                 await asyncio.sleep(0)
                 continue
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._stop.wait(), timeout=1)
+            observed = await self._wakeups.wait(
+                RESPONSE_ADMIT,
+                observed,
+                stop=self._stop,
+                timeout_seconds=1,
+            )
 
 
 def build_response_admission_pipeline(
@@ -149,7 +159,8 @@ def build_response_admission_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
-    diagnostic: Diagnostic | None,
+    wakeups: WorkWakeupBus | None = None,
+    diagnostic: Diagnostic | None = None,
 ) -> ResponseAdmissionPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -170,6 +181,7 @@ def build_response_admission_pipeline(
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
+        wakeups=wakeups,
         diagnostic=diagnostic,
     )
 

@@ -62,6 +62,7 @@ from .model_contract import (
     load_active_binding,
     parse_candidate,
 )
+from .work_wakeup import CANDIDATE_VALIDATE, MODEL_INVOKE, WorkWakeupBus
 
 _WORK_KIND = "cognition.model.invoke"
 _LEASE_SECONDS = 30
@@ -89,6 +90,7 @@ class ModelPipeline:
         "_repository",
         "_stop",
         "_storage",
+        "_wakeups",
         "_work",
     )
 
@@ -99,6 +101,7 @@ class ModelPipeline:
         storage: ContentAddressedArtifactStore,
         credential_port: CredentialPort,
         credential_locator: CredentialLocator,
+        wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         binding = load_active_binding()
@@ -116,6 +119,7 @@ class ModelPipeline:
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
+        self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
 
     async def open(self) -> None:
@@ -231,6 +235,7 @@ class ModelPipeline:
                         response_artifact_id=(response_registration.ref.artifact_id),
                         result=result,
                     )
+                self._wakeups.notify(CANDIDATE_VALIDATE)
             else:
                 await self._settle_failure(
                     lease=lease,
@@ -285,6 +290,7 @@ class ModelPipeline:
             return True
 
     async def run_worker(self) -> None:
+        observed = self._wakeups.version(MODEL_INVOKE)
         while not self._stop.is_set():
             try:
                 worked = await self.invoke_once()
@@ -292,16 +298,15 @@ class ModelPipeline:
                 if not self._stop.is_set():
                     self._diagnostic("model.worker.failed")
                 worked = False
-            await self._wait(0 if worked else 1)
-
-    async def _wait(self, seconds: int) -> None:
-        if seconds == 0:
-            await asyncio.sleep(0)
-            return
-        try:
-            await asyncio.wait_for(self._stop.wait(), timeout=seconds)
-        except TimeoutError:
-            return
+            if worked:
+                await asyncio.sleep(0)
+                continue
+            observed = await self._wakeups.wait(
+                MODEL_INVOKE,
+                observed,
+                stop=self._stop,
+                timeout_seconds=1,
+            )
 
     async def _snapshot(self, lease: WorkLease) -> ModelEpisodeSnapshot:
         try:
@@ -487,7 +492,8 @@ def build_model_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     credential_port: CredentialPort,
     credential_locator: CredentialLocator,
-    diagnostic: Diagnostic | None,
+    wakeups: WorkWakeupBus | None = None,
+    diagnostic: Diagnostic | None = None,
 ) -> ModelPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -511,6 +517,7 @@ def build_model_pipeline(
         ),
         credential_port=credential_port,
         credential_locator=credential_locator,
+        wakeups=wakeups,
         diagnostic=diagnostic,
     )
 

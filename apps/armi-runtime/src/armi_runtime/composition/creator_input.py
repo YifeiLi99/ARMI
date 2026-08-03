@@ -56,6 +56,8 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
+from .work_wakeup import OPPORTUNITY_AVAILABLE, WorkWakeupBus
+
 _PURPOSE: Final = "creator_message"
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
@@ -84,6 +86,7 @@ class EvidenceAcceptanceTransaction(
         "_repository",
         "_storage",
         "_uow_factory",
+        "_wakeups",
     )
 
     def __init__(
@@ -95,6 +98,7 @@ class EvidenceAcceptanceTransaction(
         repository: CreatorInputRepository,
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
         notifier: CreatorProjectionNotifier | None,
+        wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
     ) -> None:
@@ -106,6 +110,7 @@ class EvidenceAcceptanceTransaction(
         self._repository = repository
         self._uow_factory = unit_of_work_factory
         self._notifier = notifier
+        self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._fault_injector = fault_injector or _ignore_diagnostic
 
@@ -164,6 +169,7 @@ class EvidenceAcceptanceTransaction(
         except ArtifactViolation:
             raise CreatorInputViolation("ART-INPUT-CATALOG") from None
         if acceptance.newly_accepted:
+            self._wakeups.notify(OPPORTUNITY_AVAILABLE)
             await self._notify(command.scene_key)
         return acceptance
 
@@ -394,7 +400,8 @@ def build_evidence_acceptance_transaction(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
-    diagnostic: Diagnostic | None,
+    wakeups: WorkWakeupBus | None = None,
+    diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
 ) -> EvidenceAcceptanceTransaction:
     factory = PostgreSQLUnitOfWorkFactory(
@@ -417,6 +424,7 @@ def build_evidence_acceptance_transaction(
         repository=CreatorInputRepository(),
         unit_of_work_factory=factory,
         notifier=notifier,
+        wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,
     )

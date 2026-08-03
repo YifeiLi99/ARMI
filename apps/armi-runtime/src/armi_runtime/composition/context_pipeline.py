@@ -61,6 +61,12 @@ from .context_compiler import (
     CONTEXT_MECHANISM,
     DeterministicContextCompiler,
 )
+from .work_wakeup import (
+    CONTEXT_PREPARE,
+    MODEL_INVOKE,
+    OPPORTUNITY_AVAILABLE,
+    WorkWakeupBus,
+)
 
 _WORK_KIND = "cognition.context.prepare"
 Diagnostic = Callable[[str], None]
@@ -87,6 +93,7 @@ class ContextPipeline(OpportunitySelector):
         "_repository",
         "_stop",
         "_storage",
+        "_wakeups",
         "_work",
     )
 
@@ -96,6 +103,7 @@ class ContextPipeline(OpportunitySelector):
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         policy_digest: Digest,
+        wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
@@ -107,6 +115,7 @@ class ContextPipeline(OpportunitySelector):
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
+        self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
 
     async def open(self) -> None:
@@ -128,11 +137,14 @@ class ContextPipeline(OpportunitySelector):
     async def select_once(self) -> CognitiveEpisodeId | None:
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
-                return await self._repository.select_one(
+                selected = await self._repository.select_one(
                     unit_of_work,
                     policy_digest=self._policy_digest,
                     mechanism_config_digest=self._policy_digest,
                 )
+            if selected is not None:
+                self._wakeups.notify(CONTEXT_PREPARE)
+            return selected
         except ContextViolation:
             raise
         except DatabaseTransactionError, WorkViolation:
@@ -191,6 +203,7 @@ class ContextPipeline(OpportunitySelector):
                     manifest_artifact_id=manifest_registration.ref.artifact_id,
                     compiled_artifact_id=compiled_registration.ref.artifact_id,
                 )
+            self._wakeups.notify(MODEL_INVOKE)
             return True
         except ContextViolation as error:
             await self._fail_if_current(lease, error.code)
@@ -203,6 +216,7 @@ class ContextPipeline(OpportunitySelector):
             return True
 
     async def run_selector(self) -> None:
+        observed = self._wakeups.version(OPPORTUNITY_AVAILABLE)
         while not self._stop.is_set():
             try:
                 selected = await self.select_once()
@@ -210,9 +224,18 @@ class ContextPipeline(OpportunitySelector):
                 if not self._stop.is_set():
                     self._diagnostic("context.selector.failed")
                 selected = None
-            await self._wait(0 if selected is not None else 1)
+            if selected is not None:
+                await asyncio.sleep(0)
+                continue
+            observed = await self._wakeups.wait(
+                OPPORTUNITY_AVAILABLE,
+                observed,
+                stop=self._stop,
+                timeout_seconds=1,
+            )
 
     async def run_worker(self) -> None:
+        observed = self._wakeups.version(CONTEXT_PREPARE)
         while not self._stop.is_set():
             try:
                 worked = await self.prepare_once()
@@ -220,16 +243,15 @@ class ContextPipeline(OpportunitySelector):
                 if not self._stop.is_set():
                     self._diagnostic("context.worker.failed")
                 worked = False
-            await self._wait(0 if worked else 1)
-
-    async def _wait(self, seconds: int) -> None:
-        if seconds == 0:
-            await asyncio.sleep(0)
-            return
-        try:
-            await asyncio.wait_for(self._stop.wait(), timeout=seconds)
-        except TimeoutError:
-            return
+            if worked:
+                await asyncio.sleep(0)
+                continue
+            observed = await self._wakeups.wait(
+                CONTEXT_PREPARE,
+                observed,
+                stop=self._stop,
+                timeout_seconds=1,
+            )
 
     async def _snapshot(self, lease: WorkLease) -> ContextEpisodeSnapshot:
         try:
@@ -529,7 +551,8 @@ def build_context_pipeline(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     policy_digest: Digest,
-    diagnostic: Diagnostic | None,
+    wakeups: WorkWakeupBus | None = None,
+    diagnostic: Diagnostic | None = None,
 ) -> ContextPipeline:
     async def reject_dynamic_lock(
         connection: Any,
@@ -555,6 +578,7 @@ def build_context_pipeline(
             max_object_bytes=max_object_bytes,
         ),
         policy_digest=policy_digest,
+        wakeups=wakeups,
         diagnostic=diagnostic,
     )
 

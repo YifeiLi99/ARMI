@@ -75,6 +75,7 @@ from .subject_commit_pipeline import (
     build_subject_commit_pipeline,
 )
 from .web_search_pipeline import WebSearchPipeline, build_web_search_pipeline
+from .work_wakeup import WorkWakeupBus
 
 RUNTIME_LOCATOR_NAME: Final = "database.runtime"
 MIGRATOR_LOCATOR_NAME: Final = "database.migrator"
@@ -362,6 +363,7 @@ def compose_creator_input(
     creator_party_id: UUID,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
+    wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
 ) -> EvidenceAcceptanceTransaction:
@@ -408,6 +410,7 @@ def compose_creator_input(
                     ),
                     authority_admission=authority_admission,
                     notifier=notifier,
+                    wakeups=wakeups,
                     diagnostic=diagnostic,
                     fault_injector=fault_injector,
                 )
@@ -426,6 +429,7 @@ def compose_context_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ContextPipeline:
     """Resolve the Runtime credential for the active S023 selector and worker."""
@@ -478,6 +482,7 @@ def compose_context_pipeline(
                     ),
                     authority_admission=authority_admission,
                     policy_digest=Digest.from_bytes(policy),
+                    wakeups=wakeups,
                     diagnostic=diagnostic,
                 )
 
@@ -495,6 +500,7 @@ def compose_model_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ModelPipeline:
     """Resolve the Runtime and model credentials for the active S024 worker."""
@@ -533,6 +539,7 @@ def compose_model_pipeline(
                     authority_admission=authority_admission,
                     credential_port=prepared.credential_port,
                     credential_locator=model_locator,
+                    wakeups=wakeups,
                     diagnostic=diagnostic,
                 )
 
@@ -604,6 +611,7 @@ def compose_candidate_validation_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CandidateValidationPipeline:
     """Resolve the Runtime credential for the active S025 validator."""
@@ -646,6 +654,7 @@ def compose_candidate_validation_pipeline(
                     ),
                     authority_admission=authority_admission,
                     policy_digest=Digest.from_bytes(policy),
+                    wakeups=wakeups,
                     diagnostic=diagnostic,
                 )
 
@@ -659,6 +668,7 @@ def compose_subject_commit_pipeline(
     *,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
+    wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
 ) -> SubjectCommitPipeline:
@@ -690,6 +700,7 @@ def compose_subject_commit_pipeline(
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
                     notifier=notifier,
+                    wakeups=wakeups,
                     diagnostic=diagnostic,
                     fault_injector=fault_injector,
                 )
@@ -743,6 +754,7 @@ def compose_response_admission_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ResponseAdmissionPipeline:
     """Resolve the Runtime credential for the S028 admission worker."""
@@ -771,6 +783,7 @@ def compose_response_admission_pipeline(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    wakeups=wakeups,
                     diagnostic=diagnostic,
                 )
 
@@ -837,6 +850,7 @@ def compose_effect_registration_pipeline(
     *,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None = None,
+    wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
 ) -> EffectRegistrationPipeline:
@@ -869,6 +883,7 @@ def compose_effect_registration_pipeline(
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
                     notifier=notifier,
+                    wakeups=wakeups,
                     diagnostic=diagnostic,
                     fault_injector=fault_injector,
                 )

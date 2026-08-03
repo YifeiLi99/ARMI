@@ -76,6 +76,7 @@ from .environment import PreparedEnvironment
 from .lifecycle import RUNTIME_BLOCKING_REASONS, LifecycleController
 from .runtime_errors import RuntimeViolation
 from .supervisor import RuntimeSupervisor
+from .work_wakeup import WorkWakeupBus
 
 EXIT_GRACEFUL = 0
 EXIT_LISTENER_FAILURE = 3
@@ -143,6 +144,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     web_search_pipeline = None
     codex_pipeline = None
     admin_control: RuntimeAdminControlServer | None = None
+    work_wakeups = WorkWakeupBus()
 
     def inject_admin_fault(name: str) -> None:
         if admin_control is not None:
@@ -223,6 +225,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 creator_party_id=creator_context.party_id,
                 authority_admission=authority.require_writable,
                 notifier=creator_events,
+                wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
                     result_code="CREATOR_INPUT",
@@ -233,6 +236,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             context_pipeline = compose_context_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
                     result_code="CONTEXT_PIPELINE",
@@ -242,6 +246,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             candidate_pipeline = compose_candidate_validation_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
                     result_code="CANDIDATE_PIPELINE",
@@ -252,6 +257,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 prepared,
                 authority_admission=authority.require_writable,
                 notifier=creator_events,
+                wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
                     result_code="SUBJECT_COMMIT_PIPELINE",
@@ -262,6 +268,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             response_pipeline = compose_response_admission_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
                     result_code="RESPONSE_ADMISSION",
@@ -272,6 +279,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 prepared,
                 authority_admission=authority.require_writable,
                 notifier=creator_events,
+                wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event, result_code="EFFECT_REGISTRATION"
                 ),
@@ -303,6 +311,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     model_pipeline = compose_model_pipeline(
                         prepared,
                         authority_admission=authority.require_writable,
+                        wakeups=work_wakeups,
                         diagnostic=lambda event: diagnostic.emit(
                             event,
                             result_code="MODEL_PIPELINE",

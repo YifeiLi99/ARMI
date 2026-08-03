@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
@@ -56,6 +55,7 @@ from .candidate_validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
+from .work_wakeup import CANDIDATE_VALIDATE, SUBJECT_COMMIT, WorkWakeupBus
 
 _WORK_KIND = "cognition.candidate.validate"
 _LEASE_SECONDS = 30
@@ -82,6 +82,7 @@ class CandidateValidationPipeline:
         "_repository",
         "_stop",
         "_storage",
+        "_wakeups",
         "_work",
     )
 
@@ -91,6 +92,7 @@ class CandidateValidationPipeline:
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         policy_digest: Digest,
+        wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
@@ -101,6 +103,7 @@ class CandidateValidationPipeline:
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
+        self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
 
     async def open(self) -> None:
@@ -190,6 +193,7 @@ class CandidateValidationPipeline:
                     validator_identity=CANDIDATE_VALIDATOR_IDENTITY,
                     change_set_artifact_id=artifact_id,
                 )
+            self._wakeups.notify(SUBJECT_COMMIT)
             return True
         except CandidateViolation as error:
             if error.code == "CANDIDATE-WORK-STALE":
@@ -205,6 +209,7 @@ class CandidateValidationPipeline:
             return True
 
     async def run_worker(self) -> None:
+        observed = self._wakeups.version(CANDIDATE_VALIDATE)
         while not self._stop.is_set():
             try:
                 worked = await self.validate_once()
@@ -215,8 +220,12 @@ class CandidateValidationPipeline:
             if worked:
                 await asyncio.sleep(0)
                 continue
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._stop.wait(), timeout=1)
+            observed = await self._wakeups.wait(
+                CANDIDATE_VALIDATE,
+                observed,
+                stop=self._stop,
+                timeout_seconds=1,
+            )
 
     async def _snapshot(self, lease: WorkLease) -> CandidateEpisodeSnapshot:
         try:
@@ -324,7 +333,8 @@ def build_candidate_validation_pipeline(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     policy_digest: Digest,
-    diagnostic: Diagnostic | None,
+    wakeups: WorkWakeupBus | None = None,
+    diagnostic: Diagnostic | None = None,
 ) -> CandidateValidationPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -347,6 +357,7 @@ def build_candidate_validation_pipeline(
             max_object_bytes=max_object_bytes,
         ),
         policy_digest=policy_digest,
+        wakeups=wakeups,
         diagnostic=diagnostic,
     )
 

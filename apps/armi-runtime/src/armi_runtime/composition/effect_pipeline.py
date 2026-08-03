@@ -46,6 +46,8 @@ from armi_runtime.adapters.persistence.effect_ledger import (
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
+from .work_wakeup import EFFECT_REGISTER, WorkWakeupBus
+
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
 
@@ -66,6 +68,7 @@ class EffectRegistrationPipeline:
         "_repository",
         "_stop",
         "_storage",
+        "_wakeups",
         "_work",
     )
 
@@ -76,6 +79,7 @@ class EffectRegistrationPipeline:
         storage: ContentAddressedArtifactStore,
         notifier: CreatorProjectionNotifier | None = None,
         adapter: ActionAdapterPort | None = None,
+        wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
     ) -> None:
@@ -87,6 +91,7 @@ class EffectRegistrationPipeline:
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
+        self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic: Diagnostic = diagnostic or _ignore_diagnostic
         self._notifier = notifier
         self._fault_injector = fault_injector or _ignore_diagnostic
@@ -411,6 +416,7 @@ class EffectRegistrationPipeline:
             return None
 
     async def run(self) -> None:
+        observed = self._wakeups.version(EFFECT_REGISTER)
         while not self._stop.is_set():
             if await self.recover_once():
                 await asyncio.sleep(0)
@@ -425,8 +431,12 @@ class EffectRegistrationPipeline:
             if await self.dispatch_once():
                 await asyncio.sleep(0)
                 continue
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._stop.wait(), timeout=1)
+            observed = await self._wakeups.wait(
+                EFFECT_REGISTER,
+                observed,
+                stop=self._stop,
+                timeout_seconds=1,
+            )
 
 
 def build_effect_registration_pipeline(
@@ -441,6 +451,7 @@ def build_effect_registration_pipeline(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None = None,
+    wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
 ) -> EffectRegistrationPipeline:
@@ -464,6 +475,7 @@ def build_effect_registration_pipeline(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
         notifier=notifier,
+        wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,
     )

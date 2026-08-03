@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,6 +51,12 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .subject_commit_contract import parse_subject_change_set
+from .work_wakeup import (
+    OPPORTUNITY_AVAILABLE,
+    RESPONSE_ADMIT,
+    SUBJECT_COMMIT,
+    WorkWakeupBus,
+)
 
 _WORK_KIND = "cognition.subject.commit"
 _LEASE_SECONDS = 30
@@ -76,6 +81,7 @@ class SubjectCommitPipeline:
         "_repository",
         "_stop",
         "_storage",
+        "_wakeups",
         "_work",
     )
 
@@ -85,6 +91,7 @@ class SubjectCommitPipeline:
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         notifier: CreatorProjectionNotifier | None,
+        wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
     ) -> None:
@@ -96,6 +103,7 @@ class SubjectCommitPipeline:
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
+        self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._fault_injector = fault_injector or _ignore_diagnostic
 
@@ -191,6 +199,7 @@ class SubjectCommitPipeline:
                     response_artifact_id=response_artifact_id,
                     research_artifact_id=research_artifact_id,
                 )
+            self._wake_downstream()
             await self._notify(snapshot, result)
             return True
         except SubjectCommitViolation as error:
@@ -210,6 +219,7 @@ class SubjectCommitPipeline:
             if error.code == "DB-TX-COMMIT-UNKNOWN" and snapshot is not None:
                 recovered = await self._recover_committed(snapshot)
                 if recovered is not None:
+                    self._wake_downstream()
                     await self._notify(snapshot, recovered)
                     return True
                 self._diagnostic("subject_commit.commit.outcome_unknown")
@@ -221,6 +231,7 @@ class SubjectCommitPipeline:
             return True
 
     async def run_worker(self) -> None:
+        observed = self._wakeups.version(SUBJECT_COMMIT)
         while not self._stop.is_set():
             try:
                 worked = await self.commit_once()
@@ -231,8 +242,16 @@ class SubjectCommitPipeline:
             if worked:
                 await asyncio.sleep(0)
                 continue
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._stop.wait(), timeout=1)
+            observed = await self._wakeups.wait(
+                SUBJECT_COMMIT,
+                observed,
+                stop=self._stop,
+                timeout_seconds=1,
+            )
+
+    def _wake_downstream(self) -> None:
+        self._wakeups.notify(RESPONSE_ADMIT)
+        self._wakeups.notify(OPPORTUNITY_AVAILABLE)
 
     async def _snapshot(self, lease: WorkLease) -> SubjectCommitSnapshot:
         try:
@@ -391,7 +410,8 @@ def build_subject_commit_pipeline(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
-    diagnostic: Diagnostic | None,
+    wakeups: WorkWakeupBus | None = None,
+    diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
 ) -> SubjectCommitPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
@@ -414,6 +434,7 @@ def build_subject_commit_pipeline(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
         notifier=notifier,
+        wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,
     )
