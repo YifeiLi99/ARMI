@@ -55,10 +55,12 @@ class RuntimeProcessManagerTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "started")
             options = popen.call_args.kwargs
+            command = popen.call_args.args[0]
             self.assertIs(options["stdin"], subprocess.DEVNULL)
             self.assertIs(options["stdout"], subprocess.DEVNULL)
             self.assertIs(options["stderr"], subprocess.DEVNULL)
             if os.name == "nt":
+                self.assertEqual(Path(command[0]).name, "pythonw.exe")
                 self.assertTrue(options["creationflags"] & subprocess.DETACHED_PROCESS)
                 self.assertTrue(
                     options["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP

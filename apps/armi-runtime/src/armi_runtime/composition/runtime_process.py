@@ -28,6 +28,18 @@ _STOP_TIMEOUT_SECONDS = 30.0
 _STILL_ACTIVE = 259
 
 
+def _background_python() -> str:
+    if os.name != "nt":
+        return sys.executable
+    executable = Path(sys.executable).with_name("pythonw.exe")
+    if not executable.is_file():
+        raise RuntimeViolation(
+            "CLI-RUNTIME-START-FAILED",
+            "the windowless Python runtime is unavailable",
+        )
+    return os.fspath(executable)
+
+
 def _strict_json(value: bytes, code: str) -> dict[str, Any]:
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -185,7 +197,7 @@ class RuntimeProcessManager:
                 mode=0o600,
             )
             command = (
-                sys.executable,
+                _background_python(),
                 "-m",
                 "armi_runtime.cli",
                 "runtime",
