@@ -44,10 +44,13 @@ from .model_contract import (
     CognitionCandidate,
     CognitionCandidateV5,
     CognitionCandidateV6,
+    CognitionCandidateV7,
     ComponentChangeProposal,
     CreatorReplyPayload,
+    CreatorSceneReplyRequestPayload,
     ExperienceProposal,
     FormalNoActionPayload,
+    RuntimeBoundCreatorReplyPayload,
     WebResearchRequestProposal,
     parse_candidate,
 )
@@ -57,6 +60,7 @@ CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
 CHANGE_SET_VERSION = "armi.subject-change-set.v3"
 WEB_CHANGE_SET_VERSION = "armi.subject-change-set.v4"
 CODEX_CHANGE_SET_VERSION = "armi.subject-change-set.v5"
+RUNTIME_BOUND_CHANGE_SET_VERSION = "armi.subject-change-set.v6"
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,9 +260,9 @@ class DeterministicCandidateValidator:
                     payload = capability.payload
                     scope = (
                         CreatorSceneReplyScope(
-                            UUID(payload.subject_id),
-                            UUID(payload.scene_id),
-                            UUID(payload.creator_party_id),
+                            self._context.subject_id,
+                            self._context.scene_id,
+                            self._context.creator_party_id,
                             payload.valid_for_seconds,
                             payload.max_uses,
                             payload.max_payload_bytes,
@@ -278,15 +282,18 @@ class DeterministicCandidateValidator:
             if failure is None and owner is CandidateOwner.ACTION:
                 action = cast(ActionChoiceProposal, proposal)
                 failure = _action_failure(action, proposal_bases, context=self._context)
-                if failure is None and isinstance(action.payload, CreatorReplyPayload):
+                if failure is None and isinstance(
+                    action.payload,
+                    (CreatorReplyPayload, RuntimeBoundCreatorReplyPayload),
+                ):
                     content = action.payload.content.encode("utf-8", errors="strict")
                     accepted[proposal.proposal_ref] = CreatorReplyDraft(
                         proposal.proposal_ref,
                         proposal.atomic_group_ref,
                         tuple(basis.ordinal for basis in proposal_bases),
-                        UUID(action.payload.subject_id),
-                        UUID(action.payload.scene_id),
-                        UUID(action.payload.creator_party_id),
+                        self._context.subject_id,
+                        self._context.scene_id,
+                        self._context.creator_party_id,
                         content,
                         Digest.from_bytes(content),
                     )
@@ -441,7 +448,9 @@ class DeterministicCandidateValidator:
         disposition = CandidateDisposition(candidate.disposition)
         change_set_value = {
             "schema_version": (
-                CODEX_CHANGE_SET_VERSION
+                RUNTIME_BOUND_CHANGE_SET_VERSION
+                if candidate.schema_version == "armi.cognition-candidate.v7"
+                else CODEX_CHANGE_SET_VERSION
                 if candidate.schema_version == "armi.cognition-candidate.v6"
                 else WEB_CHANGE_SET_VERSION
                 if candidate.schema_version == "armi.cognition-candidate.v5"
@@ -471,7 +480,10 @@ class DeterministicCandidateValidator:
             change_set_value["web_research_requests"] = [
                 _web_research_wire(item) for item in web_research_requests
             ]
-        if candidate.schema_version == "armi.cognition-candidate.v6":
+        if candidate.schema_version in {
+            "armi.cognition-candidate.v6",
+            "armi.cognition-candidate.v7",
+        }:
             change_set_value["codex_delegations"] = [
                 _codex_delegation_wire(item) for item in codex_delegations
             ]
@@ -513,7 +525,12 @@ class DeterministicCandidateValidator:
 
     def _base_matches(
         self,
-        candidate: CognitionCandidate | CognitionCandidateV5 | CognitionCandidateV6,
+        candidate: (
+            CognitionCandidate
+            | CognitionCandidateV5
+            | CognitionCandidateV6
+            | CognitionCandidateV7
+        ),
     ) -> bool:
         base = candidate.base
         return (
@@ -525,7 +542,12 @@ class DeterministicCandidateValidator:
 
 
 def _all_proposals(
-    candidate: CognitionCandidate | CognitionCandidateV5 | CognitionCandidateV6,
+    candidate: (
+        CognitionCandidate
+        | CognitionCandidateV5
+        | CognitionCandidateV6
+        | CognitionCandidateV7
+    ),
 ) -> tuple[tuple[CandidateOwner, Any], ...]:
     return (
         *((CandidateOwner.EXPERIENCE, item) for item in candidate.experiences),
@@ -651,7 +673,7 @@ def _capability_failure(
     ):
         return "CANDIDATE-CAPABILITY-EVIDENCE-BASIS"
     if payload.capability_kind == "creator.scene.reply":
-        if (
+        if isinstance(payload, CreatorSceneReplyRequestPayload) and (
             UUID(payload.subject_id) != context.subject_id
             or UUID(payload.scene_id) != context.scene_id
             or UUID(payload.creator_party_id) != context.creator_party_id
@@ -664,7 +686,7 @@ def _capability_failure(
 
 
 def _action_failure(
-    proposal: ActionChoiceProposal,
+    proposal: Any,
     bases: tuple[CandidateBasis, ...],
     *,
     context: CandidateValidationContext,
@@ -682,7 +704,7 @@ def _action_failure(
         for basis in bases
     ):
         return "CANDIDATE-ACTION-EVIDENCE-BASIS"
-    if isinstance(payload, CreatorReplyPayload):
+    if isinstance(payload, (CreatorReplyPayload, RuntimeBoundCreatorReplyPayload)):
         if not any(
             basis.section == "capability"
             and basis.item_kind == "capability_catalog"
@@ -690,7 +712,7 @@ def _action_failure(
             for basis in bases
         ):
             return "CANDIDATE-ACTION-CAPABILITY-BASIS"
-        if (
+        if isinstance(payload, CreatorReplyPayload) and (
             UUID(payload.subject_id) != context.subject_id
             or UUID(payload.scene_id) != context.scene_id
             or UUID(payload.creator_party_id) != context.creator_party_id
@@ -967,6 +989,7 @@ __all__ = (
     "CANDIDATE_VALIDATOR_IDENTITY",
     "CHANGE_SET_VERSION",
     "CODEX_CHANGE_SET_VERSION",
+    "RUNTIME_BOUND_CHANGE_SET_VERSION",
     "CandidateValidationContext",
     "DeterministicCandidateValidator",
 )

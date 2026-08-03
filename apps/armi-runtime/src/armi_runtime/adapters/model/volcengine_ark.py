@@ -45,6 +45,13 @@ _INSTRUCTIONS = (
     "当前只可提出 Experience、Self、Mind、life_mode,请求中 Capability section 明示"
     "的严格 capability request,绑定当前 subject、scene、Creator 的 creator_reply,"
     "有真实 basis 的 formal_no_action,或绑定当前 codex_task_source 的 codex_delegation。"
+    "任何 Self、Mind 或 life_mode 变化都必须在同一 atomic_group 中同时包含一项合法"
+    "Experience;如果不需要把本次材料形成 Experience,component_changes 必须保持为空。"
+    "普通 Creator 回应可只在同一组提出 creator.scene.reply capability request 和"
+    "creator_reply,不要为了表达即时感受而附带 component change。"
+    "creator.scene.reply capability request 与 creator_reply 各自的 basis_refs 都必须"
+    "同时包含 current_evidence、current_scene 和 capability_catalog;同组另一项已经引用"
+    "这些依据不能替代本项自己的完整引用,已有 grant 也不能省略 capability_catalog。"
     "Codex 委托必须与同一候选中的 codex.delegated-work capability request 一起提出;"
     "两者可独立成组,也可在确有原子依赖时使用同一 atomic_group。委托只能原样引用"
     "task source identity、manifest digest 和 validator。Codex capability request 的"
@@ -167,7 +174,7 @@ class OpenAIArkTransport:
                 text={
                     "format": {
                         "type": "json_schema",
-                        "name": "armi_cognition_candidate_v6",
+                        "name": "armi_cognition_candidate_v7",
                         "strict": True,
                         "schema": self._candidate_schema,
                     }
@@ -355,6 +362,11 @@ class VolcengineArkModelAdapter(ModelPort):
                 "MODEL-RESPONSE-SCHEMA",
             )
         except ModelViolation:
+            return _failure(
+                ModelResultStatus.REJECTED,
+                "MODEL-RESPONSE-SCHEMA",
+            )
+        if candidate.schema_version != self._binding.response_contract_version:
             return _failure(
                 ModelResultStatus.REJECTED,
                 "MODEL-RESPONSE-SCHEMA",

@@ -14,6 +14,7 @@ from armi_kernel.application import (
     CandidateValidationStatus,
     CodexDelegationDraft,
     CreatorReplyDraft,
+    CreatorSceneReplyScope,
 )
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.persistence.candidate_validation import (
@@ -23,6 +24,7 @@ from armi_runtime.composition.candidate_validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
+from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
 
 
 def _self_state(*, name: str | None = None) -> dict[str, object]:
@@ -502,8 +504,11 @@ def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:
         ),
     )
     candidate = _candidate(context)
+    candidate["schema_version"] = "armi.cognition-candidate.v7"
     candidate["experiences"] = []
     candidate["component_changes"] = []
+    candidate["action_choices"] = []
+    del candidate["action_intents"]
     candidate["capability_requests"] = [
         {
             "proposal_ref": "proposal:1",
@@ -514,9 +519,6 @@ def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:
                 "fact_class": "subjective_understanding",
                 "capability_kind": "creator.scene.reply",
                 "operation": "send",
-                "subject_id": str(context.subject_id),
-                "scene_id": str(context.scene_id),
-                "creator_party_id": str(context.creator_party_id),
                 "audience_scope": "creator",
                 "data_scope": "creator_visible_response",
                 "purpose": "respond_to_creator",
@@ -532,12 +534,101 @@ def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert len(result.change_set.capability_requests) == 1
+    scope = result.change_set.capability_requests[0].scope
+    assert isinstance(scope, CreatorSceneReplyScope)
+    assert scope.subject_id == context.subject_id
+    assert scope.scene_id == context.scene_id
+    assert scope.creator_party_id == context.creator_party_id
+    assert b"armi.subject-change-set.v6" in result.change_set.canonical_bytes
 
     candidate["capability_requests"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
     rejected = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=extended
     )
     assert rejected.error_code == "CANDIDATE-CAPABILITY-BASIS"
+
+
+def test_v7_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = _candidate(context)
+    candidate["schema_version"] = "armi.cognition-candidate.v7"
+    candidate["experiences"] = []
+    candidate["component_changes"] = []
+    candidate["capability_requests"] = []
+    candidate["action_choices"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2", "ctx:4", "ctx:5"],
+            "payload": {
+                "proposal_kind": "action_choices",
+                "action_kind": "creator_reply",
+                "fact_class": "subjective_understanding",
+                "capability_kind": "creator.scene.reply",
+                "operation": "send",
+                "audience_scope": "creator",
+                "data_scope": "creator_visible_response",
+                "purpose": "respond_to_creator",
+                "media_type": "text/plain",
+                "content": "这是由我选择说出的回应。",
+            },
+        }
+    ]
+    del candidate["action_intents"]
+
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    reply = result.change_set.action_choices[0]
+    assert isinstance(reply, CreatorReplyDraft)
+    assert reply.subject_id == context.subject_id
+    assert reply.scene_id == context.scene_id
+    assert reply.creator_party_id == context.creator_party_id
+    assert b"armi.subject-change-set.v6" in result.change_set.canonical_bytes
+    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert reparsed.digest == result.change_set.digest
+
+    candidate["action_choices"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
+    missing_capability_basis = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert missing_capability_basis.error_code == "CANDIDATE-ACTION-CAPABILITY-BASIS"
+
+    candidate["action_choices"][0]["basis_refs"] = [  # type: ignore[index]
+        "ctx:2",
+        "ctx:4",
+        "ctx:5",
+    ]
+    candidate["action_choices"][0]["payload"]["subject_id"] = str(uuid7())  # type: ignore[index]
+    rejected = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert rejected.error_code == "CANDIDATE-CONTRACT"
 
 
 def test_v4_creator_reply_is_admitted_as_exact_action_choice() -> None:

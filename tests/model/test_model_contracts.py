@@ -34,7 +34,7 @@ _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v3",
+        "schema_version": "armi.cognition-candidate.v7",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,
@@ -53,7 +53,7 @@ def _candidate() -> dict[str, object]:
         "relationship_changes": [],
         "activity_changes": [],
         "capability_requests": [],
-        "action_intents": [],
+        "action_choices": [],
         "uncertainties": [],
         "reason_summary": "No proposal is warranted by the provided context.",
     }
@@ -135,8 +135,14 @@ def test_candidate_rejects_unknown_or_unavailable_context_reference() -> None:
 
 
 class _Transport(ArkTransport):
-    def __init__(self, *, provider_model_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        provider_model_id: str,
+        candidate: dict[str, object] | None = None,
+    ) -> None:
         self.provider_model_id = provider_model_id
+        self.candidate = candidate or _candidate()
         self.keys_seen: list[bytes] = []
 
     async def tokenize(
@@ -159,7 +165,7 @@ class _Transport(ArkTransport):
     ) -> dict[str, object]:
         del binding, request
         self.keys_seen.append(bytes(api_key))
-        candidate = json.dumps(_candidate(), ensure_ascii=False)
+        candidate = json.dumps(self.candidate, ensure_ascii=False)
         return {
             "provider_request_id": "req-safe-id",
             "model_id": self.provider_model_id,
@@ -218,3 +224,29 @@ async def test_adapter_rejects_non_seed_provider_identity() -> None:
     )
     with pytest.raises(ModelViolation, match="MODEL-PROVIDER-RESPONSE"):
         await adapter.invoke(_request(binding))
+
+
+@pytest.mark.asyncio
+async def test_active_adapter_rejects_historical_candidate_contract() -> None:
+    binding = load_active_binding()
+    historical = _candidate()
+    historical["schema_version"] = "armi.cognition-candidate.v3"
+    historical["action_intents"] = historical.pop("action_choices")
+    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
+    adapter = VolcengineArkModelAdapter(
+        binding=binding,
+        credential_port=EnvironmentFileCredentialPort(
+            environment={"ARMI_SECRET_MODEL_TEST": "test-" + "credential"},
+            secret_roots=(Path.cwd(),),
+        ),
+        locator=locator,
+        candidate_schema=candidate_schema(),
+        candidate_parser=parse_candidate,
+        transport=_Transport(
+            provider_model_id="doubao-seed-evolving-20260731",
+            candidate=historical,
+        ),
+    )
+    result = await adapter.invoke(_request(binding))
+    assert result.status is ModelResultStatus.REJECTED
+    assert result.error_code == "MODEL-RESPONSE-SCHEMA"

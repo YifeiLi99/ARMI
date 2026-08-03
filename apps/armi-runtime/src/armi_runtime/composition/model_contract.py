@@ -14,9 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 MODEL_BINDING_VERSION = "armi.model-bindings.v1"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
-CANDIDATE_VERSION = "armi.cognition-candidate.v6"
+CANDIDATE_VERSION = "armi.cognition-candidate.v7"
 HISTORICAL_CANDIDATE_VERSION = "armi.cognition-candidate.v4"
 WEB_CANDIDATE_VERSION = "armi.cognition-candidate.v5"
+CODEX_CANDIDATE_VERSION = "armi.cognition-candidate.v6"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -164,6 +165,21 @@ class CreatorSceneReplyRequestPayload(_StrictModel):
     max_payload_bytes: Annotated[int, Field(ge=1, le=65536)]
 
 
+class RuntimeBoundCreatorSceneReplyRequestPayload(_StrictModel):
+    """New reply capability request whose authority scope is Runtime-bound."""
+
+    proposal_kind: Literal["capability_requests"]
+    fact_class: FactClass
+    capability_kind: Literal["creator.scene.reply"]
+    operation: Literal["send"]
+    audience_scope: Literal["creator"]
+    data_scope: Literal["creator_visible_response"]
+    purpose: Literal["respond_to_creator"]
+    valid_for_seconds: Annotated[int, Field(ge=60, le=604800)]
+    max_uses: Annotated[int, Field(ge=1, le=16)]
+    max_payload_bytes: Annotated[int, Field(ge=1, le=65536)]
+
+
 class CodexDelegatedWorkRequestPayload(_StrictModel):
     proposal_kind: Literal["capability_requests"]
     fact_class: FactClass
@@ -181,6 +197,11 @@ type CapabilityRequestPayload = Annotated[
     Field(discriminator="capability_kind"),
 ]
 
+type CapabilityRequestPayloadV7 = Annotated[
+    RuntimeBoundCreatorSceneReplyRequestPayload | CodexDelegatedWorkRequestPayload,
+    Field(discriminator="capability_kind"),
+]
+
 
 class CreatorReplyPayload(_StrictModel):
     proposal_kind: Literal["action_choices"]
@@ -189,6 +210,21 @@ class CreatorReplyPayload(_StrictModel):
     subject_id: Uuid7Value
     scene_id: Uuid7Value
     creator_party_id: Uuid7Value
+    capability_kind: Literal["creator.scene.reply"]
+    operation: Literal["send"]
+    audience_scope: Literal["creator"]
+    data_scope: Literal["creator_visible_response"]
+    purpose: Literal["respond_to_creator"]
+    media_type: Literal["text/plain"]
+    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+
+
+class RuntimeBoundCreatorReplyPayload(_StrictModel):
+    """New reply choice carrying content but no authority-owned identities."""
+
+    proposal_kind: Literal["action_choices"]
+    action_kind: Literal["creator_reply"]
+    fact_class: FactClass
     capability_kind: Literal["creator.scene.reply"]
     operation: Literal["send"]
     audience_scope: Literal["creator"]
@@ -229,6 +265,11 @@ class CodexDelegationPayload(_StrictModel):
 
 type ActionChoicePayloadV6 = Annotated[
     CreatorReplyPayload | FormalNoActionPayload | CodexDelegationPayload,
+    Field(discriminator="action_kind"),
+]
+
+type ActionChoicePayloadV7 = Annotated[
+    RuntimeBoundCreatorReplyPayload | FormalNoActionPayload | CodexDelegationPayload,
     Field(discriminator="action_kind"),
 ]
 
@@ -307,6 +348,13 @@ class CapabilityRequestProposal(_StrictModel):
     payload: CapabilityRequestPayload
 
 
+class CapabilityRequestProposalV7(_StrictModel):
+    proposal_ref: ProposalRef
+    atomic_group_ref: AtomicGroupRef
+    basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
+    payload: CapabilityRequestPayloadV7
+
+
 class ActionChoiceProposal(_StrictModel):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
@@ -319,6 +367,13 @@ class ActionChoiceProposalV6(_StrictModel):
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: ActionChoicePayloadV6
+
+
+class ActionChoiceProposalV7(_StrictModel):
+    proposal_ref: ProposalRef
+    atomic_group_ref: AtomicGroupRef
+    basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
+    payload: ActionChoicePayloadV7
 
 
 class WebResearchRequestPayload(_StrictModel):
@@ -416,13 +471,37 @@ class CognitionCandidateV6(_StrictModel):
     reason_summary: Summary
 
 
+class CognitionCandidateV7(_StrictModel):
+    schema_version: Literal["armi.cognition-candidate.v7"]
+    base: CandidateBase
+    disposition: Literal[
+        "change",
+        "no_change",
+        "defer",
+        "decline",
+        "no_action",
+        "need_information",
+    ]
+    understanding: CandidateUnderstanding
+    experiences: tuple[CodexAwareExperienceProposal, ...] = Field(max_length=4)
+    component_changes: tuple[ComponentChangeProposal, ...] = Field(max_length=4)
+    memory_changes: tuple[MemoryChangeProposal, ...] = Field(max_length=4)
+    relationship_changes: tuple[RelationshipChangeProposal, ...] = Field(max_length=4)
+    activity_changes: tuple[ActivityChangeProposal, ...] = Field(max_length=4)
+    capability_requests: tuple[CapabilityRequestProposalV7, ...] = Field(max_length=4)
+    action_choices: tuple[ActionChoiceProposalV7, ...] = Field(max_length=4)
+    uncertainties: tuple[CandidateUncertainty, ...] = Field(max_length=8)
+    reason_summary: Summary
+
+
 _CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidate)
 _WEB_CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidateV5)
 _CODEX_CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidateV6)
+_RUNTIME_BOUND_CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidateV7)
 
 
 def candidate_schema() -> dict[str, Any]:
-    return _CODEX_CANDIDATE_ADAPTER.json_schema()
+    return _RUNTIME_BOUND_CANDIDATE_ADAPTER.json_schema()
 
 
 def candidate_v5_schema() -> dict[str, Any]:
@@ -435,7 +514,12 @@ def parse_candidate(
     value: bytes,
     *,
     allowed_context_refs: frozenset[str],
-) -> CognitionCandidate | CognitionCandidateV5 | CognitionCandidateV6:
+) -> (
+    CognitionCandidate
+    | CognitionCandidateV5
+    | CognitionCandidateV6
+    | CognitionCandidateV7
+):
     try:
         raw: object = json.loads(value)
         if type(raw) is dict:
@@ -457,8 +541,10 @@ def parse_candidate(
             else None
         )
         adapter = (
-            _CODEX_CANDIDATE_ADAPTER
+            _RUNTIME_BOUND_CANDIDATE_ADAPTER
             if version == CANDIDATE_VERSION
+            else _CODEX_CANDIDATE_ADAPTER
+            if version == CODEX_CANDIDATE_VERSION
             else _WEB_CANDIDATE_ADAPTER
             if version == WEB_CANDIDATE_VERSION
             else _CANDIDATE_ADAPTER
@@ -491,7 +577,10 @@ def parse_candidate(
         group_counts[proposal.atomic_group_ref] = (
             group_counts.get(proposal.atomic_group_ref, 0) + 1
         )
-        if isinstance(proposal.payload, CreatorReplyPayload):
+        if isinstance(
+            proposal.payload,
+            (CreatorReplyPayload, RuntimeBoundCreatorReplyPayload),
+        ):
             try:
                 encoded = proposal.payload.content.encode("utf-8", errors="strict")
             except UnicodeEncodeError:
@@ -539,6 +628,7 @@ def load_active_binding(path: Path | None = None) -> ModelBinding:
         or value.get("active_binding") != ACTIVE_MODEL_ADAPTER
         or binding.get("model_id") != ACTIVE_MODEL_ID
         or binding.get("version_policy") != ACTIVE_VERSION_POLICY
+        or binding.get("response_contract_version") != CANDIDATE_VERSION
         or binding.get("response_model_identity_required") is not True
         or len(value.get("bindings", ())) != 1
     ):
@@ -639,6 +729,7 @@ __all__ = (
     "ACTIVE_MODEL_ID",
     "ACTIVE_VERSION_POLICY",
     "CANDIDATE_VERSION",
+    "CODEX_CANDIDATE_VERSION",
     "MODEL_BINDING_VERSION",
     "MODEL_REQUEST_VERSION",
     "WEB_CANDIDATE_VERSION",
@@ -646,6 +737,9 @@ __all__ = (
     "CognitionCandidate",
     "CognitionCandidateV5",
     "CognitionCandidateV6",
+    "CognitionCandidateV7",
+    "RuntimeBoundCreatorReplyPayload",
+    "RuntimeBoundCreatorSceneReplyRequestPayload",
     "WebResearchRequestPayload",
     "WebResearchRequestProposal",
     "build_request_bytes",

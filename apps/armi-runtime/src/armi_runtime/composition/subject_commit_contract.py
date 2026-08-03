@@ -49,6 +49,7 @@ _TOP_KEYS_V2 = {*_TOP_KEYS_V1, "capability_requests"}
 _TOP_KEYS_V3 = {*_TOP_KEYS_V2, "action_choices"}
 _TOP_KEYS_V4 = {*_TOP_KEYS_V3, "web_research_requests"}
 _TOP_KEYS_V5 = {*_TOP_KEYS_V3, "codex_delegations"}
+_TOP_KEYS_V6 = _TOP_KEYS_V5
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -63,6 +64,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v3",
             "armi.subject-change-set.v4",
             "armi.subject-change-set.v5",
+            "armi.subject-change-set.v6",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -76,6 +78,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V4
             if version.endswith(".v4")
             else _TOP_KEYS_V5
+            if version.endswith(".v5")
+            else _TOP_KEYS_V6
         )
         if set(document) != expected_keys:
             raise ValueError
