@@ -282,7 +282,9 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 try:
                     codex_pipeline = compose_codex_pipeline(
                         prepared,
+                        creator_party_id=creator_context.party_id,
                         authority_admission=authority.require_writable,
+                        notifier=creator_events,
                         diagnostic=lambda event: diagnostic.emit(
                             event, result_code="CODEX_DELEGATION"
                         ),
@@ -685,6 +687,9 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         ),
         capability_policy=capability_policy,
         effect_ledger=effect_pipeline,
+        codex_task_admission=(
+            codex_pipeline.task_sources if codex_pipeline is not None else None
+        ),
         expected_authority=f"{config.creator.bind_host}:{config.creator.port}",
         request_body_max_bytes=config.creator.request_body_max_bytes,
         on_started=started,

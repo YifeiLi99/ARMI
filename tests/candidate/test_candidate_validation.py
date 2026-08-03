@@ -16,6 +16,9 @@ from armi_kernel.application import (
     CreatorReplyDraft,
 )
 from armi_kernel.contracts import Digest
+from armi_runtime.adapters.persistence.candidate_validation import (
+    _validation_drafts,
+)
 from armi_runtime.composition.candidate_validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
@@ -378,7 +381,7 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
         {
             "proposal_ref": "proposal:2",
             "atomic_group_ref": "group:2",
-            "basis_refs": ["ctx:2", "ctx:5", "ctx:6"],
+            "basis_refs": ["ctx:4", "ctx:5", "ctx:6"],
             "payload": {
                 "proposal_kind": "capability_requests",
                 "fact_class": "inference",
@@ -439,6 +442,14 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
     assert len(first.change_set.codex_delegations) == 1
     assert len(first.change_set.capability_requests) == 1
     assert isinstance(first.change_set.codex_delegations[0], CodexDelegationDraft)
+    persisted_drafts = _validation_drafts(first.change_set)
+    assert {item.proposal_ref for item in persisted_drafts} == {
+        item.proposal_ref
+        for item in (
+            *first.change_set.capability_requests,
+            *first.change_set.codex_delegations,
+        )
+    }
     assert (
         first.change_set.codex_delegations[0].atomic_group_ref
         != first.change_set.capability_requests[0].atomic_group_ref

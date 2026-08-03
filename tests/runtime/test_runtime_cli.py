@@ -106,6 +106,10 @@ class RuntimeCliTests(unittest.TestCase):
             output = io.StringIO()
             with (
                 patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "armi_runtime.cli.prepare_environment",
+                    wraps=prepare_environment,
+                ) as prepare,
                 patch("armi_runtime.cli.run_runtime", return_value=0) as runner,
                 redirect_stdout(output),
             ):
@@ -116,6 +120,14 @@ class RuntimeCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(output.getvalue(), "")
         runner.assert_called_once()
+        assert prepare.call_args.kwargs["credential_scope"] == {
+            "database.runtime": "database.runtime",
+            "creator.bootstrap.verify": "creator.bearer",
+            "creator.timeline.cursor": "creator.bearer",
+            "model.request": "model.ark_api_key",
+            "web.search": "model.ark_api_key",
+            "codex.runner.auth": "codex.auth_json",
+        }
 
     def test_birth_command_is_explicit_and_returns_only_stable_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

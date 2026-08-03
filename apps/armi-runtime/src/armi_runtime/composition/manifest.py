@@ -77,6 +77,7 @@ _SCHEMA_FILES: Final = (
     "migrations/0022_t07_admin_correction.sql",
     "migrations/0023_codex_runner_activation.sql",
     "migrations/0024_codex_delegation_acceptance.sql",
+    "migrations/0025_creator_codex_task_intake.sql",
 )
 
 

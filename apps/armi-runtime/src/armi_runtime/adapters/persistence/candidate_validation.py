@@ -29,8 +29,10 @@ from armi_kernel.application import (
     CandidateValidationStatus,
     CandidateViolation,
     CapabilityRequestDraft,
+    CodexDelegationDraft,
     CreatorReplyDraft,
     FormalNoActionDraft,
+    SubjectChangeSet,
     WebResearchRequestDraft,
     WorkDraft,
     WorkId,
@@ -401,23 +403,7 @@ async def _insert_items(
     change_set = result.change_set
     assert change_set is not None
     item_id_by_ordinal = dict(snapshot.basis_item_ids)
-    drafts: tuple[
-        CandidateExperienceDraft
-        | CandidateComponentDraft
-        | CapabilityRequestDraft
-        | CreatorReplyDraft
-        | FormalNoActionDraft
-        | WebResearchRequestDraft
-        | CandidateRejection,
-        ...,
-    ] = (
-        *change_set.experiences,
-        *change_set.components,
-        *change_set.capability_requests,
-        *change_set.action_choices,
-        *change_set.web_research_requests,
-        *change_set.rejections,
-    )
+    drafts = _validation_drafts(change_set)
     for ordinal, draft in enumerate(
         sorted(drafts, key=lambda item: item.proposal_ref), 1
     ):
@@ -474,6 +460,30 @@ async def _insert_items(
             )
 
 
+def _validation_drafts(
+    change_set: SubjectChangeSet,
+) -> tuple[
+    CandidateExperienceDraft
+    | CandidateComponentDraft
+    | CapabilityRequestDraft
+    | CreatorReplyDraft
+    | FormalNoActionDraft
+    | WebResearchRequestDraft
+    | CodexDelegationDraft
+    | CandidateRejection,
+    ...,
+]:
+    return (
+        *change_set.experiences,
+        *change_set.components,
+        *change_set.capability_requests,
+        *change_set.action_choices,
+        *change_set.web_research_requests,
+        *change_set.codex_delegations,
+        *change_set.rejections,
+    )
+
+
 def _item_semantic(
     value: CandidateExperienceDraft
     | CandidateComponentDraft
@@ -481,6 +491,7 @@ def _item_semantic(
     | CreatorReplyDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
+    | CodexDelegationDraft
     | CandidateRejection,
 ) -> dict[str, object]:
     result: dict[str, object] = {
@@ -517,6 +528,15 @@ def _item_semantic(
                 "query_digest": value.query_digest.value,
             }
         )
+    elif isinstance(value, CodexDelegationDraft):
+        result.update(
+            {
+                "owner": "codex_delegation",
+                "task_source_id": str(value.task_source_id.value),
+                "task_manifest_digest": value.task_manifest_digest.value,
+                "validator_id": value.validator_id,
+            }
+        )
     else:
         result.update({"owner": _owner(value).value})
     return result
@@ -529,6 +549,7 @@ def _owner(
     | CreatorReplyDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
+    | CodexDelegationDraft
     | CandidateRejection,
 ) -> CandidateOwner:
     if isinstance(value, CandidateExperienceDraft):
@@ -539,6 +560,8 @@ def _owner(
         return CandidateOwner.ACTION
     if isinstance(value, WebResearchRequestDraft):
         return CandidateOwner.WEB_RESEARCH
+    if isinstance(value, CodexDelegationDraft):
+        return CandidateOwner.CODEX_DELEGATION
     return value.owner
 
 
@@ -549,6 +572,7 @@ def _implicit_fact_class(
     | CreatorReplyDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
+    | CodexDelegationDraft
     | CandidateRejection,
 ) -> CandidateFactClass:
     if isinstance(

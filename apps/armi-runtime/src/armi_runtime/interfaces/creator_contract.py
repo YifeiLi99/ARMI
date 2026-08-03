@@ -289,6 +289,11 @@ class CreatorInputRequest(_StrictWireModel):
     message: Annotated[str, Field(min_length=1, max_length=262144)]
 
 
+class CreatorCodexTaskRequest(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    objective: Annotated[str, Field(min_length=1, max_length=16384)]
+
+
 class RuntimeStatusResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     environment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -1147,6 +1152,37 @@ def build_creator_openapi() -> dict[str, object]:
         del scene_key, _request, _idempotency_key
         raise NotImplementedError
 
+    @app.post(
+        "/v1/scenes/{scene_key}/codex-tasks",
+        operation_id="acceptCreatorCodexTask",
+        status_code=202,
+        response_model=AcceptedOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def accept_creator_codex_task(
+        scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)],
+        _request: CreatorCodexTaskRequest,
+        _idempotency_key: Annotated[
+            str,
+            Header(
+                alias="Idempotency-Key",
+                pattern=_IDEMPOTENCY_KEY_PATTERN,
+                max_length=128,
+            ),
+        ],
+    ) -> AcceptedOutcomeResponse:
+        del scene_key, _request, _idempotency_key
+        raise NotImplementedError
+
     @app.get(
         "/v1/operations/{result_ref}",
         operation_id="getCreatorOperation",
@@ -1262,6 +1298,7 @@ def build_creator_openapi() -> dict[str, object]:
         decide_capability_request,
         scene_timeline,
         accept_creator_message,
+        accept_creator_codex_task,
         get_creator_operation,
         get_effect,
         get_effect_artifact,
@@ -1277,6 +1314,9 @@ def build_creator_openapi() -> dict[str, object]:
         "422", None
     )
     schema["paths"]["/v1/scenes/{scene_key}/messages"]["post"]["responses"].pop(
+        "422", None
+    )
+    schema["paths"]["/v1/scenes/{scene_key}/codex-tasks"]["post"]["responses"].pop(
         "422", None
     )
     schema["paths"]["/v1/operations/{result_ref}"]["get"]["responses"].pop("422", None)
@@ -1308,6 +1348,7 @@ __all__ = (
     "CapabilityRequestItemResponse",
     "CapabilityRequestPageResponse",
     "CompletedOutcomeResponse",
+    "CreatorCodexTaskRequest",
     "CreatorInputRequest",
     "CreatorProjectionEventResponse",
     "EffectResponse",

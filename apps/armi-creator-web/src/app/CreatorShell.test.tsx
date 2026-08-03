@@ -514,6 +514,11 @@ describe("Creator browser session shell", () => {
         accepted = true;
         return jsonResponse(acceptedOperation(), 202);
       }
+      if (url.endsWith("/codex-tasks")) {
+        const headers = new Headers(init?.headers);
+        keys.push(headers.get("Idempotency-Key") ?? "");
+        return jsonResponse(acceptedOperation(), 202);
+      }
       if (url === `/v1/operations/${OPPORTUNITY_ID}`) {
         return jsonResponse(preparedContextOperation());
       }
@@ -540,6 +545,19 @@ describe("Creator browser session shell", () => {
     expect(keys).toHaveLength(1);
     expect(keys[0]).toMatch(/^creator-input-v1\.[A-Za-z0-9_-]{22}$/);
     expect(document.body.textContent).not.toContain("保留原样");
+
+    await user.click(screen.getByRole("button", { name: "开始新输入" }));
+    await user.type(composer, "生成一份明确的 Codex 交付物");
+    await user.click(
+      screen.getByRole("button", { name: "请求 ARMI 委托 Codex" }),
+    );
+    expect(
+      await screen.findByText(
+        "Codex 委托请求已由 Runtime 耐久接纳；若 ARMI 形成正式委托，你仍须在权限区批准。",
+      ),
+    ).toBeInTheDocument();
+    expect(keys).toHaveLength(2);
+    expect(document.body.textContent).not.toContain("生成一份明确的 Codex 交付物");
   });
 
   it("retries an unconfirmed result with the exact same intent key", async () => {

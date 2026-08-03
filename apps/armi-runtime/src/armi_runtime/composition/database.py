@@ -24,7 +24,6 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
-from armi_runtime.adapters.codex.runner import IsolatedCodexRunner
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
@@ -882,7 +881,9 @@ def compose_effect_registration_pipeline(
 def compose_codex_pipeline(
     prepared: PreparedEnvironment,
     *,
+    creator_party_id: UUID,
     authority_admission: Callable[[], RuntimeFence],
+    notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CodexEffectPipeline:
     """Compose the one active S039 Codex dispatcher without exposing auth."""
@@ -930,12 +931,10 @@ def compose_codex_pipeline(
                         prepared.data_root / "artifacts",
                         max_object_bytes=config.artifacts.max_object_bytes,
                     ),
+                    environment_root=prepared.root,
                     run_root=run_root,
-                    runner=IsolatedCodexRunner(
-                        run_root=run_root,
-                        credential_port=prepared.credential_port,
-                        auth_locator=auth_locator,
-                    ),
+                    creator_party_id=creator_party_id,
+                    notifier=notifier,
                     diagnostic=diagnostic,
                 )
 

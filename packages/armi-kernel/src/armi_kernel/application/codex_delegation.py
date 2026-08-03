@@ -8,9 +8,10 @@ from enum import StrEnum
 from typing import Protocol, cast, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Digest, Instant, SubjectId, TraceId
+from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 
 from .artifacts import ArtifactId
+from .creator_input import CreatorInputAcceptance
 from .effects import EffectId
 
 _CODE = re.compile(
@@ -18,6 +19,7 @@ _CODE = re.compile(
 )
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$")
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$")
+_SCENE = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
 _VALIDATOR = re.compile(r"^codex\.[a-z0-9.-]{1,96}\.v[1-9][0-9]*$")
 
 
@@ -110,6 +112,39 @@ class CodexTaskSourceDraft:
             raise CodexDelegationViolation("CODEX-TASK-SOURCE")
         _paths(self.allowed_paths, required=True)
         _paths(self.forbidden_paths, required=False)
+
+
+@dataclass(frozen=True, slots=True)
+class CreatorCodexTaskCommand:
+    scene_key: str
+    objective: str
+    idempotency_key: IdempotencyKey
+    trace_id: TraceId
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.scene_key) is not str
+            or _SCENE.fullmatch(self.scene_key) is None
+            or type(self.objective) is not str
+            or "\x00" in self.objective
+            or not self.objective.strip()
+            or type(self.idempotency_key) is not IdempotencyKey
+            or type(self.trace_id) is not TraceId
+        ):
+            raise CodexDelegationViolation("CODEX-TASK-REQUEST")
+        try:
+            encoded = self.objective.encode("utf-8", errors="strict")
+        except UnicodeEncodeError:
+            raise CodexDelegationViolation("CODEX-TASK-REQUEST") from None
+        if len(encoded) > 16 * 1024:
+            raise CodexDelegationViolation("CODEX-TASK-REQUEST-SIZE")
+
+
+@runtime_checkable
+class CreatorCodexTaskAdmissionPort(Protocol):
+    async def accept(self, command: CreatorCodexTaskCommand) -> CreatorInputAcceptance:
+        """Accept one Creator-authored task into the isolated Codex cognition path."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,4 +306,6 @@ __all__ = (
     "CodexVerificationId",
     "CodexVerificationResult",
     "CodexVerificationStatus",
+    "CreatorCodexTaskAdmissionPort",
+    "CreatorCodexTaskCommand",
 )

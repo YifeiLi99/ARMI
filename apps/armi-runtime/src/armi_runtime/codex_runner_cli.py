@@ -12,6 +12,7 @@ from pathlib import Path
 from armi_kernel.application import CodexRunnerViolation
 
 from armi_runtime.adapters.codex.codec import decode_task, encode_result
+from armi_runtime.adapters.codex.custody_codec import encode_custodied_result
 from armi_runtime.adapters.codex.runner import IsolatedCodexRunner
 from armi_runtime.composition.configuration import ConfigurationViolation
 from armi_runtime.composition.environment import prepare_environment
@@ -21,6 +22,7 @@ from armi_runtime.composition.runtime_errors import RuntimeViolation
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="armi-codex-runner")
     parser.add_argument("--environment-root", required=True, type=Path)
+    parser.add_argument("--custodied", action="store_true")
     return parser
 
 
@@ -40,8 +42,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             credential_port=prepared.credential_port,
             auth_locator=locator,
         )
-        result = asyncio.run(runner.run(task))
-        sys.stdout.buffer.write(encode_result(result))
+        if args.custodied:
+            result, artifacts = asyncio.run(runner.run_custodied(task))
+            sys.stdout.buffer.write(encode_custodied_result(result, artifacts))
+        else:
+            result = asyncio.run(runner.run(task))
+            sys.stdout.buffer.write(encode_result(result))
         return 0 if result.validation_passed else 3
     except (CodexRunnerViolation, ConfigurationViolation, RuntimeViolation) as error:
         cleanup_error = (

@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import io
 import json
 import shutil
+import threading
+import zipfile
 from collections.abc import AsyncIterator, Callable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import rfc8785
 from armi_kernel.application import (
@@ -18,6 +23,11 @@ from armi_kernel.application import (
     ArtifactPrivacyScope,
     ArtifactRef,
     ArtifactViolation,
+    AuditDraft,
+    AuditEventId,
+    AuditReference,
+    AuditResultStatus,
+    AuditSensitivity,
     CodexCleanupStatus,
     CodexDelegationViolation,
     CodexExecutionId,
@@ -28,18 +38,32 @@ from armi_kernel.application import (
     CodexTaskSourceDraft,
     CodexTaskSourceId,
     CodexVerificationStatus,
+    CreatorCodexTaskAdmissionPort,
+    CreatorCodexTaskCommand,
+    CreatorEventResourceKind,
+    CreatorInputAcceptance,
+    CreatorProjectionInvalidation,
+    CreatorProjectionNotifier,
     LockPlan,
 )
-from armi_kernel.contracts import Digest, TraceId
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
-from armi_runtime.adapters.codex.runner import CodexRunArtifactSet, IsolatedCodexRunner
+from armi_runtime.adapters.codex.runner import CodexRunArtifactSet
+from armi_runtime.adapters.codex.subprocess_client import run_custodied_subprocess
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.codex_delegation import (
     CodexDispatchSnapshot,
     PostgreSQLCodexDelegationRepository,
 )
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
+from armi_runtime.adapters.persistence.creator_input import (
+    CreatorInputContext,
+    CreatorInputRepository,
+)
+from armi_runtime.adapters.persistence.unit_of_work import (
+    PostgreSQLUnitOfWork,
+    PostgreSQLUnitOfWorkFactory,
+)
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 Diagnostic = Callable[[str], None]
@@ -49,12 +73,38 @@ def _ignore_diagnostic(_event: str) -> None:
     return None
 
 
-class CodexTaskSourceGateway(CodexTaskSourceAdmissionPort):
-    __slots__ = ("_factory", "_repository")
+class CodexTaskSourceGateway(
+    CodexTaskSourceAdmissionPort,
+    CreatorCodexTaskAdmissionPort,
+):
+    __slots__ = (
+        "_catalog",
+        "_creator_party_id",
+        "_diagnostic",
+        "_factory",
+        "_input_repository",
+        "_notifier",
+        "_repository",
+        "_storage",
+    )
 
-    def __init__(self, factory: PostgreSQLUnitOfWorkFactory) -> None:
+    def __init__(
+        self,
+        factory: PostgreSQLUnitOfWorkFactory,
+        *,
+        storage: ContentAddressedArtifactStore,
+        creator_party_id: UUID,
+        notifier: CreatorProjectionNotifier | None,
+        diagnostic: Diagnostic,
+    ) -> None:
         self._factory = factory
+        self._storage = storage
+        self._creator_party_id = creator_party_id
+        self._notifier = notifier
+        self._diagnostic = diagnostic
         self._repository = PostgreSQLCodexDelegationRepository()
+        self._input_repository = CreatorInputRepository()
+        self._catalog = ArtifactCatalogRepository()
 
     async def admit(self, draft: CodexTaskSourceDraft) -> CodexTaskSourceId:
         if type(draft) is not CodexTaskSourceDraft:
@@ -67,16 +117,185 @@ class CodexTaskSourceGateway(CodexTaskSourceAdmissionPort):
         except DatabaseTransactionError:
             raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
 
+    async def accept(self, command: CreatorCodexTaskCommand) -> CreatorInputAcceptance:
+        if type(command) is not CreatorCodexTaskCommand:
+            raise CodexDelegationViolation("CODEX-TASK-REQUEST")
+        context = await self._context(command.scene_key)
+        objective_digest = Digest.from_bytes(command.objective.encode("utf-8"))
+        request_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                cast(
+                    Any,
+                    {
+                        "schema_version": "armi.creator-codex-task.v1",
+                        "environment_id": str(self._factory.environment_id),
+                        "subject_id": str(context.subject_id),
+                        "scene_id": str(context.scene_id),
+                        "creator_party_id": str(context.creator_party_id),
+                        "objective_digest": objective_digest.value,
+                    },
+                )
+            )
+        )
+        existing = await self._existing(command, context, request_digest)
+        if existing is not None:
+            return existing
+        task_source_id = CodexTaskSourceId(uuid7())
+        bundle, source_tree_digest = _creator_task_bundle(task_source_id)
+        manifest = _creator_task_manifest(
+            task_source_id,
+            command.objective,
+            source_tree_digest,
+        )
+        try:
+            published_bundle = await self._storage.publish(
+                await self._storage.stage(
+                    _one_chunk(bundle),
+                    ArtifactPolicy(
+                        "application/zip",
+                        "codex.task-source-bundle",
+                        "creator.codex-task",
+                        command.trace_id,
+                        ArtifactPrivacyScope.PRIVATE,
+                    ),
+                )
+            )
+            published_manifest = await self._storage.publish(
+                await self._storage.stage(
+                    _one_chunk(manifest),
+                    ArtifactPolicy(
+                        "application/json",
+                        "codex.task-source-manifest",
+                        "creator.codex-task",
+                        command.trace_id,
+                        ArtifactPrivacyScope.PRIVATE,
+                    ),
+                )
+            )
+        except ArtifactViolation, OSError:
+            raise CodexDelegationViolation("CODEX-TASK-ARTIFACT") from None
+        try:
+            async with self._factory.unit_of_work(LockPlan()) as uow:
+                current = await self._input_repository.context(
+                    uow,
+                    scene_key=command.scene_key,
+                    creator_party_id=self._creator_party_id,
+                )
+                if current != context:
+                    raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
+                existing = await self._repository.existing_creator_task(
+                    uow,
+                    context=context,
+                    idempotency_key=command.idempotency_key.value,
+                    request_digest=request_digest,
+                )
+                if existing is not None:
+                    return existing
+                bundle_registration = await self._catalog.register(
+                    uow, ArtifactId(uuid7()), published_bundle
+                )
+                manifest_registration = await self._catalog.register(
+                    uow, ArtifactId(uuid7()), published_manifest
+                )
+                for registration in (bundle_registration, manifest_registration):
+                    if registration.inserted:
+                        await uow.audit.append(
+                            _artifact_audit(uow, registration.ref, command.trace_id)
+                        )
+                acceptance = await self._repository.admit_creator_task_source(
+                    uow,
+                    context=context,
+                    idempotency_key=command.idempotency_key.value,
+                    request_digest=request_digest,
+                    draft=CodexTaskSourceDraft(
+                        task_source_id,
+                        SubjectId(context.subject_id),
+                        bundle_registration.ref.artifact_id,
+                        bundle_registration.ref.content_digest,
+                        source_tree_digest,
+                        manifest_registration.ref.artifact_id,
+                        manifest_registration.ref.content_digest,
+                        "codex.output-artifact.v1",
+                        ("result.md",),
+                        (".armi-task-id",),
+                        900,
+                        command.trace_id,
+                    ),
+                )
+        except DatabaseTransactionError as error:
+            if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
+                recovered = await self._existing(command, context, request_digest)
+                if recovered is not None:
+                    return recovered
+            self._diagnostic(f"codex.task.database_failed.{error.code}")
+            raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
+        if acceptance.newly_accepted:
+            await self._notify(command.scene_key, acceptance)
+        return acceptance
+
+    async def _context(self, scene_key: str) -> CreatorInputContext:
+        try:
+            async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
+                return await self._input_repository.context(
+                    uow,
+                    scene_key=scene_key,
+                    creator_party_id=self._creator_party_id,
+                )
+        except DatabaseTransactionError:
+            raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
+
+    async def _existing(
+        self,
+        command: CreatorCodexTaskCommand,
+        context: CreatorInputContext,
+        request_digest: Digest,
+    ) -> CreatorInputAcceptance | None:
+        try:
+            async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
+                return await self._repository.existing_creator_task(
+                    uow,
+                    context=context,
+                    idempotency_key=command.idempotency_key.value,
+                    request_digest=request_digest,
+                )
+        except DatabaseTransactionError:
+            raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
+
+    async def _notify(self, scene_key: str, acceptance: CreatorInputAcceptance) -> None:
+        if self._notifier is None:
+            self._diagnostic("codex.task.notification_unavailable")
+            return
+        now = Instant(datetime.now(UTC))
+        try:
+            await self._notifier.notify(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.SCENE_TIMELINE,
+                    scene_key,
+                    now,
+                    "scene-timeline.v3",
+                )
+            )
+            await self._notifier.notify(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.OPERATION,
+                    str(acceptance.opportunity_id),
+                    now,
+                    "creator-operation.v1",
+                )
+            )
+        except Exception:
+            self._diagnostic("codex.task.notification_failed")
+
 
 class CodexEffectPipeline:
     __slots__ = (
         "_catalog",
         "_diagnostic",
+        "_environment_root",
         "_factory",
         "_lease_owner",
         "_repository",
         "_run_root",
-        "_runner",
         "_stop",
         "_storage",
         "task_sources",
@@ -87,20 +306,28 @@ class CodexEffectPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        environment_root: Path,
         run_root: Path,
-        runner: IsolatedCodexRunner,
+        creator_party_id: UUID,
+        notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
+        self._environment_root = environment_root
         self._run_root = run_root
-        self._runner = runner
         self._repository = PostgreSQLCodexDelegationRepository()
         self._catalog = ArtifactCatalogRepository()
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
-        self.task_sources = CodexTaskSourceGateway(factory)
+        self.task_sources = CodexTaskSourceGateway(
+            factory,
+            storage=storage,
+            creator_party_id=creator_party_id,
+            notifier=notifier,
+            diagnostic=self._diagnostic,
+        )
 
     async def open(self) -> None:
         try:
@@ -135,7 +362,16 @@ class CodexEffectPipeline:
             async with self._factory.unit_of_work(LockPlan()) as uow:
                 await self._repository.mark_dispatching(uow, snapshot)
             heartbeat = asyncio.create_task(self._heartbeat(snapshot))
-            runner_task = asyncio.create_task(self._runner.run_custodied(task))
+            cancellation = threading.Event()
+            runner_task = asyncio.create_task(
+                asyncio.to_thread(
+                    run_custodied_subprocess,
+                    environment_root=self._environment_root,
+                    process_temp=self._run_root / "process-temp" / task.execution_id.value.hex,
+                    task=task,
+                    cancellation=cancellation,
+                )
+            )
             try:
                 done, _pending = await asyncio.wait(
                     {heartbeat, runner_task}, return_when=asyncio.FIRST_COMPLETED
@@ -149,9 +385,15 @@ class CodexEffectPipeline:
                 with contextlib.suppress(asyncio.CancelledError):
                     await heartbeat
                 if not runner_task.done():
-                    runner_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await runner_task
+                    cancellation.set()
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(runner_task),
+                            timeout=10,
+                        )
+                    except TimeoutError:
+                        runner_task.cancel()
+                        self._diagnostic("codex.dispatch.cancel_timeout")
                 try:
                     _cleanup_intake(self._run_root, task.execution_id)
                 except CodexDelegationViolation:
@@ -400,6 +642,78 @@ class CodexEffectPipeline:
                 execution_error_code=execution_error_code,
                 cleanup_error_code=cleanup_error_code,
             )
+
+
+def _creator_task_bundle(task_source_id: CodexTaskSourceId) -> tuple[bytes, Digest]:
+    files = {
+        ".armi-task-id": f"{task_source_id.value}\n".encode(),
+        "result.md": b"PENDING\n",
+    }
+    records = [
+        {
+            "path": path,
+            "sha256": hashlib.sha256(value).hexdigest(),
+            "bytes": len(value),
+        }
+        for path, value in sorted(files.items())
+    ]
+    output = io.BytesIO()
+    with zipfile.ZipFile(
+        output,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as archive:
+        for path, value in sorted(files.items()):
+            info = zipfile.ZipInfo(path, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100600 << 16
+            archive.writestr(info, value)
+    return output.getvalue(), Digest.from_bytes(rfc8785.dumps(cast(Any, records)))
+
+
+def _creator_task_manifest(
+    task_source_id: CodexTaskSourceId,
+    objective: str,
+    source_tree_digest: Digest,
+) -> bytes:
+    return rfc8785.dumps(
+        cast(
+            Any,
+            {
+                "schema_version": "armi.codex-task-source.v1",
+                "objective": objective,
+                "facts": [
+                    "result.md is the only Creator-visible task deliverable.",
+                    f"The stable task source identity is {task_source_id.value}.",
+                    "The workspace is isolated and has no network access.",
+                ],
+                "allowed_paths": ["result.md"],
+                "forbidden_paths": [".armi-task-id"],
+                "validator_id": "codex.output-artifact.v1",
+                "deadline_seconds": 900,
+                "source_tree_digest": source_tree_digest.value,
+            },
+        )
+    )
+
+
+def _artifact_audit(
+    uow: PostgreSQLUnitOfWork,
+    reference: ArtifactRef,
+    trace_id: TraceId,
+) -> AuditDraft:
+    return AuditDraft(
+        AuditEventId(uuid7()),
+        AuditReference("runtime", uow.environment_id),
+        Purpose("delegate_codex_work"),
+        "artifact.catalog.registered",
+        AuditReference("artifact", reference.artifact_id.value),
+        AuditResultStatus.APPLIED,
+        trace_id,
+        AuditSensitivity.PRIVATE,
+        artifact_digest=reference.content_digest,
+    )
 
 
 def _task_manifest(snapshot: CodexDispatchSnapshot, value: bytes) -> CodexTaskManifest:

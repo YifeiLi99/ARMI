@@ -83,6 +83,8 @@ from .codex_delegation import (
     CodexVerificationId,
     CodexVerificationResult,
     CodexVerificationStatus,
+    CreatorCodexTaskAdmissionPort,
+    CreatorCodexTaskCommand,
 )
 from .codex_runner import (
     CodexExecutionId,
@@ -363,6 +365,8 @@ __all__ = (
     "ContextSourceIdentity",
     "ContextTrustClass",
     "ContextViolation",
+    "CreatorCodexTaskAdmissionPort",
+    "CreatorCodexTaskCommand",
     "CreatorEventResourceKind",
     "CreatorEventViolation",
     "CreatorGrantCommand",

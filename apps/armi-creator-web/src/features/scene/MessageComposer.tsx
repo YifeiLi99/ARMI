@@ -2,15 +2,21 @@ import { useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent, CompositionEvent } from "react";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
-import { acceptCreatorMessage, ApiFailure } from "../../api/client";
+import {
+  acceptCreatorCodexTask,
+  acceptCreatorMessage,
+  ApiFailure,
+} from "../../api/client";
 import { createCreatorInputKey, validateCreatorMessage } from "./messageIntent";
 
 type SubmissionState =
   | { kind: "idle"; message?: string }
-  | { kind: "sending"; key: string }
-  | { kind: "unconfirmed"; key: string; message: string }
-  | { kind: "accepted"; operationRef: string }
+  | { kind: "sending"; key: string; mode: SubmissionMode }
+  | { kind: "unconfirmed"; key: string; mode: SubmissionMode; message: string }
+  | { kind: "accepted"; operationRef: string; mode: SubmissionMode }
   | { kind: "rejected"; message: string };
+
+type SubmissionMode = "input" | "codex";
 
 type MessageComposerProps = {
   token: string;
@@ -43,24 +49,32 @@ export function MessageComposer({
   const [state, setState] = useState<SubmissionState>({ kind: "idle" });
   const composing = useRef(false);
 
-  async function send(key?: string): Promise<void> {
+  async function send(mode: SubmissionMode, key?: string): Promise<void> {
     const validation = validateCreatorMessage(message);
     if (!validation.valid) {
       setState({ kind: "idle", message: validation.message });
       return;
     }
     const intentKey = key ?? createCreatorInputKey();
-    setState({ kind: "sending", key: intentKey });
+    setState({ kind: "sending", key: intentKey, mode });
     try {
-      const accepted = await acceptCreatorMessage(
-        token,
-        sceneKey,
-        intentKey,
-        message,
-      );
+      const accepted =
+        mode === "codex"
+          ? await acceptCreatorCodexTask(
+              token,
+              sceneKey,
+              intentKey,
+              message,
+            )
+          : await acceptCreatorMessage(
+              token,
+              sceneKey,
+              intentKey,
+              message,
+            );
       const operationRef = accepted.result_ref;
       setMessage("");
-      setState({ kind: "accepted", operationRef });
+      setState({ kind: "accepted", operationRef, mode });
       onOperationAccepted(operationRef);
       await queryClient.resetQueries({
         queryKey: timelineQueryKey,
@@ -81,6 +95,7 @@ export function MessageComposer({
       setState({
         kind: "unconfirmed",
         key: intentKey,
+        mode,
         message: "结果尚未确认。原输入与接纳身份仍保留，可安全核验同一次意图。",
       });
     }
@@ -89,7 +104,10 @@ export function MessageComposer({
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (state.kind !== "sending") {
-      void send(state.kind === "unconfirmed" ? state.key : undefined);
+      void send(
+        state.kind === "unconfirmed" ? state.mode : "input",
+        state.kind === "unconfirmed" ? state.key : undefined,
+      );
     }
   }
 
@@ -156,9 +174,19 @@ export function MessageComposer({
             </button>
           </div>
         ) : (
-          <button type="submit" disabled={locked}>
-            {state.kind === "sending" ? "正在接纳" : "提交输入"}
-          </button>
+          <div className="composer-actions">
+            <button type="submit" disabled={locked}>
+              {state.kind === "sending" ? "正在接纳" : "提交输入"}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={locked}
+              onClick={() => void send("codex")}
+            >
+              请求 ARMI 委托 Codex
+            </button>
+          </div>
         )}
         {state.kind === "idle" && state.message ? (
           <p role="status">{state.message}</p>
@@ -168,7 +196,11 @@ export function MessageComposer({
         ) : null}
         {state.kind === "accepted" ? (
           <div className="composer-recovery">
-            <p role="status">输入已由 Runtime 耐久接纳，可在下方核验责任。</p>
+            <p role="status">
+              {state.mode === "codex"
+                ? "Codex 委托请求已由 Runtime 耐久接纳；若 ARMI 形成正式委托，你仍须在权限区批准。"
+                : "输入已由 Runtime 耐久接纳，可在下方核验责任。"}
+            </p>
             <button
               type="button"
               className="secondary"

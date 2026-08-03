@@ -1,4 +1,4 @@
-"""Runner-owned validation for the only S038 conformance task."""
+"""Static runner-owned validators for isolated Codex task results."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ from pathlib import Path
 
 from armi_kernel.application import CodexRunnerViolation, CodexTaskManifest
 
-_VALIDATOR_ID = "codex.conformance.minimal-edit.v1"
+_CONFORMANCE_VALIDATOR = "codex.conformance.minimal-edit.v1"
+_OUTPUT_VALIDATOR = "codex.output-artifact.v1"
 _RESULT = b"ARMI_CODEX_CONFORMANCE_OK\n"
+_MAX_DELIVERABLE_BYTES = 1024 * 1024
 
 
 def validate_fixed_result(
@@ -15,10 +17,19 @@ def validate_fixed_result(
     task: CodexTaskManifest,
     workspace: Path,
     changed_paths: tuple[str, ...],
-) -> None:
-    """Validate the only allowed conformance file independently of model claims."""
+) -> str | None:
+    """Dispatch only to statically registered independent validators."""
 
-    if task.validator_id != _VALIDATOR_ID or changed_paths != ("result.txt",):
+    if task.validator_id == _CONFORMANCE_VALIDATOR:
+        _validate_conformance(workspace, changed_paths)
+        return None
+    if task.validator_id == _OUTPUT_VALIDATOR:
+        return _validate_output_artifact(workspace, changed_paths)
+    raise CodexRunnerViolation("CODEX-VALIDATOR")
+
+
+def _validate_conformance(workspace: Path, changed_paths: tuple[str, ...]) -> None:
+    if changed_paths != ("result.txt",):
         raise CodexRunnerViolation("CODEX-VALIDATOR")
     try:
         result = (workspace / "result.txt").read_bytes()
@@ -26,6 +37,25 @@ def validate_fixed_result(
         raise CodexRunnerViolation("CODEX-VALIDATOR") from None
     if result != _RESULT:
         raise CodexRunnerViolation("CODEX-VALIDATOR")
+
+
+def _validate_output_artifact(workspace: Path, changed_paths: tuple[str, ...]) -> str:
+    if changed_paths != ("result.md",):
+        raise CodexRunnerViolation("CODEX-VALIDATOR")
+    try:
+        value = (workspace / "result.md").read_bytes()
+        text = value.decode("utf-8", errors="strict")
+    except OSError, UnicodeDecodeError:
+        raise CodexRunnerViolation("CODEX-VALIDATOR") from None
+    if (
+        not value
+        or len(value) > _MAX_DELIVERABLE_BYTES
+        or "\x00" in text
+        or not text.strip()
+        or value == b"PENDING\n"
+    ):
+        raise CodexRunnerViolation("CODEX-VALIDATOR")
+    return text
 
 
 __all__ = ("validate_fixed_result",)

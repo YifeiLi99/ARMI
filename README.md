@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于从零重建的实验阶段，M0-S001—M0-S032 与 M0-S035—M0-S039 已完成，当前设计基线为 S001 5.3、schema v24。S039 已通过真实 `doubao-seed-evolving → capability/grant/effect → gpt-5.6-sol Codex runner → validator → evidence → 第二次认知` 闭环，并激活唯一 `M0-SEAM-CODEX=armi.codex-runner.openai-python-sdk-v1`；Codex 仍使用官方 `openai-codex==0.144.4` Python SDK、同版随包 runtime、Windows `unelevated/workspace-write`、临时认证、ephemeral thread、Job Object 和独立结果校验，不接触用户真实仓库，也不把 `workspace-write` 冒充同一 Windows 用户下的文件读取隔离，后者明确归 S045 的服务身份与 DACL。Admin MCP 保持 SDK 2.0.0、协议 `2026-07-28`、stdio 和 23 个静态工具。S033 的网页调用保管与 S034 的网页证据闭环已实现，但正式联网验收统一延至 M0 总验收，因此 `M0-SEAM-WEB.active_binding` 仍为空。唯一认知模型绑定仍是火山方舟 `doubao-seed-evolving`；Memory、Relationship 与 Activity owner 仍未激活。仓库和长期环境没有默认人格、已出生主体、活动 Runtime、真实 Creator 凭据或业务数据，且 S040—S046 尚未完成，因此还不是发布版本。
+项目目前处于从零重建的实验阶段，当前设计基线为 S001 5.4、schema v25。S039 的早期 gate 已证明内部 task source、`doubao-seed-evolving`、grant/effect、`gpt-5.6-sol` runner、validator 和第二次认知分别成立，但复核发现它没有提供 Creator 可直接使用的任务入口，且 runner 仍以固定 conformance marker 作为交付；该结论已被纠正。当前实现增加显式 Creator `codex-tasks` 接纳、一般 `result.md` validator 和含真实交付物的 result evidence，完整产品纵向 gate 通过前不再把组件拼接冒充人类可用闭环。Codex 继续使用官方 `openai-codex==0.144.4` Python SDK、同版随包 runtime、Windows `unelevated/workspace-write`、临时认证、ephemeral thread、Job Object 和独立结果校验，不接触用户真实仓库，也不把 `workspace-write` 冒充同一 Windows 用户下的文件读取隔离，后者归 S045 的服务身份与 DACL。Admin MCP 保持 SDK 2.0.0、协议 `2026-07-28`、stdio 和 23 个静态工具。S033/S034 正式联网验收仍延至 M0 总验收，`M0-SEAM-WEB.active_binding` 为空；Memory、Relationship 与 Activity owner 仍未激活，S040—S046 尚未完成，因此还不是发布版本。
 
 ## 关于学习与参考
 

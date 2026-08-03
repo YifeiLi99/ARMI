@@ -304,7 +304,9 @@ class CreatorInputRepository:
                 WHERE requested.opportunity_id = %s
                   AND requested.root_opportunity_id = requested.opportunity_id
                   AND opportunity.creator_party_id = %s
-                  AND opportunity.purpose = 'consider_creator_input'
+                  AND opportunity.purpose IN (
+                      'consider_creator_input', 'consider_codex_task'
+                  )
                   AND opportunity.eligibility_status = 'eligible'
                   AND opportunity.expires_at IS NULL
                 """,

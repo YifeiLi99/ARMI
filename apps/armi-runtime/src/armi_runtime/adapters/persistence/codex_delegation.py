@@ -24,9 +24,14 @@ from armi_kernel.application import (
     CodexTaskSourceDraft,
     CodexTaskSourceId,
     CodexVerificationStatus,
+    CreatorInputAcceptance,
+    CreatorInteractionId,
+    EvidenceId,
+    OpportunityId,
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 
+from .creator_input import CreatorInputContext
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _BINDING = "armi.codex-runner.openai-python-sdk-v1"
@@ -194,6 +199,181 @@ class PostgreSQLCodexDelegationRepository:
             )
         )
         return draft.task_source_id
+
+    async def existing_creator_task(
+        self,
+        uow: PostgreSQLUnitOfWork,
+        *,
+        context: CreatorInputContext,
+        idempotency_key: str,
+        request_digest: Digest,
+    ) -> CreatorInputAcceptance | None:
+        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                SELECT interaction.creator_interaction_id, evidence.evidence_id,
+                       opportunity.opportunity_id, interaction.request_digest,
+                       interaction.content_digest
+                FROM armi.creator_input_interactions AS interaction
+                JOIN armi.external_evidence AS evidence
+                  ON evidence.creator_interaction_id=interaction.creator_interaction_id
+                 AND evidence.source_kind='codex_task_source'
+                JOIN armi.opportunities AS opportunity
+                  ON opportunity.evidence_id=evidence.evidence_id
+                 AND opportunity.purpose='consider_codex_task'
+                WHERE interaction.creator_party_id=%s
+                  AND interaction.scene_id=%s
+                  AND interaction.purpose='codex_task_request'
+                  AND interaction.idempotency_key=%s
+                """,
+                (
+                    context.creator_party_id,
+                    context.scene_id,
+                    idempotency_key,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        if str(row[3]) != request_digest.value:
+            raise CodexDelegationViolation("CODEX-TASK-IDEMPOTENCY")
+        return CreatorInputAcceptance(
+            CreatorInteractionId(row[0]),
+            EvidenceId(row[1]),
+            OpportunityId(row[2]),
+            Digest(str(row[3])),
+            Digest(str(row[4])),
+            False,
+        )
+
+    async def admit_creator_task_source(
+        self,
+        uow: PostgreSQLUnitOfWork,
+        *,
+        context: CreatorInputContext,
+        idempotency_key: str,
+        request_digest: Digest,
+        draft: CodexTaskSourceDraft,
+    ) -> CreatorInputAcceptance:
+        existing = await self.existing_creator_task(
+            uow,
+            context=context,
+            idempotency_key=idempotency_key,
+            request_digest=request_digest,
+        )
+        if existing is not None:
+            return existing
+        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        if draft.subject_id.value != context.subject_id:
+            raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
+        await _require_artifact(
+            connection,
+            draft.source_bundle_artifact_id.value,
+            draft.source_bundle_digest,
+        )
+        await _require_artifact(
+            connection,
+            draft.manifest_artifact_id.value,
+            draft.manifest_digest,
+        )
+        await _insert_task_source(connection, draft)
+        interaction_id, evidence_id, opportunity_id, timeline_id = (
+            uuid7(),
+            uuid7(),
+            uuid7(),
+            uuid7(),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.creator_input_interactions (
+                creator_interaction_id, subject_id, scene_id, creator_party_id,
+                purpose, idempotency_key, request_digest, content_digest,
+                trace_id, schema_version
+            ) VALUES (%s,%s,%s,%s,'codex_task_request',%s,%s,%s,%s,1)
+            """,
+            (
+                interaction_id,
+                context.subject_id,
+                context.scene_id,
+                context.creator_party_id,
+                idempotency_key,
+                request_digest.value,
+                draft.manifest_digest.value,
+                draft.trace_id.value,
+            ),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.external_evidence (
+                evidence_id, creator_interaction_id, subject_id, scene_id,
+                creator_party_id, artifact_id, source_kind, trust_status,
+                privacy_scope, acceptance_status, codex_task_source_id,
+                schema_version
+            ) VALUES (%s,%s,%s,%s,%s,%s,'codex_task_source','external_claim',
+                'private','accepted',%s,1)
+            """,
+            (
+                evidence_id,
+                interaction_id,
+                context.subject_id,
+                context.scene_id,
+                context.creator_party_id,
+                draft.manifest_artifact_id.value,
+                draft.task_source_id.value,
+            ),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.opportunities (
+                opportunity_id, evidence_id, subject_id, scene_id,
+                creator_party_id, purpose, eligibility_status,
+                current_disposition, root_opportunity_id,
+                predecessor_opportunity_id, reconsideration_no, schema_version
+            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_task','eligible','open',%s,NULL,0,1)
+            """,
+            (
+                opportunity_id,
+                evidence_id,
+                context.subject_id,
+                context.scene_id,
+                context.creator_party_id,
+                opportunity_id,
+            ),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.scene_timeline_items (
+                timeline_item_id, scene_id, source_kind, source_ref,
+                source_event_no, result_status, occurred_at, schema_version
+            ) VALUES (%s,%s,'creator_input',%s,1,'accepted',statement_timestamp(),1)
+            """,
+            (timeline_id, context.scene_id, interaction_id),
+        )
+        await uow.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("creator", context.creator_party_id),
+                Purpose("delegate_codex_work"),
+                "codex.task_source.admitted",
+                AuditReference("codex_task_source", draft.task_source_id.value),
+                AuditResultStatus.ACCEPTED,
+                draft.trace_id,
+                AuditSensitivity.PRIVATE,
+                subject_id=draft.subject_id,
+                request=AuditReference("creator_input", interaction_id),
+                request_digest=request_digest,
+                artifact_digest=draft.manifest_digest,
+            )
+        )
+        return CreatorInputAcceptance(
+            CreatorInteractionId(interaction_id),
+            EvidenceId(evidence_id),
+            OpportunityId(opportunity_id),
+            request_digest,
+            draft.manifest_digest,
+            True,
+        )
 
     async def claim(
         self,
@@ -585,7 +765,11 @@ class PostgreSQLCodexDelegationRepository:
             ),
         )
         evidence_id, opportunity_id, result_source_id = uuid7(), uuid7(), uuid7()
-        evidence_ref = artifacts["result_evidence"]
+        evidence_ref = (
+            artifacts["final_result"]
+            if status is CodexVerificationStatus.VERIFIED
+            else artifacts["result_evidence"]
+        )
         await connection.execute(
             """
             INSERT INTO armi.external_evidence (
@@ -683,6 +867,40 @@ async def _require_artifact(connection: Any, artifact_id: UUID, digest: Digest) 
         or str(row[2]) != "retained"
     ):
         raise CodexDelegationViolation("CODEX-TASK-ARTIFACT")
+
+
+async def _insert_task_source(connection: Any, draft: CodexTaskSourceDraft) -> None:
+    scope_digest = Digest.from_bytes(
+        rfc8785.dumps(
+            {
+                "allowed_paths": list(draft.allowed_paths),
+                "forbidden_paths": list(draft.forbidden_paths),
+            }
+        )
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.codex_task_sources (
+            codex_task_source_id, subject_id, source_bundle_artifact_id,
+            source_bundle_digest, source_tree_digest, task_manifest_artifact_id,
+            task_manifest_digest, path_scope_digest, validator_id,
+            deadline_seconds, trace_id, schema_version
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+        """,
+        (
+            draft.task_source_id.value,
+            draft.subject_id.value,
+            draft.source_bundle_artifact_id.value,
+            draft.source_bundle_digest.value,
+            draft.source_tree_digest.value,
+            draft.manifest_artifact_id.value,
+            draft.manifest_digest.value,
+            scope_digest.value,
+            draft.validator_id,
+            draft.deadline_seconds,
+            draft.trace_id.value,
+        ),
+    )
 
 
 def _artifact(artifact_id: UUID, digest: object, tail: tuple[Any, ...]) -> ArtifactRef:

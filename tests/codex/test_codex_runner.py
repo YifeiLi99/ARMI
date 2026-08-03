@@ -9,6 +9,7 @@ import pytest
 from armi_kernel.application import (
     CodexExecutionId,
     CodexRunnerViolation,
+    CodexRunResult,
     CodexRunStatus,
     CodexTaskManifest,
     CodexUsage,
@@ -20,7 +21,11 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.codex import runner as runner_module
 from armi_runtime.adapters.codex.codec import decode_task
-from armi_runtime.adapters.codex.runner import IsolatedCodexRunner
+from armi_runtime.adapters.codex.custody_codec import (
+    decode_custodied_result,
+    encode_custodied_result,
+)
+from armi_runtime.adapters.codex.runner import CodexRunArtifactSet, IsolatedCodexRunner
 from armi_runtime.adapters.codex.sdk_codec import SdkTurnEvidence
 from armi_runtime.adapters.codex.workspace import snapshot_tree
 
@@ -92,6 +97,35 @@ def _prepare(tmp_path: Path) -> tuple[CodexTaskManifest, Path]:
     return task, run_root
 
 
+def _prepare_output_task(tmp_path: Path) -> tuple[CodexTaskManifest, Path]:
+    source = tmp_path / "output-source"
+    source.mkdir()
+    (source / ".armi-task-id").write_text("stable\n", encoding="utf-8")
+    (source / "result.md").write_text("PENDING\n", encoding="utf-8")
+    bundle = tmp_path / "output-source.zip"
+    with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.write(source / ".armi-task-id", ".armi-task-id")
+        archive.write(source / "result.md", "result.md")
+    task = CodexTaskManifest(
+        CodexExecutionId(uuid7()),
+        uuid7(),
+        uuid7(),
+        Digest.from_bytes(bundle.read_bytes()),
+        snapshot_tree(source, byte_limit=1024 * 1024).digest,
+        "Write the requested Creator deliverable.",
+        ("result.md is the only deliverable.",),
+        ("result.md",),
+        (".armi-task-id",),
+        "codex.output-artifact.v1",
+        60,
+    )
+    run_root = tmp_path / "output-runs"
+    intake = run_root / "intake" / task.execution_id.value.hex
+    intake.mkdir(parents=True)
+    bundle.rename(intake / f"{task.source_bundle_digest.value[7:]}.zip")
+    return task, run_root
+
+
 def _evidence(output: bytes) -> SdkTurnEvidence:
     transcript = b'[{"type":"commandExecution"}]'
     return SdkTurnEvidence(
@@ -101,6 +135,35 @@ def _evidence(output: bytes) -> SdkTurnEvidence:
         CodexUsage(12, 0, 4),
         (),
     )
+
+
+def test_custodied_runner_envelope_round_trips_without_paths(tmp_path: Path) -> None:
+    task, _run_root = _prepare(tmp_path)
+    result = CodexRunResult(
+        execution_id=task.execution_id,
+        status=CodexRunStatus.SUCCEEDED,
+        model_id="gpt-5.6-sol",
+        tool_digest=Digest.from_bytes(b"sdk"),
+        source_tree_digest=task.source_tree_digest,
+        final_tree_digest=Digest.from_bytes(b"tree"),
+        patch_digest=Digest.from_bytes(b"patch"),
+        output_digest=Digest.from_bytes(b"output"),
+        usage=CodexUsage(3, 1, 2),
+        modified_file_count=1,
+        validation_passed=True,
+    )
+    artifacts = CodexRunArtifactSet(
+        event_transcript=b"events",
+        final_result=b"result",
+        patch=b"patch",
+        result_bundle=b"bundle",
+        diagnostics=b"diagnostics",
+        validation_report=b"validation",
+    )
+    encoded = encode_custodied_result(result, artifacts)
+    assert decode_custodied_result(encoded) == (result, artifacts)
+    with pytest.raises(CodexRunnerViolation, match="CODEX-RESULT-FORMAT"):
+        decode_custodied_result(encoded + b"trailing")
 
 
 def test_task_codec_rejects_duplicate_keys_and_paths(tmp_path: Path) -> None:
@@ -195,6 +258,40 @@ async def test_scope_violation_fails_without_exposing_path(
         await runner.run(task)
     assert captured.value.code == "CODEX-SCOPE"
     assert "input.txt" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+async def test_output_artifact_validator_custodies_real_deliverable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task, run_root = _prepare_output_task(tmp_path)
+    deliverable = "# 交付结果\n\n这是经独立验证的任务结果。\n"
+
+    async def fake_invoke_sdk(**values):  # type: ignore[no-untyped-def]
+        (values["workspace"] / "result.md").write_text(
+            deliverable, encoding="utf-8", newline="\n"
+        )
+        output = json.dumps(
+            {
+                "summary": "created deliverable",
+                "changed_paths": ["result.md"],
+                "deliverable": deliverable,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode()
+        return _evidence(output)
+
+    monkeypatch.setattr(runner_module, "_invoke_sdk", fake_invoke_sdk)
+    runner = IsolatedCodexRunner(
+        run_root=run_root,
+        credential_port=_Credentials(),
+        auth_locator=CredentialLocator.parse("file:auth.json"),
+    )
+    result, artifacts = await runner.run_custodied(task)
+    assert result.status is CodexRunStatus.SUCCEEDED
+    assert json.loads(artifacts.final_result)["deliverable"] == deliverable
+    assert not (run_root / "private" / task.execution_id.value.hex).exists()
 
 
 @pytest.mark.asyncio

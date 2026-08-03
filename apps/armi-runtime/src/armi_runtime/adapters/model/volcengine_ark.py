@@ -7,6 +7,7 @@ import json
 import re
 from typing import Any, Protocol, cast
 
+import httpx
 import rfc8785
 from armi_kernel.application import (
     CredentialLocator,
@@ -47,7 +48,8 @@ _INSTRUCTIONS = (
     "Codex 委托必须与同一候选中的 codex.delegated-work capability request 一起提出;"
     "两者可独立成组,也可在确有原子依赖时使用同一 atomic_group。委托只能原样引用"
     "task source identity、manifest digest 和 validator。Codex capability request 的"
-    "basis_refs 必须同时包含 current_evidence、current_scene 和 capability_catalog;"
+    "basis_refs 必须同时包含当前外部证据(对于委托即 codex_task_source)、current_scene"
+    "和 capability_catalog;"
     "codex_delegation 的 basis_refs 必须同时包含 codex_task_source 和 capability_catalog。"
     "形成 capability request 或 codex_delegation 时 disposition 必须为 change,且不得同时"
     "生成 formal_no_action。consider_codex_result 中只有具备 current_evidence basis 的真实"
@@ -399,6 +401,7 @@ def _client(api_key: memoryview, binding: ModelBinding) -> AsyncOpenAI:
         base_url=binding.api_base,
         max_retries=0,
         timeout=binding.timeout_seconds,
+        http_client=httpx.AsyncClient(trust_env=False),
     )
 
 

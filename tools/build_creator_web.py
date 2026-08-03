@@ -171,6 +171,7 @@ def validate_openapi(schema: dict[str, object]) -> None:
         "/v1/capability-requests",
         "/v1/capability-requests/{capability_request_id}/decision",
         "/v1/scenes/{scene_key}/events",
+        "/v1/scenes/{scene_key}/codex-tasks",
         "/v1/scenes/{scene_key}/messages",
         "/v1/scenes/{scene_key}/timeline",
     }:
@@ -200,6 +201,7 @@ def validate_openapi(schema: dict[str, object]) -> None:
         "listCapabilityRequests",
         "decideCapabilityRequest",
         "getSceneTimeline",
+        "acceptCreatorCodexTask",
         "acceptCreatorMessage",
         "streamSceneEvents",
     }:

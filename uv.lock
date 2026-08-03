@@ -76,6 +76,7 @@ source = { editable = "apps/armi-runtime" }
 dependencies = [
     { name = "armi-kernel" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "openai" },
     { name = "openai-codex" },
     { name = "psycopg", extra = ["binary"] },
@@ -89,6 +90,7 @@ dependencies = [
 requires-dist = [
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "fastapi", specifier = "==0.140.13" },
+    { name = "httpx", specifier = "==0.28.1" },
     { name = "openai", specifier = "==2.49.0" },
     { name = "openai-codex", specifier = "==0.144.4" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },

@@ -9,6 +9,7 @@ import os
 import shutil
 import stat
 import subprocess
+import threading
 import zipfile
 from collections.abc import Callable
 from contextlib import suppress
@@ -81,7 +82,10 @@ class IsolatedCodexRunner(CodexRunnerPort):
         return result
 
     async def run_custodied(
-        self, task: CodexTaskManifest
+        self,
+        task: CodexTaskManifest,
+        *,
+        cancellation: threading.Event | None = None,
     ) -> tuple[CodexRunResult, CodexRunArtifactSet]:
         if type(task) is not CodexTaskManifest:
             raise CodexRunnerViolation("CODEX-TASK-MANIFEST")
@@ -106,16 +110,21 @@ class IsolatedCodexRunner(CodexRunnerPort):
                 platform_home=platform_home,
                 temp=temp,
                 task=task,
+                cancellation=cancellation,
             )
             if len(evidence.final_response) > task.output_limit_bytes:
                 raise CodexRunnerViolation("CODEX-OUTPUT-LIMIT")
             after = snapshot_tree(workspace, byte_limit=task.workspace_limit_bytes)
             paths = changed_paths(before, after, task)
-            validate_final_output(evidence.final_response, paths)
-            validate_fixed_result(
+            deliverable = validate_fixed_result(
                 task=task,
                 workspace=workspace,
                 changed_paths=paths,
+            )
+            validate_final_output(
+                evidence.final_response,
+                paths,
+                expected_deliverable=deliverable,
             )
             artifacts = _custody_artifacts(
                 workspace=workspace,
@@ -225,6 +234,7 @@ async def _invoke_sdk(
     platform_home: Path,
     temp: Path,
     task: CodexTaskManifest,
+    cancellation: threading.Event | None = None,
 ) -> SdkTurnEvidence:
     environment = _sdk_environment(platform_home, temp)
     config = CodexConfig(
@@ -257,16 +267,30 @@ async def _invoke_sdk(
                 approval_mode=ApprovalMode.deny_all,
                 cwd=str(workspace),
                 model=_MODEL,
-                output_schema=cast(Any, _OUTPUT_SCHEMA),
+                output_schema=cast(Any, _output_schema(task)),
                 sandbox=Sandbox.workspace_write,
             )
-            try:
-                sdk_result = await asyncio.wait_for(
-                    turn.run(), timeout=task.deadline_seconds
+            turn_task = asyncio.create_task(turn.run())
+            deadline = asyncio.get_running_loop().time() + task.deadline_seconds
+            while not turn_task.done():
+                if cancellation is not None and cancellation.is_set():
+                    await turn.interrupt()
+                    turn_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await turn_task
+                    raise CodexRunnerViolation("CODEX-CANCELLED")
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    await turn.interrupt()
+                    turn_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await turn_task
+                    raise CodexRunnerViolation("CODEX-TIMEOUT")
+                await asyncio.wait(
+                    {turn_task},
+                    timeout=min(0.25, remaining),
                 )
-            except TimeoutError:
-                await turn.interrupt()
-                raise CodexRunnerViolation("CODEX-TIMEOUT") from None
+            sdk_result = await turn_task
         return normalize_sdk_turn(sdk_result)
     except CodexRunnerViolation:
         raise
@@ -322,6 +346,24 @@ _OUTPUT_SCHEMA: dict[str, object] = {
         },
     },
 }
+
+
+def _output_schema(task: CodexTaskManifest) -> dict[str, object]:
+    if task.validator_id != "codex.output-artifact.v1":
+        return _OUTPUT_SCHEMA
+    return {
+        **_OUTPUT_SCHEMA,
+        "required": ["summary", "changed_paths", "deliverable"],
+        "properties": {
+            **cast(dict[str, object], _OUTPUT_SCHEMA["properties"]),
+            "deliverable": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1048576,
+            },
+        },
+    }
+
 
 _BASE_INSTRUCTIONS = (
     "You are a one-shot isolated code modification worker. Follow only the supplied "
@@ -423,6 +465,15 @@ def _result_bundle(workspace: Path) -> bytes:
 
 
 def _prompt(task: CodexTaskManifest) -> str:
+    task_rules = (
+        ["Only replace result.txt with ARMI_CODEX_CONFORMANCE_OK followed by LF."]
+        if task.validator_id == "codex.conformance.minimal-edit.v1"
+        else [
+            "Complete the objective and write the full deliverable to result.md.",
+            "Replace the PENDING marker and do not modify .armi-task-id.",
+            "Return the exact result.md text in the deliverable output field.",
+        ]
+    )
     value = {
         "objective": task.objective,
         "facts": list(task.facts),
@@ -430,7 +481,7 @@ def _prompt(task: CodexTaskManifest) -> str:
         "forbidden_paths": list(task.forbidden_paths),
         "rules": [
             "Make the smallest necessary change.",
-            "Only replace result.txt with ARMI_CODEX_CONFORMANCE_OK followed by LF.",
+            *task_rules,
             "Do not use network, web search, MCP, apps, skills, hooks, or credentials.",
             "Do not read or write outside the workspace.",
             "Only modify allowed_paths and never modify forbidden_paths.",

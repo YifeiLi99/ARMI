@@ -160,6 +160,30 @@ export async function acceptCreatorMessage(
   return requireJson(response);
 }
 
+export async function acceptCreatorCodexTask(
+  token: string,
+  sceneKey: string,
+  idempotencyKey: string,
+  objective: string,
+  signal?: AbortSignal,
+): Promise<AcceptedOperation> {
+  const response = await fetch(
+    `/v1/scenes/${encodeURIComponent(sceneKey)}/codex-tasks`,
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify({ contract_version: "1.0", objective }),
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
+}
+
 export async function getCreatorOperation(
   token: string,
   operationRef: string,

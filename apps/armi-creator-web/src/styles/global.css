@@ -175,6 +175,12 @@ h1 {
   align-items: center;
 }
 
+.composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 .composer-recovery p {
   flex-basis: 100%;
   margin: 0;

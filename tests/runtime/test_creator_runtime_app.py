@@ -6,6 +6,7 @@ from uuid import UUID, uuid7
 
 from armi_kernel.application import (
     CapabilityRequestStatus,
+    CreatorCodexTaskCommand,
     CreatorGrantCommand,
     CreatorGrantResult,
     CreatorInputAcceptance,
@@ -13,6 +14,7 @@ from armi_kernel.application import (
     CreatorInteractionId,
     CreatorOperation,
     CreatorOperationPhase,
+    EffectArtifactKind,
     EvidenceId,
     OpportunityId,
     SceneTimelinePage,
@@ -21,7 +23,10 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest
 from armi_runtime.composition.lifecycle import LifecycleController
 from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
-from armi_runtime.interfaces.creator_app import create_runtime_app
+from armi_runtime.interfaces.creator_app import (
+    _creator_visible_codex_artifact,
+    create_runtime_app,
+)
 from armi_runtime.interfaces.creator_contract import (
     Readiness,
     RejectedOutcomeResponse,
@@ -76,6 +81,23 @@ class _CreatorInput:
     def assert_opportunity(self, opportunity_id: OpportunityId) -> None:
         if opportunity_id != self.acceptance.opportunity_id:
             raise AssertionError("unexpected opportunity")
+
+
+class _CreatorCodexTask:
+    def __init__(self) -> None:
+        self.acceptance = CreatorInputAcceptance(
+            CreatorInteractionId(uuid7()),
+            EvidenceId(uuid7()),
+            OpportunityId(uuid7()),
+            Digest.from_bytes(b"codex-request"),
+            Digest.from_bytes(b"codex-task-manifest"),
+            True,
+        )
+        self.commands: list[CreatorCodexTaskCommand] = []
+
+    async def accept(self, command: CreatorCodexTaskCommand) -> CreatorInputAcceptance:
+        self.commands.append(command)
+        return self.acceptance
 
 
 class _CapabilityPolicy:
@@ -156,7 +178,17 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         )
         self.events = CreatorEventBroker(epoch=b"\x06" * 16)
         self.creator_input = _CreatorInput()
+        self.creator_codex_task = _CreatorCodexTask()
         self.capability_policy = _CapabilityPolicy()
+
+    def test_codex_final_result_projects_only_verified_deliverable(self) -> None:
+        content, media_type = _creator_visible_codex_artifact(
+            EffectArtifactKind.FINAL_RESULT,
+            b'{"changed_paths":["result.md"],"deliverable":"done\\n","summary":"ok"}',
+            "application/json",
+        )
+        self.assertEqual(content, b"done\n")
+        self.assertEqual(media_type, "text/plain")
 
     def _status(self) -> RuntimeStatusResponse:
         snapshot = self.lifecycle.snapshot()
@@ -190,6 +222,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             scene_timeline_query=_SceneTimelineQuery(),
             creator_events=self.events,
             creator_input=self.creator_input,
+            codex_task_admission=self.creator_codex_task,
             creator_operations=self.creator_input,
             capability_policy=self.capability_policy,
         )
@@ -444,6 +477,56 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(wrong_content_type.status_code, 400)
         self.assertEqual(invalid_utf8.status_code, 400)
         self.assertEqual(query.status_code, 400)
+
+    def test_creator_codex_task_is_explicit_authenticated_intake(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            accepted = client.post(
+                "/v1/scenes/default/codex-tasks",
+                headers={
+                    **self._browser_headers(token),
+                    "Idempotency-Key": "codex-task-1",
+                },
+                json={
+                    "contract_version": "1.0",
+                    "objective": "整理一份可核验的交付说明。",
+                },
+            )
+            blank = client.post(
+                "/v1/scenes/default/codex-tasks",
+                headers={
+                    **self._browser_headers(token),
+                    "Idempotency-Key": "codex-task-2",
+                },
+                json={"contract_version": "1.0", "objective": "  \r\n"},
+            )
+            wrong_origin = client.post(
+                "/v1/scenes/default/codex-tasks",
+                headers={
+                    **self._browser_headers(token),
+                    "Origin": "http://localhost:45678",
+                    "Idempotency-Key": "codex-task-3",
+                },
+                json={"contract_version": "1.0", "objective": "valid"},
+            )
+
+        self.assertEqual(accepted.status_code, 202)
+        self.assertEqual(accepted.json()["status"], "accepted")
+        self.assertEqual(
+            self.creator_codex_task.commands[0].objective,
+            "整理一份可核验的交付说明。",
+        )
+        self.assertEqual(blank.status_code, 400)
+        self.assertEqual(wrong_origin.status_code, 403)
 
     def test_replay_wrong_kind_and_boundary_requests_are_rejected(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

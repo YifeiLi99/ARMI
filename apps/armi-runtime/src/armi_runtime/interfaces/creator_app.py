@@ -15,6 +15,9 @@ from armi_kernel.application import (
     CapabilityDecisionId,
     CapabilityRequestId,
     CapabilityViolation,
+    CodexDelegationViolation,
+    CreatorCodexTaskAdmissionPort,
+    CreatorCodexTaskCommand,
     CreatorEventResourceKind,
     CreatorGrantCommand,
     CreatorGrantDecision,
@@ -78,6 +81,7 @@ from .creator_contract import (
     CapabilityRequestDecisionRequest,
     CapabilityRequestItemResponse,
     CapabilityRequestPageResponse,
+    CreatorCodexTaskRequest,
     CreatorInputRequest,
     EffectResponse,
     LiveResponse,
@@ -231,6 +235,41 @@ def _strict_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _creator_visible_codex_artifact(
+    kind: EffectArtifactKind,
+    content: bytes,
+    media_type: str,
+) -> tuple[bytes, str]:
+    """Project the verified final result as the Creator's actual deliverable."""
+
+    if kind is not EffectArtifactKind.FINAL_RESULT:
+        content.decode("utf-8", errors="strict")
+        return content, media_type
+    try:
+        value = json.loads(
+            content.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite JSON")
+            ),
+        )
+        if type(value) is not dict or set(value) != {
+            "summary",
+            "changed_paths",
+            "deliverable",
+        }:
+            raise ValueError
+        deliverable = value["deliverable"]
+        if type(deliverable) is not str or not deliverable.strip():
+            raise ValueError
+        projected = deliverable.encode("utf-8", errors="strict")
+        if len(projected) > 1024 * 1024:
+            raise ValueError
+        return projected, "text/plain"
+    except UnicodeDecodeError, UnicodeEncodeError, ValueError:
+        raise EffectViolation("EFFECT-ARTIFACT-INTEGRITY") from None
+
+
 async def _session_request(request: Request, maximum_bytes: int) -> str:
     if request.headers.get("content-type") != "application/json":
         raise BrowserSessionViolation("INPUT_CONTENT_TYPE", status_code=400)
@@ -285,6 +324,28 @@ async def _creator_input_request(
         return CreatorInputRequest.model_validate(value)
     except UnicodeDecodeError, ValueError, ValidationError:
         raise CreatorInputViolation("INPUT-BODY") from None
+
+
+async def _creator_codex_task_request(
+    request: Request,
+    maximum_bytes: int,
+) -> CreatorCodexTaskRequest:
+    if request.headers.get("content-type") != "application/json":
+        raise CodexDelegationViolation("CODEX-TASK-REQUEST")
+    body = await request.body()
+    if not body or len(body) > min(maximum_bytes, 20 * 1024):
+        raise CodexDelegationViolation("CODEX-TASK-REQUEST-SIZE")
+    try:
+        value = json.loads(
+            body.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite JSON")
+            ),
+        )
+        return CreatorCodexTaskRequest.model_validate(value)
+    except UnicodeDecodeError, ValueError, ValidationError:
+        raise CodexDelegationViolation("CODEX-TASK-REQUEST") from None
 
 
 async def _capability_decision_request(
@@ -727,6 +788,7 @@ def create_runtime_app(
     subject_summary: SubjectSummaryProvider | None = None,
     capability_policy: CapabilityPolicyPort | None = None,
     effect_ledger: EffectLedgerPort | None = None,
+    codex_task_admission: CreatorCodexTaskAdmissionPort | None = None,
     on_security_event: SecurityEvent | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
@@ -1421,6 +1483,79 @@ def create_runtime_app(
 
     del accept_creator_message
 
+    @app.post("/v1/scenes/{scene_key}/codex-tasks")
+    async def accept_creator_codex_task(
+        scene_key: str,
+        request: Request,
+    ) -> JSONResponse:
+        if browser_sessions is None or codex_task_admission is None:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_CODEX_TASK_UNAVAILABLE"),
+            )
+        if not _browser_boundary(request, canonical_origin=canonical_origin):
+            return JSONResponse(
+                status_code=403,
+                content=_rejected("AUTH_BROWSER_BOUNDARY"),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            metadata = browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        if scene_key != metadata.default_scene_key:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+            )
+        idempotency_value = _single_header(request, b"idempotency-key")
+        if idempotency_value is None:
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_IDEMPOTENCY_KEY"),
+            )
+        try:
+            model = await _creator_codex_task_request(request, request_body_max_bytes)
+            acceptance = await codex_task_admission.accept(
+                CreatorCodexTaskCommand(
+                    scene_key,
+                    model.objective,
+                    IdempotencyKey(idempotency_value),
+                    TraceId(secrets.token_hex(16)),
+                )
+            )
+        except (ContractViolation, CodexDelegationViolation) as error:
+            if isinstance(error, ContractViolation):
+                status, content = 400, _rejected("INPUT_IDEMPOTENCY_KEY")
+                emit("creator.codex_task.rejected")
+                return JSONResponse(status_code=status, content=content)
+            code = getattr(error, "code", "CODEX-TASK-REQUEST")
+            if code == "CODEX-TASK-IDEMPOTENCY":
+                status, content = 409, _rejected("IDEMPOTENCY_MISMATCH")
+            elif code == "CODEX-TASK-REQUEST-SIZE":
+                status, content = 413, _rejected("INPUT_MESSAGE_TOO_LARGE")
+            elif code == "CODEX-TASK-REQUEST":
+                status, content = 400, _rejected("INPUT_MESSAGE_INVALID")
+            elif code == "CODEX-TASK-SUBJECT":
+                status, content = 404, _rejected("SCOPE_SCENE_NOT_VISIBLE")
+            else:
+                status, content = 503, _unavailable("DEPENDENCY_CODEX_TASK_UNAVAILABLE")
+            emit("creator.codex_task.rejected")
+            return JSONResponse(status_code=status, content=content)
+        emit(
+            "creator.codex_task.accepted"
+            if acceptance.newly_accepted
+            else "creator.codex_task.idempotent"
+        )
+        return JSONResponse(status_code=202, content=_accepted_wire(acceptance))
+
+    del accept_creator_codex_task
+
     @app.get("/v1/operations/{result_ref}")
     async def get_creator_operation(
         result_ref: str,
@@ -1586,7 +1721,11 @@ def create_runtime_app(
                 creator_party_id=metadata.creator_party_id,
                 kind=kind,
             )
-            artifact.content.decode("utf-8", errors="strict")
+            content, media_type = _creator_visible_codex_artifact(
+                kind,
+                artifact.content,
+                artifact.media_type,
+            )
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code, content=_rejected(error.code)
@@ -1608,7 +1747,7 @@ def create_runtime_app(
             return JSONResponse(
                 status_code=404, content=_rejected("SCOPE_EFFECT_NOT_VISIBLE")
             )
-        return Response(content=artifact.content, media_type=artifact.media_type)
+        return Response(content=content, media_type=media_type)
 
     del get_effect_artifact
 

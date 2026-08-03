@@ -11,17 +11,13 @@ from armi_kernel.application import CodexRunnerViolation, CodexUsage
 from armi_kernel.contracts import Digest
 from openai_codex import TurnResult
 
-_FORBIDDEN_ITEMS = frozenset(
-    {
-        "mcpToolCall",
-        "dynamicToolCall",
-        "collabAgentToolCall",
-        "subAgentActivity",
-        "webSearch",
-        "imageView",
-        "imageGeneration",
-    }
-)
+_FORBIDDEN_ITEM_CODES = {
+    "mcpToolCall": "CODEX-TOOL-POLICY-MCP",
+    "dynamicToolCall": "CODEX-TOOL-POLICY-DYNAMIC",
+    "webSearch": "CODEX-TOOL-POLICY-WEB",
+    "imageView": "CODEX-TOOL-POLICY-IMAGE",
+    "imageGeneration": "CODEX-TOOL-POLICY-IMAGE",
+}
 _MAX_ITEM_BYTES = 1024 * 1024
 _MAX_TRANSCRIPT_BYTES = 100 * 1024 * 1024
 
@@ -68,8 +64,9 @@ def normalize_sdk_turn(result: TurnResult) -> SdkTurnEvidence:
         item_type = getattr(root, "type", None)
         if type(item_type) is not str:
             raise CodexRunnerViolation("CODEX-SDK-EVENT")
-        if item_type in _FORBIDDEN_ITEMS:
-            raise CodexRunnerViolation("CODEX-TOOL-POLICY")
+        policy_code = _FORBIDDEN_ITEM_CODES.get(item_type)
+        if policy_code is not None:
+            raise CodexRunnerViolation(policy_code)
         item_id = getattr(root, "id", None)
         if type(item_id) is not str or not item_id:
             raise CodexRunnerViolation("CODEX-SDK-EVENT")
@@ -117,7 +114,12 @@ def normalize_sdk_turn(result: TurnResult) -> SdkTurnEvidence:
     )
 
 
-def validate_final_output(value: bytes, changed_paths: tuple[str, ...]) -> None:
+def validate_final_output(
+    value: bytes,
+    changed_paths: tuple[str, ...],
+    *,
+    expected_deliverable: str | None = None,
+) -> None:
     try:
         parsed = cast(object, json.loads(value.decode("utf-8")))
     except UnicodeDecodeError, ValueError:
@@ -125,16 +127,22 @@ def validate_final_output(value: bytes, changed_paths: tuple[str, ...]) -> None:
     if type(parsed) is not dict:
         raise CodexRunnerViolation("CODEX-FINAL-OUTPUT")
     data = cast(dict[str, object], parsed)
-    if frozenset(data) != frozenset({"summary", "changed_paths"}):
+    expected_keys = {"summary", "changed_paths"}
+    if expected_deliverable is not None:
+        expected_keys.add("deliverable")
+    if frozenset(data) != frozenset(expected_keys):
         raise CodexRunnerViolation("CODEX-FINAL-OUTPUT")
     summary = data.get("summary")
     paths = data.get("changed_paths")
+    deliverable = data.get("deliverable")
     if (
         type(summary) is not str
         or not summary.strip()
         or len(summary.encode("utf-8")) > 4096
         or type(paths) is not list
     ):
+        raise CodexRunnerViolation("CODEX-FINAL-OUTPUT")
+    if expected_deliverable is not None and deliverable != expected_deliverable:
         raise CodexRunnerViolation("CODEX-FINAL-OUTPUT")
     path_values = cast(list[object], paths)
     if (

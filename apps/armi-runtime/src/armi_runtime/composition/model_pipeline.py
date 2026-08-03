@@ -404,6 +404,8 @@ class ModelPipeline:
         snapshot: object,
         error: ModelViolation,
     ) -> None:
+        safe_code = error.code.lower().replace("-", "_")
+        self._diagnostic(f"model.preparation.failed.{safe_code}")
         if not isinstance(snapshot, ModelEpisodeSnapshot):
             self._diagnostic("model.preparation.deferred")
             return

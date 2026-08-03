@@ -60,6 +60,7 @@ from armi_kernel.application import (
     CapabilityViolation,
     CasStatus,
     CodexDelegatedWorkScope,
+    CreatorCodexTaskCommand,
     CreatorGrantCommand,
     CreatorGrantDecision,
     CreatorReplyDraft,
@@ -177,6 +178,7 @@ from armi_runtime.composition.candidate_validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
+from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.model_contract import (
     build_request_bytes,
@@ -370,7 +372,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {24})
+        self.assertEqual({result.applied_version for result in results}, {25})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -412,6 +414,127 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
+
+    def test_creator_codex_task_intake_is_atomic_and_idempotent(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        creator_party_id = _uuid7()
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="约 16 岁少女口吻",
+            traits=("审慎",),
+        )
+        anchor_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                {
+                    "schema_version": anchor.schema_version,
+                    "voice_style": anchor.voice_style,
+                    "traits": list(anchor.traits),
+                }
+            )
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=creator_party_id,
+            idempotency_key="s039-creator-codex-intake-birth",
+            personality_anchor=anchor,
+            personality_anchor_digest=anchor_digest,
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            schema_manifest_digest=packaged["schema_manifest_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"s039-creator-codex-intake-birth"),
+        )
+
+        async def reject_unexpected_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("Creator Codex intake uses no dynamic lock target")
+
+        async def exercise(root: Path) -> tuple[object, object, object]:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_unexpected_lock,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            storage = ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024)
+            await factory.open()
+            await storage.prepare()
+            try:
+                await BirthTransaction(
+                    storage,
+                    ArtifactCatalogRepository(),
+                    BirthRepository(),
+                    factory,
+                ).birth(manifest)
+                gateway = CodexTaskSourceGateway(
+                    factory,
+                    storage=storage,
+                    creator_party_id=creator_party_id,
+                    notifier=None,
+                    diagnostic=lambda _event: None,
+                )
+                command = CreatorCodexTaskCommand(
+                    "default",
+                    "生成一份经验证的交付说明。",
+                    IdempotencyKey("s039-creator-codex-task"),
+                    TraceId("6" * 32),
+                )
+                first = await gateway.accept(command)
+                repeated = await gateway.accept(command)
+                with self.assertRaisesRegex(RuntimeError, "CODEX-TASK-IDEMPOTENCY"):
+                    await gateway.accept(
+                        CreatorCodexTaskCommand(
+                            "default",
+                            "同一身份下的冲突目标。",
+                            command.idempotency_key,
+                            TraceId("7" * 32),
+                        )
+                    )
+                return first, repeated, command
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            first, repeated, _command = asyncio.run(
+                exercise(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+        self.assertTrue(first.newly_accepted)
+        self.assertFalse(repeated.newly_accepted)
+        self.assertEqual(first.opportunity_id, repeated.opportunity_id)
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT count(*) FROM armi.creator_input_interactions
+                     WHERE purpose='codex_task_request'),
+                    (SELECT count(*) FROM armi.codex_task_sources),
+                    (SELECT count(*) FROM armi.external_evidence
+                     WHERE source_kind='codex_task_source'
+                       AND creator_interaction_id IS NOT NULL),
+                    (SELECT count(*) FROM armi.opportunities
+                     WHERE purpose='consider_codex_task'),
+                    (SELECT count(*) FROM armi.scene_timeline_items
+                     WHERE source_kind='creator_input')
+                """
+            ).fetchone()
+        self.assertEqual(counts, (1, 1, 1, 1, 1))
 
     def test_admin_mcp_health_and_schema_status_use_only_admin_identity(self) -> None:
         fixture = self.create_database()
@@ -472,7 +595,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 24)
+        self.assertEqual(status.result.applied_version, 25)
 
         for denied_dsn in (fixture.runtime_dsn, fixture.migrator_dsn):
             denied = service_for(denied_dsn).health(HealthRequest())
@@ -668,7 +791,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT max(version) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (24,),
+                    (25,),
                 )
             recovery = list(
                 (experiment_root / ".armi-admin-recovery").glob(
@@ -1534,7 +1657,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 24)
+        self.assertEqual(result.applied_version, 25)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -1596,7 +1719,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 24)
+        self.assertEqual(result.applied_version, 25)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -1715,7 +1838,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (24,),
+                    (25,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -2316,13 +2439,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 24)
+        self.assertEqual(backfilled.applied_version, 25)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(

@@ -111,6 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             CREATOR_CURSOR_PURPOSE: CREATOR_BEARER_LOCATOR,
             "model.request": "model.ark_api_key",
             "web.search": "model.ark_api_key",
+            "codex.runner.auth": "codex.auth_json",
         }
     try:
         prepared = prepare_environment(

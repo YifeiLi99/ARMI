@@ -645,7 +645,8 @@ def _capability_failure(
     ):
         return "CANDIDATE-CAPABILITY-SCENE-BASIS"
     if not any(
-        basis.item_kind == "current_evidence" and basis.trust_class == "external_claim"
+        basis.item_kind in {"current_evidence", "codex_task_source"}
+        and basis.trust_class == "external_claim"
         for basis in bases
     ):
         return "CANDIDATE-CAPABILITY-EVIDENCE-BASIS"
