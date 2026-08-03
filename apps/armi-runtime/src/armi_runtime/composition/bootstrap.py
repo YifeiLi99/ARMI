@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import selectors
 
 from armi_kernel.application import (
     BirthResult,
@@ -36,7 +37,10 @@ def execute_birth(prepared: PreparedEnvironment) -> BirthResult:
                 except UnicodeDecodeError:
                     raise BirthViolation("BIRTH-DATABASE") from None
                 return asyncio.run(
-                    execute_birth_with_conninfo(prepared, manifest, conninfo)
+                    execute_birth_with_conninfo(prepared, manifest, conninfo),
+                    loop_factory=lambda: asyncio.SelectorEventLoop(
+                        selectors.SelectSelector()
+                    ),
                 )
 
             return handle.consume(invoke)

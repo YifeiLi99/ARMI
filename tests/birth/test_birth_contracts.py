@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import selectors
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import rfc8785
@@ -17,6 +22,7 @@ from armi_runtime.composition.birth_manifest import (
     load_birth_manifest,
     packaged_birth_digests,
 )
+from armi_runtime.composition.bootstrap import execute_birth
 
 ENVIRONMENT_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 BIRTH_REQUEST_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234568")
@@ -54,6 +60,62 @@ def write_manifest(root: Path, value: dict[str, object]) -> None:
 
 
 class BirthContractTests(unittest.TestCase):
+    def test_birth_uses_psycopg_compatible_selector_loop(self) -> None:
+        result = BirthResult(
+            BIRTH_REQUEST_ID,
+            CREATOR_PARTY_ID,
+            ENVIRONMENT_ID,
+            Digest.from_bytes(b"request"),
+            True,
+        )
+
+        class Handle:
+            def __enter__(self) -> Handle:
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def consume(
+                self, operation: Callable[[memoryview], BirthResult]
+            ) -> BirthResult:
+                return operation(memoryview(b"postgresql://redacted"))
+
+        prepared = SimpleNamespace(
+            root=Path("C:/acceptance"),
+            effective=SimpleNamespace(
+                config=SimpleNamespace(
+                    environment=SimpleNamespace(environment_id=ENVIRONMENT_ID),
+                    secret_locators={"database.runtime": object()},
+                )
+            ),
+            credential_port=SimpleNamespace(resolve=lambda *_args: Handle()),
+        )
+        invocation = AsyncMock()
+        with (
+            patch(
+                "armi_runtime.composition.bootstrap.load_birth_manifest",
+                return_value=object(),
+            ),
+            patch(
+                "armi_runtime.composition.bootstrap.execute_birth_with_conninfo",
+                invocation,
+            ),
+            patch(
+                "armi_runtime.composition.bootstrap.asyncio.run", return_value=result
+            ) as run,
+        ):
+            self.assertIs(execute_birth(prepared), result)  # type: ignore[arg-type]
+
+        coroutine = run.call_args.args[0]
+        coroutine.close()
+        loop = run.call_args.kwargs["loop_factory"]()
+        try:
+            self.assertIsInstance(loop, asyncio.SelectorEventLoop)
+            self.assertIsInstance(loop._selector, selectors.SelectSelector)
+        finally:
+            loop.close()
+
     def test_private_manifest_loads_and_binds_all_package_digests(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
