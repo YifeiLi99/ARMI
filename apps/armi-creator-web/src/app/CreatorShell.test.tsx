@@ -109,7 +109,7 @@ function preparedContextOperation(): object {
 function capabilityPageResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "capability-request.v2",
+    projection_version: "capability-request.v3",
     items: [],
   };
 }

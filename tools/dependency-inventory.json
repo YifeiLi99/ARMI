@@ -535,6 +535,40 @@
           "license": "Apache-2.0"
         },
         {
+          "name": "openai-codex",
+          "version": "0.144.4",
+          "direct": false,
+          "internal": false,
+          "source": {
+            "registry": "https://pypi.org/simple"
+          },
+          "integrity": [
+            "sha256:91c63a7cb213441569f130e593386b34657ab9e726ae88af255f0ecb8de08ea5",
+            "sha256:de1513a6e94b9a8d7728a3b74298bc1469428ade10ba0ef2d5db47dd1cb606f5"
+          ],
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "openai-codex-cli-bin",
+          "version": "0.144.4",
+          "direct": false,
+          "internal": false,
+          "source": {
+            "registry": "https://pypi.org/simple"
+          },
+          "integrity": [
+            "sha256:05db505a9c7f020f58b70837a94e00d32a50086986c267bcc44ea97b573d4a05",
+            "sha256:2ad01058db7181323ae7c6217e560702e38c4f107595b99ab1d0abc9f184890a",
+            "sha256:4106229c38f37245c3eea8d904426afd45b8bf19831765715647f5402f757c06",
+            "sha256:4d587d152d5f0aa25f21ded4d08aac5150da48639b29fc3e57b2a8b413d06903",
+            "sha256:56e142974467332f1f669b89f2636e06b3ada09413512abb2f24c33b4a4f59fc",
+            "sha256:70fb62ed7755e332dd8b00ed48e22ee16df10f4a977335039e237cd330490df3",
+            "sha256:cd4bb31b8a477a3adba22139c8c493693fa5292ba21e86eef08ace3e96c41294",
+            "sha256:d2d3fada11731938e3d3e3660819d5324b7f92e825a0ed5aede63100b36ffc9a"
+          ],
+          "license": "Apache-2.0"
+        },
+        {
           "name": "opentelemetry-api",
           "version": "1.44.0",
           "direct": false,
@@ -1101,6 +1135,10 @@
         },
         {
           "from": "armi-runtime@0.0.0",
+          "to": "openai-codex"
+        },
+        {
+          "from": "armi-runtime@0.0.0",
           "to": "psycopg"
         },
         {
@@ -1286,6 +1324,14 @@
         {
           "from": "mcp@2.0.0",
           "to": "uvicorn"
+        },
+        {
+          "from": "openai-codex@0.144.4",
+          "to": "openai-codex-cli-bin"
+        },
+        {
+          "from": "openai-codex@0.144.4",
+          "to": "pydantic"
         },
         {
           "from": "openai@2.49.0",
@@ -4736,5 +4782,5 @@
     }
   },
   "unresolved_licenses": [],
-  "graph_sha256": "6cfdc94908b518bdd882147ed1cc1876760fc4d208ec4efead48b8635e2b5c52"
+  "graph_sha256": "4f96aee2bbdc2e7faf11ebe2a9816874bd591cdd116e95881b13e43f2e468374"
 }

@@ -6,6 +6,7 @@ dependencies = [
     "armi-kernel==0.0.0",
     "fastapi==0.140.13",
     "openai==2.49.0",
+    "openai-codex==0.144.4",
     "psycopg[binary]==3.3.4",
     "psycopg-pool==3.3.1",
     "pydantic==2.13.4",
@@ -15,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 armi = "armi_runtime.cli:main"
+armi-codex-runner = "armi_runtime.codex_runner_cli:main"
 
 [tool.uv.sources]
 armi-kernel = { workspace = true }

@@ -450,7 +450,50 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "capability-request.v2";
+      projection_version: "capability-request.v3";
+    };
+    /** CodexEffectiveGrantResponse */
+    CodexEffectiveGrantResponse: {
+      /**
+       * Artifact Scope
+       * @constant
+       */
+      artifact_scope: "explicit_only";
+      /** Consumed Uses */
+      consumed_uses: number;
+      /** Grant Ref */
+      grant_ref: string;
+      /**
+       * Max Uses
+       * @constant
+       */
+      max_uses: 1;
+      /**
+       * Network Access
+       * @constant
+       */
+      network_access: false;
+      /** Remaining Uses */
+      remaining_uses: number;
+      /**
+       * Scope Kind
+       * @constant
+       */
+      scope_kind: "codex_delegated_work";
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "active" | "revoked" | "expired";
+      /** Valid From */
+      valid_from: string;
+      /** Valid Until */
+      valid_until: string;
+      /**
+       * Workspace Scope
+       * @constant
+       */
+      workspace_scope: "isolated_ephemeral";
     };
     /** CreatorInputAcceptanceDetails */
     CreatorInputAcceptanceDetails: {
@@ -535,7 +578,7 @@ export interface components {
        */
       projection_version:
         | "scene-timeline.v3"
-        | "capability-request.v2"
+        | "capability-request.v3"
         | "creator-operation.v1"
         | "creator-effect.v1"
         | "subject-summary.v1";
@@ -551,6 +594,33 @@ export interface components {
         | "subject_summary";
       /** Resource Ref */
       resource_ref: string;
+    };
+    /** CreatorReplyEffectiveGrantResponse */
+    CreatorReplyEffectiveGrantResponse: {
+      /** Consumed Uses */
+      consumed_uses: number;
+      /** Grant Ref */
+      grant_ref: string;
+      /** Max Payload Bytes */
+      max_payload_bytes: number;
+      /** Max Uses */
+      max_uses: number;
+      /** Remaining Uses */
+      remaining_uses: number;
+      /**
+       * Scope Kind
+       * @constant
+       */
+      scope_kind: "creator_scene_reply";
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "active" | "revoked" | "expired";
+      /** Valid From */
+      valid_from: string;
+      /** Valid Until */
+      valid_until: string;
     };
     /** EffectResponse */
     EffectResponse: {
@@ -608,28 +678,9 @@ export interface components {
       verification_status:
         "not_started" | "pending" | "verified" | "inconclusive";
     };
-    /** EffectiveGrantResponse */
-    EffectiveGrantResponse: {
-      /** Consumed Uses */
-      consumed_uses: number;
-      /** Grant Ref */
-      grant_ref: string;
-      /** Max Payload Bytes */
-      max_payload_bytes: number;
-      /** Max Uses */
-      max_uses: number;
-      /** Remaining Uses */
-      remaining_uses: number;
-      /**
-       * Status
-       * @enum {string}
-       */
-      status: "active" | "revoked" | "expired";
-      /** Valid From */
-      valid_from: string;
-      /** Valid Until */
-      valid_until: string;
-    };
+    EffectiveGrantResponse:
+      | components["schemas"]["CreatorReplyEffectiveGrantResponse"]
+      | components["schemas"]["CodexEffectiveGrantResponse"];
     /** @enum {string} */
     ErrorCategoryValue:
       | "input"

@@ -59,6 +59,7 @@ from armi_kernel.application import (
     CapabilityRequestStatus,
     CapabilityViolation,
     CasStatus,
+    CodexDelegatedWorkScope,
     CreatorGrantCommand,
     CreatorGrantDecision,
     CreatorReplyDraft,
@@ -369,7 +370,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {22})
+        self.assertEqual({result.applied_version for result in results}, {23})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -471,7 +472,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 22)
+        self.assertEqual(status.result.applied_version, 23)
 
         for denied_dsn in (fixture.runtime_dsn, fixture.migrator_dsn):
             denied = service_for(denied_dsn).health(HealthRequest())
@@ -667,7 +668,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT max(version) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (22,),
+                    (23,),
                 )
             recovery = list(
                 (experiment_root / ".armi-admin-recovery").glob(
@@ -1533,7 +1534,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 22)
+        self.assertEqual(result.applied_version, 23)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -1595,7 +1596,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 22)
+        self.assertEqual(result.applied_version, 23)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -1655,7 +1656,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(23,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(24,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -1714,7 +1715,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (22,),
+                    (23,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -2309,13 +2310,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 22)
+        self.assertEqual(backfilled.applied_version, 23)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
@@ -3658,6 +3659,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             assert initial_request is not None
             initial_request_id = initial_request[0]
             expiry_request_id = _uuid7()
+            codex_request_id = _uuid7()
             connection.execute(
                 """
                 INSERT INTO armi.capability_requests (
@@ -3695,6 +3697,45 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """,
                 (expiry_request_id, initial_request_id),
             )
+            connection.execute(
+                """
+                INSERT INTO armi.capability_requests (
+                    capability_request_id, subject_commit_id, proposal_ref,
+                    subject_id, interaction_scene_id, creator_party_id,
+                    capability_id, capability_kind, operation_class,
+                    audience_scope, data_scope, purpose, workspace_scope,
+                    artifact_scope, network_access, requested_valid_for_seconds,
+                    requested_max_uses, requested_max_payload_bytes,
+                    request_digest, schema_version
+                )
+                SELECT %s, request.subject_commit_id, 'proposal:4',
+                       request.subject_id, request.interaction_scene_id,
+                       request.creator_party_id, capability.capability_id,
+                       'codex.delegated-work', 'execute', NULL, NULL,
+                       'delegate_codex_work', 'isolated_ephemeral',
+                       'explicit_only', false, 600, 1, NULL, %s, 1
+                FROM armi.capability_requests AS request
+                JOIN armi.capabilities AS capability
+                  ON capability.capability_kind = 'codex.delegated-work'
+                WHERE request.capability_request_id = %s
+                """,
+                (
+                    codex_request_id,
+                    Digest.from_bytes(b"s038-codex-request").value,
+                    initial_request_id,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.capability_request_basis_links (
+                    capability_request_id, context_item_id, ordinal
+                )
+                SELECT %s, context_item_id, ordinal
+                FROM armi.capability_request_basis_links
+                WHERE capability_request_id = %s
+                """,
+                (codex_request_id, initial_request_id),
+            )
 
         requested_scope = change_set.capability_requests[0].scope
         self.assertIsInstance(requested_scope, CreatorSceneReplyScope)
@@ -3722,7 +3763,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             or limited_payload_bytes is not None
         )
 
-        async def exercise_policy() -> tuple[str, int, str, str, int, int, str]:
+        async def exercise_policy() -> tuple[
+            str, int, str, str, int, int, str, str, str
+        ]:
             policy = PostgreSQLCreatorGrantPolicy(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -3741,7 +3784,37 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     cursor=None,
                 )
                 items = cast(list[dict[str, object]], page["items"])
-                self.assertEqual(len(items), 2)
+                self.assertEqual(len(items), 3)
+                codex_item = next(
+                    item
+                    for item in items
+                    if item["capability_request_id"] == str(codex_request_id)
+                )
+                self.assertEqual(codex_item["capability_availability"], "available")
+                self.assertEqual(codex_item["workspace_scope"], "isolated_ephemeral")
+                codex_granted = await policy.decide(
+                    CreatorGrantCommand(
+                        CapabilityDecisionId(_uuid7()),
+                        CapabilityRequestId(codex_request_id),
+                        1,
+                        CreatorGrantDecision.GRANT,
+                        reason_code="POLICY-CODEX-GRANTED",
+                    )
+                )
+                self.assertIsNotNone(codex_granted.grant)
+                assert codex_granted.grant is not None
+                self.assertIsInstance(
+                    codex_granted.grant.scope, CodexDelegatedWorkScope
+                )
+                codex_revoked = await policy.decide(
+                    CreatorGrantCommand(
+                        CapabilityDecisionId(_uuid7()),
+                        CapabilityRequestId(codex_request_id),
+                        2,
+                        CreatorGrantDecision.REVOKE,
+                        reason_code="POLICY-CODEX-REVOKED",
+                    )
+                )
                 request_id = CapabilityRequestId(initial_request_id)
                 command = CreatorGrantCommand(
                     CapabilityDecisionId(_uuid7()),
@@ -3926,6 +3999,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     revoked.request_version,
                     expired_count,
                     expired_status,
+                    codex_granted.status.value,
+                    codex_revoked.status.value,
                 )
             finally:
                 await policy.close()
@@ -3946,6 +4021,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 3,
                 1,
                 CapabilityRequestStatus.EXPIRED.value,
+                CapabilityRequestStatus.GRANTED.value,
+                CapabilityRequestStatus.REVOKED.value,
             ),
         )
         with psycopg.connect(fixture.provisioner_dsn) as connection:

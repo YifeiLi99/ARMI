@@ -24,6 +24,7 @@ from armi_kernel.application import (
     CapabilityRequestId,
     CapabilityRequestStatus,
     CapabilityViolation,
+    CodexDelegatedWorkScope,
     CreatorEventResourceKind,
     CreatorEventViolation,
     CreatorGrantCommand,
@@ -77,7 +78,7 @@ class PostgreSQLCreatorGrantPolicy:
         if type(cursor_key) is not bytes or len(cursor_key) < 32:
             raise CapabilityViolation("POLICY-CURSOR-KEY")
         self._cursor_key = hmac.new(
-            cursor_key, b"armi.creator.capability-request.cursor-key.v1", hashlib.sha256
+            cursor_key, b"armi.creator.capability-request.cursor-key.v3", hashlib.sha256
         ).digest()
         self._environment_id = environment_id
         self._notifier = notifier
@@ -155,7 +156,10 @@ class PostgreSQLCreatorGrantPolicy:
                            END,
                            permission.valid_from, permission.valid_until,
                            permission.max_uses, permission.consumed_uses,
-                           permission.max_payload_bytes
+                           permission.max_payload_bytes,
+                           permission.workspace_scope,
+                           permission.artifact_scope,
+                           permission.network_access
                     FROM armi.capability_requests AS request
                     JOIN armi.capabilities AS capability
                       ON capability.capability_id = request.capability_id
@@ -207,16 +211,33 @@ class PostgreSQLCreatorGrantPolicy:
                 "capability_availability": str(row[18]),
                 "resolution_reason_code": row[19],
                 "effective_grant": (
-                    {
-                        "grant_ref": str(row[17]),
-                        "status": str(row[20]),
-                        "valid_from": row[21],
-                        "valid_until": row[22],
-                        "max_uses": int(row[23]),
-                        "consumed_uses": int(row[24]),
-                        "remaining_uses": int(row[23]) - int(row[24]),
-                        "max_payload_bytes": int(row[25]),
-                    }
+                    (
+                        {
+                            "scope_kind": "creator_scene_reply",
+                            "grant_ref": str(row[17]),
+                            "status": str(row[20]),
+                            "valid_from": row[21],
+                            "valid_until": row[22],
+                            "max_uses": int(row[23]),
+                            "consumed_uses": int(row[24]),
+                            "remaining_uses": int(row[23]) - int(row[24]),
+                            "max_payload_bytes": int(row[25]),
+                        }
+                        if str(row[1]) == "creator.scene.reply"
+                        else {
+                            "scope_kind": "codex_delegated_work",
+                            "grant_ref": str(row[17]),
+                            "status": str(row[20]),
+                            "valid_from": row[21],
+                            "valid_until": row[22],
+                            "max_uses": int(row[23]),
+                            "consumed_uses": int(row[24]),
+                            "remaining_uses": int(row[23]) - int(row[24]),
+                            "workspace_scope": row[26],
+                            "artifact_scope": row[27],
+                            "network_access": row[28],
+                        }
+                    )
                     if row[17] is not None
                     else None
                 ),
@@ -269,6 +290,8 @@ class PostgreSQLCreatorGrantPolicy:
                                request.requested_valid_for_seconds,
                                request.requested_max_uses,
                                request.requested_max_payload_bytes,
+                               request.workspace_scope, request.artifact_scope,
+                               request.network_access,
                                request.current_status, request.request_version,
                                capability.availability_status
                         FROM armi.capability_requests AS request
@@ -284,20 +307,15 @@ class PostgreSQLCreatorGrantPolicy:
                 ).fetchone()
                 if request is None:
                     raise CapabilityViolation("SCOPE-CAPABILITY-REQUEST")
-                if int(request[14]) != command.expected_version:
+                if int(request[17]) != command.expected_version:
                     raise CapabilityViolation("CONFLICT-POLICY-VERSION")
-                current = CapabilityRequestStatus(str(request[13]))
+                current = CapabilityRequestStatus(str(request[16]))
                 _validate_transition(command.decision, current)
                 capability = CapabilityKind(str(request[5]))
-                if (
-                    capability is CapabilityKind.CODEX_DELEGATED_WORK
-                    and command.decision
-                    in {CreatorGrantDecision.GRANT, CreatorGrantDecision.LIMIT}
-                ) or (
-                    str(request[15]) != "available"
-                    and command.decision
-                    in {CreatorGrantDecision.GRANT, CreatorGrantDecision.LIMIT}
-                ):
+                if str(request[18]) != "available" and command.decision in {
+                    CreatorGrantDecision.GRANT,
+                    CreatorGrantDecision.LIMIT,
+                }:
                     raise CapabilityViolation("CAPABILITY-UNAVAILABLE")
 
                 now_row = await (
@@ -318,26 +336,50 @@ class PostgreSQLCreatorGrantPolicy:
                 }:
                     duration = int(request[10])
                     uses = int(request[11])
-                    payload_bytes = int(request[12])
+                    payload_bytes = (
+                        int(request[12]) if request[12] is not None else None
+                    )
                     if command.decision is CreatorGrantDecision.LIMIT:
-                        original = (duration, uses, payload_bytes)
-                        duration = _narrow(command.valid_for_seconds, duration)
-                        uses = _narrow(command.max_uses, uses)
-                        payload_bytes = _narrow(
-                            command.max_payload_bytes, payload_bytes
-                        )
-                        if (duration, uses, payload_bytes) == original:
-                            raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
+                        if capability is CapabilityKind.CREATOR_SCENE_REPLY:
+                            assert payload_bytes is not None
+                            original = (duration, uses, payload_bytes)
+                            duration = _narrow(command.valid_for_seconds, duration)
+                            uses = _narrow(command.max_uses, uses)
+                            payload_bytes = _narrow(
+                                command.max_payload_bytes, payload_bytes
+                            )
+                            if (duration, uses, payload_bytes) == original:
+                                raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
+                        else:
+                            if (
+                                command.max_uses is not None
+                                or command.max_payload_bytes is not None
+                            ):
+                                raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
+                            narrowed = _narrow(command.valid_for_seconds, duration)
+                            if narrowed == duration:
+                                raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
+                            duration = narrowed
                         result_status = CapabilityRequestStatus.LIMITED
                     else:
                         result_status = CapabilityRequestStatus.GRANTED
-                    scope = CreatorSceneReplyScope(
-                        request[1],
-                        request[2],
-                        request[3],
-                        duration,
-                        uses,
-                        payload_bytes,
+                    scope = (
+                        CreatorSceneReplyScope(
+                            request[1],
+                            request[2],
+                            request[3],
+                            duration,
+                            uses,
+                            cast(int, payload_bytes),
+                        )
+                        if capability is CapabilityKind.CREATOR_SCENE_REPLY
+                        else CodexDelegatedWorkScope(
+                            duration,
+                            str(request[13]),
+                            str(request[14]),
+                            bool(request[15]),
+                            uses,
+                        )
                     )
                     scope_digest = Digest.from_bytes(
                         rfc8785.dumps(cast(Any, _scope_wire(scope)))
@@ -350,11 +392,12 @@ class PostgreSQLCreatorGrantPolicy:
                             grant_id, capability_request_id, creator_party_id,
                             capability_id, subject_id, interaction_scene_id,
                             operation_class, audience_scope, data_scope, purpose,
+                            workspace_scope, artifact_scope, network_access,
                             valid_from, valid_until, max_uses, max_payload_bytes,
                             scope_digest, schema_version
                         ) VALUES (
-                            %s, %s, %s, %s, %s, %s, 'send', 'creator',
-                            'creator_visible_response', 'respond_to_creator',
+                            %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s, 1
                         )
                         """,
@@ -365,6 +408,27 @@ class PostgreSQLCreatorGrantPolicy:
                             request[4],
                             request[1],
                             request[2],
+                            CapabilityOperation.SEND.value
+                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
+                            else CapabilityOperation.EXECUTE.value,
+                            "creator"
+                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
+                            else None,
+                            "creator_visible_response"
+                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
+                            else None,
+                            "respond_to_creator"
+                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
+                            else "delegate_codex_work",
+                            None
+                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
+                            else "isolated_ephemeral",
+                            None
+                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
+                            else "explicit_only",
+                            None
+                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
+                            else False,
                             now,
                             valid_until,
                             uses,
@@ -376,7 +440,9 @@ class PostgreSQLCreatorGrantPolicy:
                         grant_id,
                         command.request_id,
                         capability,
-                        CapabilityOperation.SEND,
+                        CapabilityOperation.SEND
+                        if capability is CapabilityKind.CREATOR_SCENE_REPLY
+                        else CapabilityOperation.EXECUTE,
                         scope,
                         now,
                         valid_until,
@@ -653,7 +719,7 @@ class PostgreSQLCreatorGrantPolicy:
                 CreatorEventResourceKind.CAPABILITY_REQUEST,
                 str(request_id),
                 now,
-                "capability-request.v2",
+                "capability-request.v3",
             )
             for request_id in request_ids
         ]
@@ -817,17 +883,29 @@ def _narrow(requested: int | None, maximum: int) -> int:
     return requested
 
 
-def _scope_wire(scope: CreatorSceneReplyScope) -> dict[str, object]:
+def _scope_wire(
+    scope: CreatorSceneReplyScope | CodexDelegatedWorkScope,
+) -> dict[str, object]:
+    if isinstance(scope, CreatorSceneReplyScope):
+        return {
+            "scope_kind": "creator_scene_reply",
+            "subject_id": str(scope.subject_id),
+            "scene_id": str(scope.scene_id),
+            "creator_party_id": str(scope.creator_party_id),
+            "audience_scope": scope.audience_scope,
+            "data_scope": scope.data_scope,
+            "purpose": scope.purpose,
+            "valid_for_seconds": scope.valid_for_seconds,
+            "max_uses": scope.max_uses,
+            "max_payload_bytes": scope.max_payload_bytes,
+        }
     return {
-        "subject_id": str(scope.subject_id),
-        "scene_id": str(scope.scene_id),
-        "creator_party_id": str(scope.creator_party_id),
-        "audience_scope": scope.audience_scope,
-        "data_scope": scope.data_scope,
-        "purpose": scope.purpose,
+        "scope_kind": "codex_delegated_work",
+        "workspace_scope": scope.workspace_scope,
+        "artifact_scope": scope.artifact_scope,
+        "network_access": scope.network_access,
         "valid_for_seconds": scope.valid_for_seconds,
         "max_uses": scope.max_uses,
-        "max_payload_bytes": scope.max_payload_bytes,
     }
 
 
@@ -864,7 +942,9 @@ async def _load_result(
                    request.interaction_scene_id, request.creator_party_id,
                    permission.grant_id, permission.valid_from, permission.valid_until,
                    permission.max_uses, permission.consumed_uses,
-                   permission.max_payload_bytes, permission.status
+                   permission.max_payload_bytes, permission.workspace_scope,
+                   permission.artifact_scope, permission.network_access,
+                   permission.status
             FROM armi.capability_requests AS request
             JOIN armi.capability_request_decisions AS decision
               ON decision.capability_request_id = request.capability_request_id
@@ -883,24 +963,35 @@ async def _load_result(
     if status in {CapabilityRequestStatus.GRANTED, CapabilityRequestStatus.LIMITED}:
         if row[8] is None:
             raise CapabilityViolation("POLICY-RESULT-MISSING")
-        scope = CreatorSceneReplyScope(
-            row[5],
-            row[6],
-            row[7],
-            int((row[10] - row[9]).total_seconds()),
-            int(row[11]),
-            int(row[13]),
+        capability = CapabilityKind(str(row[3]))
+        scope = (
+            CreatorSceneReplyScope(
+                row[5],
+                row[6],
+                row[7],
+                int((row[10] - row[9]).total_seconds()),
+                int(row[11]),
+                int(row[13]),
+            )
+            if capability is CapabilityKind.CREATOR_SCENE_REPLY
+            else CodexDelegatedWorkScope(
+                int((row[10] - row[9]).total_seconds()),
+                str(row[14]),
+                str(row[15]),
+                bool(row[16]),
+                int(row[11]),
+            )
         )
         grant = PermissionGrant(
             PermissionGrantId(row[8]),
             request_id,
-            CapabilityKind(str(row[3])),
+            capability,
             CapabilityOperation(str(row[4])),
             scope,
             row[9],
             row[10],
             int(row[12]),
-            GrantStatus(str(row[14])),
+            GrantStatus(str(row[17])),
         )
     return CreatorGrantResult(
         request_id,
@@ -924,8 +1015,8 @@ def _encode_cursor(
         cast(
             Any,
             {
-                "schema_version": "armi.capability-request-cursor.v2",
-                "projection_version": "capability-request.v2",
+                "schema_version": "armi.capability-request-cursor.v3",
+                "projection_version": "capability-request.v3",
                 "environment_id": str(environment_id),
                 "creator_party_id": str(creator_party_id),
                 "limit": limit,
@@ -975,13 +1066,16 @@ def _decode_cursor(
                 "capability_request_id",
                 "projection_version",
             }
-            or document["schema_version"] != "armi.capability-request-cursor.v2"
-            or document["projection_version"] != "capability-request.v2"
+            or document["schema_version"] != "armi.capability-request-cursor.v3"
+            or document["projection_version"] != "capability-request.v3"
             or document["environment_id"] != str(environment_id)
             or document["creator_party_id"] != str(creator_party_id)
             or document["limit"] != limit
         ):
-            if document.get("schema_version") == "armi.capability-request-cursor.v1":
+            if document.get("schema_version") in {
+                "armi.capability-request-cursor.v1",
+                "armi.capability-request-cursor.v2",
+            }:
                 raise CapabilityViolation("CONFLICT-CAPABILITY-CURSOR-STALE")
             raise ValueError
         request_id_text = document["capability_request_id"]

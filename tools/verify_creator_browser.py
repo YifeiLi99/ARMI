@@ -209,6 +209,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         }
         if cls.capability_status == "limited":
             reply["effective_grant"] = {
+                "scope_kind": "creator_scene_reply",
                 "grant_ref": cls.grant_id,
                 "status": "active",
                 "valid_from": "2026-07-30T10:01:00.000000Z",
@@ -233,8 +234,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 "valid_for_seconds": 600,
                 "max_uses": 1,
                 "status": "pending",
-                "capability_availability": "unavailable",
-                "resolution_reason_code": "CAPABILITY-NOT-ACTIVE",
+                "capability_availability": "available",
                 "request_version": 1,
                 "created_at": "2026-07-30T09:59:00.000000Z",
             },
@@ -294,7 +294,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "capability-request.v2",
+                    "projection_version": "capability-request.v3",
                     "items": self._capability_items(),
                 },
             )

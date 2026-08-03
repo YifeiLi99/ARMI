@@ -42,24 +42,26 @@ function CapabilityItem({
   const pending = item.status === "pending";
   const active = item.status === "granted" || item.status === "limited";
   const unavailable = item.capability_availability === "unavailable";
+  const isCodex = item.capability_kind === "codex.delegated-work";
 
   function submitLimit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const payloadLimit = item.max_payload_bytes;
-    const narrows =
-      validForSeconds < item.valid_for_seconds ||
-      maxUses < item.max_uses ||
-      (payloadLimit !== undefined && payloadLimit !== null
-        ? maxPayloadBytes < payloadLimit
-        : false);
+    const narrows = isCodex
+      ? validForSeconds < item.valid_for_seconds
+      : validForSeconds < item.valid_for_seconds ||
+        maxUses < item.max_uses ||
+        (payloadLimit !== undefined && payloadLimit !== null
+          ? maxPayloadBytes < payloadLimit
+          : false);
     if (!narrows) {
       return;
     }
     onDecide(
       createDecision(item.request_version, "limit", {
         validForSeconds,
-        maxUses,
-        ...(payloadLimit === undefined || payloadLimit === null
+        ...(isCodex ? {} : { maxUses }),
+        ...(isCodex || payloadLimit === undefined || payloadLimit === null
           ? {}
           : { maxPayloadBytes }),
       }),
@@ -87,6 +89,14 @@ function CapabilityItem({
               : ` · ${item.max_payload_bytes} bytes`}
           </dd>
         </div>
+        {isCodex ? (
+          <div>
+            <dt>隔离范围</dt>
+            <dd>
+              {item.workspace_scope} · {item.artifact_scope} · 网络关闭
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt>可用性</dt>
           <dd>{item.capability_availability}</dd>
@@ -115,8 +125,21 @@ function CapabilityItem({
             </div>
             <div>
               <dt>最终字节限制</dt>
-              <dd>{item.effective_grant.max_payload_bytes}</dd>
+              <dd>
+                {item.effective_grant.scope_kind === "creator_scene_reply"
+                  ? item.effective_grant.max_payload_bytes
+                  : "不适用"}
+              </dd>
             </div>
+            {item.effective_grant.scope_kind === "codex_delegated_work" ? (
+              <div>
+                <dt>Codex 隔离</dt>
+                <dd>
+                  {item.effective_grant.workspace_scope} ·{" "}
+                  {item.effective_grant.artifact_scope} · 网络关闭
+                </dd>
+              </div>
+            ) : null}
           </>
         )}
       </dl>
@@ -181,19 +204,22 @@ function CapabilityItem({
               }
             />
           </label>
-          <label>
-            最大次数
-            <input
-              type="number"
-              min={1}
-              max={item.max_uses}
-              value={maxUses}
-              onChange={(event) =>
-                setMaxUses(event.currentTarget.valueAsNumber)
-              }
-            />
-          </label>
-          {item.max_payload_bytes === undefined ||
+          {isCodex ? null : (
+            <label>
+              最大次数
+              <input
+                type="number"
+                min={1}
+                max={item.max_uses}
+                value={maxUses}
+                onChange={(event) =>
+                  setMaxUses(event.currentTarget.valueAsNumber)
+                }
+              />
+            </label>
+          )}
+          {isCodex ||
+          item.max_payload_bytes === undefined ||
           item.max_payload_bytes === null ? null : (
             <label>
               最大字节

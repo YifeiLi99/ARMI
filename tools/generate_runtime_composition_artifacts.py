@@ -48,6 +48,8 @@ _SCHEMA_FILES = (
     "migrations/0019_readonly_web_search_custody.sql",
     "migrations/0020_web_search_evidence_closure.sql",
     "migrations/0021_admin_observation_and_environment.sql",
+    "migrations/0022_t07_admin_correction.sql",
+    "migrations/0023_codex_runner_activation.sql",
 )
 _CONTEXT_POLICY = Path("context/context-policy.manifest.json")
 _MODEL_BINDING = Path("model/model-bindings.manifest.json")
@@ -58,6 +60,7 @@ _SUBJECT_COMMIT_POLICY = Path("model/subject-commit-policy.manifest.json")
 _CAPABILITY_CATALOG = Path("model/capability-catalog.manifest.json")
 _CREATOR_GRANT_POLICY = Path("model/creator-grant-policy.manifest.json")
 _RESPONSE_ADMISSION_POLICY = Path("model/response-admission-policy.manifest.json")
+_CODEX_RUNNER = Path("model/codex-runner.manifest.json")
 
 
 def _generate(root: Path, output: Path) -> None:
@@ -91,6 +94,8 @@ def _generate(root: Path, output: Path) -> None:
     (output / "response-admission-policy.manifest.json").write_bytes(
         response_admission_policy
     )
+    codex_runner = (root / _CODEX_RUNNER).read_bytes()
+    (output / "codex-runner.manifest.json").write_bytes(codex_runner)
     schema_resources = {
         name: (root / _SCHEMA / name).read_bytes() for name in _SCHEMA_FILES
     }
@@ -108,6 +113,7 @@ def _generate(root: Path, output: Path) -> None:
         capability_catalog=capability_catalog,
         creator_grant_policy=creator_grant_policy,
         response_admission_policy=response_admission_policy,
+        codex_runner=codex_runner,
         schema_resources=schema_resources,
     )
     (output / "runtime-composition.manifest.json").write_bytes(
@@ -130,6 +136,7 @@ def _files(root: Path) -> dict[str, bytes]:
             "capability-catalog.manifest.json",
             "creator-grant-policy.manifest.json",
             "response-admission-policy.manifest.json",
+            "codex-runner.manifest.json",
             "runtime-composition.manifest.json",
         )
         if (root / name).is_file()

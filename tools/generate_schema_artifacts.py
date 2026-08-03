@@ -725,6 +725,9 @@ def build_role_manifest() -> dict[str, object]:
                         "valid_until",
                         "max_uses",
                         "max_payload_bytes",
+                        "workspace_scope",
+                        "artifact_scope",
+                        "network_access",
                         "scope_digest",
                         "schema_version",
                     ],
@@ -2027,7 +2030,7 @@ def generated_files(root: Path) -> dict[Path, bytes]:
     )
     security_definer = cast(dict[str, Any], role_value["security_definer"])
     security_definer["not_applicable_reason"] = (
-        "M0-S037 uses fixed direct Admin grants and has no security-definer function."
+        "M0-S038 uses fixed direct grants and has no security-definer function."
     )
     role_manifest = canonical_manifest_bytes(role_value)
     manifest = canonical_manifest_bytes(build_manifest(schema_root, role_manifest))

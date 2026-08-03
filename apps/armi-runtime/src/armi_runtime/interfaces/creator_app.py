@@ -1005,7 +1005,7 @@ def create_runtime_app(
         raw_items = cast(list[dict[str, object]], page["items"])
         response = CapabilityRequestPageResponse(
             contract_version="1.0",
-            projection_version="capability-request.v2",
+            projection_version="capability-request.v3",
             items=[
                 CapabilityRequestItemResponse.model_validate(
                     {
@@ -1133,7 +1133,7 @@ def create_runtime_app(
                         CreatorEventResourceKind.CAPABILITY_REQUEST,
                         str(result.request_id.value),
                         Instant(datetime.now(UTC)),
-                        "capability-request.v2",
+                        "capability-request.v3",
                     )
                 )
             except Exception:

@@ -138,6 +138,31 @@ def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
                 "runtime composition policy must declare the exact active bindings",
             )
         )
+    codex_runner = policy.get("codex_runner")
+    if not isinstance(codex_runner, dict) or codex_runner != {
+        "entry_point": "armi-codex-runner",
+        "module_prefix": "armi_runtime.adapters.codex",
+        "manifest": "model/codex-runner.manifest.json",
+        "active_binding": None,
+        "forbidden_import_prefixes": [
+            "armi_admin",
+            "armi_runtime.adapters.persistence",
+            "mcp",
+            "openai",
+            "playwright",
+            "psycopg",
+            "psycopg_pool",
+        ],
+        "runtime_discovery": False,
+    }:
+        violations.append(
+            Violation(
+                "ARC-CODEX-RUNNER-MANIFEST",
+                path,
+                1,
+                "Codex runner policy must declare the exact inactive boundary",
+            )
+        )
     return violations
 
 
@@ -192,11 +217,35 @@ def analyze_source(
     }
     forbidden_coordinator_io = set(policy.get("coordinator_forbidden_io_roots", []))
     forbidden_runtime_imports = set(policy.get("runtime_forbidden_import_roots", []))
+    codex_policy = policy.get("codex_runner", {})
+    codex_module = (
+        str(codex_policy.get("module_prefix", ""))
+        if isinstance(codex_policy, dict)
+        else ""
+    )
+    codex_forbidden = (
+        tuple(str(value) for value in codex_policy.get("forbidden_import_prefixes", []))
+        if isinstance(codex_policy, dict)
+        else ()
+    )
     imports = list(imported_modules(tree))
 
     imports_driver = False
     for imported, line in imports:
         root = imported.split(".", maxsplit=1)[0]
+        if (
+            codex_module
+            and module_matches(module, codex_module)
+            and any(module_matches(imported, prefix) for prefix in codex_forbidden)
+        ):
+            violations.append(
+                Violation(
+                    "ARC-CODEX-RUNNER-BOUNDARY",
+                    path,
+                    line,
+                    f"Codex runner cannot import {imported}",
+                )
+            )
         if module_matches(module, "armi_runtime") and root in forbidden_runtime_imports:
             violations.append(
                 Violation(

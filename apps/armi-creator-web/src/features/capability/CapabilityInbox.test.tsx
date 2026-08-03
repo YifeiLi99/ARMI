@@ -32,18 +32,22 @@ function item(
     data_scope:
       capability === "creator.scene.reply" ? "creator_visible_response" : null,
     valid_for_seconds: 600,
-    max_uses: 4,
-    max_payload_bytes: 4096,
+    workspace_scope:
+      capability === "codex.delegated-work" ? "isolated_ephemeral" : null,
+    artifact_scope:
+      capability === "codex.delegated-work" ? "explicit_only" : null,
+    network_access: capability === "codex.delegated-work" ? false : null,
+    max_uses: capability === "codex.delegated-work" ? 1 : 4,
+    max_payload_bytes: capability === "creator.scene.reply" ? 4096 : null,
     status,
-    capability_availability:
-      capability === "creator.scene.reply" ? "available" : "unavailable",
-    resolution_reason_code:
-      capability === "creator.scene.reply" ? null : "CAPABILITY-NOT-ACTIVE",
+    capability_availability: "available",
+    resolution_reason_code: null,
     request_version: status === "pending" ? 1 : 2,
     created_at: "2026-07-30T10:00:00.000000Z",
     ...(status === "limited"
       ? {
           effective_grant: {
+            scope_kind: "creator_scene_reply",
             grant_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efc",
             status: "active",
             valid_from: "2026-07-30T10:00:00.000000Z",
@@ -59,14 +63,14 @@ function item(
 }
 
 describe("Creator capability inbox", () => {
-  it("shows requested and effective scope without offering unavailable grants", async () => {
+  it("shows both grantable scopes without offering a Codex execute action", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValue(
         new Response(
           JSON.stringify({
             contract_version: "1.0",
-            projection_version: "capability-request.v2",
+            projection_version: "capability-request.v3",
             items: [
               item("f9", "creator.scene.reply", "pending"),
               item("fa", "codex.delegated-work", "pending"),
@@ -92,8 +96,8 @@ describe("Creator capability inbox", () => {
     );
 
     expect(await screen.findByText("codex.delegated-work")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "允许" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "限制" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "允许" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "限制" })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "拒绝" })).toHaveLength(2);
     expect(
       screen.getByRole("button", { name: "撤回 grant" }),
@@ -101,6 +105,8 @@ describe("Creator capability inbox", () => {
     expect(
       screen.getByText("1/2 次 · 至 2026-07-30T10:05:00.000000Z"),
     ).toBeInTheDocument();
-    expect(screen.getByText("CAPABILITY-NOT-ACTIVE")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /执行/ }),
+    ).not.toBeInTheDocument();
   });
 });

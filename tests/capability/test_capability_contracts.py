@@ -83,6 +83,34 @@ def test_scope_cannot_be_wildcarded_or_expanded() -> None:
         )
 
 
+def test_codex_grant_is_single_use_ephemeral_and_networkless() -> None:
+    now = datetime.now(UTC)
+    grant = PermissionGrant(
+        PermissionGrantId(uuid7()),
+        CapabilityRequestId(uuid7()),
+        CapabilityKind.CODEX_DELEGATED_WORK,
+        CapabilityOperation.EXECUTE,
+        CodexDelegatedWorkScope(600),
+        now,
+        now + timedelta(seconds=600),
+        0,
+        GrantStatus.ACTIVE,
+    )
+    assert GrantMatcher.permits_codex(grant, now=now)
+    consumed = PermissionGrant(
+        grant.grant_id,
+        grant.request_id,
+        grant.capability,
+        grant.operation,
+        grant.scope,
+        grant.valid_from,
+        grant.valid_until,
+        1,
+        grant.status,
+    )
+    assert not GrantMatcher.permits_codex(consumed, now=now)
+
+
 def test_limit_requires_an_explicit_narrowing_field() -> None:
     with pytest.raises(CapabilityViolation, match="CON-CAPABILITY-DECISION"):
         CreatorGrantCommand(

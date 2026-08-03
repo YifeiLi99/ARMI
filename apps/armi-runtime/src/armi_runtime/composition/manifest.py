@@ -48,6 +48,7 @@ _SUBJECT_COMMIT_POLICY_FILE: Final = "subject-commit-policy.manifest.json"
 _CAPABILITY_CATALOG_FILE: Final = "capability-catalog.manifest.json"
 _CREATOR_GRANT_POLICY_FILE: Final = "creator-grant-policy.manifest.json"
 _RESPONSE_ADMISSION_POLICY_FILE: Final = "response-admission-policy.manifest.json"
+_CODEX_RUNNER_FILE: Final = "codex-runner.manifest.json"
 _SCHEMA_FILES: Final = (
     "checks/invariants.sql",
     "manifests/database-role-manifest.json",
@@ -73,6 +74,8 @@ _SCHEMA_FILES: Final = (
     "migrations/0019_readonly_web_search_custody.sql",
     "migrations/0020_web_search_evidence_closure.sql",
     "migrations/0021_admin_observation_and_environment.sql",
+    "migrations/0022_t07_admin_correction.sql",
+    "migrations/0023_codex_runner_activation.sql",
 )
 
 
@@ -95,6 +98,7 @@ def build_composition_manifest(
     capability_catalog: bytes,
     creator_grant_policy: bytes,
     response_admission_policy: bytes,
+    codex_runner: bytes,
     schema_resources: dict[str, bytes],
 ) -> dict[str, object]:
     """Return the only allowed S008 composition declaration."""
@@ -165,6 +169,7 @@ def build_composition_manifest(
             f"response/{_RESPONSE_ADMISSION_POLICY_FILE}": _sha256(
                 response_admission_policy
             ),
+            f"codex/{_CODEX_RUNNER_FILE}": _sha256(codex_runner),
             **{
                 f"schema/{name}": _sha256(value)
                 for name, value in sorted(schema_resources.items())
@@ -214,6 +219,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         response_admission_policy = resources.joinpath(
             _RESPONSE_ADMISSION_POLICY_FILE
         ).read_bytes()
+        codex_runner = resources.joinpath(_CODEX_RUNNER_FILE).read_bytes()
         committed = resources.joinpath("runtime-composition.manifest.json").read_bytes()
         schema_resources = {
             name: schema.joinpath(name).read_bytes() for name in _SCHEMA_FILES
@@ -237,6 +243,7 @@ def verify_packaged_composition() -> VerifiedComposition:
         capability_catalog=capability_catalog,
         creator_grant_policy=creator_grant_policy,
         response_admission_policy=response_admission_policy,
+        codex_runner=codex_runner,
         schema_resources=schema_resources,
     )
     expected_bytes = canonical_manifest_bytes(expected)

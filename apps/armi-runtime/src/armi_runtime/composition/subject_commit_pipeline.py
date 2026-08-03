@@ -366,7 +366,7 @@ class SubjectCommitPipeline:
                         CreatorEventResourceKind.CAPABILITY_REQUEST,
                         str(request_id),
                         now,
-                        "capability-request.v2",
+                        "capability-request.v3",
                     )
                     for request_id in request_ids
                 )

@@ -21,6 +21,10 @@ BASE_POLICY: dict[str, Any] = {
     "transaction_control_exemptions_not_applicable_reason": "not implemented",
     "coordinator_forbidden_io_roots": ["openai", "playwright", "mcp", "httpx"],
     "runtime_forbidden_import_roots": ["playwright", "mcp"],
+    "codex_runner": {
+        "module_prefix": "armi_runtime.adapters.codex",
+        "forbidden_import_prefixes": ["armi_admin", "mcp", "openai", "psycopg"],
+    },
     "forbidden_entry_points": [],
     "forbidden_entry_points_not_applicable_reason": "greenfield",
 }
@@ -156,6 +160,17 @@ class ArchitecturePolicyTests(unittest.TestCase):
             "ARC-RUNTIME-FORBIDDEN-ADAPTER",
             self.codes("from mcp import ClientSession\n"),
         )
+
+    def test_codex_runner_cannot_reach_admin_database_or_external_sdks(self) -> None:
+        for imported in ("armi_admin.mcp", "mcp", "openai", "psycopg"):
+            with self.subTest(imported=imported):
+                self.assertIn(
+                    "ARC-CODEX-RUNNER-BOUNDARY",
+                    self.codes(
+                        f"import {imported}\n",
+                        module="armi_runtime.adapters.codex.runner",
+                    ),
+                )
 
     def test_global_service_locator_is_rejected(self) -> None:
         self.assertIn(

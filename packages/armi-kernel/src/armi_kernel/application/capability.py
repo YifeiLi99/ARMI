@@ -170,6 +170,7 @@ class CapabilityRequestDraft:
             )
             or type(self.capability) is not CapabilityKind
             or type(self.operation) is not CapabilityOperation
+            or type(self.scope) not in {CreatorSceneReplyScope, CodexDelegatedWorkScope}
         ):
             raise CapabilityViolation("CON-CAPABILITY-REQUEST")
         if (
@@ -267,7 +268,7 @@ class PermissionGrant:
     request_id: CapabilityRequestId
     capability: CapabilityKind
     operation: CapabilityOperation
-    scope: CreatorSceneReplyScope
+    scope: CapabilityScope
     valid_from: datetime
     valid_until: datetime
     consumed_uses: int
@@ -277,18 +278,32 @@ class PermissionGrant:
         if (
             type(self.grant_id) is not PermissionGrantId
             or type(self.request_id) is not CapabilityRequestId
-            or self.capability is not CapabilityKind.CREATOR_SCENE_REPLY
-            or self.operation is not CapabilityOperation.SEND
-            or type(self.scope) is not CreatorSceneReplyScope
+            or type(self.capability) is not CapabilityKind
+            or type(self.operation) is not CapabilityOperation
             or type(self.valid_from) is not datetime
             or type(self.valid_until) is not datetime
             or self.valid_from.tzinfo is None
             or self.valid_until.tzinfo is None
             or not self.valid_from < self.valid_until
-            or self.valid_until - self.valid_from > timedelta(days=7)
             or type(self.consumed_uses) is not int
             or not 0 <= self.consumed_uses <= self.scope.max_uses
             or type(self.status) is not GrantStatus
+        ):
+            raise CapabilityViolation("CON-CAPABILITY-GRANT")
+        if (
+            self.capability is CapabilityKind.CREATOR_SCENE_REPLY
+            and (
+                self.operation is not CapabilityOperation.SEND
+                or type(self.scope) is not CreatorSceneReplyScope
+                or self.valid_until - self.valid_from > timedelta(days=7)
+            )
+        ) or (
+            self.capability is CapabilityKind.CODEX_DELEGATED_WORK
+            and (
+                self.operation is not CapabilityOperation.EXECUTE
+                or type(self.scope) is not CodexDelegatedWorkScope
+                or self.valid_until - self.valid_from > timedelta(hours=1)
+            )
         ):
             raise CapabilityViolation("CON-CAPABILITY-GRANT")
 
@@ -331,7 +346,10 @@ class GrantMatcher:
     ) -> bool:
         scope = grant.scope
         return (
-            grant.status is GrantStatus.ACTIVE
+            grant.capability is CapabilityKind.CREATOR_SCENE_REPLY
+            and grant.operation is CapabilityOperation.SEND
+            and isinstance(scope, CreatorSceneReplyScope)
+            and grant.status is GrantStatus.ACTIVE
             and grant.valid_from <= now < grant.valid_until
             and grant.consumed_uses < scope.max_uses
             and scope.subject_id == subject_id
@@ -340,6 +358,21 @@ class GrantMatcher:
             and scope.purpose == purpose
             and type(payload_bytes) is int
             and 0 <= payload_bytes <= scope.max_payload_bytes
+        )
+
+    @staticmethod
+    def permits_codex(grant: PermissionGrant, *, now: datetime) -> bool:
+        scope = grant.scope
+        return (
+            grant.capability is CapabilityKind.CODEX_DELEGATED_WORK
+            and grant.operation is CapabilityOperation.EXECUTE
+            and isinstance(scope, CodexDelegatedWorkScope)
+            and grant.status is GrantStatus.ACTIVE
+            and grant.valid_from <= now < grant.valid_until
+            and grant.consumed_uses == 0
+            and scope.workspace_scope == "isolated_ephemeral"
+            and scope.artifact_scope == "explicit_only"
+            and scope.network_access is False
         )
 
 

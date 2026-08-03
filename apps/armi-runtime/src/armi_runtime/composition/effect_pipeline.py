@@ -227,6 +227,8 @@ class EffectRegistrationPipeline:
                 await self._notify_dispatch(unknown, include_scene=False)
             return True
         except DatabaseTransactionError, EffectViolation:
+            if self._stop.is_set():
+                return False
             self._diagnostic("effect.recovery.failed")
             return True
 
@@ -385,9 +387,13 @@ class EffectRegistrationPipeline:
             if await self.recover_once():
                 await asyncio.sleep(0)
                 continue
+            if self._stop.is_set():
+                break
             if await self.register_once():
                 await asyncio.sleep(0)
                 continue
+            if self._stop.is_set():
+                break
             if await self.dispatch_once():
                 await asyncio.sleep(0)
                 continue

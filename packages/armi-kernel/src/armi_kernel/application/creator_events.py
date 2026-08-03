@@ -43,7 +43,7 @@ class CreatorEventResourceKind(StrEnum):
 
 _PROJECTIONS = {
     CreatorEventResourceKind.SCENE_TIMELINE: "scene-timeline.v3",
-    CreatorEventResourceKind.CAPABILITY_REQUEST: "capability-request.v2",
+    CreatorEventResourceKind.CAPABILITY_REQUEST: "capability-request.v3",
     CreatorEventResourceKind.OPERATION: "creator-operation.v1",
     CreatorEventResourceKind.EFFECT: "creator-effect.v1",
     CreatorEventResourceKind.SUBJECT_SUMMARY: "subject-summary.v1",

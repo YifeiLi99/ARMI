@@ -487,6 +487,22 @@
     "playwright"
   ],
   "runtime_forbidden_import_roots": ["mcp", "playwright"],
+  "codex_runner": {
+    "entry_point": "armi-codex-runner",
+    "module_prefix": "armi_runtime.adapters.codex",
+    "manifest": "model/codex-runner.manifest.json",
+    "active_binding": null,
+    "forbidden_import_prefixes": [
+      "armi_admin",
+      "armi_runtime.adapters.persistence",
+      "mcp",
+      "openai",
+      "playwright",
+      "psycopg",
+      "psycopg_pool"
+    ],
+    "runtime_discovery": false
+  },
   "forbidden_entry_points": [
     {
       "id": "superseded-web-worker-entry",

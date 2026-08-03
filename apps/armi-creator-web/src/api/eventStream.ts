@@ -17,7 +17,7 @@ const RESOURCES = {
   ],
   capability_request: [
     "capability.request.invalidated",
-    "capability-request.v2",
+    "capability-request.v3",
     UUID_V7,
   ],
   operation: ["operation.invalidated", "creator-operation.v1", UUID_V7],

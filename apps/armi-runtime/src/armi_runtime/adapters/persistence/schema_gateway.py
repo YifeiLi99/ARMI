@@ -581,18 +581,21 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("subject_id", "uuid", True),
         ("interaction_scene_id", "uuid", True),
         ("operation_class", "text", True),
-        ("audience_scope", "text", True),
-        ("data_scope", "text", True),
+        ("audience_scope", "text", False),
+        ("data_scope", "text", False),
         ("purpose", "text", True),
         ("valid_from", "timestamp(6) with time zone", True),
         ("valid_until", "timestamp(6) with time zone", True),
         ("max_uses", "integer", True),
         ("consumed_uses", "integer", True),
-        ("max_payload_bytes", "integer", True),
+        ("max_payload_bytes", "integer", False),
         ("scope_digest", "text", True),
         ("status", "text", True),
         ("revoked_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
+        ("workspace_scope", "text", False),
+        ("artifact_scope", "text", False),
+        ("network_access", "boolean", False),
     ),
     "action_intents": (
         ("action_intent_id", "uuid", True),
@@ -954,7 +957,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 9, *("f",) * 2, "p", "u"))
     ),
     "permission_grants": tuple(
-        sorted((*("c",) * 6, *("n",) * 18, *("f",) * 5, "p", "u"))
+        sorted((*("c",) * 6, *("n",) * 15, *("f",) * 5, "p", "u"))
     ),
     "action_intents": tuple(sorted((*("c",) * 3, *("n",) * 8, *("f",) * 5, "p", "u"))),
     "action_intent_revisions": tuple(
@@ -1497,6 +1500,7 @@ class PostgreSQLSchemaGateway:
             )
         if len(applied) == target:
             self._run_invariants(connection)
+            self._verify_codex_capability_catalog(connection)
         catalog = self._catalog_digest(connection)
         return SchemaStatus(
             "current" if len(applied) == target else "behind",
@@ -1593,6 +1597,17 @@ class PostgreSQLSchemaGateway:
                 and expected is not None
             ):
                 expected = expected[:-5]
+            if (
+                table_name == "permission_grants"
+                and applied_version < 23
+                and expected is not None
+            ):
+                expected = tuple(
+                    (name, type_name, True)
+                    if name in {"audience_scope", "data_scope", "max_payload_bytes"}
+                    else (name, type_name, not_null)
+                    for name, type_name, not_null in expected[:-3]
+                )
             if table_name == "opportunities" and expected is not None:
                 if applied_version < 14:
                     expected = expected[:-4]
@@ -1721,6 +1736,12 @@ class PostgreSQLSchemaGateway:
                     prior_kinds.remove("f")
                     prior_kinds.remove("u")
                 expected = tuple(prior_kinds)
+            if (
+                table_name == "permission_grants"
+                and applied_version < 23
+                and expected is not None
+            ):
+                expected = tuple(sorted((*expected, "n", "n", "n")))
             if table_name == "cognitive_episodes" and expected is not None:
                 prior_kinds = list(expected)
                 if applied_version < 14:
@@ -1802,6 +1823,40 @@ class PostgreSQLSchemaGateway:
             if code not in KNOWN_DATABASE_CODES:
                 code = "DB-SCHEMA-INVARIANT"
             raise DatabaseViolation(code, "a read-only schema invariant was violated")
+
+    def _verify_codex_capability_catalog(
+        self, connection: psycopg.Connection[tuple[Any, ...]]
+    ) -> None:
+        """Verify v23 catalog identity when the bound role may read it."""
+
+        try:
+            can_read = connection.execute(
+                "SELECT pg_catalog.has_table_privilege("
+                "current_user, 'armi.capabilities', 'SELECT')"
+            ).fetchone()
+            if can_read is None or not bool(can_read[0]):
+                return
+            current = connection.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM armi.capabilities
+                    WHERE capability_kind = 'codex.delegated-work'
+                      AND operation_class = 'execute'
+                      AND availability_status = 'available'
+                      AND verification_capability = 'codex_runner_openai_python_sdk_isolation_v2'
+                      AND configuration_version = 2
+                )
+                """
+            ).fetchone()
+        except psycopg.Error:
+            raise DatabaseViolation(
+                "DB-SCHEMA-INVARIANT", "the capability catalog could not be inspected"
+            ) from None
+        if current is None or not bool(current[0]):
+            raise DatabaseViolation(
+                "DB-SCHEMA-INVARIANT", "the capability catalog identity has drifted"
+            )
 
     def _catalog_digest(self, connection: psycopg.Connection[tuple[Any, ...]]) -> str:
         try:

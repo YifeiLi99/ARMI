@@ -52,6 +52,7 @@ DISTRIBUTIONS = (
             "armi-kernel==0.0.0",
             "fastapi==0.140.13",
             "openai==2.49.0",
+            "openai-codex==0.144.4",
             "psycopg[binary]==3.3.4",
             "psycopg-pool==3.3.1",
             "pydantic==2.13.4",
@@ -237,7 +238,10 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
                 "project.scripts",
                 project.get("scripts"),
                 (
-                    {"armi": "armi_runtime.cli:main"}
+                    {
+                        "armi": "armi_runtime.cli:main",
+                        "armi-codex-runner": "armi_runtime.codex_runner_cli:main",
+                    }
                     if distribution.name == "armi-runtime"
                     else (
                         {"armi-admin-mcp": "armi_admin.mcp.entrypoint:main"}

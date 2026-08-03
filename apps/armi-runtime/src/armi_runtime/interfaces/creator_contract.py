@@ -232,7 +232,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     resource_ref: Annotated[str, Field(min_length=1, max_length=64)]
     projection_version: Literal[
         "scene-timeline.v3",
-        "capability-request.v2",
+        "capability-request.v3",
         "creator-operation.v1",
         "creator-effect.v1",
         "subject-summary.v1",
@@ -256,7 +256,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             ),
             "capability_request": (
                 "capability.request.invalidated",
-                "capability-request.v2",
+                "capability-request.v3",
                 _UUIDV7_PATTERN,
             ),
             "operation": (
@@ -695,25 +695,54 @@ class EffectResponse(_StrictWireModel):
         return self
 
 
-class EffectiveGrantResponse(_StrictWireModel):
+class _EffectiveGrantResponseBase(_StrictWireModel):
     grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     status: Literal["active", "revoked", "expired"]
     valid_from: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     valid_until: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @model_validator(mode="after")
+    def validate_grant(self) -> _EffectiveGrantResponseBase:
+        if Instant.from_wire(self.valid_from).to_wire() != self.valid_from:
+            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
+        if Instant.from_wire(self.valid_until).to_wire() != self.valid_until:
+            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
+        return self
+
+
+class CreatorReplyEffectiveGrantResponse(_EffectiveGrantResponseBase):
+    scope_kind: Literal["creator_scene_reply"]
     max_uses: Annotated[int, Field(ge=1, le=16)]
     consumed_uses: Annotated[int, Field(ge=0, le=16)]
     remaining_uses: Annotated[int, Field(ge=0, le=16)]
     max_payload_bytes: Annotated[int, Field(ge=1, le=65536)]
 
     @model_validator(mode="after")
-    def validate_grant(self) -> EffectiveGrantResponse:
+    def validate_usage(self) -> CreatorReplyEffectiveGrantResponse:
         if self.consumed_uses + self.remaining_uses != self.max_uses:
             raise ValueError("CON-CAPABILITY-GRANT: usage counts are inconsistent")
-        if Instant.from_wire(self.valid_from).to_wire() != self.valid_from:
-            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
-        if Instant.from_wire(self.valid_until).to_wire() != self.valid_until:
-            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
         return self
+
+
+class CodexEffectiveGrantResponse(_EffectiveGrantResponseBase):
+    scope_kind: Literal["codex_delegated_work"]
+    max_uses: Literal[1]
+    consumed_uses: Annotated[int, Field(ge=0, le=1)]
+    remaining_uses: Annotated[int, Field(ge=0, le=1)]
+    workspace_scope: Literal["isolated_ephemeral"]
+    artifact_scope: Literal["explicit_only"]
+    network_access: Literal[False]
+
+    @model_validator(mode="after")
+    def validate_usage(self) -> CodexEffectiveGrantResponse:
+        if self.consumed_uses + self.remaining_uses != self.max_uses:
+            raise ValueError("CON-CAPABILITY-GRANT: usage counts are inconsistent")
+        return self
+
+
+type EffectiveGrantResponse = (
+    CreatorReplyEffectiveGrantResponse | CodexEffectiveGrantResponse
+)
 
 
 class CapabilityRequestItemResponse(_StrictWireModel):
@@ -792,7 +821,7 @@ class CapabilityRequestItemResponse(_StrictWireModel):
 
 class CapabilityRequestPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["capability-request.v2"]
+    projection_version: Literal["capability-request.v3"]
     items: Annotated[list[CapabilityRequestItemResponse], Field(max_length=100)]
     next_cursor: (
         Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
