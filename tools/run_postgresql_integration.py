@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -30,6 +31,70 @@ def _run(command: list[str], *, environment: dict[str, str] | None = None) -> No
     )
     if completed.returncode != 0:
         raise RuntimeError("PG-INTEGRATION-PROCESS")
+
+
+def _start_postgres(
+    postgres: Path,
+    *,
+    data: Path,
+    log_file: Path,
+    port: int,
+) -> subprocess.Popen[bytes]:
+    """Start postgres directly so Windows does not retain a cmd.exe wrapper."""
+
+    log_handle = log_file.open("ab", buffering=0)
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        return subprocess.Popen(
+            (
+                str(postgres),
+                "-D",
+                str(data),
+                "-h",
+                "127.0.0.1",
+                "-p",
+                str(port),
+            ),
+            stdin=subprocess.DEVNULL,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            close_fds=True,
+            creationflags=creationflags,
+        )
+    finally:
+        log_handle.close()
+
+
+def _wait_for_postgres(
+    pg_isready: Path,
+    process: subprocess.Popen[bytes],
+    *,
+    port: int,
+    timeout_seconds: float = 30.0,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError("PG-INTEGRATION-PROCESS")
+        completed = subprocess.run(
+            (
+                str(pg_isready),
+                "-h",
+                "127.0.0.1",
+                "-p",
+                str(port),
+                "-d",
+                "postgres",
+            ),
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if completed.returncode == 0:
+            return
+        time.sleep(0.05)
+    raise RuntimeError("PG-INTEGRATION-PROCESS")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -59,8 +124,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     pg_bin = tool_root / "installs/postgresql/18.4/pgsql/bin"
     initdb = pg_bin / "initdb.exe"
     pg_ctl = pg_bin / "pg_ctl.exe"
+    pg_isready = pg_bin / "pg_isready.exe"
     postgres = pg_bin / "postgres.exe"
-    if not all(path.is_file() for path in (initdb, pg_ctl, postgres)):
+    if not all(path.is_file() for path in (initdb, pg_ctl, pg_isready, postgres)):
         print("PG-CACHE-INCOMPLETE: PostgreSQL 18.4 is unavailable", file=sys.stderr)
         return 2
     temporary_root = root / ".tmp"
@@ -74,6 +140,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         data = work / "data"
         password_file = work / "password"
         log_file = work / "postgresql.log"
+        postgres_process: subprocess.Popen[bytes] | None = None
         password_file.write_text(password, encoding="utf-8", newline="\n")
         try:
             _run(
@@ -96,19 +163,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "a", encoding="utf-8", newline="\n"
             ) as configuration:
                 configuration.write("\ntimezone = 'UTC'\n")
-            _run(
-                [
-                    str(pg_ctl),
-                    "-D",
-                    str(data),
-                    "-l",
-                    str(log_file),
-                    "-w",
-                    "start",
-                    "-o",
-                    f"-h 127.0.0.1 -p {port}",
-                ]
+            postgres_process = _start_postgres(
+                postgres,
+                data=data,
+                log_file=log_file,
+                port=port,
             )
+            _wait_for_postgres(pg_isready, postgres_process, port=port)
             environment = dict(os.environ)
             environment["S003_TOOL_ROOT"] = str(tool_root)
             environment["S009_ADMIN_DSN"] = (
@@ -197,6 +258,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+            if postgres_process is not None:
+                try:
+                    postgres_process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    postgres_process.kill()
+                    postgres_process.wait(timeout=5)
 
 
 if __name__ == "__main__":

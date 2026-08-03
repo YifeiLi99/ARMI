@@ -191,8 +191,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if (
                 ready_status != 503
                 or json.loads(ready_body) != {"status": "not_ready"}
-                or missing_status != 401
-                or json.loads(missing_body).get("status") != "rejected"
+                or missing_status != 503
+                or json.loads(missing_body).get("status") != "unavailable"
                 or bearer_status != 503
                 or json.loads(bearer_body).get("status") != "unavailable"
                 or ui_status != 200
@@ -224,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "exit_code": process.returncode,
                         "liveness": 200,
                         "readiness": 503,
-                        "unauthenticated_status": 401,
+                        "creator_session_unavailable_status": 503,
                         "unverified_bearer_status": 503,
                         "ui": 200,
                         "lifecycle_events": events,

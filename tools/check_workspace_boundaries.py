@@ -51,6 +51,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-kernel==0.0.0",
             "fastapi==0.140.13",
+            "httpx==0.28.1",
             "openai==2.49.0",
             "openai-codex==0.144.4",
             "psycopg[binary]==3.3.4",
