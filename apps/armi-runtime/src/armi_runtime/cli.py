@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -25,6 +26,7 @@ from armi_runtime.composition.database import (
 from armi_runtime.composition.environment import prepare_environment
 from armi_runtime.composition.runtime import run_runtime
 from armi_runtime.composition.runtime_errors import RuntimeViolation
+from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.interfaces.browser_sessions import BrowserSessionViolation
 
 EXIT_INVOCATION_REJECTED = 2
@@ -41,6 +43,9 @@ def _parser() -> argparse.ArgumentParser:
     runtime_command = runtime.add_subparsers(dest="runtime_command", required=True)
     runtime_start = runtime_command.add_parser("start")
     runtime_start.add_argument("--environment-root", type=Path, required=True)
+    for lifecycle_command in ("start", "status", "stop"):
+        lifecycle = command.add_parser(lifecycle_command)
+        lifecycle.add_argument("--environment-root", type=Path)
     database = command.add_parser("db")
     database_command = database.add_subparsers(dest="database_command", required=True)
     database_status = database_command.add_parser("status")
@@ -91,6 +96,10 @@ def _safe_failure(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    environment_root = args.environment_root
+    if environment_root is None:
+        configured_root = os.environ.get("ARMI_ENVIRONMENT_ROOT")
+        environment_root = Path(configured_root) if configured_root else Path.cwd()
     credential_scope: dict[str, str]
     if args.command == "config":
         credential_scope = {}
@@ -104,6 +113,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {
             "creator.bootstrap.issue": CREATOR_BEARER_LOCATOR,
         }
+    elif args.command in {"status", "stop"}:
+        credential_scope = {}
     else:
         credential_scope = {
             "database.runtime": "database.runtime",
@@ -114,9 +125,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             "codex.runner.auth": "codex.auth_json",
         }
     try:
+        configuration_environment = dict(os.environ)
+        configuration_environment.pop("ARMI_ENVIRONMENT_ROOT", None)
         prepared = prepare_environment(
-            args.environment_root,
+            environment_root,
             credential_scope=credential_scope,
+            environment=configuration_environment,
         )
     except (ConfigurationViolation, RuntimeViolation) as error:
         _safe_failure(error)
@@ -187,6 +201,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             _safe_failure(error)
             return 3 if error.status_code >= 500 else EXIT_INVOCATION_REJECTED
         print(result.bootstrap_code)
+        return 0
+    if args.command in {"start", "status", "stop"}:
+        process = RuntimeProcessManager(
+            prepared.root,
+            str(prepared.effective.config.environment.environment_id),
+        )
+        try:
+            result = getattr(process, args.command)()
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 3
+        print(
+            json.dumps(
+                result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
         return 0
     return run_runtime(prepared)
 

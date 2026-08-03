@@ -129,6 +129,81 @@ class RuntimeCliTests(unittest.TestCase):
             "codex.runner.auth": "codex.auth_json",
         }
 
+    def test_background_start_uses_process_manager_and_safe_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                redirect_stdout(output),
+            ):
+                manager_type.return_value.start.return_value = {
+                    "status": "started",
+                    "pid": 1234,
+                    "runtime": {"runtime_state": "ready"},
+                }
+                exit_code = main(("start", "--environment-root", str(root.resolve())))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "started")
+        manager_type.return_value.start.assert_called_once_with()
+
+    def test_background_status_defaults_to_current_environment_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("armi_runtime.cli.Path.cwd", return_value=root.resolve()),
+                patch(
+                    "armi_runtime.cli.prepare_environment", wraps=prepare_environment
+                ) as prepare,
+                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                redirect_stdout(output),
+            ):
+                manager_type.return_value.status.return_value = {
+                    "status": "stopped",
+                    "pid": None,
+                }
+                exit_code = main(("status",))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "stopped")
+        self.assertEqual(prepare.call_args.kwargs["credential_scope"], {})
+
+    def test_background_status_accepts_dedicated_environment_root_locator(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            with (
+                patch.dict(
+                    os.environ,
+                    {"ARMI_ENVIRONMENT_ROOT": str(root.resolve())},
+                    clear=True,
+                ),
+                patch(
+                    "armi_runtime.cli.prepare_environment", wraps=prepare_environment
+                ) as prepare,
+                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                redirect_stdout(output),
+            ):
+                manager_type.return_value.status.return_value = {
+                    "status": "stopped",
+                    "pid": None,
+                }
+                exit_code = main(("status",))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "stopped")
+        self.assertNotIn(
+            "ARMI_ENVIRONMENT_ROOT",
+            prepare.call_args.kwargs["environment"],
+        )
+
     def test_birth_command_is_explicit_and_returns_only_stable_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

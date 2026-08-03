@@ -17,6 +17,28 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 
 项目目前处于从零重建的实验阶段，当前设计基线为 S001 5.4、schema v25。S039 的早期 gate 已证明内部 task source、`doubao-seed-evolving`、grant/effect、`gpt-5.6-sol` runner、validator 和第二次认知分别成立，但复核发现它没有提供 Creator 可直接使用的任务入口，且 runner 仍以固定 conformance marker 作为交付；该结论已被纠正。当前实现增加显式 Creator `codex-tasks` 接纳、一般 `result.md` validator 和含真实交付物的 result evidence，完整产品纵向 gate 通过前不再把组件拼接冒充人类可用闭环。Codex 继续使用官方 `openai-codex==0.144.4` Python SDK、同版随包 runtime、Windows `unelevated/workspace-write`、临时认证、ephemeral thread、Job Object 和独立结果校验，不接触用户真实仓库，也不把 `workspace-write` 冒充同一 Windows 用户下的文件读取隔离，后者归 S045 的服务身份与 DACL。Admin MCP 保持 SDK 2.0.0、协议 `2026-07-28`、stdio 和 23 个静态工具。S033/S034 正式联网验收仍延至 M0 总验收，`M0-SEAM-WEB.active_binding` 为空；Memory、Relationship 与 Activity owner 仍未激活，S040—S046 尚未完成，因此还不是发布版本。
 
+## 本地 Runtime 生命周期
+
+在环境根目录中可以直接管理后台 Runtime：
+
+```powershell
+armi start
+armi status
+armi stop
+```
+
+从其他目录调用时显式指定环境根；也可以只为当前命令行会话设置
+`ARMI_ENVIRONMENT_ROOT`：
+
+```powershell
+armi start --environment-root C:\path\to\environment
+```
+
+`armi start` 创建无控制台的后台进程并等待私有控制端点可用后返回；`armi stop`
+先停止接纳新写入并完成优雅停机。原有
+`armi runtime start --environment-root <path>` 保留为前台诊断入口。该本地入口不注册
+Windows 服务，也不提供开机自启；正式安装和服务身份仍归 S045。
+
 ## 关于学习与参考
 
 这个项目就是我自己拿来学习和做实验的，不商用，也没打算假装所有东西都是我凭空想出来的。一路上我会看很多开源项目和论文，觉得好的设计就研究、吸收，再按 ARMI 的需要重新做。所以如果你看到某些思路眼熟，不用奇怪。
