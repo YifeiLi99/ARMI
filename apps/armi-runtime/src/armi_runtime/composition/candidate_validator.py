@@ -20,6 +20,7 @@ from armi_kernel.application import (
     CandidateDisposition,
     CandidateExperienceDraft,
     CandidateFactClass,
+    CandidateMemoryDraft,
     CandidateOwner,
     CandidateRejection,
     CandidateSleepDecisionDraft,
@@ -38,6 +39,7 @@ from armi_kernel.application import (
     FormalNoActionDraft,
     FormalNoActionKind,
     FormalNoActionReason,
+    MemorySourceKind,
     ModelViolation,
     SleepDecisionKind,
     SubjectChangeSet,
@@ -81,6 +83,7 @@ from .model_contract import (
     CreatorSceneReplyRequestPayload,
     ExperienceProposal,
     FormalNoActionPayload,
+    MemoryChangeProposal,
     RuntimeBoundCreatorReplyPayload,
     WebResearchRequestProposal,
     parse_candidate,
@@ -99,6 +102,7 @@ RUNTIME_BOUND_CHANGE_SET_VERSION = "armi.subject-change-set.v6"
 ACTIVITY_CHANGE_SET_VERSION = "armi.subject-change-set.v7"
 ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 SLEEP_CHANGE_SET_VERSION = "armi.subject-change-set.v9"
+MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,6 +311,7 @@ class DeterministicCandidateValidator:
         accepted: dict[
             str,
             CandidateExperienceDraft
+            | CandidateMemoryDraft
             | CandidateComponentDraft
             | CapabilityRequestDraft
             | CreatorReplyDraft
@@ -346,6 +351,35 @@ class DeterministicCandidateValidator:
                 )
                 group_experiences.add(proposal.atomic_group_ref)
                 continue
+            if failure is None and owner is CandidateOwner.MEMORY:
+                memory = cast(MemoryChangeProposal, proposal)
+                source_experiences = tuple(
+                    value
+                    for value in accepted.values()
+                    if isinstance(value, CandidateExperienceDraft)
+                    and value.atomic_group_ref == proposal.atomic_group_ref
+                )
+                if len(source_experiences) != 1:
+                    failure = "CANDIDATE-MEMORY-EXPERIENCE"
+                elif (
+                    source_experiences[0].fact_class.value != memory.payload.fact_class
+                ):
+                    failure = "CANDIDATE-MEMORY-SOURCE"
+                else:
+                    source = source_experiences[0]
+                    accepted[proposal.proposal_ref] = CandidateMemoryDraft(
+                        proposal.proposal_ref,
+                        proposal.atomic_group_ref,
+                        tuple(basis.ordinal for basis in proposal_bases),
+                        CandidateFactClass(memory.payload.fact_class),
+                        source.proposal_ref,
+                        _memory_source_kind(
+                            CandidateFactClass(memory.payload.fact_class),
+                            purpose=self._context.purpose,
+                        ),
+                        memory.payload.summary,
+                    )
+                    continue
             if failure is None and owner in {
                 CandidateOwner.SELF,
                 CandidateOwner.MIND,
@@ -543,6 +577,11 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateComponentDraft)
         )
+        memories = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, CandidateMemoryDraft)
+        )
         capability_requests = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -565,24 +604,27 @@ class DeterministicCandidateValidator:
         )
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
+        change_set_version = (
+            MEMORY_CHANGE_SET_VERSION
+            if memories
+            else WEB_CHANGE_SET_VERSION
+            if source_version == WEB_DIALOGUE_CANDIDATE_VERSION
+            and web_research_requests
+            else RUNTIME_BOUND_CHANGE_SET_VERSION
+            if source_version
+            in {
+                "armi.cognition-candidate.v7",
+                DIALOGUE_CANDIDATE_VERSION,
+                WEB_DIALOGUE_CANDIDATE_VERSION,
+            }
+            else CODEX_CHANGE_SET_VERSION
+            if source_version == "armi.cognition-candidate.v6"
+            else WEB_CHANGE_SET_VERSION
+            if source_version == "armi.cognition-candidate.v5"
+            else CHANGE_SET_VERSION
+        )
         change_set_value = {
-            "schema_version": (
-                WEB_CHANGE_SET_VERSION
-                if source_version == WEB_DIALOGUE_CANDIDATE_VERSION
-                and web_research_requests
-                else RUNTIME_BOUND_CHANGE_SET_VERSION
-                if source_version
-                in {
-                    "armi.cognition-candidate.v7",
-                    DIALOGUE_CANDIDATE_VERSION,
-                    WEB_DIALOGUE_CANDIDATE_VERSION,
-                }
-                else CODEX_CHANGE_SET_VERSION
-                if source_version == "armi.cognition-candidate.v6"
-                else WEB_CHANGE_SET_VERSION
-                if source_version == "armi.cognition-candidate.v5"
-                else CHANGE_SET_VERSION
-            ),
+            "schema_version": change_set_version,
             "subject_id": str(self._context.subject_id),
             "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
@@ -603,14 +645,16 @@ class DeterministicCandidateValidator:
             "action_choices": [_action_wire(item) for item in action_choices],
             "rejections": [_rejection_wire(item) for item in rejections],
         }
-        if source_version in {
+        if change_set_version == MEMORY_CHANGE_SET_VERSION:
+            change_set_value["memories"] = [_memory_wire(item) for item in memories]
+        if change_set_version == MEMORY_CHANGE_SET_VERSION or source_version in {
             "armi.cognition-candidate.v5",
             WEB_DIALOGUE_CANDIDATE_VERSION,
         }:
             change_set_value["web_research_requests"] = [
                 _web_research_wire(item) for item in web_research_requests
             ]
-        if source_version in {
+        if change_set_version == MEMORY_CHANGE_SET_VERSION or source_version in {
             DIALOGUE_CANDIDATE_VERSION,
             "armi.cognition-candidate.v6",
             "armi.cognition-candidate.v7",
@@ -642,6 +686,7 @@ class DeterministicCandidateValidator:
             web_research_requests,
             rejections,
             codex_delegations,
+            memories=memories,
         )
         status = (
             CandidateValidationStatus.PARTIALLY_ACCEPTED
@@ -1069,6 +1114,7 @@ def _expand_dialogue_candidate(
     }[decision.kind]
     disposition = decision.kind
     experiences: list[dict[str, Any]] = []
+    memory_changes: list[dict[str, Any]] = []
     capability_requests: list[dict[str, Any]] = []
     action_choices: list[dict[str, Any]] = []
     understanding_basis_refs = (evidence_ref,)
@@ -1105,6 +1151,20 @@ def _expand_dialogue_candidate(
                 }
             )
             proposal_no += 1
+            if decision.experience.memory_summary is not None:
+                memory_changes.append(
+                    {
+                        "proposal_ref": f"proposal:{proposal_no}",
+                        "atomic_group_ref": "group:1",
+                        "basis_refs": (evidence_ref,),
+                        "payload": {
+                            "proposal_kind": "memory_changes",
+                            "fact_class": "external_claim",
+                            "summary": decision.experience.memory_summary,
+                        },
+                    }
+                )
+                proposal_no += 1
         shared_bases = (evidence_ref, scene_ref, catalog_ref)
         capability_requests.append(
             {
@@ -1260,7 +1320,7 @@ def _expand_dialogue_candidate(
                     },
                     "experiences": tuple(experiences),
                     "component_changes": (),
-                    "memory_changes": (),
+                    "memory_changes": tuple(memory_changes),
                     "relationship_changes": (),
                     "activity_changes": (),
                     "capability_requests": tuple(capability_requests),
@@ -1588,6 +1648,7 @@ def _primary_rejection(rejected: dict[str, CandidateRejection]) -> str:
 
 def _draft_owner(
     draft: CandidateExperienceDraft
+    | CandidateMemoryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1597,6 +1658,8 @@ def _draft_owner(
 ) -> CandidateOwner:
     if isinstance(draft, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
+    if isinstance(draft, CandidateMemoryDraft):
+        return CandidateOwner.MEMORY
     if isinstance(draft, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
     if isinstance(draft, (CreatorReplyDraft, FormalNoActionDraft)):
@@ -1610,6 +1673,7 @@ def _draft_owner(
 
 def _draft_fact_class(
     draft: CandidateExperienceDraft
+    | CandidateMemoryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1636,6 +1700,36 @@ def _experience_wire(value: CandidateExperienceDraft) -> dict[str, object]:
         "uncertainty": value.uncertainty,
         "privacy_scope": value.privacy_scope,
     }
+
+
+def _memory_wire(value: CandidateMemoryDraft) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "fact_class": value.fact_class.value,
+        "source_experience_ref": value.source_experience_ref,
+        "source_kind": value.source_kind.value,
+        "summary": value.summary,
+        "mechanism_identity": value.mechanism_identity,
+        "privacy_scope": value.privacy_scope,
+    }
+
+
+def _memory_source_kind(
+    fact_class: CandidateFactClass,
+    *,
+    purpose: str,
+) -> MemorySourceKind:
+    if fact_class is CandidateFactClass.INFERENCE:
+        return MemorySourceKind.INFERRED
+    if fact_class is CandidateFactClass.UNKNOWN:
+        return MemorySourceKind.UNKNOWN
+    if purpose in {"consider_web_evidence", "consider_codex_result"}:
+        return MemorySourceKind.QUERIED
+    if fact_class is CandidateFactClass.EXTERNAL_CLAIM:
+        return MemorySourceKind.REPORTED
+    return MemorySourceKind.EXPERIENCED
 
 
 def _activity_wire(value: CandidateActivityDraft) -> dict[str, object]:

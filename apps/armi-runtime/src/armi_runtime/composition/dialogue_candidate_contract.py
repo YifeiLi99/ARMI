@@ -22,6 +22,7 @@ class DialogueExperience(_StrictModel):
         StringConstraints(min_length=1, max_length=1024),
     ]
     uncertainty: Summary | None = None
+    memory_summary: Summary | None = None
 
 
 class CreatorDialogueCandidate(_StrictModel):

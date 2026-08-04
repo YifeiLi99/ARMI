@@ -17,6 +17,7 @@ from armi_kernel.application import (
     CandidateDisposition,
     CandidateExperienceDraft,
     CandidateFactClass,
+    CandidateMemoryDraft,
     CandidateOwner,
     CandidateRejection,
     CandidateSleepDecisionDraft,
@@ -32,6 +33,7 @@ from armi_kernel.application import (
     FormalNoActionDraft,
     FormalNoActionKind,
     FormalNoActionReason,
+    MemorySourceKind,
     SleepDecisionKind,
     SubjectChangeSet,
     SubjectCommitViolation,
@@ -60,6 +62,7 @@ _TOP_KEYS_V6 = _TOP_KEYS_V5
 _TOP_KEYS_V7 = {*_TOP_KEYS_V6, "activities"}
 _TOP_KEYS_V8 = {*_TOP_KEYS_V7, "activity_decisions"}
 _TOP_KEYS_V9 = {*_TOP_KEYS_V8, "sleep_decisions"}
+_TOP_KEYS_V10 = {*_TOP_KEYS_V6, "web_research_requests", "memories"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -78,6 +81,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v7",
             "armi.subject-change-set.v8",
             "armi.subject-change-set.v9",
+            "armi.subject-change-set.v10",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -99,6 +103,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V8
             if version.endswith(".v8")
             else _TOP_KEYS_V9
+            if version.endswith(".v9")
+            else _TOP_KEYS_V10
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -146,6 +152,9 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             _sleep_decision(item)
             for item in _array(document.get("sleep_decisions", []), 1)
         )
+        memories = tuple(
+            _memory(item) for item in _array(document.get("memories", []), 4)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -172,6 +181,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             activities,
             activity_decisions,
             sleep_decisions,
+            memories,
         )
         proposal_refs = [
             item.proposal_ref
@@ -185,10 +195,21 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *activities,
                 *activity_decisions,
                 *sleep_decisions,
+                *memories,
                 *rejections,
             )
         ]
         if len(proposal_refs) != len(set(proposal_refs)):
+            raise ValueError
+        experience_by_ref = {item.proposal_ref: item for item in experiences}
+        if any(
+            memory.source_experience_ref not in experience_by_ref
+            or experience_by_ref[memory.source_experience_ref].atomic_group_ref
+            != memory.atomic_group_ref
+            or experience_by_ref[memory.source_experience_ref].fact_class
+            is not memory.fact_class
+            for memory in memories
+        ):
             raise ValueError
         change_material = (
             result.experiences
@@ -199,6 +220,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.activities
             or result.activity_decisions
             or result.sleep_decisions
+            or result.memories
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
@@ -302,6 +324,34 @@ def _experience(value: object) -> CandidateExperienceDraft:
         CandidateFactClass(_text(item["fact_class"])),
         _text(item["first_person_gist"]),
         None if uncertainty is None else _text(uncertainty),
+        _text(item["privacy_scope"]),
+    )
+
+
+def _memory(value: object) -> CandidateMemoryDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "fact_class",
+            "source_experience_ref",
+            "source_kind",
+            "summary",
+            "mechanism_identity",
+            "privacy_scope",
+        },
+    )
+    return CandidateMemoryDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        CandidateFactClass(_text(item["fact_class"])),
+        _text(item["source_experience_ref"]),
+        MemorySourceKind(_text(item["source_kind"])),
+        _text(item["summary"]),
+        _text(item["mechanism_identity"]),
         _text(item["privacy_scope"]),
     )
 

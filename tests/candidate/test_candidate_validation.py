@@ -13,11 +13,14 @@ import rfc8785
 from armi_kernel.application import (
     ActivityStatus,
     CandidateBasis,
+    CandidateFactClass,
     CandidateOwner,
     CandidateValidationStatus,
     CodexDelegationDraft,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
+    MemorySourceKind,
+    SubjectCommitViolation,
 )
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.persistence.candidate_validation import (
@@ -26,6 +29,7 @@ from armi_runtime.adapters.persistence.candidate_validation import (
 from armi_runtime.composition.candidate_validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
+    _memory_source_kind,
 )
 from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
 
@@ -584,7 +588,7 @@ def test_same_group_failure_rejects_otherwise_valid_experience() -> None:
     }
 
 
-def test_inactive_owner_is_rejected_without_semantic_repair() -> None:
+def test_memory_without_a_source_experience_is_rejected() -> None:
     context, bases = _fixture()
     candidate = _candidate(context)
     candidate["component_changes"] = []
@@ -607,7 +611,7 @@ def test_inactive_owner_is_rejected_without_semantic_repair() -> None:
     assert result.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
     assert result.change_set is not None
     rejection = result.change_set.rejections[0]
-    assert rejection.code == "CANDIDATE-OWNER-NOT-ACTIVE"
+    assert rejection.code == "CANDIDATE-MEMORY-EXPERIENCE"
     assert b"database access" not in result.change_set.canonical_bytes
 
 
@@ -1090,6 +1094,7 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert len(first.change_set.capability_requests) == 1
     assert len(first.change_set.action_choices) == 1
     assert first.change_set.experiences == ()
+    assert first.change_set.memories == ()
     scope = first.change_set.capability_requests[0].scope
     assert isinstance(scope, CreatorSceneReplyScope)
     assert scope.subject_id == context.subject_id
@@ -1105,6 +1110,133 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert parse_subject_change_set(first.change_set.canonical_bytes).digest == (
         first.change_set.digest
     )
+
+
+def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "我记住了。",
+                "experience": {
+                    "first_person_gist": "创造者告诉了我一个偏好。",
+                    "uncertainty": "这是创造者的陈述。",
+                    "memory_summary": "创造者向我表达过这个偏好。",
+                },
+            }
+        ),
+        bases=extended,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert len(result.change_set.experiences) == 1
+    assert len(result.change_set.memories) == 1
+    memory = result.change_set.memories[0]
+    assert memory.source_experience_ref == result.change_set.experiences[0].proposal_ref
+    assert memory.source_kind is MemorySourceKind.REPORTED
+    assert memory.mechanism_identity == "armi.memory-formation.contextual-v1"
+    assert b"armi.subject-change-set.v10" in result.change_set.canonical_bytes
+    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert reparsed.memories == result.change_set.memories
+    assert any(item is memory for item in _validation_drafts(result.change_set))
+
+    drifted = json.loads(result.change_set.canonical_bytes)
+    drifted["memories"][0]["source_kind"] = "experienced"
+    with pytest.raises(SubjectCommitViolation):
+        parse_subject_change_set(rfc8785.dumps(cast(Any, drifted)))
+
+
+def test_memory_fact_class_cannot_drift_from_its_source_experience() -> None:
+    context, bases = _fixture()
+    candidate = _candidate(context)
+    candidate["component_changes"] = []
+    experiences = cast(list[dict[str, Any]], candidate["experiences"])
+    second = experiences[0].copy()
+    second["proposal_ref"] = "proposal:3"
+    second["atomic_group_ref"] = "group:2"
+    candidate["experiences"] = [*experiences, second]
+    candidate["memory_changes"] = [
+        {
+            "proposal_ref": "proposal:2",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2"],
+            "payload": {
+                "proposal_kind": "memory_changes",
+                "fact_class": "inference",
+                "summary": "未经来源支持的改写。",
+            },
+        }
+    ]
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=bases
+    )
+    assert result.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert result.change_set is not None
+    assert {item.code for item in result.change_set.rejections} >= {
+        "CANDIDATE-MEMORY-SOURCE"
+    }
+
+
+@pytest.mark.parametrize(
+    ("fact_class", "purpose", "expected"),
+    [
+        (
+            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+            "consider_creator_input",
+            MemorySourceKind.EXPERIENCED,
+        ),
+        (
+            CandidateFactClass.EXTERNAL_CLAIM,
+            "consider_creator_input",
+            MemorySourceKind.REPORTED,
+        ),
+        (
+            CandidateFactClass.INFERENCE,
+            "consider_creator_input",
+            MemorySourceKind.INFERRED,
+        ),
+        (
+            CandidateFactClass.EXTERNAL_CLAIM,
+            "consider_web_evidence",
+            MemorySourceKind.QUERIED,
+        ),
+        (
+            CandidateFactClass.UNKNOWN,
+            "consider_creator_input",
+            MemorySourceKind.UNKNOWN,
+        ),
+    ],
+)
+def test_memory_source_classification_is_runtime_bound(
+    fact_class: CandidateFactClass,
+    purpose: str,
+    expected: MemorySourceKind,
+) -> None:
+    assert _memory_source_kind(fact_class, purpose=purpose) is expected
 
 
 def test_compact_dialogue_no_action_remains_a_subjective_decision() -> None:

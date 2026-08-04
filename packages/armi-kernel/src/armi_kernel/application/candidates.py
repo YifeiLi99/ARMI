@@ -44,6 +44,14 @@ class CandidateFactClass(StrEnum):
     UNKNOWN = "unknown"
 
 
+class MemorySourceKind(StrEnum):
+    EXPERIENCED = "experienced"
+    REPORTED = "reported"
+    INFERRED = "inferred"
+    QUERIED = "queried"
+    UNKNOWN = "unknown"
+
+
 class CandidateOwner(StrEnum):
     EXPERIENCE = "experience"
     SELF = "self"
@@ -159,6 +167,38 @@ class CandidateExperienceDraft:
             or self.privacy_scope != "private"
         ):
             raise CandidateViolation("CON-CANDIDATE-EXPERIENCE")
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateMemoryDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    fact_class: CandidateFactClass
+    source_experience_ref: str
+    source_kind: MemorySourceKind
+    summary: str
+    mechanism_identity: str = "armi.memory-formation.contextual-v1"
+    privacy_scope: str = "private"
+
+    def __post_init__(self) -> None:
+        _validate_proposal(
+            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
+        )
+        if (
+            type(self.fact_class) is not CandidateFactClass
+            or type(self.source_experience_ref) is not str
+            or _REF.fullmatch(self.source_experience_ref) is None
+            or self.source_experience_ref == self.proposal_ref
+            or type(self.source_kind) is not MemorySourceKind
+            or type(self.summary) is not str
+            or not 1 <= len(self.summary) <= 512
+            or not _optional_text(self.summary, 2048)
+            or not _memory_source_supported(self.source_kind, self.fact_class)
+            or self.mechanism_identity != "armi.memory-formation.contextual-v1"
+            or self.privacy_scope != "private"
+        ):
+            raise CandidateViolation("CON-CANDIDATE-MEMORY")
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,6 +464,7 @@ class SubjectChangeSet:
     activities: tuple[CandidateActivityDraft, ...] = ()
     activity_decisions: tuple[CandidateActivityDecisionDraft, ...] = ()
     sleep_decisions: tuple[CandidateSleepDecisionDraft, ...] = ()
+    memories: tuple[CandidateMemoryDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -527,6 +568,29 @@ def _optional_text(value: str | None, maximum: int) -> bool:
         return False
 
 
+def _memory_source_supported(
+    source_kind: MemorySourceKind,
+    fact_class: CandidateFactClass,
+) -> bool:
+    return (
+        fact_class
+        in {
+            MemorySourceKind.EXPERIENCED: {
+                CandidateFactClass.OBJECTIVE_FACT,
+                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+            },
+            MemorySourceKind.REPORTED: {CandidateFactClass.EXTERNAL_CLAIM},
+            MemorySourceKind.INFERRED: {CandidateFactClass.INFERENCE},
+            MemorySourceKind.QUERIED: {
+                CandidateFactClass.OBJECTIVE_FACT,
+                CandidateFactClass.EXTERNAL_CLAIM,
+                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+            },
+            MemorySourceKind.UNKNOWN: {CandidateFactClass.UNKNOWN},
+        }[source_kind]
+    )
+
+
 __all__ = (
     "CandidateActivityDecisionDraft",
     "CandidateActivityDraft",
@@ -535,6 +599,7 @@ __all__ = (
     "CandidateDisposition",
     "CandidateExperienceDraft",
     "CandidateFactClass",
+    "CandidateMemoryDraft",
     "CandidateOwner",
     "CandidateRejection",
     "CandidateSleepDecisionDraft",
@@ -543,5 +608,6 @@ __all__ = (
     "CandidateValidationStatus",
     "CandidateValidator",
     "CandidateViolation",
+    "MemorySourceKind",
     "SubjectChangeSet",
 )

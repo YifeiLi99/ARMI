@@ -393,6 +393,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.activities
             and not change_set.activity_decisions
             and not change_set.sleep_decisions
+            and not change_set.memories
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -434,8 +435,10 @@ class PostgreSQLSubjectCommitRepository:
                 snapshot.trace_id.value,
             ),
         )
+        experience_ids: dict[str, ExperienceId] = {}
         for experience in change_set.experiences:
             experience_id = ExperienceId(uuid7())
+            experience_ids[experience.proposal_ref] = experience_id
             evidence_links = await _evidence_links(
                 connection,
                 snapshot=snapshot,
@@ -457,7 +460,7 @@ class PostgreSQLSubjectCommitRepository:
                     source_perspective, uncertainty, privacy_scope,
                     schema_version
                 ) VALUES (
-                    %s, %s, %s, %s, %s, 'external_claim',
+                    %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, 'private', 1
                 )
                 """,
@@ -467,6 +470,7 @@ class PostgreSQLSubjectCommitRepository:
                     snapshot.episode_id,
                     experience.proposal_ref,
                     experience_kind,
+                    experience.fact_class.value,
                     experience.first_person_gist,
                     snapshot.scene_id,
                     received_at,
@@ -487,6 +491,57 @@ class PostgreSQLSubjectCommitRepository:
                     """,
                     (experience_id.value, evidence_id, context_item_id, ordinal),
                 )
+
+        experience_by_ref = {item.proposal_ref: item for item in change_set.experiences}
+        for memory in change_set.memories:
+            source_experience_id = experience_ids.get(memory.source_experience_ref)
+            source_experience = experience_by_ref.get(memory.source_experience_ref)
+            if source_experience_id is None or source_experience is None:
+                raise SubjectCommitViolation("SUBJECT-MEMORY-SOURCE")
+            memory_id = uuid7()
+            revision_id = uuid7()
+            await connection.execute(
+                """
+                INSERT INTO armi.subjective_memories (
+                    memory_id, subject_id, life_generation_id,
+                    current_revision_id, head_version
+                ) VALUES (%s, %s, %s, %s, 1)
+                """,
+                (
+                    memory_id,
+                    snapshot.subject_id,
+                    snapshot.generation_id,
+                    revision_id,
+                ),
+            )
+            await connection.execute(
+                """
+                INSERT INTO armi.subjective_memory_revisions (
+                    memory_revision_id, memory_id, revision_no,
+                    previous_revision_id, subject_commit_id,
+                    candidate_validation_id, proposal_ref,
+                    source_experience_id, source_kind, source_fact_class,
+                    summary, uncertainty, mechanism_identity,
+                    privacy_scope
+                ) VALUES (
+                    %s, %s, 1, NULL, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, 'private'
+                )
+                """,
+                (
+                    revision_id,
+                    memory_id,
+                    commit_id.value,
+                    snapshot.validation_id,
+                    memory.proposal_ref,
+                    source_experience_id.value,
+                    memory.source_kind.value,
+                    memory.fact_class.value,
+                    memory.summary,
+                    source_experience.uncertainty,
+                    memory.mechanism_identity,
+                ),
+            )
 
         for component in sorted(
             change_set.components, key=lambda item: item.owner.value

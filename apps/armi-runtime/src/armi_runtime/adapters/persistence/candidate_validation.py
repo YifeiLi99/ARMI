@@ -25,6 +25,7 @@ from armi_kernel.application import (
     CandidateComponentDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
+    CandidateMemoryDraft,
     CandidateOwner,
     CandidateRejection,
     CandidateSleepDecisionDraft,
@@ -461,7 +462,12 @@ async def _insert_items(
             draft.fact_class
             if isinstance(
                 draft,
-                (CandidateExperienceDraft, CandidateComponentDraft, CandidateRejection),
+                (
+                    CandidateExperienceDraft,
+                    CandidateMemoryDraft,
+                    CandidateComponentDraft,
+                    CandidateRejection,
+                ),
             )
             else None
         )
@@ -512,6 +518,7 @@ def _validation_drafts(
     change_set: SubjectChangeSet,
 ) -> tuple[
     CandidateExperienceDraft
+    | CandidateMemoryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -526,6 +533,7 @@ def _validation_drafts(
 ]:
     return (
         *change_set.experiences,
+        *change_set.memories,
         *change_set.components,
         *change_set.capability_requests,
         *change_set.action_choices,
@@ -540,6 +548,7 @@ def _validation_drafts(
 
 def _item_semantic(
     value: CandidateExperienceDraft
+    | CandidateMemoryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -598,6 +607,17 @@ def _item_semantic(
                 "privacy_scope": value.privacy_scope,
             }
         )
+    elif isinstance(value, CandidateMemoryDraft):
+        result.update(
+            {
+                "owner": "memory",
+                "source_experience_ref": value.source_experience_ref,
+                "source_kind": value.source_kind.value,
+                "summary": value.summary,
+                "mechanism_identity": value.mechanism_identity,
+                "privacy_scope": value.privacy_scope,
+            }
+        )
     elif isinstance(value, CandidateComponentDraft):
         result.update(
             {
@@ -633,6 +653,7 @@ def _item_semantic(
 
 def _owner(
     value: CandidateExperienceDraft
+    | CandidateMemoryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -650,6 +671,8 @@ def _owner(
         return CandidateOwner.ACTIVITY
     if isinstance(value, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
+    if isinstance(value, CandidateMemoryDraft):
+        return CandidateOwner.MEMORY
     if isinstance(value, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
     if isinstance(value, (CreatorReplyDraft, FormalNoActionDraft)):
@@ -663,6 +686,7 @@ def _owner(
 
 def _implicit_fact_class(
     value: CandidateExperienceDraft
+    | CandidateMemoryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -678,6 +702,7 @@ def _implicit_fact_class(
         value,
         (
             CandidateExperienceDraft,
+            CandidateMemoryDraft,
             CandidateComponentDraft,
             CandidateActivityDraft,
             CandidateRejection,

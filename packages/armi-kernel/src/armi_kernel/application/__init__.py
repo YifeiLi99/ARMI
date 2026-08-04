@@ -39,6 +39,7 @@ from .candidates import (
     CandidateDisposition,
     CandidateExperienceDraft,
     CandidateFactClass,
+    CandidateMemoryDraft,
     CandidateOwner,
     CandidateRejection,
     CandidateSleepDecisionDraft,
@@ -47,6 +48,7 @@ from .candidates import (
     CandidateValidationStatus,
     CandidateValidator,
     CandidateViolation,
+    MemorySourceKind,
     SubjectChangeSet,
 )
 from .capability import (
@@ -377,6 +379,7 @@ __all__: tuple[str, ...] = (
     "CandidateDisposition",
     "CandidateExperienceDraft",
     "CandidateFactClass",
+    "CandidateMemoryDraft",
     "CandidateOwner",
     "CandidateRejection",
     "CandidateSleepDecisionDraft",
@@ -518,6 +521,7 @@ __all__: tuple[str, ...] = (
     "MaintenanceTransitionKind",
     "MaintenanceTriggerKind",
     "MaintenanceViolation",
+    "MemorySourceKind",
     "ModelAttemptId",
     "ModelBinding",
     "ModelInvocationResult",

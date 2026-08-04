@@ -207,6 +207,46 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     }
 
 
+def test_creator_dialogue_memory_is_optional_and_cannot_claim_authority() -> None:
+    parsed = parse_candidate(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "我记住了。",
+                "experience": {
+                    "first_person_gist": "创造者告诉了我一个偏好。",
+                    "uncertainty": "这仍是创造者的陈述。",
+                    "memory_summary": "创造者向我表达过这个偏好。",
+                },
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset(),
+    )
+    assert parsed.model_dump(mode="json")["experience"] == {
+        "first_person_gist": "创造者告诉了我一个偏好。",
+        "uncertainty": "这仍是创造者的陈述。",
+        "memory_summary": "创造者向我表达过这个偏好。",
+    }
+
+    with pytest.raises(ModelViolation):
+        parse_candidate(
+            json.dumps(
+                {
+                    "kind": "reply",
+                    "content": "越权",
+                    "experience": {
+                        "first_person_gist": "内容",
+                        "memory_summary": "摘要",
+                        "source_kind": "experienced",
+                    },
+                },
+                ensure_ascii=False,
+            ).encode(),
+            allowed_context_refs=frozenset(),
+        )
+
+
 def test_web_dialogue_v2_is_compact_versioned_and_rejects_urls() -> None:
     schema = candidate_schema(WEB_DIALOGUE_CANDIDATE_VERSION)
     schema_text = json.dumps(schema, separators=(",", ":"))

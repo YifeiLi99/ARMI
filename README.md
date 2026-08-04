@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目当前已达到 M0-Core 单机个人内测可用；P0-S001—S006 的 Activity、注意、Creator 只读闭环、睡眠决定、维护唤醒与恢复界面已经落地，当前按功能优先模式推进 P0-S007。普通 `consider_creator_input` 仍只调用一次主模型：模型只返回本轮决定、必要正文和可选 Experience，固定 identity、subject 和权限范围由 Runtime 绑定。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
+项目当前已达到 M0-Core 单机个人内测可用；P0-S001—S007 的 Activity、注意、Creator 只读闭环、睡眠维护与主观记忆形成已经落地，当前按功能优先模式推进 P0-S008。普通 `consider_creator_input` 仍只调用一次主模型：模型返回本轮决定、必要正文和可选 Experience；仅在确实形成记忆时随 Experience 返回一个 `memory_summary`，来源、identity、subject 和权限范围由 Runtime 绑定。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
 
 S039 的 Creator→Codex 产品纵向 gate 已通过：正式 `codex-tasks` 输入经 ARMI 认知、Creator grant、Codex effect、官方 `openai-codex==0.144.4` SDK runner、独立 validator、result evidence 和第二次 T-03 收敛为唯一 private Experience。新任务可逐项选择 `gpt-5.6-sol/terra/luna`、思考级别和内置 Web Search；一次性 workspace 默认可操作，明确 forbidden paths 和禁止逃逸构成安全边界。纯内容任务由结构化 deliverable 落为 `result.md`，代码与文件任务按 task manifest 和独立 validator 核验。正式 Creator 链已经用 Luna、`max` 和 Web Search 完成实机验收，不再把组件级成功冒充产品闭环。
 
@@ -23,10 +23,11 @@ S039 的 Creator→Codex 产品纵向 gate 已通过：正式 `codex-tasks` 输�
 `openai-codex==0.144.4` 一次 attempt，validator `passed`、workspace cleanup `succeeded`、
 result acceptance `accepted`。因此第一阶段“能正常对话、能发任务给 Codex”已经成立。
 Admin MCP、S033/S034 ARMI 网页观察、Windows 服务身份/DACL、跨候选回退和 24 小时 soak
-移入 P0 稳定化，不再阻塞个人内测。当前仍不是生产发布版本；Memory 与 Relationship
-owner 尚未激活。Activity owner 已进入正式组合根，但首次真实自主认知没有创建 `ready`
+移入 P0 稳定化，不再阻塞个人内测。当前仍不是生产发布版本；Relationship owner 尚未
+激活。Memory owner 已能从正式 Experience 形成带来源的 current/revision；Activity owner
+已进入正式组合根，但首次真实自主认知没有创建 `ready`
 Activity。相关 Context 串线已经修复；历史联合验收结果保留到 P0-S021/S022 集中复验，
-不再阻塞后续功能开发。P0-S001—P0-S006 按功能实现完成，当前施工入口为 P0-S007。
+不再阻塞后续功能开发。P0-S001—P0-S007 按功能实现完成，当前施工入口为 P0-S008。
 
 ## 本地 Runtime 生命周期
 

@@ -32,7 +32,10 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "CREATE TABLE armi.subjects" in sql
     assert "CREATE TABLE armi.activities" in sql
     assert "CREATE TABLE armi.maintenance_sessions" in sql
+    assert "CREATE TABLE armi.subjective_memories" in sql
+    assert "CREATE TABLE armi.subjective_memory_revisions" in sql
     assert "wake_request_id" in sql
+    assert "schema_migrations" not in sql
 
 
 def test_gateway_exposes_empty_database_install_not_upgrade() -> None:
