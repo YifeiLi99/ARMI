@@ -20,12 +20,20 @@ import psycopg
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
-from tools.candidate_bundle import (
-    build_identity,
-    verify_bundle,
-    write_deterministic_bundle,
-)
-from tools.deploy_candidate import DeploymentError, install
+try:
+    from tools.candidate_bundle import (
+        build_identity,
+        verify_bundle,
+        write_deterministic_bundle,
+    )
+    from tools.deploy_candidate import DeploymentError, install
+except ModuleNotFoundError:
+    from candidate_bundle import (  # type: ignore[no-redef]
+        build_identity,
+        verify_bundle,
+        write_deterministic_bundle,
+    )
+    from deploy_candidate import DeploymentError, install  # type: ignore[no-redef]
 
 
 class RehearsalError(RuntimeError):
