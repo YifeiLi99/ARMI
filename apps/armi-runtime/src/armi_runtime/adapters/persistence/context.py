@@ -68,6 +68,8 @@ class ContextEpisodeSnapshot:
     mechanism_config_digest: Digest
     trace_id: TraceId
     component_payloads: tuple[tuple[str, UUID, int, bytes, Digest], ...]
+    memory_payloads: tuple[tuple[UUID, int, bytes, Digest, str], ...]
+    has_memory_records: bool
     activity_summary_bytes: bytes
     scene_bytes: bytes | None
     scene_digest: Digest | None
@@ -298,7 +300,8 @@ class PostgreSQLContextRepository:
                     opportunity.source_version,
                     opportunity.source_digest,
                     opportunity.available_after,
-                    opportunity.expires_at
+                    opportunity.expires_at,
+                    subject.current_generation_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -306,6 +309,8 @@ class PostgreSQLContextRepository:
                  AND work.work_kind = 'cognition.context.prepare'
                 JOIN armi.opportunities AS opportunity
                   ON opportunity.opportunity_id = episode.opportunity_id
+                JOIN armi.subjects AS subject
+                  ON subject.subject_id = episode.subject_id
                 LEFT JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = opportunity.evidence_id
                 LEFT JOIN armi.interaction_scenes AS scene
@@ -368,6 +373,62 @@ class PostgreSQLContextRepository:
                 Digest.from_bytes(payload),
             )
             for item in components
+        )
+        memory_rows = await (
+            await connection.execute(
+                """
+                SELECT memory.memory_id, memory.head_version,
+                       revision.source_kind, revision.source_fact_class,
+                       revision.summary, revision.uncertainty,
+                       revision.accessibility
+                FROM armi.subjective_memories AS memory
+                JOIN armi.subjective_memory_revisions AS revision
+                  ON revision.memory_revision_id = memory.current_revision_id
+                WHERE memory.subject_id = %s
+                  AND memory.life_generation_id = %s
+                  AND revision.accessibility IN ('available', 'faded')
+                ORDER BY
+                    CASE revision.accessibility
+                        WHEN 'available' THEN 1 ELSE 2
+                    END,
+                    revision.created_at DESC,
+                    memory.memory_id
+                LIMIT 8
+                """,
+                (row[2], row[28]),
+            )
+        ).fetchall()
+        memory_exists = await (
+            await connection.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM armi.subjective_memories
+                    WHERE subject_id = %s AND life_generation_id = %s
+                )
+                """,
+                (row[2], row[28]),
+            )
+        ).fetchone()
+        memory_payloads = tuple(
+            (
+                item[0],
+                int(item[1]),
+                (
+                    payload := rfc8785.dumps(
+                        {
+                            "source_kind": str(item[2]),
+                            "fact_class": str(item[3]),
+                            "summary": str(item[4]),
+                            "uncertainty": None if item[5] is None else str(item[5]),
+                            "accessibility": str(item[6]),
+                        }
+                    )
+                ),
+                Digest.from_bytes(payload),
+                str(item[6]),
+            )
+            for item in memory_rows
         )
         activity_rows = await (
             await connection.execute(
@@ -443,6 +504,8 @@ class PostgreSQLContextRepository:
             Digest(str(row[9])),
             TraceId(str(row[10])),
             component_payloads,
+            memory_payloads,
+            bool(memory_exists and memory_exists[0]),
             activity_summary_bytes,
             scene_bytes,
             None if scene_bytes is None else Digest.from_bytes(scene_bytes),

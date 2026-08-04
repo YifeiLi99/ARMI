@@ -21,6 +21,7 @@ from armi_kernel.application import (
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateMemoryDraft,
+    CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateRejection,
     CandidateSleepDecisionDraft,
@@ -39,6 +40,9 @@ from armi_kernel.application import (
     FormalNoActionDraft,
     FormalNoActionKind,
     FormalNoActionReason,
+    MemoryAccessibility,
+    MemoryRelationKind,
+    MemoryRevisionKind,
     MemorySourceKind,
     ModelViolation,
     SleepDecisionKind,
@@ -65,6 +69,7 @@ from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
+    DialogueMemoryChange,
     DialogueReplyDecision,
     DialogueReplyDecisionV2,
     DialogueTerminalDecision,
@@ -103,6 +108,38 @@ ACTIVITY_CHANGE_SET_VERSION = "armi.subject-change-set.v7"
 ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 SLEEP_CHANGE_SET_VERSION = "armi.subject-change-set.v9"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
+MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateMemoryContext:
+    memory_id: UUID
+    current_revision_id: UUID
+    head_version: int
+    context_digest: Digest
+    fact_class: CandidateFactClass
+    source_kind: MemorySourceKind
+    summary: str
+    uncertainty: str | None
+    accessibility: MemoryAccessibility
+
+    def __post_init__(self) -> None:
+        if (
+            any(
+                type(value) is not UUID or value.version != 7
+                for value in (self.memory_id, self.current_revision_id)
+            )
+            or type(self.head_version) is not int
+            or self.head_version <= 0
+            or type(self.context_digest) is not Digest
+            or type(self.fact_class) is not CandidateFactClass
+            or type(self.source_kind) is not MemorySourceKind
+            or type(self.summary) is not str
+            or not self.summary
+            or type(self.accessibility) is not MemoryAccessibility
+            or self.accessibility is MemoryAccessibility.FORGOTTEN
+        ):
+            raise CandidateViolation("CON-CANDIDATE-MEMORY-CONTEXT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +165,7 @@ class CandidateValidationContext:
     current_activity_head_version: int | None = None
     current_activity_status: ActivityStatus | None = None
     resource_snapshot_digest: Digest | None = None
+    current_memories: tuple[CandidateMemoryContext, ...] = ()
 
     def __post_init__(self) -> None:
         if any(
@@ -174,6 +212,10 @@ class CandidateValidationContext:
             or type(self.resource_snapshot_digest) is not Digest
         ):
             raise CandidateViolation("CON-CANDIDATE-ACTIVITY-CONTEXT")
+        if type(self.current_memories) is not tuple or any(
+            type(value) is not CandidateMemoryContext for value in self.current_memories
+        ):
+            raise CandidateViolation("CON-CANDIDATE-MEMORY-CONTEXT")
 
 
 class DeterministicCandidateValidator:
@@ -262,11 +304,14 @@ class DeterministicCandidateValidator:
         if self._context.scene_id is None or self._context.creator_party_id is None:
             return _rejected("CANDIDATE-SCENE-CONTEXT")
         source_version = parsed_candidate.schema_version
+        dialogue_memory_revision: CandidateMemoryRevisionDraft | None = None
         if isinstance(parsed_candidate, CreatorDialogueCandidate):
-            candidate, expansion_error = _expand_dialogue_candidate(
-                parsed_candidate,
-                bases=bases,
-                context=self._context,
+            candidate, dialogue_memory_revision, expansion_error = (
+                _expand_dialogue_candidate(
+                    parsed_candidate,
+                    bases=bases,
+                    context=self._context,
+                )
             )
             if candidate is None:
                 return _rejected(expansion_error or "CANDIDATE-CONTRACT")
@@ -312,6 +357,7 @@ class DeterministicCandidateValidator:
             str,
             CandidateExperienceDraft
             | CandidateMemoryDraft
+            | CandidateMemoryRevisionDraft
             | CandidateComponentDraft
             | CapabilityRequestDraft
             | CreatorReplyDraft
@@ -511,6 +557,12 @@ class DeterministicCandidateValidator:
                 failure,
             )
 
+        if dialogue_memory_revision is not None:
+            group_members[dialogue_memory_revision.atomic_group_ref].append(
+                dialogue_memory_revision.proposal_ref
+            )
+            accepted[dialogue_memory_revision.proposal_ref] = dialogue_memory_revision
+
         for proposal_ref, draft in tuple(accepted.items()):
             if (
                 isinstance(draft, CandidateComponentDraft)
@@ -582,6 +634,11 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateMemoryDraft)
         )
+        memory_revisions = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, CandidateMemoryRevisionDraft)
+        )
         capability_requests = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -605,7 +662,9 @@ class DeterministicCandidateValidator:
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
         change_set_version = (
-            MEMORY_CHANGE_SET_VERSION
+            MEMORY_REVISION_CHANGE_SET_VERSION
+            if memory_revisions
+            else MEMORY_CHANGE_SET_VERSION
             if memories
             else WEB_CHANGE_SET_VERSION
             if source_version == WEB_DIALOGUE_CANDIDATE_VERSION
@@ -645,22 +704,41 @@ class DeterministicCandidateValidator:
             "action_choices": [_action_wire(item) for item in action_choices],
             "rejections": [_rejection_wire(item) for item in rejections],
         }
-        if change_set_version == MEMORY_CHANGE_SET_VERSION:
+        if change_set_version in {
+            MEMORY_CHANGE_SET_VERSION,
+            MEMORY_REVISION_CHANGE_SET_VERSION,
+        }:
             change_set_value["memories"] = [_memory_wire(item) for item in memories]
-        if change_set_version == MEMORY_CHANGE_SET_VERSION or source_version in {
+        if change_set_version == MEMORY_REVISION_CHANGE_SET_VERSION:
+            change_set_value["memory_revisions"] = [
+                _memory_revision_wire(item) for item in memory_revisions
+            ]
+        if change_set_version in {
+            MEMORY_CHANGE_SET_VERSION,
+            MEMORY_REVISION_CHANGE_SET_VERSION,
+        } or source_version in {
             "armi.cognition-candidate.v5",
             WEB_DIALOGUE_CANDIDATE_VERSION,
         }:
             change_set_value["web_research_requests"] = [
                 _web_research_wire(item) for item in web_research_requests
             ]
-        if change_set_version == MEMORY_CHANGE_SET_VERSION or source_version in {
-            DIALOGUE_CANDIDATE_VERSION,
-            "armi.cognition-candidate.v6",
-            "armi.cognition-candidate.v7",
-        } or (
-            source_version == WEB_DIALOGUE_CANDIDATE_VERSION
-            and not web_research_requests
+        if (
+            change_set_version
+            in {
+                MEMORY_CHANGE_SET_VERSION,
+                MEMORY_REVISION_CHANGE_SET_VERSION,
+            }
+            or source_version
+            in {
+                DIALOGUE_CANDIDATE_VERSION,
+                "armi.cognition-candidate.v6",
+                "armi.cognition-candidate.v7",
+            }
+            or (
+                source_version == WEB_DIALOGUE_CANDIDATE_VERSION
+                and not web_research_requests
+            )
         ):
             change_set_value["codex_delegations"] = [
                 _codex_delegation_wire(item) for item in codex_delegations
@@ -687,6 +765,7 @@ class DeterministicCandidateValidator:
             rejections,
             codex_delegations,
             memories=memories,
+            memory_revisions=memory_revisions,
         )
         status = (
             CandidateValidationStatus.PARTIALLY_ACCEPTED
@@ -1069,7 +1148,11 @@ def _expand_dialogue_candidate(
     *,
     bases: tuple[CandidateBasis, ...],
     context: CandidateValidationContext,
-) -> tuple[CognitionCandidateV5 | CognitionCandidateV7, None] | tuple[None, str]:
+) -> tuple[
+    CognitionCandidateV5 | CognitionCandidateV7 | None,
+    CandidateMemoryRevisionDraft | None,
+    str | None,
+]:
     evidence = next(
         (
             item
@@ -1088,7 +1171,7 @@ def _expand_dialogue_candidate(
         None,
     )
     if evidence is None:
-        return None, "CANDIDATE-EVIDENCE-REQUIRED"
+        return None, None, "CANDIDATE-EVIDENCE-REQUIRED"
     evidence_ref = f"ctx:{evidence.ordinal}"
     scene_ref = None if scene is None else f"ctx:{scene.ordinal}"
     if not isinstance(
@@ -1101,7 +1184,7 @@ def _expand_dialogue_candidate(
             DialogueWebResearchDecision,
         ),
     ):
-        return None, "CANDIDATE-CONTRACT"
+        return None, None, "CANDIDATE-CONTRACT"
     decision = source
     summary = {
         "reply": "Creator dialogue reply selected.",
@@ -1117,6 +1200,7 @@ def _expand_dialogue_candidate(
     memory_changes: list[dict[str, Any]] = []
     capability_requests: list[dict[str, Any]] = []
     action_choices: list[dict[str, Any]] = []
+    memory_revision: CandidateMemoryRevisionDraft | None = None
     understanding_basis_refs = (evidence_ref,)
     if isinstance(decision, (DialogueReplyDecision, DialogueReplyDecisionV2)):
         catalog = next(
@@ -1129,9 +1213,9 @@ def _expand_dialogue_candidate(
             None,
         )
         if scene_ref is None:
-            return None, "CANDIDATE-ACTION-SCENE-BASIS"
+            return None, None, "CANDIDATE-ACTION-SCENE-BASIS"
         if catalog is None:
-            return None, "CANDIDATE-ACTION-CAPABILITY-BASIS"
+            return None, None, "CANDIDATE-ACTION-CAPABILITY-BASIS"
         catalog_ref = f"ctx:{catalog.ordinal}"
         proposal_no = 1
         if decision.experience is not None:
@@ -1165,6 +1249,17 @@ def _expand_dialogue_candidate(
                     }
                 )
                 proposal_no += 1
+        if decision.memory_change is not None:
+            memory_revision, memory_error = _bind_dialogue_memory_revision(
+                decision.memory_change,
+                proposal_ref=f"proposal:{proposal_no}",
+                evidence=evidence,
+                bases=bases,
+                context=context,
+            )
+            if memory_revision is None:
+                return None, None, memory_error or "CANDIDATE-MEMORY-CONTEXT"
+            proposal_no += 1
         shared_bases = (evidence_ref, scene_ref, catalog_ref)
         capability_requests.append(
             {
@@ -1208,7 +1303,7 @@ def _expand_dialogue_candidate(
         disposition = "change"
     elif decision.kind in {"decline", "no_action"}:
         if scene_ref is None:
-            return None, "CANDIDATE-ACTION-SCENE-BASIS"
+            return None, None, "CANDIDATE-ACTION-SCENE-BASIS"
         action_choices.append(
             {
                 "proposal_ref": "proposal:1",
@@ -1246,9 +1341,9 @@ def _expand_dialogue_candidate(
             None,
         )
         if purpose is None:
-            return None, "CANDIDATE-WEB-PURPOSE-BASIS"
+            return None, None, "CANDIDATE-WEB-PURPOSE-BASIS"
         if availability is None:
-            return None, "CANDIDATE-WEB-AVAILABILITY-BASIS"
+            return None, None, "CANDIDATE-WEB-AVAILABILITY-BASIS"
         understanding_basis_refs = (
             evidence_ref,
             f"ctx:{purpose.ordinal}",
@@ -1298,9 +1393,10 @@ def _expand_dialogue_candidate(
                     strict=True,
                 ),
                 None,
+                None,
             )
         except Exception:
-            return None, "CANDIDATE-CONTRACT"
+            return None, None, "CANDIDATE-CONTRACT"
     try:
         return (
             CognitionCandidateV7.model_validate(
@@ -1330,10 +1426,114 @@ def _expand_dialogue_candidate(
                 },
                 strict=True,
             ),
+            memory_revision,
             None,
         )
     except Exception:
-        return None, "CANDIDATE-CONTRACT"
+        return None, None, "CANDIDATE-CONTRACT"
+
+
+def _bind_dialogue_memory_revision(
+    change: DialogueMemoryChange,
+    *,
+    proposal_ref: str,
+    evidence: CandidateBasis,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[CandidateMemoryRevisionDraft | None, str | None]:
+    basis_by_ref = {f"ctx:{item.ordinal}": item for item in bases}
+    target_basis = basis_by_ref.get(change.memory_ref)
+    if (
+        target_basis is None
+        or target_basis.section != "memory"
+        or target_basis.item_kind != "current_memory"
+        or target_basis.trust_class != "subjective_state"
+        or target_basis.source_ref is None
+    ):
+        return None, "CANDIDATE-MEMORY-CONTEXT"
+    current = next(
+        (
+            item
+            for item in context.current_memories
+            if item.memory_id == target_basis.source_ref
+        ),
+        None,
+    )
+    if current is None or (
+        current.head_version != target_basis.source_version
+        or current.context_digest != target_basis.source_digest
+    ):
+        return None, "CANDIDATE-MEMORY-STALE"
+
+    related_memory_id: UUID | None = None
+    relation_kind: MemoryRelationKind | None = None
+    related_basis: CandidateBasis | None = None
+    if change.related_memory_ref is not None:
+        related_basis = basis_by_ref.get(change.related_memory_ref)
+        if (
+            related_basis is None
+            or related_basis.section != "memory"
+            or related_basis.item_kind != "current_memory"
+            or related_basis.source_ref is None
+            or not any(
+                item.memory_id == related_basis.source_ref
+                and item.head_version == related_basis.source_version
+                and item.context_digest == related_basis.source_digest
+                for item in context.current_memories
+            )
+        ):
+            return None, "CANDIDATE-MEMORY-RELATION"
+        related_memory_id = related_basis.source_ref
+        assert change.relation_kind is not None
+        relation_kind = MemoryRelationKind(change.relation_kind)
+
+    revision_kind = {
+        "recall": MemoryRevisionKind.RECALLED,
+        "fade": MemoryRevisionKind.FADED,
+        "forget": MemoryRevisionKind.FORGOTTEN,
+        "reinterpret": MemoryRevisionKind.REINTERPRETED,
+    }[change.action]
+    accessibility = {
+        "recall": MemoryAccessibility.AVAILABLE,
+        "fade": MemoryAccessibility.FADED,
+        "forget": MemoryAccessibility.FORGOTTEN,
+        "reinterpret": current.accessibility,
+    }[change.action]
+    summary = change.summary if change.summary is not None else current.summary
+    uncertainty = (
+        change.uncertainty if change.action == "reinterpret" else current.uncertainty
+    )
+    if change.action == "fade" and current.accessibility is MemoryAccessibility.FADED:
+        return None, "CANDIDATE-MEMORY-NO-OP"
+    if (
+        change.action == "reinterpret"
+        and summary == current.summary
+        and uncertainty == current.uncertainty
+        and related_memory_id is None
+    ):
+        return None, "CANDIDATE-MEMORY-NO-OP"
+    basis_ordinals = [evidence.ordinal, target_basis.ordinal]
+    if related_basis is not None:
+        basis_ordinals.append(related_basis.ordinal)
+    return (
+        CandidateMemoryRevisionDraft(
+            proposal_ref,
+            "group:1",
+            tuple(dict.fromkeys(basis_ordinals)),
+            current.fact_class,
+            current.memory_id,
+            current.current_revision_id,
+            current.head_version,
+            revision_kind,
+            accessibility,
+            current.source_kind,
+            summary,
+            uncertainty,
+            related_memory_id,
+            relation_kind,
+        ),
+        None,
+    )
 
 
 def _all_proposals(
@@ -1649,6 +1849,7 @@ def _primary_rejection(rejected: dict[str, CandidateRejection]) -> str:
 def _draft_owner(
     draft: CandidateExperienceDraft
     | CandidateMemoryDraft
+    | CandidateMemoryRevisionDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1658,7 +1859,7 @@ def _draft_owner(
 ) -> CandidateOwner:
     if isinstance(draft, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
-    if isinstance(draft, CandidateMemoryDraft):
+    if isinstance(draft, (CandidateMemoryDraft, CandidateMemoryRevisionDraft)):
         return CandidateOwner.MEMORY
     if isinstance(draft, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
@@ -1674,6 +1875,7 @@ def _draft_owner(
 def _draft_fact_class(
     draft: CandidateExperienceDraft
     | CandidateMemoryDraft
+    | CandidateMemoryRevisionDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1712,6 +1914,34 @@ def _memory_wire(value: CandidateMemoryDraft) -> dict[str, object]:
         "source_kind": value.source_kind.value,
         "summary": value.summary,
         "mechanism_identity": value.mechanism_identity,
+        "privacy_scope": value.privacy_scope,
+    }
+
+
+def _memory_revision_wire(
+    value: CandidateMemoryRevisionDraft,
+) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "fact_class": value.fact_class.value,
+        "memory_id": str(value.memory_id),
+        "current_revision_id": str(value.current_revision_id),
+        "expected_head_version": value.expected_head_version,
+        "revision_kind": value.revision_kind.value,
+        "accessibility": value.accessibility.value,
+        "source_kind": value.source_kind.value,
+        "summary": value.summary,
+        "uncertainty": value.uncertainty,
+        "related_memory_id": (
+            None if value.related_memory_id is None else str(value.related_memory_id)
+        ),
+        "relation_kind": (
+            None if value.relation_kind is None else value.relation_kind.value
+        ),
+        "mechanism_identity": value.mechanism_identity,
+        "mechanism_config_identity": value.mechanism_config_identity,
         "privacy_scope": value.privacy_scope,
     }
 

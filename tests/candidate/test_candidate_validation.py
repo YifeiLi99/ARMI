@@ -19,6 +19,9 @@ from armi_kernel.application import (
     CodexDelegationDraft,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
+    MemoryAccessibility,
+    MemoryRelationKind,
+    MemoryRevisionKind,
     MemorySourceKind,
     SubjectCommitViolation,
 )
@@ -27,6 +30,7 @@ from armi_runtime.adapters.persistence.candidate_validation import (
     _validation_drafts,
 )
 from armi_runtime.composition.candidate_validator import (
+    CandidateMemoryContext,
     CandidateValidationContext,
     DeterministicCandidateValidator,
     _memory_source_kind,
@@ -1168,6 +1172,213 @@ def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() ->
     drifted["memories"][0]["source_kind"] = "experienced"
     with pytest.raises(SubjectCommitViolation):
         parse_subject_change_set(rfc8785.dumps(cast(Any, drifted)))
+
+
+def test_compact_dialogue_reinterprets_current_memory_without_overwriting_history() -> (
+    None
+):
+    context, bases = _fixture()
+    memory_id = uuid7()
+    revision_id = uuid7()
+    related_id = uuid7()
+    related_revision_id = uuid7()
+    memory_digest = Digest.from_bytes(b"current-memory")
+    related_digest = Digest.from_bytes(b"related-memory")
+    context = replace(
+        context,
+        current_memories=(
+            CandidateMemoryContext(
+                memory_id,
+                revision_id,
+                2,
+                memory_digest,
+                CandidateFactClass.EXTERNAL_CLAIM,
+                MemorySourceKind.REPORTED,
+                "创造者曾表达一个偏好。",
+                "这是转述。",
+                MemoryAccessibility.AVAILABLE,
+            ),
+            CandidateMemoryContext(
+                related_id,
+                related_revision_id,
+                1,
+                related_digest,
+                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                MemorySourceKind.EXPERIENCED,
+                "后来的一次经历显示情况并不绝对。",
+                None,
+                MemoryAccessibility.FADED,
+            ),
+        ),
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            6,
+            "memory",
+            "current_memory",
+            memory_id,
+            2,
+            memory_digest,
+            "subjective_state",
+            "private",
+        ),
+        CandidateBasis(
+            7,
+            "memory",
+            "current_memory",
+            related_id,
+            1,
+            related_digest,
+            "subjective_state",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "我现在更愿意把它理解成一个可讨论的偏好。",
+                "memory_change": {
+                    "action": "reinterpret",
+                    "memory_ref": "ctx:6",
+                    "summary": "这项偏好不是绝对不变的。",
+                    "uncertainty": "这是我当前的理解。",
+                    "related_memory_ref": "ctx:7",
+                    "relation_kind": "contradicts",
+                },
+            }
+        ),
+        bases=extended,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.memories == ()
+    assert len(result.change_set.memory_revisions) == 1
+    revision = result.change_set.memory_revisions[0]
+    assert revision.memory_id == memory_id
+    assert revision.current_revision_id == revision_id
+    assert revision.expected_head_version == 2
+    assert revision.revision_kind is MemoryRevisionKind.REINTERPRETED
+    assert revision.accessibility is MemoryAccessibility.AVAILABLE
+    assert revision.related_memory_id == related_id
+    assert revision.relation_kind is MemoryRelationKind.CONTRADICTS
+    assert b"armi.subject-change-set.v11" in result.change_set.canonical_bytes
+    assert (
+        parse_subject_change_set(result.change_set.canonical_bytes).memory_revisions
+        == result.change_set.memory_revisions
+    )
+
+    stale_context = replace(
+        context,
+        current_memories=(
+            replace(context.current_memories[0], head_version=3),
+            context.current_memories[1],
+        ),
+    )
+    stale = DeterministicCandidateValidator(stale_context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "不会提交。",
+                "memory_change": {"action": "forget", "memory_ref": "ctx:6"},
+            }
+        ),
+        bases=extended,
+    )
+    assert stale.status is CandidateValidationStatus.REJECTED
+    assert stale.error_code == "CANDIDATE-MEMORY-STALE"
+
+
+def test_compact_dialogue_fades_and_forgets_without_changing_memory_summary() -> None:
+    context, bases = _fixture()
+    memory_id = uuid7()
+    revision_id = uuid7()
+    digest = Digest.from_bytes(b"memory")
+    current = CandidateMemoryContext(
+        memory_id,
+        revision_id,
+        1,
+        digest,
+        CandidateFactClass.EXTERNAL_CLAIM,
+        MemorySourceKind.REPORTED,
+        "保留的历史摘要。",
+        None,
+        MemoryAccessibility.AVAILABLE,
+    )
+    context = replace(context, current_memories=(current,))
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            6,
+            "memory",
+            "current_memory",
+            memory_id,
+            1,
+            digest,
+            "subjective_state",
+            "private",
+        ),
+    )
+    for action, kind, accessibility in (
+        ("fade", MemoryRevisionKind.FADED, MemoryAccessibility.FADED),
+        ("forget", MemoryRevisionKind.FORGOTTEN, MemoryAccessibility.FORGOTTEN),
+    ):
+        result = DeterministicCandidateValidator(context).validate(
+            _bytes(
+                {
+                    "kind": "reply",
+                    "content": "这是我当前的记忆变化。",
+                    "memory_change": {"action": action, "memory_ref": "ctx:6"},
+                }
+            ),
+            bases=extended,
+        )
+        assert result.change_set is not None
+        revision = result.change_set.memory_revisions[0]
+        assert revision.revision_kind is kind
+        assert revision.accessibility is accessibility
+        assert revision.summary == current.summary
 
 
 def test_memory_fact_class_cannot_drift_from_its_source_experience() -> None:

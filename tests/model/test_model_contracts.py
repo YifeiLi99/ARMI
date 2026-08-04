@@ -204,6 +204,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         "kind": "reply",
         "content": "Hello, I am here.",
         "experience": None,
+        "memory_change": None,
     }
 
 
@@ -245,6 +246,60 @@ def test_creator_dialogue_memory_is_optional_and_cannot_claim_authority() -> Non
             ).encode(),
             allowed_context_refs=frozenset(),
         )
+
+
+def test_creator_dialogue_memory_revision_is_narrow_and_strict() -> None:
+    parsed = parse_candidate(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "我现在有了不同的理解。",
+                "memory_change": {
+                    "action": "reinterpret",
+                    "memory_ref": "ctx:4",
+                    "summary": "我现在把那次表达理解为一种仍可讨论的偏好。",
+                    "uncertainty": "这只是我当前的理解。",
+                    "related_memory_ref": "ctx:5",
+                    "relation_kind": "contradicts",
+                },
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset({"ctx:4", "ctx:5"}),
+    )
+    assert parsed.model_dump(mode="json")["memory_change"]["action"] == ("reinterpret")
+
+    for invalid in (
+        {
+            "action": "forget",
+            "memory_ref": "ctx:4",
+            "summary": "模型不得为遗忘改写摘要。",
+        },
+        {
+            "action": "reinterpret",
+            "memory_ref": "ctx:4",
+            "summary": "越权",
+            "memory_id": "019f0000-0000-7000-8000-000000000001",
+        },
+        {
+            "action": "reinterpret",
+            "memory_ref": "ctx:4",
+            "summary": "关系不完整",
+            "related_memory_ref": "ctx:5",
+        },
+    ):
+        with pytest.raises(ModelViolation):
+            parse_candidate(
+                json.dumps(
+                    {
+                        "kind": "reply",
+                        "content": "无效",
+                        "memory_change": invalid,
+                    },
+                    ensure_ascii=False,
+                ).encode(),
+                allowed_context_refs=frozenset({"ctx:4", "ctx:5"}),
+            )
 
 
 def test_web_dialogue_v2_is_compact_versioned_and_rejects_urls() -> None:

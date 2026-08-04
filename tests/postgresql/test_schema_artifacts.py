@@ -34,6 +34,8 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "CREATE TABLE armi.maintenance_sessions" in sql
     assert "CREATE TABLE armi.subjective_memories" in sql
     assert "CREATE TABLE armi.subjective_memory_revisions" in sql
+    assert "CREATE TABLE armi.memory_relations" in sql
+    assert "accessibility IN ('available', 'faded', 'forgotten')" in sql
     assert "wake_request_id" in sql
     assert "schema_migrations" not in sql
 

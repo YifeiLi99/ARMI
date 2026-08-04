@@ -23,9 +23,12 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CandidateFactClass,
     CandidateViolation,
     LockPlan,
     LockTarget,
+    MemoryAccessibility,
+    MemorySourceKind,
     RuntimeFence,
     WorkLease,
     WorkViolation,
@@ -53,6 +56,7 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .candidate_validator import (
     CANDIDATE_VALIDATOR_IDENTITY,
+    CandidateMemoryContext,
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
@@ -170,6 +174,20 @@ class CandidateValidationPipeline:
                     if snapshot.current_activity_status is None
                     else ActivityStatus(snapshot.current_activity_status),
                     snapshot.resource_snapshot_digest,
+                    tuple(
+                        CandidateMemoryContext(
+                            item[0],
+                            item[1],
+                            item[2],
+                            item[3],
+                            CandidateFactClass(item[4]),
+                            MemorySourceKind(item[5]),
+                            item[6],
+                            item[7],
+                            MemoryAccessibility(item[8]),
+                        )
+                        for item in snapshot.current_memories
+                    ),
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)

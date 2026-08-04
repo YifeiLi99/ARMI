@@ -26,6 +26,7 @@ from armi_kernel.application import (
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateMemoryDraft,
+    CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateRejection,
     CandidateSleepDecisionDraft,
@@ -86,6 +87,9 @@ class CandidateEpisodeSnapshot:
     current_activity_head_version: int | None = None
     current_activity_status: str | None = None
     resource_snapshot_digest: Digest | None = None
+    current_memories: tuple[
+        tuple[UUID, UUID, int, Digest, str, str, str, str | None, str], ...
+    ] = ()
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -271,6 +275,32 @@ class PostgreSQLCandidateValidationRepository:
             if str(row[13]) == "consider_activity_attention"
             else None
         )
+        memory_rows = await (
+            await connection.execute(
+                """
+                SELECT memory.memory_id, memory.current_revision_id,
+                       memory.head_version, item.source_digest,
+                       revision.source_fact_class, revision.source_kind,
+                       revision.summary, revision.uncertainty,
+                       revision.accessibility
+                FROM armi.cognitive_context_items AS item
+                JOIN armi.subjective_memories AS memory
+                  ON memory.memory_id = item.source_ref
+                 AND memory.subject_id = %s
+                 AND memory.current_revision_id IS NOT NULL
+                 AND memory.head_version = item.source_version
+                JOIN armi.subjective_memory_revisions AS revision
+                  ON revision.memory_revision_id = memory.current_revision_id
+                WHERE item.cognitive_episode_id = %s
+                  AND item.disposition = 'included'
+                  AND item.section = 'memory'
+                  AND item.item_kind = 'current_memory'
+                  AND item.source_kind = 'subjective_memory'
+                ORDER BY item.ordinal
+                """,
+                (row[2], row[0]),
+            )
+        ).fetchall()
         return CandidateEpisodeSnapshot(
             row[0],
             row[1],
@@ -296,6 +326,20 @@ class PostgreSQLCandidateValidationRepository:
             None if activity_row is None else int(activity_row[2]),
             None if activity_row is None else str(activity_row[3]),
             resource_digest,
+            tuple(
+                (
+                    item[0],
+                    item[1],
+                    int(item[2]),
+                    Digest(str(item[3])),
+                    str(item[4]),
+                    str(item[5]),
+                    str(item[6]),
+                    None if item[7] is None else str(item[7]),
+                    str(item[8]),
+                )
+                for item in memory_rows
+            ),
         )
 
     async def settle(
@@ -465,6 +509,7 @@ async def _insert_items(
                 (
                     CandidateExperienceDraft,
                     CandidateMemoryDraft,
+                    CandidateMemoryRevisionDraft,
                     CandidateComponentDraft,
                     CandidateRejection,
                 ),
@@ -519,6 +564,7 @@ def _validation_drafts(
 ) -> tuple[
     CandidateExperienceDraft
     | CandidateMemoryDraft
+    | CandidateMemoryRevisionDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -534,6 +580,7 @@ def _validation_drafts(
     return (
         *change_set.experiences,
         *change_set.memories,
+        *change_set.memory_revisions,
         *change_set.components,
         *change_set.capability_requests,
         *change_set.action_choices,
@@ -549,6 +596,7 @@ def _validation_drafts(
 def _item_semantic(
     value: CandidateExperienceDraft
     | CandidateMemoryDraft
+    | CandidateMemoryRevisionDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -618,6 +666,25 @@ def _item_semantic(
                 "privacy_scope": value.privacy_scope,
             }
         )
+    elif isinstance(value, CandidateMemoryRevisionDraft):
+        result.update(
+            {
+                "owner": "memory",
+                "memory_id": str(value.memory_id),
+                "current_revision_id": str(value.current_revision_id),
+                "expected_head_version": value.expected_head_version,
+                "revision_kind": value.revision_kind.value,
+                "accessibility": value.accessibility.value,
+                "related_memory_id": (
+                    None
+                    if value.related_memory_id is None
+                    else str(value.related_memory_id)
+                ),
+                "relation_kind": (
+                    None if value.relation_kind is None else value.relation_kind.value
+                ),
+            }
+        )
     elif isinstance(value, CandidateComponentDraft):
         result.update(
             {
@@ -654,6 +721,7 @@ def _item_semantic(
 def _owner(
     value: CandidateExperienceDraft
     | CandidateMemoryDraft
+    | CandidateMemoryRevisionDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -671,7 +739,7 @@ def _owner(
         return CandidateOwner.ACTIVITY
     if isinstance(value, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
-    if isinstance(value, CandidateMemoryDraft):
+    if isinstance(value, (CandidateMemoryDraft, CandidateMemoryRevisionDraft)):
         return CandidateOwner.MEMORY
     if isinstance(value, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
@@ -687,6 +755,7 @@ def _owner(
 def _implicit_fact_class(
     value: CandidateExperienceDraft
     | CandidateMemoryDraft
+    | CandidateMemoryRevisionDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -703,6 +772,7 @@ def _implicit_fact_class(
         (
             CandidateExperienceDraft,
             CandidateMemoryDraft,
+            CandidateMemoryRevisionDraft,
             CandidateComponentDraft,
             CandidateActivityDraft,
             CandidateRejection,

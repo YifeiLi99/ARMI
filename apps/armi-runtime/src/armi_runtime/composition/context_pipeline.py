@@ -420,10 +420,40 @@ def _context_request(
                 relevance=80,
             )
         )
+    accessible_memories = tuple(
+        item for item in snapshot.memory_payloads if item[4] in {"available", "faded"}
+    )
+    if accessible_memories:
+        for memory_id, version, payload, digest, accessibility in accessible_memories:
+            items.append(
+                ContextItemCandidate(
+                    ContextSection.MEMORY,
+                    "current_memory",
+                    ContextSourceIdentity(
+                        "subjective_memory", memory_id, version, digest
+                    ),
+                    ContextTrustClass.SUBJECTIVE_STATE,
+                    "private",
+                    payload.decode("utf-8"),
+                    False,
+                    85 if accessibility == "available" else 70,
+                )
+            )
+    else:
+        items.append(
+            _unavailable(
+                ContextSection.MEMORY,
+                "memory",
+                reason=(
+                    "CTX-MEMORY-NOT-RECALLABLE"
+                    if snapshot.has_memory_records
+                    else "CTX-MEMORY-NONE"
+                ),
+            )
+        )
     items.extend(
         (
             _unavailable(ContextSection.RELATIONSHIP, "relationship"),
-            _unavailable(ContextSection.MEMORY, "memory"),
             _item(
                 ContextSection.ACTIVITY,
                 "current_life_opportunity",
@@ -607,7 +637,12 @@ def _item(
     )
 
 
-def _unavailable(section: ContextSection, kind: str) -> ContextItemCandidate:
+def _unavailable(
+    section: ContextSection,
+    kind: str,
+    *,
+    reason: str = "CTX-SOURCE-NOT-IMPLEMENTED",
+) -> ContextItemCandidate:
     return ContextItemCandidate(
         section,
         kind,
@@ -617,7 +652,7 @@ def _unavailable(section: ContextSection, kind: str) -> ContextItemCandidate:
         None,
         False,
         0,
-        unavailable_reason="CTX-SOURCE-NOT-IMPLEMENTED",
+        unavailable_reason=reason,
     )
 
 

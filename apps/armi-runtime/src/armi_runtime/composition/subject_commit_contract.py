@@ -18,6 +18,7 @@ from armi_kernel.application import (
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateMemoryDraft,
+    CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateRejection,
     CandidateSleepDecisionDraft,
@@ -33,6 +34,9 @@ from armi_kernel.application import (
     FormalNoActionDraft,
     FormalNoActionKind,
     FormalNoActionReason,
+    MemoryAccessibility,
+    MemoryRelationKind,
+    MemoryRevisionKind,
     MemorySourceKind,
     SleepDecisionKind,
     SubjectChangeSet,
@@ -63,6 +67,7 @@ _TOP_KEYS_V7 = {*_TOP_KEYS_V6, "activities"}
 _TOP_KEYS_V8 = {*_TOP_KEYS_V7, "activity_decisions"}
 _TOP_KEYS_V9 = {*_TOP_KEYS_V8, "sleep_decisions"}
 _TOP_KEYS_V10 = {*_TOP_KEYS_V6, "web_research_requests", "memories"}
+_TOP_KEYS_V11 = {*_TOP_KEYS_V10, "memory_revisions"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -82,6 +87,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v8",
             "armi.subject-change-set.v9",
             "armi.subject-change-set.v10",
+            "armi.subject-change-set.v11",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -105,6 +111,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V9
             if version.endswith(".v9")
             else _TOP_KEYS_V10
+            if version.endswith(".v10")
+            else _TOP_KEYS_V11
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -155,6 +163,10 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         memories = tuple(
             _memory(item) for item in _array(document.get("memories", []), 4)
         )
+        memory_revisions = tuple(
+            _memory_revision(item)
+            for item in _array(document.get("memory_revisions", []), 1)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -182,6 +194,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             activity_decisions,
             sleep_decisions,
             memories,
+            memory_revisions,
         )
         proposal_refs = [
             item.proposal_ref
@@ -196,6 +209,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *activity_decisions,
                 *sleep_decisions,
                 *memories,
+                *memory_revisions,
                 *rejections,
             )
         ]
@@ -221,6 +235,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.activity_decisions
             or result.sleep_decisions
             or result.memories
+            or result.memory_revisions
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
@@ -352,6 +367,52 @@ def _memory(value: object) -> CandidateMemoryDraft:
         MemorySourceKind(_text(item["source_kind"])),
         _text(item["summary"]),
         _text(item["mechanism_identity"]),
+        _text(item["privacy_scope"]),
+    )
+
+
+def _memory_revision(value: object) -> CandidateMemoryRevisionDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "fact_class",
+            "memory_id",
+            "current_revision_id",
+            "expected_head_version",
+            "revision_kind",
+            "accessibility",
+            "source_kind",
+            "summary",
+            "uncertainty",
+            "related_memory_id",
+            "relation_kind",
+            "mechanism_identity",
+            "mechanism_config_identity",
+            "privacy_scope",
+        },
+    )
+    related_memory_id = item["related_memory_id"]
+    relation_kind = item["relation_kind"]
+    return CandidateMemoryRevisionDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        CandidateFactClass(_text(item["fact_class"])),
+        _uuid7(item["memory_id"]),
+        _uuid7(item["current_revision_id"]),
+        _positive(item["expected_head_version"]),
+        MemoryRevisionKind(_text(item["revision_kind"])),
+        MemoryAccessibility(_text(item["accessibility"])),
+        MemorySourceKind(_text(item["source_kind"])),
+        _text(item["summary"]),
+        _optional_text_value(item["uncertainty"]),
+        None if related_memory_id is None else _uuid7(related_memory_id),
+        None if relation_kind is None else MemoryRelationKind(_text(relation_kind)),
+        _text(item["mechanism_identity"]),
+        _text(item["mechanism_config_identity"]),
         _text(item["privacy_scope"]),
     )
 
