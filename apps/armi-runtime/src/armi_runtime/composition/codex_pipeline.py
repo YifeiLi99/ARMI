@@ -375,7 +375,9 @@ class CodexEffectPipeline:
                 asyncio.to_thread(
                     run_custodied_subprocess,
                     environment_root=self._environment_root,
-                    process_temp=self._run_root / "process-temp" / task.execution_id.value.hex,
+                    process_temp=self._run_root
+                    / "process-temp"
+                    / task.execution_id.value.hex,
                     task=task,
                     cancellation=cancellation,
                 )

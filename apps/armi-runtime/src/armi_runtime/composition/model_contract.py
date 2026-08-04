@@ -568,12 +568,9 @@ def parse_candidate(
             if candidate_object is not None
             else None
         )
-        if (
-            candidate_object is not None
-            and (
-                (version is None and "kind" in candidate_object)
-                or version == DIALOGUE_CANDIDATE_VERSION
-            )
+        if candidate_object is not None and (
+            (version is None and "kind" in candidate_object)
+            or version == DIALOGUE_CANDIDATE_VERSION
         ):
             candidate = parse_dialogue_candidate(candidate_object)
         else:

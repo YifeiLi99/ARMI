@@ -292,9 +292,7 @@ class CreatorInputRequest(_StrictWireModel):
 class CreatorCodexTaskRequest(_StrictWireModel):
     contract_version: Literal["1.0"]
     objective: Annotated[str, Field(min_length=1, max_length=16384)]
-    model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] = (
-        "gpt-5.6-sol"
-    )
+    model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] = "gpt-5.6-sol"
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
     web_search: bool = False
 

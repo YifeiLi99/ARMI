@@ -60,18 +60,8 @@ export function MessageComposer({
     try {
       const accepted =
         mode === "codex"
-          ? await acceptCreatorCodexTask(
-              token,
-              sceneKey,
-              intentKey,
-              message,
-            )
-          : await acceptCreatorMessage(
-              token,
-              sceneKey,
-              intentKey,
-              message,
-            );
+          ? await acceptCreatorCodexTask(token, sceneKey, intentKey, message)
+          : await acceptCreatorMessage(token, sceneKey, intentKey, message);
       const operationRef = accepted.result_ref;
       setMessage("");
       setState({ kind: "accepted", operationRef, mode });

@@ -178,7 +178,7 @@ class EffectRegistrationPipeline:
             try:
                 document = json.loads(value)
                 model_id = document["model_id"]
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            except KeyError, TypeError, ValueError, json.JSONDecodeError:
                 raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE") from None
             if model_id not in {
                 "gpt-5.6-sol",

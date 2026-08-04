@@ -297,9 +297,7 @@ async def _invoke_sdk(
             sdk_result = await turn_task
         return normalize_sdk_turn(
             sdk_result,
-            allow_web_search=(
-                task.web_search
-            ),
+            allow_web_search=(task.web_search),
         )
     except CodexRunnerViolation:
         raise
@@ -346,6 +344,7 @@ _BASE_CONFIG = (
     "allow_login_shell=false",
 )
 
+
 def _config(task: CodexTaskManifest) -> tuple[str, ...]:
     web = (
         ('web_search="live"', "tools.web_search=true")
@@ -361,6 +360,7 @@ def _config(task: CodexTaskManifest) -> tuple[str, ...]:
 
 def _model(task: CodexTaskManifest) -> str:
     return task.model_id.value
+
 
 _OUTPUT_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -513,7 +513,7 @@ def _prompt(task: CodexTaskManifest) -> str:
         else [
             "Complete the objective and return the full result in the deliverable field.",
             "Do not edit the workspace; the runner will persist deliverable as result.md.",
-            "Report changed_paths as exactly [\"result.md\"].",
+            'Report changed_paths as exactly ["result.md"].',
         ]
     )
     network_rule = (

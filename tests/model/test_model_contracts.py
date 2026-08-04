@@ -252,7 +252,9 @@ async def test_adapter_records_provider_resolved_model_identity_without_fallback
 
 
 @pytest.mark.asyncio
-async def test_dialogue_artifact_keeps_call_metadata_outside_minimal_candidate() -> None:
+async def test_dialogue_artifact_keeps_call_metadata_outside_minimal_candidate() -> (
+    None
+):
     binding = load_purpose_binding("consider_creator_input")
     locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
     adapter = VolcengineArkModelAdapter(

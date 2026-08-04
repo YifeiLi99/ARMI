@@ -22,7 +22,9 @@ def materialize_output_artifact(
     if task.validator_id != _OUTPUT_VALIDATOR:
         return
     try:
-        parsed = cast(object, json.loads(final_response.decode("utf-8", errors="strict")))
+        parsed = cast(
+            object, json.loads(final_response.decode("utf-8", errors="strict"))
+        )
         if type(parsed) is not dict:
             raise ValueError
         value = cast(dict[str, object], parsed).get("deliverable")

@@ -557,7 +557,9 @@ describe("Creator browser session shell", () => {
       ),
     ).toBeInTheDocument();
     expect(keys).toHaveLength(2);
-    expect(document.body.textContent).not.toContain("生成一份明确的 Codex 交付物");
+    expect(document.body.textContent).not.toContain(
+      "生成一份明确的 Codex 交付物",
+    );
   });
 
   it("retries an unconfirmed result with the exact same intent key", async () => {

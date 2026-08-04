@@ -275,6 +275,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
                 "build",
                 "--all-packages",
                 "--offline",
+                "--no-create-gitignore",
                 "--out-dir",
                 str(python_dist),
             ),

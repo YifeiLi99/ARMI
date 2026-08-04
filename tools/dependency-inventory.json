@@ -1131,6 +1131,10 @@
         },
         {
           "from": "armi-runtime@0.0.0",
+          "to": "httpx"
+        },
+        {
+          "from": "armi-runtime@0.0.0",
           "to": "openai"
         },
         {
@@ -4782,5 +4786,5 @@
     }
   },
   "unresolved_licenses": [],
-  "graph_sha256": "4f96aee2bbdc2e7faf11ebe2a9816874bd591cdd116e95881b13e43f2e468374"
+  "graph_sha256": "561c4dc130ad001798fd91a67c10895acf125c32c5b7d35d270b67b2b13f0518"
 }

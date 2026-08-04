@@ -91,9 +91,7 @@ def decode_task(value: bytes) -> CodexTaskManifest:
             modified_file_limit=_integer(data["modified_file_limit"]),
             output_limit_bytes=_integer(data["output_limit_bytes"]),
             model_id=CodexModel(_string(data["model_id"])),
-            reasoning_effort=CodexReasoningEffort(
-                _string(data["reasoning_effort"])
-            ),
+            reasoning_effort=CodexReasoningEffort(_string(data["reasoning_effort"])),
             web_search=_boolean(data["web_search"]),
             schema_version=_string(data["schema_version"]),
         )
