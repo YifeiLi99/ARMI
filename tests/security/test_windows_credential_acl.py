@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,7 +28,7 @@ class WindowsCredentialAclTests(unittest.TestCase):
             text=True,
         )
 
-    def test_policy_is_explicitly_inactive_until_s035(self) -> None:
+    def test_policy_requires_per_environment_activation(self) -> None:
         completed = subprocess.run(
             [
                 "pwsh",
@@ -35,6 +37,7 @@ class WindowsCredentialAclTests(unittest.TestCase):
                 "-NonInteractive",
                 "-File",
                 "tools/check_windows_credential_acl.ps1",
+                "-PolicyOnly",
             ],
             cwd=Path.cwd(),
             check=False,
@@ -42,7 +45,7 @@ class WindowsCredentialAclTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("inactive until M0-S045", completed.stdout)
+        self.assertIn("per-environment activation required", completed.stdout)
 
     def test_synthetic_exact_matrix_passes(self) -> None:
         completed = self.run_checker(
@@ -66,6 +69,40 @@ class WindowsCredentialAclTests(unittest.TestCase):
                 completed = self.run_checker(sddl)
                 self.assertNotEqual(completed.returncode, 0)
                 self.assertIn(code, completed.stderr)
+
+    def test_environment_activation_record_requires_real_passes(self) -> None:
+        descriptor = "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x20089;;;S-1-5-80-12345)"
+        record = {
+            "schema_version": "armi.windows-credential-acl-activation.v1",
+            "active": True,
+            "descriptors": [
+                {"sddl": descriptor, "reader_sid": "S-1-5-80-12345"} for _ in range(3)
+            ],
+            "access_matrix": [{"passed": True}],
+            "process_tokens": [{"passed": True, "sid": "S-1-5-80-12345"}],
+        }
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            path = Path(temporary) / "activation.json"
+            path.write_text(json.dumps(record), encoding="utf-8", newline="\n")
+            completed = subprocess.run(
+                [
+                    "pwsh",
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-File",
+                    "tools/check_windows_credential_acl.ps1",
+                    "-ActivationRecord",
+                    str(path),
+                ],
+                cwd=Path.cwd(),
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("environment activation verified", completed.stdout)
 
 
 if __name__ == "__main__":

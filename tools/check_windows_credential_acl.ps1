@@ -7,7 +7,12 @@ param(
     [string]$Sddl,
 
     [Parameter()]
-    [string]$ExpectedReaderSid
+    [string]$ExpectedReaderSid,
+    [Parameter()]
+    [switch]$PolicyOnly,
+
+    [Parameter()]
+    [string]$ActivationRecord
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,6 +33,8 @@ try {
 if (
     $policy.schema_version -ne "armi.windows-credential-acl.v1" -or
     $policy.active -ne $false -or
+    $policy.activation_scope -ne "per-environment" -or
+    $policy.activation_record_schema -ne "armi.windows-credential-acl-activation.v1" -or
     $policy.activation_step -ne "M0-S045" -or
     @($policy.allowed_control_sids).Count -ne 2 -or
     @($policy.forbidden_broad_sids).Count -ne 3
@@ -35,9 +42,55 @@ if (
     Fail-AclPolicy "SEC-ACL-POLICY" "the credential ACL policy has drifted"
 }
 
-if ([string]::IsNullOrEmpty($Sddl)) {
-    [Console]::Out.WriteLine("windows-credential-acl-policy: pass (inactive until M0-S045)")
+if ($PolicyOnly) {
+    if (-not [string]::IsNullOrEmpty($Sddl) -or -not [string]::IsNullOrEmpty($ActivationRecord)) {
+        Fail-AclPolicy "SEC-ACL-MODE" "policy-only mode cannot verify an environment"
+    }
+    [Console]::Out.WriteLine("windows-credential-acl-policy: pass (per-environment activation required)")
     exit 0
+}
+if (-not [string]::IsNullOrEmpty($ActivationRecord)) {
+    if (-not [string]::IsNullOrEmpty($Sddl)) {
+        Fail-AclPolicy "SEC-ACL-MODE" "activation record and synthetic SDDL are mutually exclusive"
+    }
+    try {
+        $record = Get-Content -LiteralPath $ActivationRecord -Raw -Encoding utf8 |
+            ConvertFrom-Json -Depth 40
+    } catch {
+        Fail-AclPolicy "SEC-ACL-ACTIVATION" "the environment activation record is unavailable"
+    }
+    if (
+        $record.schema_version -ne $policy.activation_record_schema -or
+        $record.active -ne $true -or
+        @($record.descriptors).Count -lt 3 -or
+        @($record.access_matrix).Count -lt 1 -or
+        @($record.process_tokens).Count -lt 1
+    ) {
+        Fail-AclPolicy "SEC-ACL-ACTIVATION" "the environment activation record is incomplete"
+    }
+    foreach ($probe in @($record.access_matrix)) {
+        if ($probe.passed -ne $true) {
+            Fail-AclPolicy "SEC-ACL-ACCESS" "a real access probe did not pass"
+        }
+    }
+    foreach ($token in @($record.process_tokens)) {
+        if ($token.passed -ne $true -or [string]::IsNullOrEmpty([string]$token.sid)) {
+            Fail-AclPolicy "SEC-ACL-TOKEN" "a process token probe did not pass"
+        }
+    }
+    foreach ($entry in @($record.descriptors)) {
+        & pwsh -NoLogo -NoProfile -NonInteractive -File $PSCommandPath `
+            -PolicyPath $PolicyPath -Sddl ([string]$entry.sddl) `
+            -ExpectedReaderSid ([string]$entry.reader_sid) | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Fail-AclPolicy "SEC-ACL-ACTIVATION" "a credential descriptor failed policy"
+        }
+    }
+    [Console]::Out.WriteLine("windows-credential-acl-policy: pass (environment activation verified)")
+    exit 0
+}
+if ([string]::IsNullOrEmpty($Sddl)) {
+    Fail-AclPolicy "SEC-ACL-MODE" "select -PolicyOnly, -ActivationRecord, or a synthetic SDDL"
 }
 if ([string]::IsNullOrEmpty($ExpectedReaderSid)) {
     Fail-AclPolicy "SEC-ACL-READER" "an expected reader SID is required"
