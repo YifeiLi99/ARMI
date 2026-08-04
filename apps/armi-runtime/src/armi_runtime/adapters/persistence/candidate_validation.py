@@ -256,14 +256,18 @@ class PostgreSQLCandidateValidationRepository:
                 (row[0],),
             )
         ).fetchone()
-        resource_digest = next(
-            (
-                basis.source_digest
-                for basis in bases
-                if basis.item_kind == "resource_snapshot"
-                and basis.trust_class == "runtime_authority"
-            ),
-            None,
+        resource_digest = (
+            next(
+                (
+                    basis.source_digest
+                    for basis in bases
+                    if basis.item_kind == "resource_snapshot"
+                    and basis.trust_class == "runtime_authority"
+                ),
+                None,
+            )
+            if str(row[13]) == "consider_activity_attention"
+            else None
         )
         return CandidateEpisodeSnapshot(
             row[0],

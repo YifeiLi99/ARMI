@@ -233,6 +233,44 @@ def test_autonomous_candidate_rejects_scene_or_missing_source() -> None:
     assert result.error_code == "CANDIDATE-ACTIVITY-CONTEXT"
 
 
+def test_autonomous_context_does_not_bind_attention_resource_authority() -> None:
+    context, bases = _fixture()
+    autonomous = replace(
+        context,
+        purpose="consider_autonomous_life",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+    )
+    source = CandidateBasis(
+        4,
+        "activity",
+        "current_life_opportunity",
+        uuid7(),
+        1,
+        Digest.from_bytes(b"life source"),
+        "runtime_authority",
+        "private",
+    )
+    unrelated_resources = CandidateBasis(
+        5,
+        "runtime_truth",
+        "resource_snapshot",
+        uuid7(),
+        1,
+        Digest.from_bytes(b"resources"),
+        "runtime_authority",
+        "internal",
+    )
+    result = DeterministicCandidateValidator(autonomous).validate(
+        b'{"kind":"no_activity"}',
+        bases=(*bases, source, unrelated_resources),
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.activity_decisions == ()
+
+
 def test_attention_candidate_binds_authority_and_round_trips_change_set_v8() -> None:
     context, bases = _fixture()
     activity_id = uuid7()
