@@ -150,6 +150,25 @@
       "title": "LifecycleConfig",
       "type": "object"
     },
+    "MaintenanceConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "consideration_after_seconds": {
+          "default": 57600,
+          "exclusiveMinimum": 0,
+          "title": "Consideration After Seconds",
+          "type": "integer"
+        },
+        "deadline_after_seconds": {
+          "default": 86400,
+          "exclusiveMinimum": 0,
+          "title": "Deadline After Seconds",
+          "type": "integer"
+        }
+      },
+      "title": "MaintenanceConfig",
+      "type": "object"
+    },
     "ModelConfig": {
       "additionalProperties": false,
       "properties": {
@@ -301,6 +320,13 @@
       "$ref": "#/$defs/LifecycleConfig",
       "default": {
         "graceful_shutdown_seconds": 30
+      }
+    },
+    "maintenance": {
+      "$ref": "#/$defs/MaintenanceConfig",
+      "default": {
+        "consideration_after_seconds": 57600,
+        "deadline_after_seconds": 86400
       }
     },
     "model": {

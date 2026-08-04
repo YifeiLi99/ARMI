@@ -17,6 +17,7 @@ from .life import (
     ActivityStatus,
     ActivityWaitingKind,
 )
+from .maintenance import SleepDecisionKind
 from .response import ResponseChoiceDraft
 from .web_evidence import WebResearchRequestDraft
 
@@ -55,6 +56,7 @@ class CandidateOwner(StrEnum):
     ACTION = "action"
     WEB_RESEARCH = "web_research"
     CODEX_DELEGATION = "codex_delegation"
+    SLEEP = "sleep"
 
 
 class CandidateValidationStatus(StrEnum):
@@ -352,6 +354,28 @@ class CandidateActivityDecisionDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateSleepDecisionDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    decision_kind: SleepDecisionKind
+    cycle_anchor_ref: UUID
+    source_digest: Digest
+
+    def __post_init__(self) -> None:
+        _validate_proposal(
+            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
+        )
+        if (
+            type(self.decision_kind) is not SleepDecisionKind
+            or type(self.cycle_anchor_ref) is not UUID
+            or self.cycle_anchor_ref.version != 7
+            or type(self.source_digest) is not Digest
+        ):
+            raise CandidateViolation("CON-CANDIDATE-SLEEP")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateRejection:
     proposal_ref: str
     atomic_group_ref: str
@@ -399,6 +423,7 @@ class SubjectChangeSet:
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()
     activities: tuple[CandidateActivityDraft, ...] = ()
     activity_decisions: tuple[CandidateActivityDecisionDraft, ...] = ()
+    sleep_decisions: tuple[CandidateSleepDecisionDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -512,6 +537,7 @@ __all__ = (
     "CandidateFactClass",
     "CandidateOwner",
     "CandidateRejection",
+    "CandidateSleepDecisionDraft",
     "CandidateValidationId",
     "CandidateValidationResult",
     "CandidateValidationStatus",

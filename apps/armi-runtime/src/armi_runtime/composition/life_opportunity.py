@@ -27,9 +27,44 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 from .work_wakeup import OPPORTUNITY_AVAILABLE, WorkWakeupBus
 
 
+class MaintenanceCoordinator:
+    """Own one objective maintenance-window scan inside the Runtime loop."""
+
+    __slots__ = (
+        "_consideration_seconds",
+        "_deadline_seconds",
+        "_factory",
+        "_repository",
+    )
+
+    def __init__(
+        self,
+        *,
+        factory: PostgreSQLUnitOfWorkFactory,
+        repository: PostgreSQLLifeOpportunityRepository,
+        consideration_seconds: int,
+        deadline_seconds: int,
+    ) -> None:
+        if not 0 < consideration_seconds < deadline_seconds:
+            raise LifeViolation("LIFE-MAINTENANCE-CONFIG")
+        self._factory = factory
+        self._repository = repository
+        self._consideration_seconds = consideration_seconds
+        self._deadline_seconds = deadline_seconds
+
+    async def maintain_once(self) -> OpportunityAdmissionOutcome:
+        async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            return await self._repository.maintain_sleep_window(
+                unit_of_work,
+                consideration_after_seconds=self._consideration_seconds,
+                deadline_after_seconds=self._deadline_seconds,
+            )
+
+
 class LifeOpportunityPipeline(LifeOpportunitySourcePort):
     __slots__ = (
         "_factory",
+        "_maintenance",
         "_model_concurrency",
         "_repository",
         "_stop",
@@ -42,6 +77,8 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         factory: PostgreSQLUnitOfWorkFactory,
         wakeups: WorkWakeupBus | None = None,
         model_concurrency: int = 2,
+        maintenance_consideration_seconds: int = 57_600,
+        maintenance_deadline_seconds: int = 86_400,
     ) -> None:
         self._factory = factory
         self._repository = PostgreSQLLifeOpportunityRepository()
@@ -50,6 +87,12 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         if type(model_concurrency) is not int or model_concurrency < 1:
             raise LifeViolation("LIFE-SCHEDULER-CONFIG")
         self._model_concurrency = model_concurrency
+        self._maintenance = MaintenanceCoordinator(
+            factory=factory,
+            repository=self._repository,
+            consideration_seconds=maintenance_consideration_seconds,
+            deadline_seconds=maintenance_deadline_seconds,
+        )
 
     async def open(self) -> None:
         try:
@@ -80,6 +123,9 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         await self.admit_once()
         while not self._stop.is_set():
             try:
+                maintenance = await self.maintain_sleep_once()
+                if maintenance.opportunity_id is not None:
+                    self._wakeups.notify(OPPORTUNITY_AVAILABLE)
                 result = await self.admit_attention_once()
                 if result.status is OpportunityAdmissionStatus.ADMITTED:
                     self._wakeups.notify(OPPORTUNITY_AVAILABLE)
@@ -91,6 +137,14 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
                     raise
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=5)
+
+    async def maintain_sleep_once(self) -> OpportunityAdmissionOutcome:
+        try:
+            return await self._maintenance.maintain_once()
+        except LifeViolation:
+            raise
+        except DatabaseTransactionError:
+            raise LifeViolation("LIFE-DATABASE") from None
 
     async def admit_attention_once(self) -> OpportunityAdmissionOutcome:
         try:
@@ -110,11 +164,15 @@ def compose_life_opportunity_pipeline(
     factory: PostgreSQLUnitOfWorkFactory,
     wakeups: WorkWakeupBus | None = None,
     model_concurrency: int = 2,
+    maintenance_consideration_seconds: int = 57_600,
+    maintenance_deadline_seconds: int = 86_400,
 ) -> LifeOpportunityPipeline:
     return LifeOpportunityPipeline(
         factory=factory,
         wakeups=wakeups,
         model_concurrency=model_concurrency,
+        maintenance_consideration_seconds=maintenance_consideration_seconds,
+        maintenance_deadline_seconds=maintenance_deadline_seconds,
     )
 
 
@@ -129,6 +187,8 @@ def build_life_opportunity_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     wakeups: WorkWakeupBus | None = None,
     model_concurrency: int = 2,
+    maintenance_consideration_seconds: int = 57_600,
+    maintenance_deadline_seconds: int = 86_400,
 ) -> LifeOpportunityPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -148,11 +208,14 @@ def build_life_opportunity_pipeline(
         factory=factory,
         wakeups=wakeups,
         model_concurrency=model_concurrency,
+        maintenance_consideration_seconds=maintenance_consideration_seconds,
+        maintenance_deadline_seconds=maintenance_deadline_seconds,
     )
 
 
 __all__ = (
     "LifeOpportunityPipeline",
+    "MaintenanceCoordinator",
     "build_life_opportunity_pipeline",
     "compose_life_opportunity_pipeline",
 )

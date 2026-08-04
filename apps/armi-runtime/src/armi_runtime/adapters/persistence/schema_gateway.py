@@ -395,6 +395,52 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("decided_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
     ),
+    "sleep_decisions": (
+        ("sleep_decision_id", "uuid", True),
+        ("opportunity_id", "uuid", True),
+        ("cognitive_episode_id", "uuid", True),
+        ("candidate_validation_id", "uuid", True),
+        ("candidate_application_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("life_generation_id", "uuid", True),
+        ("cycle_anchor_ref", "uuid", True),
+        ("source_digest", "text", True),
+        ("decision_kind", "text", True),
+        ("review_not_before", "timestamp(6) with time zone", False),
+        ("decided_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "maintenance_sessions": (
+        ("maintenance_session_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("life_generation_id", "uuid", True),
+        ("origin_opportunity_id", "uuid", False),
+        ("cycle_anchor_kind", "text", True),
+        ("cycle_anchor_ref", "uuid", True),
+        ("consideration_at", "timestamp(6) with time zone", True),
+        ("deadline_at", "timestamp(6) with time zone", True),
+        ("schedule_digest", "text", True),
+        ("trigger_kind", "text", True),
+        ("sleep_decision_id", "uuid", False),
+        ("started_subject_version", "bigint", True),
+        ("started_state_epoch", "bigint", True),
+        ("current_revision_id", "uuid", False),
+        ("head_version", "bigint", True),
+        ("started_at", "timestamp(6) with time zone", True),
+        ("finished_at", "timestamp(6) with time zone", False),
+        ("schema_version", "smallint", True),
+    ),
+    "maintenance_session_revisions": (
+        ("maintenance_revision_id", "uuid", True),
+        ("maintenance_session_id", "uuid", True),
+        ("revision_no", "bigint", True),
+        ("previous_revision_id", "uuid", False),
+        ("phase", "text", True),
+        ("result_status", "text", True),
+        ("transition_kind", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
     "cognitive_episodes": (
         ("cognitive_episode_id", "uuid", True),
         ("opportunity_id", "uuid", True),
@@ -1037,6 +1083,15 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
     "activity_attention_decisions": tuple(
         sorted((*("c",) * 7, *("n",) * 12, *("f",) * 7, "p", *("u",) * 4))
     ),
+    "sleep_decisions": tuple(
+        sorted((*("c",) * 6, *("n",) * 12, *("f",) * 6, "p", *("u",) * 4))
+    ),
+    "maintenance_sessions": tuple(
+        sorted((*("c",) * 12, *("n",) * 14, *("f",) * 5, "p", *("u",) * 2))
+    ),
+    "maintenance_session_revisions": tuple(
+        sorted((*("c",) * 8, *("n",) * 8, *("f",) * 2, "p", *("u",) * 2))
+    ),
     "cognitive_episodes": tuple(
         sorted((*("c",) * 16, *("n",) * 14, *("f",) * 4, "p", "u"))
     ),
@@ -1633,6 +1688,16 @@ class PostgreSQLSchemaGateway:
         if applied_version >= 29:
             expected_objects.append(("activity_attention_decisions", "r"))
             expected_tables.append("activity_attention_decisions")
+            expected_objects.sort()
+            expected_tables.sort()
+        if applied_version >= 30:
+            maintenance_tables = (
+                "maintenance_session_revisions",
+                "maintenance_sessions",
+                "sleep_decisions",
+            )
+            expected_objects.extend((name, "r") for name in maintenance_tables)
+            expected_tables.extend(maintenance_tables)
             expected_objects.sort()
             expected_tables.sort()
         if objects != expected_objects:

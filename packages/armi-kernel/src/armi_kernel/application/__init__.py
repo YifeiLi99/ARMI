@@ -41,6 +41,7 @@ from .candidates import (
     CandidateFactClass,
     CandidateOwner,
     CandidateRejection,
+    CandidateSleepDecisionDraft,
     CandidateValidationId,
     CandidateValidationResult,
     CandidateValidationStatus,
@@ -206,6 +207,15 @@ from .life import (
     OpportunityAdmissionStatus,
 )
 from .life_scheduler import PostgreSqlFairLifeScheduler
+from .maintenance import (
+    MaintenancePhase,
+    MaintenancePhaseState,
+    MaintenanceResultStatus,
+    MaintenanceTriggerKind,
+    MaintenanceViolation,
+    SleepDecisionKind,
+    validate_maintenance_advance,
+)
 from .model import (
     ModelAttemptId,
     ModelBinding,
@@ -355,6 +365,7 @@ __all__: tuple[str, ...] = (
     "CandidateFactClass",
     "CandidateOwner",
     "CandidateRejection",
+    "CandidateSleepDecisionDraft",
     "CandidateValidationId",
     "CandidateValidationResult",
     "CandidateValidationStatus",
@@ -479,6 +490,11 @@ __all__: tuple[str, ...] = (
     "LockPlan",
     "LockTarget",
     "LockTargetKind",
+    "MaintenancePhase",
+    "MaintenancePhaseState",
+    "MaintenanceResultStatus",
+    "MaintenanceTriggerKind",
+    "MaintenanceViolation",
     "ModelAttemptId",
     "ModelBinding",
     "ModelInvocationResult",
@@ -524,6 +540,7 @@ __all__: tuple[str, ...] = (
     "SceneTimelineQuery",
     "SceneTimelineQueryPort",
     "SecretHandle",
+    "SleepDecisionKind",
     "StagedArtifact",
     "SubjectChangeSet",
     "SubjectCommitId",
@@ -574,4 +591,5 @@ __all__: tuple[str, ...] = (
     "WorkStatus",
     "WorkViolation",
     "classify_cas_rows",
+    "validate_maintenance_advance",
 )

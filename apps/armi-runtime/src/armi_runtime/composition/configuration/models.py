@@ -191,6 +191,17 @@ class SchedulerConfig(_FrozenModel):
         return self
 
 
+class MaintenanceConfig(_FrozenModel):
+    consideration_after_seconds: PositiveInt = 57_600
+    deadline_after_seconds: PositiveInt = 86_400
+
+    @model_validator(mode="after")
+    def validate_window(self) -> Self:
+        if self.consideration_after_seconds >= self.deadline_after_seconds:
+            raise ValueError("maintenance consideration must precede deadline")
+        return self
+
+
 class RuntimeConfig(_FrozenModel):
     """The only supported effective runtime configuration shape."""
 
@@ -206,6 +217,7 @@ class RuntimeConfig(_FrozenModel):
     artifacts: ArtifactsConfig = ArtifactsConfig()
     lifecycle: LifecycleConfig = LifecycleConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
+    maintenance: MaintenanceConfig = MaintenanceConfig()
     secret_locators: Mapping[str, LocatorValue] = Field(
         default_factory=dict,
         validate_default=True,
@@ -248,6 +260,7 @@ __all__ = (
     "EnvironmentConfig",
     "LifecycleConfig",
     "LocatorValue",
+    "MaintenanceConfig",
     "ModelConfig",
     "RuntimeConfig",
     "RuntimeLeaseConfig",

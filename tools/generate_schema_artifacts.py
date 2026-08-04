@@ -701,6 +701,46 @@ def build_role_manifest() -> dict[str, object]:
                 "armi_migrator": {},
             },
         },
+        {
+            "kind": "table",
+            "name": "armi.sleep_decisions",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": ["SELECT"],
+                "armi_migrator": [],
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.maintenance_sessions",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": ["SELECT"],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "UPDATE": ["current_revision_id", "head_version", "finished_at"]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.maintenance_session_revisions",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT", "INSERT"],
+                "armi_admin": ["SELECT"],
+                "armi_migrator": [],
+            },
+        },
     ]
     capability_objects = [
         {
@@ -1863,6 +1903,24 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "name": "armi.activity_attention_decisions",
                 "logical_owner": "activity-attention-authority",
                 "activation_step": "P0-S002",
+            },
+            {
+                "kind": "table",
+                "name": "armi.sleep_decisions",
+                "logical_owner": "sleep-decision-authority",
+                "activation_step": "P0-S004",
+            },
+            {
+                "kind": "table",
+                "name": "armi.maintenance_sessions",
+                "logical_owner": "maintenance-session-authority",
+                "activation_step": "P0-S004",
+            },
+            {
+                "kind": "table",
+                "name": "armi.maintenance_session_revisions",
+                "logical_owner": "maintenance-session-authority",
+                "activation_step": "P0-S004",
             },
             {
                 "kind": "table",

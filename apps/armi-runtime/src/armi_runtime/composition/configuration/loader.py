@@ -113,6 +113,14 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
         ("scheduler", "idle_poll_max_seconds"),
         "integer",
     ),
+    "ARMI_MAINTENANCE_CONSIDERATION_AFTER_SECONDS": (
+        ("maintenance", "consideration_after_seconds"),
+        "integer",
+    ),
+    "ARMI_MAINTENANCE_DEADLINE_AFTER_SECONDS": (
+        ("maintenance", "deadline_after_seconds"),
+        "integer",
+    ),
 }
 
 

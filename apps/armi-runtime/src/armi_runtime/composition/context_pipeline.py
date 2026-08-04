@@ -443,6 +443,32 @@ def _context_request(
                 source_kind=snapshot.opportunity_source_kind,
             ),
             _item(
+                ContextSection.LIFE_MODE,
+                "current_maintenance_window",
+                snapshot.opportunity_source_ref,
+                snapshot.opportunity_source_version,
+                rfc8785.dumps(
+                    {
+                        "source_kind": snapshot.opportunity_source_kind,
+                        "source_ref": str(snapshot.opportunity_source_ref),
+                        "source_version": snapshot.opportunity_source_version,
+                        "source_digest": snapshot.opportunity_source_digest.value,
+                        "available_after": snapshot.opportunity_available_after.isoformat(),
+                        "expires_at": (
+                            None
+                            if snapshot.opportunity_expires_at is None
+                            else snapshot.opportunity_expires_at.isoformat()
+                        ),
+                    }
+                ),
+                ContextTrustClass.RUNTIME_AUTHORITY,
+                required=snapshot.purpose == "consider_sleep",
+                relevance=100,
+                source_kind=snapshot.opportunity_source_kind,
+            )
+            if snapshot.purpose == "consider_sleep"
+            else _unavailable(ContextSection.LIFE_MODE, "maintenance_window"),
+            _item(
                 ContextSection.ACTIVITY,
                 "current_activities",
                 snapshot.subject_id,
@@ -450,7 +476,11 @@ def _context_request(
                 snapshot.activity_summary_bytes,
                 ContextTrustClass.RUNTIME_AUTHORITY,
                 required=snapshot.purpose
-                in {"consider_autonomous_life", "consider_activity_attention"},
+                in {
+                    "consider_autonomous_life",
+                    "consider_activity_attention",
+                    "consider_sleep",
+                },
                 relevance=95,
                 source_kind="activity_summary",
             ),

@@ -512,6 +512,13 @@ def compose_life_opportunity_pipeline(
                     ),
                     authority_admission=authority_admission,
                     wakeups=wakeups,
+                    model_concurrency=config.model.concurrency,
+                    maintenance_consideration_seconds=(
+                        config.maintenance.consideration_after_seconds
+                    ),
+                    maintenance_deadline_seconds=(
+                        config.maintenance.deadline_after_seconds
+                    ),
                 )
 
             return handle.consume(create)

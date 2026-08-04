@@ -17,7 +17,7 @@
   "defaults": {
     "contains_secrets": false,
     "path": "config/runtime.defaults.toml",
-    "sha256": "137d9d4cc56757da4adebf4b6aa1de2f7a2eda641f8ff79712ff2985304891cb"
+    "sha256": "c3b223a2ed4e3e07a39fb4b2bed7dbeba694e2a9301b532e1303c2964476354a"
   },
   "effective_digest": {
     "algorithm": "sha256",
@@ -122,6 +122,16 @@
       "path": "scheduler.idle_poll_max_seconds",
       "type": "integer"
     },
+    "ARMI_MAINTENANCE_CONSIDERATION_AFTER_SECONDS": {
+      "env_overridable": true,
+      "path": "maintenance.consideration_after_seconds",
+      "type": "integer"
+    },
+    "ARMI_MAINTENANCE_DEADLINE_AFTER_SECONDS": {
+      "env_overridable": true,
+      "path": "maintenance.deadline_after_seconds",
+      "type": "integer"
+    },
     "ARMI_MODEL_ATTEMPT_TIMEOUT_SECONDS": {
       "env_overridable": true,
       "path": "model.attempt_timeout_seconds",
@@ -186,7 +196,7 @@
   "runtime_business_contract": false,
   "schema": {
     "path": "config/runtime.schema.json",
-    "sha256": "a2926e863c64f0f732962ed16e55fcc6672f61abbaa47052eff19c307a72e930"
+    "sha256": "1256960460d9e484bb6ea009a47fe5c543fd2df3682beecd4f0bb0f6c5e37474"
   },
   "schema_version": "armi.runtime-config.v1",
   "secret_locator_schemes": {

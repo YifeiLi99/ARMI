@@ -33,6 +33,7 @@ class LifeOpportunitySourceKind(StrEnum):
     LIFE_GENERATION_AVAILABLE = "life_generation_available"
     SUBJECT_COMPONENT_REVISION = "subject_component_revision"
     ACTIVITY_REVISION = "activity_revision"
+    MAINTENANCE_WINDOW = "maintenance_window"
 
 
 class OpportunityAdmissionStatus(StrEnum):

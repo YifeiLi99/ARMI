@@ -27,6 +27,7 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateOwner,
     CandidateRejection,
+    CandidateSleepDecisionDraft,
     CandidateValidationResult,
     CandidateValidationStatus,
     CandidateViolation,
@@ -519,6 +520,7 @@ def _validation_drafts(
     | CodexDelegationDraft
     | CandidateActivityDraft
     | CandidateActivityDecisionDraft
+    | CandidateSleepDecisionDraft
     | CandidateRejection,
     ...,
 ]:
@@ -531,6 +533,7 @@ def _validation_drafts(
         *change_set.codex_delegations,
         *change_set.activities,
         *change_set.activity_decisions,
+        *change_set.sleep_decisions,
         *change_set.rejections,
     )
 
@@ -545,6 +548,7 @@ def _item_semantic(
     | CodexDelegationDraft
     | CandidateActivityDraft
     | CandidateActivityDecisionDraft
+    | CandidateSleepDecisionDraft
     | CandidateRejection,
 ) -> dict[str, object]:
     result: dict[str, object] = {
@@ -553,7 +557,16 @@ def _item_semantic(
         "basis_ordinals": list(value.basis_ordinals),
         "fact_class": _implicit_fact_class(value).value,
     }
-    if isinstance(value, CandidateActivityDecisionDraft):
+    if isinstance(value, CandidateSleepDecisionDraft):
+        result.update(
+            {
+                "owner": "sleep",
+                "decision_kind": value.decision_kind.value,
+                "cycle_anchor_ref": str(value.cycle_anchor_ref),
+                "source_digest": value.source_digest.value,
+            }
+        )
+    elif isinstance(value, CandidateActivityDecisionDraft):
         result.update(
             {
                 "owner": "activity",
@@ -628,8 +641,11 @@ def _owner(
     | CodexDelegationDraft
     | CandidateActivityDraft
     | CandidateActivityDecisionDraft
+    | CandidateSleepDecisionDraft
     | CandidateRejection,
 ) -> CandidateOwner:
+    if isinstance(value, CandidateSleepDecisionDraft):
+        return CandidateOwner.SLEEP
     if isinstance(value, (CandidateActivityDraft, CandidateActivityDecisionDraft)):
         return CandidateOwner.ACTIVITY
     if isinstance(value, CandidateExperienceDraft):
@@ -655,6 +671,7 @@ def _implicit_fact_class(
     | CodexDelegationDraft
     | CandidateActivityDraft
     | CandidateActivityDecisionDraft
+    | CandidateSleepDecisionDraft
     | CandidateRejection,
 ) -> CandidateFactClass:
     if isinstance(
@@ -668,6 +685,8 @@ def _implicit_fact_class(
     ):
         return value.fact_class
     if isinstance(value, CandidateActivityDecisionDraft):
+        return CandidateFactClass.INFERENCE
+    if isinstance(value, CandidateSleepDecisionDraft):
         return CandidateFactClass.INFERENCE
     return CandidateFactClass.INFERENCE
 

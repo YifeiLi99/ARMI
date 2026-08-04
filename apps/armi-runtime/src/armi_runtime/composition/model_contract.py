@@ -41,6 +41,12 @@ from .dialogue_candidate_contract import (
     dialogue_candidate_schema,
     parse_dialogue_candidate,
 )
+from .sleep_decision_candidate_contract import (
+    SLEEP_DECISION_CANDIDATE_VERSION,
+    SleepDecisionCandidate,
+    parse_sleep_decision_candidate,
+    sleep_decision_candidate_schema,
+)
 
 MODEL_BINDING_VERSION = "armi.model-bindings.v1"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
@@ -81,6 +87,11 @@ ACTIVITY_ATTENTION_INSTRUCTIONS = (
     "no_action、defer 或 need_information。只填写 JSON Schema 允许的主观摘要和下一安全"
     "步骤;不要输出 Activity、subject、source、generation ID、状态版本、权限、资源结论、"
     "数据库字段或隐藏思维链。技术 failed 只能由 Runtime 的可靠事实形成。"
+)
+SLEEP_DECISION_INSTRUCTIONS = (
+    "你是 ARMI 对当前睡眠窗口的主观候选生成器。只返回 sleep、stay_awake、defer 或 "
+    "need_information 之一。不要输出 ID、时间、期限、阶段、权限、系统状态、数据库字段或"
+    "隐藏思维链;周期和客观期限由 Runtime 绑定。"
 )
 
 ProposalRef = Annotated[
@@ -566,6 +577,8 @@ def candidate_schema(
 ) -> dict[str, Any]:
     if version == ACTIVITY_ATTENTION_CANDIDATE_VERSION:
         return activity_attention_candidate_schema()
+    if version == SLEEP_DECISION_CANDIDATE_VERSION:
+        return sleep_decision_candidate_schema()
     if version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION:
         return autonomous_activity_candidate_schema()
     if version in {DIALOGUE_CANDIDATE_VERSION, WEB_DIALOGUE_CANDIDATE_VERSION}:
@@ -593,6 +606,7 @@ def parse_candidate(
 ) -> (
     ActivityAttentionCandidate
     | AutonomousActivityCandidate
+    | SleepDecisionCandidate
     | CreatorDialogueCandidate
     | CognitionCandidate
     | CognitionCandidateV5
@@ -627,6 +641,13 @@ def parse_candidate(
             attention_value = dict(candidate_object)
             attention_value.pop("schema_version", None)
             candidate = parse_activity_attention_candidate(attention_value)
+        elif (
+            candidate_object is not None
+            and expected_version == SLEEP_DECISION_CANDIDATE_VERSION
+        ):
+            sleep_value = dict(candidate_object)
+            sleep_value.pop("schema_version", None)
+            candidate = parse_sleep_decision_candidate(sleep_value)
         elif (
             candidate_object is not None
             and expected_version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
@@ -678,6 +699,8 @@ def parse_candidate(
             AttentionTerminalDecision,
         ),
     ):
+        return candidate
+    if isinstance(candidate, SleepDecisionCandidate):
         return candidate
     if isinstance(candidate, StartActivityDecision):
         for text_value in (candidate.goal, candidate.next_step):
@@ -814,6 +837,11 @@ def load_active_binding(
                 "profile": "activity_attention",
                 "response_contract_version": ACTIVITY_ATTENTION_CANDIDATE_VERSION,
                 "output_token_limit": 1024,
+            },
+            "consider_sleep": {
+                "profile": "sleep_decision",
+                "response_contract_version": SLEEP_DECISION_CANDIDATE_VERSION,
+                "output_token_limit": 256,
             },
         }
     ):
@@ -954,6 +982,8 @@ __all__ = (
     "DIALOGUE_INSTRUCTIONS",
     "MODEL_BINDING_VERSION",
     "MODEL_REQUEST_VERSION",
+    "SLEEP_DECISION_CANDIDATE_VERSION",
+    "SLEEP_DECISION_INSTRUCTIONS",
     "WEB_CANDIDATE_VERSION",
     "WEB_DIALOGUE_CANDIDATE_VERSION",
     "WEB_DIALOGUE_INSTRUCTIONS",

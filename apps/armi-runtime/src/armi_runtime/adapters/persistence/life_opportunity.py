@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid7
 
@@ -31,6 +31,191 @@ from .unit_of_work import PostgreSQLUnitOfWork
 
 class PostgreSQLLifeOpportunityRepository:
     """Admit one source-backed root opportunity under the active Runtime fence."""
+
+    async def maintain_sleep_window(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        consideration_after_seconds: int,
+        deadline_after_seconds: int,
+    ) -> OpportunityAdmissionOutcome:
+        """Admit the current sleep window or force its objective deadline."""
+
+        fence = unit_of_work.runtime_fence
+        if fence is None:
+            raise LifeViolation("LIFE-FENCE-REQUIRED")
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        anchor = await (
+            await connection.execute(
+                """
+                SELECT anchor_kind, anchor_ref, anchor_at, subject_version, state_epoch
+                FROM (
+                    SELECT 'maintenance_session'::text AS anchor_kind,
+                           maintenance_session_id AS anchor_ref,
+                           finished_at AS anchor_at,
+                           subject.subject_version, subject.state_epoch, 0 AS priority
+                    FROM armi.maintenance_sessions AS session
+                    JOIN armi.subjects AS subject ON subject.subject_id = session.subject_id
+                    WHERE session.subject_id = %s
+                      AND session.life_generation_id = %s
+                      AND session.finished_at IS NOT NULL
+                    UNION ALL
+                    SELECT 'life_generation', generation.life_generation_id,
+                           generation.created_at, subject.subject_version,
+                           subject.state_epoch, 1
+                    FROM armi.life_generations AS generation
+                    JOIN armi.subjects AS subject ON subject.subject_id = generation.subject_id
+                    WHERE generation.subject_id = %s
+                      AND generation.life_generation_id = %s
+                      AND generation.status = 'active'
+                ) AS anchors
+                ORDER BY priority, anchor_at DESC
+                LIMIT 1
+                """,
+                (
+                    fence.subject_id,
+                    fence.life_generation_id,
+                    fence.subject_id,
+                    fence.life_generation_id,
+                ),
+            )
+        ).fetchone()
+        if anchor is None:
+            raise LifeViolation("LIFE-SOURCE-STALE")
+        anchor_at = anchor[2]
+        consideration_at = anchor_at + timedelta(seconds=consideration_after_seconds)
+        deadline_at = anchor_at + timedelta(seconds=deadline_after_seconds)
+        now = datetime.now(UTC)
+        source_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.maintenance-window-source.v1",
+                    "subject_id": str(fence.subject_id),
+                    "life_generation_id": str(fence.life_generation_id),
+                    "cycle_anchor_kind": str(anchor[0]),
+                    "cycle_anchor_ref": str(anchor[1]),
+                    "cycle_anchor_at": anchor_at.isoformat(),
+                    "consideration_after_seconds": consideration_after_seconds,
+                    "deadline_after_seconds": deadline_after_seconds,
+                }
+            )
+        )
+        if now >= deadline_at:
+            session_id = uuid7()
+            revision_id = uuid7()
+            inserted = await (
+                await connection.execute(
+                    """
+                    INSERT INTO armi.maintenance_sessions (
+                        maintenance_session_id, subject_id, life_generation_id,
+                        origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
+                        consideration_at, deadline_at, schedule_digest,
+                        trigger_kind, sleep_decision_id, started_subject_version,
+                        started_state_epoch, current_revision_id, schema_version
+                    ) VALUES (
+                        %s, %s, %s, NULL, %s, %s, %s, %s, %s,
+                        'system_deadline', NULL, %s, %s, %s, 1
+                    )
+                    ON CONFLICT (subject_id, life_generation_id, cycle_anchor_ref)
+                    DO NOTHING RETURNING maintenance_session_id
+                    """,
+                    (
+                        session_id,
+                        fence.subject_id,
+                        fence.life_generation_id,
+                        str(anchor[0]),
+                        anchor[1],
+                        consideration_at,
+                        deadline_at,
+                        source_digest.value,
+                        int(anchor[3]),
+                        int(anchor[4]),
+                        revision_id,
+                    ),
+                )
+            ).fetchone()
+            if inserted is not None:
+                await connection.execute(
+                    """
+                    INSERT INTO armi.maintenance_session_revisions (
+                        maintenance_revision_id, maintenance_session_id,
+                        revision_no, previous_revision_id, phase,
+                        result_status, transition_kind, schema_version
+                    ) VALUES (%s, %s, 1, NULL, 'preparing', 'running', 'started', 1)
+                    """,
+                    (revision_id, session_id),
+                )
+            await connection.execute(
+                """
+                UPDATE armi.opportunities
+                SET current_disposition = 'cancelled', resolved_at = statement_timestamp()
+                WHERE subject_id = %s AND source_kind = 'maintenance_window'
+                  AND source_ref = %s AND purpose = 'consider_sleep'
+                  AND current_disposition IN ('open', 'selected')
+                """,
+                (fence.subject_id, anchor[1]),
+            )
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-MAINTENANCE-DEADLINE",
+            )
+        if now < consideration_at:
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-MAINTENANCE-NOT-DUE",
+            )
+        opportunity_id = uuid7()
+        inserted = await (
+            await connection.execute(
+                """
+                INSERT INTO armi.opportunities (
+                    opportunity_id, evidence_id, subject_id, scene_id,
+                    creator_party_id, purpose, eligibility_status,
+                    current_disposition, root_opportunity_id, reconsideration_no,
+                    available_after, expires_at, source_kind, source_ref,
+                    source_version, source_digest, activity_id, schema_version
+                ) VALUES (
+                    %s, NULL, %s, NULL, NULL, 'consider_sleep', 'eligible',
+                    'open', %s, 0, %s, %s, 'maintenance_window', %s, 1, %s, NULL, 1
+                )
+                ON CONFLICT (
+                    subject_id, source_kind, source_ref, source_version,
+                    purpose, reconsideration_no
+                ) DO NOTHING RETURNING opportunity_id
+                """,
+                (
+                    opportunity_id,
+                    fence.subject_id,
+                    opportunity_id,
+                    consideration_at,
+                    deadline_at,
+                    anchor[1],
+                    source_digest.value,
+                ),
+            )
+        ).fetchone()
+        if inserted is None:
+            existing = await (
+                await connection.execute(
+                    """
+                    SELECT opportunity_id, source_digest FROM armi.opportunities
+                    WHERE subject_id = %s AND source_kind = 'maintenance_window'
+                      AND source_ref = %s AND source_version = 1
+                      AND purpose = 'consider_sleep' AND reconsideration_no = 0
+                    """,
+                    (fence.subject_id, anchor[1]),
+                )
+            ).fetchone()
+            if existing is None or str(existing[1]) != source_digest.value:
+                raise LifeViolation("LIFE-SOURCE-DRIFT")
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.DUPLICATE, existing[0]
+            )
+        return OpportunityAdmissionOutcome(
+            OpportunityAdmissionStatus.ADMITTED, opportunity_id
+        )
 
     async def admit_generation_available(
         self,

@@ -49,4 +49,8 @@ graceful_shutdown_seconds = 30
 idle_poll_initial_seconds = 1
 idle_poll_max_seconds = 10
 
+[maintenance]
+consideration_after_seconds = 57600
+deadline_after_seconds = 86400
+
 [secret_locators]

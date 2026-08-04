@@ -19,6 +19,7 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateOwner,
     CandidateRejection,
+    CandidateSleepDecisionDraft,
     CandidateViolation,
     CapabilityKind,
     CapabilityOperation,
@@ -31,6 +32,7 @@ from armi_kernel.application import (
     FormalNoActionDraft,
     FormalNoActionKind,
     FormalNoActionReason,
+    SleepDecisionKind,
     SubjectChangeSet,
     SubjectCommitViolation,
     WebResearchRequestDraft,
@@ -57,6 +59,7 @@ _TOP_KEYS_V5 = {*_TOP_KEYS_V3, "codex_delegations"}
 _TOP_KEYS_V6 = _TOP_KEYS_V5
 _TOP_KEYS_V7 = {*_TOP_KEYS_V6, "activities"}
 _TOP_KEYS_V8 = {*_TOP_KEYS_V7, "activity_decisions"}
+_TOP_KEYS_V9 = {*_TOP_KEYS_V8, "sleep_decisions"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -74,6 +77,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v6",
             "armi.subject-change-set.v7",
             "armi.subject-change-set.v8",
+            "armi.subject-change-set.v9",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -93,6 +97,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V7
             if version.endswith(".v7")
             else _TOP_KEYS_V8
+            if version.endswith(".v8")
+            else _TOP_KEYS_V9
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -136,6 +142,10 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             _activity_decision(item)
             for item in _array(document.get("activity_decisions", []), 1)
         )
+        sleep_decisions = tuple(
+            _sleep_decision(item)
+            for item in _array(document.get("sleep_decisions", []), 1)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -161,6 +171,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             codex_delegations,
             activities,
             activity_decisions,
+            sleep_decisions,
         )
         proposal_refs = [
             item.proposal_ref
@@ -173,6 +184,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *codex_delegations,
                 *activities,
                 *activity_decisions,
+                *sleep_decisions,
                 *rejections,
             )
         ]
@@ -186,12 +198,36 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.codex_delegations
             or result.activities
             or result.activity_decisions
+            or result.sleep_decisions
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
             item for item in action_choices if isinstance(item, FormalNoActionDraft)
         )
-        if version.endswith(".v8"):
+        if version.endswith(".v9"):
+            if len(sleep_decisions) != 1 or any(
+                (
+                    experiences,
+                    components,
+                    capability_requests,
+                    action_choices,
+                    web_research_requests,
+                    codex_delegations,
+                    activities,
+                    activity_decisions,
+                    rejections,
+                )
+            ):
+                raise ValueError
+            expected_disposition = {
+                "sleep": CandidateDisposition.CHANGE,
+                "stay_awake": CandidateDisposition.NO_CHANGE,
+                "defer": CandidateDisposition.DEFER,
+                "need_information": CandidateDisposition.NEED_INFORMATION,
+            }[sleep_decisions[0].decision_kind.value]
+            if result.disposition is not expected_disposition:
+                raise ValueError
+        elif version.endswith(".v8"):
             if len(activity_decisions) != 1 or any(
                 (
                     experiences,
@@ -339,6 +375,28 @@ def _activity_decision(value: object) -> CandidateActivityDecisionDraft:
         else ActivityWaitingKind(_text(item["waiting_kind"])),
         None if item["delay_seconds"] is None else _positive(item["delay_seconds"]),
         _optional_text_value(item["terminal_reason"]),
+    )
+
+
+def _sleep_decision(value: object) -> CandidateSleepDecisionDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "decision_kind",
+            "cycle_anchor_ref",
+            "source_digest",
+        },
+    )
+    return CandidateSleepDecisionDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        SleepDecisionKind(_text(item["decision_kind"])),
+        _uuid7(item["cycle_anchor_ref"]),
+        Digest(_text(item["source_digest"])),
     )
 
 

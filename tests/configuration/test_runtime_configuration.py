@@ -78,6 +78,30 @@ class RuntimeConfigurationTests(unittest.TestCase):
             ("defaults.toml", "environment.toml", "explicit-environment"),
         )
 
+    def test_maintenance_window_defaults_overrides_and_order(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            effective = self.load(
+                root,
+                environment={
+                    "ARMI_MAINTENANCE_CONSIDERATION_AFTER_SECONDS": "3600",
+                    "ARMI_MAINTENANCE_DEADLINE_AFTER_SECONDS": "7200",
+                },
+            )
+        self.assertEqual(effective.config.maintenance.consideration_after_seconds, 3600)
+        self.assertEqual(effective.config.maintenance.deadline_after_seconds, 7200)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            self.assertRaises(ConfigurationViolation),
+        ):
+            self.load(
+                Path(directory),
+                environment={
+                    "ARMI_MAINTENANCE_CONSIDERATION_AFTER_SECONDS": "7200",
+                    "ARMI_MAINTENANCE_DEADLINE_AFTER_SECONDS": "7200",
+                },
+            )
+
     def test_environment_overrides_all_required_deployment_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

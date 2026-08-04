@@ -62,6 +62,8 @@ from .model_contract import (
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     DIALOGUE_CANDIDATE_VERSION,
     DIALOGUE_INSTRUCTIONS,
+    SLEEP_DECISION_CANDIDATE_VERSION,
+    SLEEP_DECISION_INSTRUCTIONS,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_INSTRUCTIONS,
     build_request_bytes,
@@ -135,6 +137,10 @@ class ModelPipeline:
             "consider_activity_attention",
             expected_dialogue_version=dialogue_version,
         )
+        sleep_binding = load_purpose_binding(
+            "consider_sleep",
+            expected_dialogue_version=dialogue_version,
+        )
         self._dialogue_version = dialogue_version
 
         def parse_dialogue(
@@ -168,6 +174,17 @@ class ModelPipeline:
                 value,
                 allowed_context_refs=allowed_context_refs,
                 expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
+            )
+
+        def parse_sleep(
+            value: bytes,
+            *,
+            allowed_context_refs: frozenset[str],
+        ):
+            return parse_candidate(
+                value,
+                allowed_context_refs=allowed_context_refs,
+                expected_version=SLEEP_DECISION_CANDIDATE_VERSION,
             )
 
         self._factory = factory
@@ -222,6 +239,17 @@ class ModelPipeline:
                 candidate_parser=parse_attention,
                 instructions=ACTIVITY_ATTENTION_INSTRUCTIONS,
                 schema_name="armi_activity_attention_candidate_v1",
+            ),
+            "consider_sleep": VolcengineArkModelAdapter(
+                binding=sleep_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    sleep_binding.response_contract_version
+                ),
+                candidate_parser=parse_sleep,
+                instructions=SLEEP_DECISION_INSTRUCTIONS,
+                schema_name="armi_sleep_decision_candidate_v1",
             ),
         }
         self._catalog = ArtifactCatalogRepository()

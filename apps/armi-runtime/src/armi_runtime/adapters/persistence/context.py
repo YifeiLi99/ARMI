@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid7
 
@@ -76,6 +76,8 @@ class ContextEpisodeSnapshot:
     opportunity_source_ref: UUID
     opportunity_source_version: int
     opportunity_source_digest: Digest
+    opportunity_available_after: datetime
+    opportunity_expires_at: datetime | None
     fixed_prompt: ContextArtifactSource
 
 
@@ -289,7 +291,9 @@ class PostgreSQLContextRepository:
                     opportunity.source_kind,
                     opportunity.source_ref,
                     opportunity.source_version,
-                    opportunity.source_digest
+                    opportunity.source_digest,
+                    opportunity.available_after,
+                    opportunity.expires_at
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -442,6 +446,8 @@ class PostgreSQLContextRepository:
             row[23],
             int(row[24]),
             Digest(str(row[25])),
+            row[26],
+            row[27],
             ContextArtifactSource(
                 await self._artifact_ref(connection, row[14]),
                 row[13],

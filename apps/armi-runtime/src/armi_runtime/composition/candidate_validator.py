@@ -22,6 +22,7 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateOwner,
     CandidateRejection,
+    CandidateSleepDecisionDraft,
     CandidateValidationId,
     CandidateValidationResult,
     CandidateValidationStatus,
@@ -38,6 +39,7 @@ from armi_kernel.application import (
     FormalNoActionKind,
     FormalNoActionReason,
     ModelViolation,
+    SleepDecisionKind,
     SubjectChangeSet,
     WebResearchRequestDraft,
 )
@@ -83,6 +85,10 @@ from .model_contract import (
     WebResearchRequestProposal,
     parse_candidate,
 )
+from .sleep_decision_candidate_contract import (
+    SLEEP_DECISION_CANDIDATE_VERSION,
+    SleepDecisionCandidate,
+)
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v3"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
@@ -92,6 +98,7 @@ CODEX_CHANGE_SET_VERSION = "armi.subject-change-set.v5"
 RUNTIME_BOUND_CHANGE_SET_VERSION = "armi.subject-change-set.v6"
 ACTIVITY_CHANGE_SET_VERSION = "armi.subject-change-set.v7"
 ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
+SLEEP_CHANGE_SET_VERSION = "armi.subject-change-set.v9"
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +200,8 @@ class DeterministicCandidateValidator:
                     if self._context.purpose == "consider_activity_attention"
                     else AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
                     if self._context.purpose == "consider_autonomous_life"
+                    else SLEEP_DECISION_CANDIDATE_VERSION
+                    if self._context.purpose == "consider_sleep"
                     else None
                 ),
             )
@@ -216,6 +225,12 @@ class DeterministicCandidateValidator:
         candidate_digest = Digest.from_bytes(
             rfc8785.dumps(cast(Any, parsed_candidate.model_dump(mode="json")))
         )
+        if isinstance(parsed_candidate, SleepDecisionCandidate):
+            return self._validate_sleep(
+                parsed_candidate,
+                bases=bases,
+                candidate_digest=candidate_digest,
+            )
         if isinstance(
             parsed_candidate,
             (
@@ -738,6 +753,106 @@ class DeterministicCandidateValidator:
             CandidateValidationStatus.ACCEPTED,
             change_set,
             len(activities),
+            0,
+            None,
+        )
+
+    def _validate_sleep(
+        self,
+        candidate: SleepDecisionCandidate,
+        *,
+        bases: tuple[CandidateBasis, ...],
+        candidate_digest: Digest,
+    ) -> CandidateValidationResult:
+        context = self._context
+        if (
+            context.purpose != "consider_sleep"
+            or context.opportunity_id is None
+            or context.scene_id is not None
+            or context.creator_party_id is not None
+        ):
+            return _rejected("CANDIDATE-SLEEP-CONTEXT")
+        source = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_maintenance_window"
+                and item.trust_class == "runtime_authority"
+                and item.source_ref is not None
+                and item.source_digest is not None
+            ),
+            None,
+        )
+        if source is None or source.source_ref is None or source.source_digest is None:
+            return _rejected("CANDIDATE-SLEEP-SOURCE")
+        decision = CandidateSleepDecisionDraft(
+            "proposal:1",
+            "group:1",
+            (source.ordinal,),
+            SleepDecisionKind(candidate.kind),
+            source.source_ref,
+            source.source_digest,
+        )
+        disposition = {
+            SleepDecisionKind.SLEEP: CandidateDisposition.CHANGE,
+            SleepDecisionKind.STAY_AWAKE: CandidateDisposition.NO_CHANGE,
+            SleepDecisionKind.DEFER: CandidateDisposition.DEFER,
+            SleepDecisionKind.NEED_INFORMATION: CandidateDisposition.NEED_INFORMATION,
+        }[decision.decision_kind]
+        value = {
+            "schema_version": SLEEP_CHANGE_SET_VERSION,
+            "subject_id": str(context.subject_id),
+            "generation_id": str(context.generation_id),
+            "episode_id": str(context.episode_id),
+            "model_attempt_id": str(context.model_attempt_id),
+            "base": {
+                "subject_version": context.base_subject_version,
+                "state_epoch": context.base_state_epoch,
+                "bundle_activation_id": str(context.bundle_activation_id),
+                "context_digest": context.context_digest.value,
+            },
+            "candidate_digest": candidate_digest.value,
+            "disposition": disposition.value,
+            "experiences": [],
+            "components": [],
+            "capability_requests": [],
+            "action_choices": [],
+            "codex_delegations": [],
+            "activities": [],
+            "activity_decisions": [],
+            "sleep_decisions": [_sleep_decision_wire(decision)],
+            "rejections": [],
+        }
+        canonical = rfc8785.dumps(cast(Any, value))
+        change_set = SubjectChangeSet(
+            canonical,
+            Digest.from_bytes(canonical),
+            context.subject_id,
+            context.generation_id,
+            context.episode_id,
+            context.model_attempt_id,
+            context.base_subject_version,
+            context.base_state_epoch,
+            context.bundle_activation_id,
+            context.context_digest,
+            candidate_digest,
+            disposition,
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (decision,),
+        )
+        return CandidateValidationResult(
+            CandidateValidationId(uuid7()),
+            CandidateValidationStatus.ACCEPTED,
+            change_set,
+            1,
             0,
             None,
         )
@@ -1559,6 +1674,17 @@ def _activity_decision_wire(
         ),
         "delay_seconds": value.delay_seconds,
         "terminal_reason": value.terminal_reason,
+    }
+
+
+def _sleep_decision_wire(value: CandidateSleepDecisionDraft) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "decision_kind": value.decision_kind.value,
+        "cycle_anchor_ref": str(value.cycle_anchor_ref),
+        "source_digest": value.source_digest.value,
     }
 
 

@@ -25,6 +25,7 @@ from armi_kernel.application import (
     CandidateApplicationStatus,
     CandidateDisposition,
     CandidateOwner,
+    CandidateSleepDecisionDraft,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
     CodexDelegationDraft,
@@ -32,6 +33,7 @@ from armi_kernel.application import (
     CreatorSceneReplyScope,
     ExperienceId,
     FormalNoActionDraft,
+    SleepDecisionKind,
     SubjectChangeSet,
     SubjectCommitId,
     SubjectCommitResult,
@@ -314,6 +316,7 @@ class PostgreSQLSubjectCommitRepository:
                 heads.get(component.owner) != component.expected_version
                 for component in change_set.components
             )
+            or await _sleep_decision_is_stale(connection, snapshot, change_set)
         )
         if stale:
             return await self._settle_stale(
@@ -368,6 +371,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.codex_delegations
             and not change_set.activities
             and not change_set.activity_decisions
+            and not change_set.sleep_decisions
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -604,6 +608,13 @@ class PostgreSQLSubjectCommitRepository:
             decisions=change_set.activity_decisions,
             result_revision_id=attention_result_revision,
         )
+        await _insert_sleep_decision(
+            connection,
+            snapshot=snapshot,
+            application_id=application_id,
+            decisions=change_set.sleep_decisions,
+            resulting_subject_version=new_version,
+        )
         if snapshot.scene_id is not None:
             timeline_item_id = uuid7()
             await connection.execute(
@@ -768,6 +779,14 @@ async def _settle_without_commit(
         snapshot=snapshot,
         decisions=change_set.activity_decisions,
     )
+    sleep_successor = await _insert_sleep_reconsideration(
+        connection,
+        snapshot=snapshot,
+        decisions=change_set.sleep_decisions,
+    )
+    if successor_id is not None and sleep_successor is not None:
+        raise SubjectCommitViolation("SUBJECT-SUCCESSOR-CONFLICT")
+    successor_id = successor_id or sleep_successor
     await _insert_application(
         connection,
         unit_of_work=unit_of_work,
@@ -785,6 +804,13 @@ async def _settle_without_commit(
         application_id=application_id,
         decisions=change_set.activity_decisions,
         result_revision_id=None,
+    )
+    await _insert_sleep_decision(
+        connection,
+        snapshot=snapshot,
+        application_id=application_id,
+        decisions=change_set.sleep_decisions,
+        resulting_subject_version=observed_version,
     )
     if not change_set.activity_decisions and status in {
         CandidateApplicationStatus.DECLINED,
@@ -1352,6 +1378,179 @@ async def _insert_attention_reconsideration(
         )
     ).fetchone()
     return None if inserted is None else inserted[0]
+
+
+async def _sleep_decision_is_stale(
+    connection: Any,
+    snapshot: SubjectCommitSnapshot,
+    change_set: SubjectChangeSet,
+) -> bool:
+    if not change_set.sleep_decisions:
+        return False
+    if len(change_set.sleep_decisions) != 1:
+        return True
+    decision = change_set.sleep_decisions[0]
+    if (
+        snapshot.opportunity_purpose != "consider_sleep"
+        or snapshot.source_kind != "maintenance_window"
+        or snapshot.source_ref != decision.cycle_anchor_ref
+        or snapshot.source_digest != decision.source_digest
+    ):
+        return True
+    row = await (
+        await connection.execute(
+            """
+            SELECT opportunity.expires_at > statement_timestamp()
+                   AND NOT EXISTS (
+                       SELECT 1 FROM armi.maintenance_sessions AS session
+                       WHERE session.subject_id = opportunity.subject_id
+                         AND session.life_generation_id = %s
+                         AND session.cycle_anchor_ref = opportunity.source_ref
+                   )
+            FROM armi.opportunities AS opportunity
+            WHERE opportunity.opportunity_id = %s
+            """,
+            (snapshot.generation_id, snapshot.opportunity_id),
+        )
+    ).fetchone()
+    return row is None or not bool(row[0])
+
+
+async def _insert_sleep_reconsideration(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    decisions: tuple[CandidateSleepDecisionDraft, ...],
+) -> UUID | None:
+    if (
+        len(decisions) != 1
+        or decisions[0].decision_kind is not SleepDecisionKind.DEFER
+        or snapshot.reconsideration_no != 0
+    ):
+        return None
+    successor_id = uuid7()
+    row = await (
+        await connection.execute(
+            """
+            INSERT INTO armi.opportunities (
+                opportunity_id, evidence_id, subject_id, scene_id,
+                creator_party_id, purpose, eligibility_status,
+                current_disposition, available_after, expires_at,
+                root_opportunity_id, predecessor_opportunity_id,
+                reconsideration_no, source_kind, source_ref, source_version,
+                source_digest, activity_id, schema_version
+            )
+            SELECT %s, NULL, subject_id, NULL, NULL, purpose, 'eligible',
+                   'open', statement_timestamp() + interval '1 hour', expires_at,
+                   root_opportunity_id, opportunity_id, 1, source_kind,
+                   source_ref, source_version, source_digest, NULL, 1
+            FROM armi.opportunities
+            WHERE opportunity_id = %s
+              AND statement_timestamp() + interval '1 hour' < expires_at
+            ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+            RETURNING opportunity_id
+            """,
+            (successor_id, snapshot.opportunity_id),
+        )
+    ).fetchone()
+    return None if row is None else row[0]
+
+
+async def _insert_sleep_decision(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    application_id: CandidateApplicationId,
+    decisions: tuple[CandidateSleepDecisionDraft, ...],
+    resulting_subject_version: int,
+) -> None:
+    if not decisions:
+        return
+    if len(decisions) != 1:
+        raise SubjectCommitViolation("SUBJECT-SLEEP-SHAPE")
+    decision = decisions[0]
+    decision_id = uuid7()
+    review_at = (
+        datetime.now(UTC) + timedelta(hours=1)
+        if decision.decision_kind is SleepDecisionKind.DEFER
+        else None
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.sleep_decisions (
+            sleep_decision_id, opportunity_id, cognitive_episode_id,
+            candidate_validation_id, candidate_application_id, subject_id,
+            life_generation_id, cycle_anchor_ref, source_digest,
+            decision_kind, review_not_before, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+        """,
+        (
+            decision_id,
+            snapshot.opportunity_id,
+            snapshot.episode_id,
+            snapshot.validation_id,
+            application_id.value,
+            snapshot.subject_id,
+            snapshot.generation_id,
+            decision.cycle_anchor_ref,
+            decision.source_digest.value,
+            decision.decision_kind.value,
+            review_at,
+        ),
+    )
+    if decision.decision_kind is not SleepDecisionKind.SLEEP:
+        return
+    window = await (
+        await connection.execute(
+            """
+            SELECT available_after, expires_at,
+                   CASE WHEN source_ref = %s THEN 'life_generation'
+                        ELSE 'maintenance_session' END
+            FROM armi.opportunities WHERE opportunity_id = %s
+            """,
+            (snapshot.generation_id, snapshot.opportunity_id),
+        )
+    ).fetchone()
+    if window is None or window[1] is None:
+        raise SubjectCommitViolation("SUBJECT-SLEEP-WINDOW")
+    session_id, revision_id = uuid7(), uuid7()
+    await connection.execute(
+        """
+        INSERT INTO armi.maintenance_sessions (
+            maintenance_session_id, subject_id, life_generation_id,
+            origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
+            consideration_at, deadline_at, schedule_digest, trigger_kind,
+            sleep_decision_id, started_subject_version, started_state_epoch,
+            current_revision_id, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                  'subject_choice', %s, %s, %s, %s, 1)
+        """,
+        (
+            session_id,
+            snapshot.subject_id,
+            snapshot.generation_id,
+            snapshot.opportunity_id,
+            str(window[2]),
+            decision.cycle_anchor_ref,
+            window[0],
+            window[1],
+            decision.source_digest.value,
+            decision_id,
+            resulting_subject_version,
+            snapshot.base_state_epoch,
+            revision_id,
+        ),
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.maintenance_session_revisions (
+            maintenance_revision_id, maintenance_session_id, revision_no,
+            previous_revision_id, phase, result_status, transition_kind,
+            schema_version
+        ) VALUES (%s, %s, 1, NULL, 'preparing', 'running', 'started', 1)
+        """,
+        (revision_id, session_id),
+    )
 
 
 async def _insert_activity_attention_decision(

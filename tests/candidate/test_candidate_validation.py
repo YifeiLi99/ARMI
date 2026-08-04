@@ -126,6 +126,57 @@ def _fixture():
     return context, bases
 
 
+@pytest.mark.parametrize(
+    ("kind", "disposition"),
+    [
+        ("sleep", "change"),
+        ("stay_awake", "no_change"),
+        ("defer", "defer"),
+        ("need_information", "need_information"),
+    ],
+)
+def test_sleep_decision_binds_window_authority_into_v9_change_set(
+    kind: str, disposition: str
+) -> None:
+    ids = tuple(uuid7() for _ in range(8))
+    source_digest = Digest.from_bytes(b"maintenance-window")
+    context = CandidateValidationContext(
+        ids[0],
+        ids[1],
+        ids[2],
+        ids[3],
+        4,
+        2,
+        ids[4],
+        Digest.from_bytes(b"context"),
+        None,
+        None,
+        (),
+        purpose="consider_sleep",
+        opportunity_id=ids[5],
+    )
+    basis = CandidateBasis(
+        1,
+        "life_mode",
+        "current_maintenance_window",
+        ids[6],
+        1,
+        source_digest,
+        "runtime_authority",
+        "private",
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        json.dumps({"kind": kind}, separators=(",", ":")).encode(), bases=(basis,)
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.sleep_decisions[0].cycle_anchor_ref == ids[6]
+    assert result.change_set.disposition.value == disposition
+    assert b"armi.subject-change-set.v9" in result.change_set.canonical_bytes
+    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert reparsed.sleep_decisions == result.change_set.sleep_decisions
+
+
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     return {
         "schema_version": "armi.cognition-candidate.v3",
