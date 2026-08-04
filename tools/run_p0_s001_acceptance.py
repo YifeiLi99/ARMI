@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import signal
 import socket
 import subprocess
@@ -157,6 +158,15 @@ def _projection(connection: psycopg.Connection[Any]) -> dict[str, Any]:
         LIMIT 1
         """
     ).fetchone()
+    episode = connection.execute(
+        """
+        SELECT status, final_disposition, application_resolution, failure_code
+        FROM armi.cognitive_episodes
+        WHERE purpose = 'consider_autonomous_life'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+    ).fetchone()
     return {
         "root_opportunity_count": int(row[0]),
         "episode_count": int(row[1]),
@@ -186,6 +196,14 @@ def _projection(connection: psycopg.Connection[Any]) -> dict[str, Any]:
             "cached_input_tokens": model[4],
             "estimated_cost_microyuan": model[5],
         },
+        "episode": None
+        if episode is None
+        else {
+            "status": episode[0],
+            "final_disposition": episode[1],
+            "application_resolution": episode[2],
+            "failure_code": episode[3],
+        },
     }
 
 
@@ -197,15 +215,23 @@ def _wait_activity(dsn: str) -> dict[str, Any]:
             latest = _projection(connection)
             disposition = connection.execute(
                 """
-                SELECT current_disposition
-                FROM armi.opportunities
-                WHERE source_kind = 'life_generation_available'
+                SELECT opportunity.current_disposition,
+                       episode.application_resolution
+                FROM armi.opportunities AS opportunity
+                LEFT JOIN armi.cognitive_episodes AS episode
+                  ON episode.opportunity_id = opportunity.opportunity_id
+                WHERE opportunity.source_kind = 'life_generation_available'
                 """
             ).fetchone()
         if latest.get("activity_count") == 1:
             return latest
         if disposition is not None and disposition[0] == "resolved":
-            raise AcceptanceFailure("P0-ACC-NO-ACTIVITY")
+            code = {
+                "no_change": "P0-ACC-NO-ACTIVITY",
+                "deferred": "P0-ACC-DEFERRED",
+                "need_information": "P0-ACC-NEED-INFORMATION",
+            }.get(disposition[1], "P0-ACC-NO-ACTIVITY")
+            raise AcceptanceFailure(code)
         time.sleep(0.25)
     raise AcceptanceFailure("P0-ACC-TIMEOUT")
 
@@ -238,6 +264,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     database_dsn = make_conninfo(**{**admin_values, "dbname": database})
     created = False
     process: subprocess.Popen[str] | None = None
+    work: Path | None = None
     try:
         with psycopg.connect(provisioner, autocommit=True) as connection:
             connection.execute(
@@ -247,7 +274,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ).format(sql.Identifier(database))
             )
         created = True
-        with tempfile.TemporaryDirectory(prefix="p0-s001-", dir=root / ".tmp") as temp:
+        with tempfile.TemporaryDirectory(
+            prefix="p0-s001-", dir=root / ".tmp", delete=False
+        ) as temp:
             work = Path(temp).resolve()
             secrets_root = work / "secrets"
             data_root = work / "data"
@@ -409,14 +438,55 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.evidence.resolve().write_bytes(evidence_bytes)
         status = "pass"
     except AcceptanceFailure as error:
+        if created:
+            try:
+                with psycopg.connect(database_dsn) as connection:
+                    failure_projection = _projection(connection)
+                packaged = packaged_birth_digests()
+                failure_evidence = {
+                    "schema_version": "armi.p0-s001-evidence.v1",
+                    "source_revision": subprocess.run(
+                        ("git", "rev-parse", "HEAD"),
+                        cwd=root,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip(),
+                    "schema_target": 28,
+                    "composition_digest": packaged["composition_digest"].value,
+                    "result": {"status": "failed", "code": error.code},
+                    "source": {
+                        "kind": "life_generation_available",
+                        "root_opportunity_count": failure_projection[
+                            "root_opportunity_count"
+                        ],
+                    },
+                    "projection": failure_projection,
+                    "restart_projection": None,
+                    "cleanup": {
+                        "database": "pending",
+                        "roles": "pending",
+                        "runtime": "pending",
+                    },
+                }
+                args.evidence.resolve().parent.mkdir(parents=True, exist_ok=True)
+                args.evidence.resolve().write_bytes(
+                    rfc8785.dumps(failure_evidence) + b"\n"
+                )
+            except OSError, psycopg.Error, subprocess.SubprocessError:
+                pass
         print(
             json.dumps({"code": error.code, "status": "failed"}, separators=(",", ":"))
         )
         return 1
     finally:
         if process is not None and process.poll() is None:
-            process.kill()
-            process.communicate()
+            try:
+                _stop_runtime(process)
+            except AcceptanceFailure:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
         if created:
             with psycopg.connect(provisioner, autocommit=True) as connection:
                 connection.execute(
@@ -428,6 +498,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                     connection.execute(
                         sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role))
                     )
+        if work is not None and work.is_dir():
+            expected_parent = (root / ".tmp").resolve()
+            if work.parent != expected_parent or not work.name.startswith("p0-s001-"):
+                raise RuntimeError("unsafe P0-S001 temporary root")
+            shutil.rmtree(work)
+        evidence_path = args.evidence.resolve()
+        if evidence_path.is_file():
+            document = json.loads(evidence_path.read_bytes())
+            document["cleanup"] = {
+                "database": "removed",
+                "roles": "removed",
+                "runtime": "stopped",
+            }
+            evidence_path.write_bytes(rfc8785.dumps(document) + b"\n")
     evidence_path = args.evidence.resolve()
     document = json.loads(evidence_path.read_bytes())
     document["cleanup"] = {
