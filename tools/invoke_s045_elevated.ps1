@@ -52,6 +52,10 @@ $pwshExecutable = Join-Path $PSHOME 'pwsh.exe'
 if (-not (Test-Path -LiteralPath $pwshExecutable -PathType Leaf)) {
     throw 'S045-PWSH-EXECUTABLE'
 }
+$probeShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+if (-not (Test-Path -LiteralPath $probeShell -PathType Leaf)) {
+    throw 'S045-PROBE-SHELL'
+}
 
 function New-Password {
     return [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(36))
@@ -133,10 +137,14 @@ function Invoke-As {
     foreach ($entry in $ExtraEnvironment.GetEnumerator()) {
         $processEnvironment[[string]$entry.Key] = [string]$entry.Value
     }
-    $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments `
-        -Credential $credentials[$Role] -WorkingDirectory $environment `
-        -WindowStyle Hidden -Wait -PassThru -Environment $processEnvironment `
-        -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    try {
+        $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments `
+            -Credential $credentials[$Role] -WorkingDirectory $environment `
+            -WindowStyle Hidden -Wait -PassThru -Environment $processEnvironment `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    } catch {
+        throw "S045-$($Label.ToUpperInvariant())-START: $($_.Exception.Message)"
+    }
     $errorText = if (Test-Path -LiteralPath $stderr) {
         Get-Content -LiteralPath $stderr -Raw -Encoding utf8
     } else { '' }
@@ -267,7 +275,10 @@ try {
             '-WritableDirectory', $spec.writable,
             '-ResultPath', $resultPath
         )
-        [void](Invoke-As $role $pwshExecutable $arguments "$role-acl")
+        # The MSIX pwsh executable requires package identity to execute. Temporary
+        # local accounts do not have that identity, so this Windows-only token probe
+        # uses the inbox shell after the PowerShell 7 parent has built fixed arguments.
+        [void](Invoke-As $role $probeShell $arguments "$role-acl")
         $probe = Get-Content -LiteralPath $resultPath -Raw -Encoding utf8 | ConvertFrom-Json
         if ($probe.sid -ne $sids[$role] -or $probe.passed -ne $true) { throw 'S045-ACL-PROBE' }
         [void]$probeResults.Add([ordered]@{ role = $role; sid = $probe.sid; passed = $true })

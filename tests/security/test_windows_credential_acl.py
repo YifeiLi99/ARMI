@@ -111,8 +111,10 @@ class WindowsCredentialAclTests(unittest.TestCase):
         launcher = Path("tools/run_s045_rehearsal.py").read_text(encoding="utf-8")
 
         self.assertIn("Join-Path $PSHOME 'pwsh.exe'", elevated)
-        self.assertIn("Invoke-As $role $pwshExecutable", elevated)
+        self.assertIn("System32/WindowsPowerShell/v1.0/powershell.exe", elevated)
+        self.assertIn("Invoke-As $role $probeShell", elevated)
         self.assertNotIn("Invoke-As $role 'pwsh'", elevated)
+        self.assertIn("S045-$($Label.ToUpperInvariant())-START", elevated)
         self.assertIn("armi.s045-elevated-failure.v1", elevated)
         self.assertIn('Path(f"{summary_path}.failure.json")', launcher)
 
