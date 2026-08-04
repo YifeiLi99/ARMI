@@ -36,6 +36,18 @@ async function read(values: Uint8Array[]): Promise<string[]> {
 describe("authenticated Creator event stream parser", () => {
   it.each([
     [
+      "activity.invalidated",
+      "activity",
+      "018f47a6-7b2d-7c35-8b18-684e38ab6ef6",
+      "creator-activity.v1",
+    ],
+    [
+      "maintenance.invalidated",
+      "maintenance",
+      "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",
+      "creator-maintenance.v1",
+    ],
+    [
       "scene.timeline.invalidated",
       "scene_timeline",
       "default",

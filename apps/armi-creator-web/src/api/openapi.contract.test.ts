@@ -31,6 +31,7 @@ describe("generated Creator OpenAPI types", () => {
     expectTypeOf<UnavailableOutcome["status"]>().toEqualTypeOf<"unavailable">();
     expectTypeOf<CreatorProjectionEventResponse["event_kind"]>().toEqualTypeOf<
       | "activity.invalidated"
+      | "maintenance.invalidated"
       | "scene.timeline.invalidated"
       | "capability.request.invalidated"
       | "operation.invalidated"

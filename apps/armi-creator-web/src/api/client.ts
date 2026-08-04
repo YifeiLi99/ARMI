@@ -11,6 +11,10 @@ export type CreatorActivityPage =
   components["schemas"]["CreatorActivityPageResponse"];
 export type CreatorActivityTimeline =
   components["schemas"]["CreatorActivityTimelineResponse"];
+export type CreatorMaintenanceStatus =
+  components["schemas"]["CreatorMaintenanceStatusResponse"];
+export type CreatorMaintenanceTimeline =
+  components["schemas"]["CreatorMaintenanceTimelineResponse"];
 export type AcceptedOperation =
   components["schemas"]["AcceptedOutcomeResponse"];
 export type CreatorOperation =
@@ -166,6 +170,51 @@ export async function getCreatorActivityTimeline(
     },
   );
   return requireJson(response);
+}
+
+export async function getCreatorMaintenanceStatus(
+  token: string,
+  signal?: AbortSignal,
+): Promise<CreatorMaintenanceStatus> {
+  const response = await fetch("/v1/maintenance/status", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getCreatorMaintenanceTimeline(
+  token: string,
+  maintenanceSessionId: string,
+  signal?: AbortSignal,
+): Promise<CreatorMaintenanceTimeline> {
+  const response = await fetch(
+    `/v1/maintenance/${encodeURIComponent(maintenanceSessionId)}/timeline`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
+}
+
+export async function requestCreatorEmergencyWake(
+  token: string,
+  maintenanceSessionId: string,
+): Promise<void> {
+  const response = await fetch(
+    `/v1/maintenance/${encodeURIComponent(maintenanceSessionId)}/wake`,
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    throw new ApiFailure(response.status, await safeErrorCode(response));
+  }
 }
 
 export async function acceptCreatorMessage(

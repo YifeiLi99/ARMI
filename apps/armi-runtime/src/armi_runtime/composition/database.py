@@ -12,6 +12,7 @@ from armi_kernel.application import (
     CapabilityViolation,
     CodexDelegationViolation,
     CreatorActivityViolation,
+    CreatorMaintenanceViolation,
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
@@ -36,6 +37,9 @@ from armi_runtime.adapters.persistence.capability_policy import (
 )
 from armi_runtime.adapters.persistence.creator_activities import (
     PostgreSQLCreatorActivityQuery,
+)
+from armi_runtime.adapters.persistence.creator_maintenance import (
+    PostgreSQLCreatorMaintenanceQuery,
 )
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
@@ -357,6 +361,44 @@ def compose_creator_activity_query(
         raise CreatorActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
 
 
+def compose_creator_maintenance_query(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+) -> PostgreSQLCreatorMaintenanceQuery:
+    """Resolve the Runtime credential for the maintenance projection."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLCreatorMaintenanceQuery:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise CreatorMaintenanceViolation(
+                        "MAINTENANCE-QUERY-UNAVAILABLE"
+                    ) from None
+                config = prepared.effective.config
+                return PostgreSQLCreatorMaintenanceQuery(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise CreatorMaintenanceViolation(
+            "MAINTENANCE-QUERY-UNAVAILABLE"
+        ) from None
+
+
 def compose_runtime_authority(
     prepared: PreparedEnvironment,
 ) -> PostgreSQLRuntimeAuthority:
@@ -477,6 +519,7 @@ def compose_life_opportunity_pipeline(
     *,
     authority_admission: Callable[[], RuntimeFence],
     wakeups: WorkWakeupBus | None = None,
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
     """Resolve the Runtime credential for the P0-S001 source owner."""
 
@@ -508,6 +551,7 @@ def compose_life_opportunity_pipeline(
                     ),
                     authority_admission=authority_admission,
                     wakeups=wakeups,
+                    notifier=notifier,
                     model_concurrency=config.model.concurrency,
                     maintenance_consideration_seconds=(
                         config.maintenance.consideration_after_seconds
@@ -1107,6 +1151,7 @@ __all__ = (
     "compose_context_pipeline",
     "compose_creator_activity_query",
     "compose_creator_input",
+    "compose_creator_maintenance_query",
     "compose_effect_registration_pipeline",
     "compose_life_opportunity_pipeline",
     "compose_model_pipeline",

@@ -62,6 +62,7 @@ from armi_kernel.application import (
     CreatorGrantCommand,
     CreatorGrantDecision,
     CreatorInputAcceptance,
+    CreatorMaintenanceViolation,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
     CredentialLocator,
@@ -128,6 +129,9 @@ from armi_runtime.adapters.persistence.capability_policy import (
 )
 from armi_runtime.adapters.persistence.creator_activities import (
     PostgreSQLCreatorActivityQuery,
+)
+from armi_runtime.adapters.persistence.creator_maintenance import (
+    PostgreSQLCreatorMaintenanceQuery,
 )
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
@@ -613,6 +617,86 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     await query.timeline(_uuid7())
             finally:
                 await query.close()
+
+            session_id, revision_id = _uuid7(), _uuid7()
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                scope = connection.execute(
+                    """
+                    SELECT subject.subject_id, generation.life_generation_id,
+                           subject.subject_version, subject.state_epoch,
+                           generation.created_at
+                    FROM armi.subjects AS subject
+                    JOIN armi.life_generations AS generation
+                      ON generation.subject_id = subject.subject_id
+                     AND generation.status = 'active'
+                    WHERE subject.singleton_key = 1
+                    """
+                ).fetchone()
+                assert scope is not None
+                connection.execute(
+                    """
+                    INSERT INTO armi.maintenance_sessions (
+                        maintenance_session_id, subject_id, life_generation_id,
+                        origin_opportunity_id, cycle_anchor_kind,
+                        cycle_anchor_ref, consideration_at, deadline_at,
+                        schedule_digest, trigger_kind, sleep_decision_id,
+                        started_subject_version, started_state_epoch,
+                        current_revision_id, head_version
+                    ) VALUES (
+                        %s, %s, %s, NULL, 'life_generation', %s,
+                        %s + interval '16 hours', %s + interval '24 hours',
+                        %s, 'system_deadline', NULL, %s, %s, %s, 1
+                    )
+                    """,
+                    (
+                        session_id,
+                        scope[0],
+                        scope[1],
+                        scope[1],
+                        scope[4],
+                        scope[4],
+                        Digest.from_bytes(b"creator-maintenance-query").value,
+                        scope[2],
+                        scope[3],
+                        revision_id,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO armi.maintenance_session_revisions (
+                        maintenance_revision_id, maintenance_session_id,
+                        revision_no, previous_revision_id, phase,
+                        result_status, transition_kind
+                    ) VALUES (
+                        %s, %s, 1, NULL, 'preparing', 'running', 'started'
+                    )
+                    """,
+                    (revision_id, session_id),
+                )
+
+            maintenance = PostgreSQLCreatorMaintenanceQuery(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            await maintenance.open()
+            try:
+                status = await maintenance.status()
+                assert status.session is not None
+                self.assertEqual(status.session.session_id, session_id)
+                self.assertEqual(status.session.phase.value, "preparing")
+                self.assertEqual(status.waiting_input_count, 0)
+                timeline = await maintenance.timeline(session_id)
+                self.assertEqual(len(timeline.items), 1)
+                self.assertEqual(timeline.items[0].transition_kind, "started")
+                with self.assertRaisesRegex(
+                    CreatorMaintenanceViolation,
+                    "MAINTENANCE-QUERY-NOT-FOUND",
+                ):
+                    await maintenance.timeline(_uuid7())
+            finally:
+                await maintenance.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             asyncio.run(

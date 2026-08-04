@@ -18,6 +18,7 @@ import {
 import type { StoredBrowserSession } from "./storage";
 import { MessageComposer } from "../scene/MessageComposer";
 import { ActivityPanel } from "../activity/ActivityPanel";
+import { MaintenancePanel } from "../maintenance/MaintenancePanel";
 import { CapabilityInbox } from "../capability/CapabilityInbox";
 import { EffectDetail } from "../effect/EffectDetail";
 import { OperationPanel } from "../operation/OperationPanel";
@@ -306,6 +307,12 @@ export function SessionPanel() {
           />
         </div>
         <div className="authority-column">
+          <MaintenancePanel
+            token={view.stored.token}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
+            onUnauthorized={unauthorized}
+          />
           <ActivityPanel
             token={view.stored.token}
             environmentId={view.session.environment_id}

@@ -192,6 +192,57 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/maintenance/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Creator Maintenance Status */
+    get: operations["getCreatorMaintenanceStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/maintenance/{maintenance_session_id}/timeline": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Creator Maintenance Timeline */
+    get: operations["getCreatorMaintenanceTimeline"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/maintenance/{maintenance_session_id}/wake": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Request Creator Emergency Wake */
+    post: operations["requestCreatorEmergencyWake"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/operations/{result_ref}": {
     parameters: {
       query?: never;
@@ -721,6 +772,78 @@ export interface components {
       /** Message */
       message: string;
     };
+    /** CreatorMaintenanceSessionResponse */
+    CreatorMaintenanceSessionResponse: {
+      /** Finished At */
+      finished_at: string | null;
+      /** Head Version */
+      head_version: number;
+      /** Maintenance Session Id */
+      maintenance_session_id: string;
+      phase: components["schemas"]["MaintenancePhaseValue"];
+      result_status: components["schemas"]["MaintenanceResultValue"];
+      /** Revision No */
+      revision_no: number;
+      /** Started At */
+      started_at: string;
+      /**
+       * Trigger Kind
+       * @enum {string}
+       */
+      trigger_kind: "subject_choice" | "system_deadline";
+      /** Updated At */
+      updated_at: string;
+      /** Wake Requested */
+      wake_requested: boolean;
+    };
+    /** CreatorMaintenanceStatusResponse */
+    CreatorMaintenanceStatusResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-maintenance.v1";
+      session:
+        components["schemas"]["CreatorMaintenanceSessionResponse"] | null;
+      /** Waiting Input Count */
+      waiting_input_count: number;
+    };
+    /** CreatorMaintenanceTimelineItemResponse */
+    CreatorMaintenanceTimelineItemResponse: {
+      /** Occurred At */
+      occurred_at: string;
+      phase: components["schemas"]["MaintenancePhaseValue"];
+      result_status: components["schemas"]["MaintenanceResultValue"];
+      /** Revision Id */
+      revision_id: string;
+      /** Revision No */
+      revision_no: number;
+      transition_kind: components["schemas"]["MaintenanceTransitionValue"];
+    };
+    /** CreatorMaintenanceTimelineResponse */
+    CreatorMaintenanceTimelineResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["CreatorMaintenanceTimelineItemResponse"][];
+      /** Maintenance Session Id */
+      maintenance_session_id: string;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-maintenance.v1";
+      /** Truncated */
+      truncated: boolean;
+    };
     /** CreatorOperationDetails */
     CreatorOperationDetails: {
       /**
@@ -772,6 +895,7 @@ export interface components {
        */
       event_kind:
         | "activity.invalidated"
+        | "maintenance.invalidated"
         | "scene.timeline.invalidated"
         | "capability.request.invalidated"
         | "operation.invalidated"
@@ -785,6 +909,7 @@ export interface components {
        */
       projection_version:
         | "creator-activity.v1"
+        | "creator-maintenance.v1"
         | "scene-timeline.v3"
         | "capability-request.v3"
         | "creator-operation.v1"
@@ -796,6 +921,7 @@ export interface components {
        */
       resource_kind:
         | "activity"
+        | "maintenance"
         | "scene_timeline"
         | "capability_request"
         | "operation"
@@ -960,6 +1086,19 @@ export interface components {
        */
       status: "alive";
     };
+    /** @enum {string} */
+    MaintenancePhaseValue:
+      | "preparing"
+      | "memory_maintenance"
+      | "self_check"
+      | "life_quiet"
+      | "resume_check"
+      | "completed";
+    /** @enum {string} */
+    MaintenanceResultValue: "running" | "completed" | "interrupted" | "failed";
+    /** @enum {string} */
+    MaintenanceTransitionValue:
+      "started" | "advanced" | "completed" | "interrupted" | "system_failed";
     /** OperationAcceptedOutcomeResponse */
     OperationAcceptedOutcomeResponse: {
       /**
@@ -2027,6 +2166,185 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getCreatorMaintenanceStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatorMaintenanceStatusResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getCreatorMaintenanceTimeline: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        maintenance_session_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatorMaintenanceTimelineResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  requestCreatorEmergencyWake: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        maintenance_session_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
         headers: {
           [name: string]: unknown;
         };

@@ -10,6 +10,8 @@ const UUID_V7 =
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5]\d\.\d{6}Z$/;
 const MAX_EVENT_BYTES = 4096;
 const RESOURCES = {
+  activity: ["activity.invalidated", "creator-activity.v1", UUID_V7],
+  maintenance: ["maintenance.invalidated", "creator-maintenance.v1", UUID_V7],
   scene_timeline: [
     "scene.timeline.invalidated",
     "scene-timeline.v3",

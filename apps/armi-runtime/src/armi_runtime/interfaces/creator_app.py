@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, TypedDict, cast
-from uuid import UUID
+from uuid import UUID, uuid7
 
 from armi_kernel.application import (
     CapabilityDecisionId,
@@ -22,6 +22,7 @@ from armi_kernel.application import (
     CreatorActivityViolation,
     CreatorCodexTaskAdmissionPort,
     CreatorCodexTaskCommand,
+    CreatorEmergencyWakePort,
     CreatorEventResourceKind,
     CreatorGrantCommand,
     CreatorGrantDecision,
@@ -30,6 +31,8 @@ from armi_kernel.application import (
     CreatorInputAcceptancePort,
     CreatorInputCommand,
     CreatorInputViolation,
+    CreatorMaintenanceQueryPort,
+    CreatorMaintenanceViolation,
     CreatorOperation,
     CreatorOperationPhase,
     CreatorOperationQueryPort,
@@ -38,6 +41,7 @@ from armi_kernel.application import (
     EffectId,
     EffectLedgerPort,
     EffectViolation,
+    LifeViolation,
     OpportunityId,
     SceneKey,
     SceneQueryViolation,
@@ -91,6 +95,10 @@ from .creator_contract import (
     CreatorActivityTimelineResponse,
     CreatorCodexTaskRequest,
     CreatorInputRequest,
+    CreatorMaintenanceSessionResponse,
+    CreatorMaintenanceStatusResponse,
+    CreatorMaintenanceTimelineItemResponse,
+    CreatorMaintenanceTimelineResponse,
     EffectResponse,
     LiveResponse,
     Readiness,
@@ -797,6 +805,8 @@ def create_runtime_app(
     on_stopping: AsyncCallback,
     scene_timeline_query: SceneTimelineQueryPort | None = None,
     creator_activity_query: CreatorActivityQueryPort | None = None,
+    creator_maintenance_query: CreatorMaintenanceQueryPort | None = None,
+    creator_emergency_wake: CreatorEmergencyWakePort | None = None,
     creator_events: CreatorEventBroker | None = None,
     creator_input: CreatorInputAcceptancePort | None = None,
     creator_operations: CreatorOperationQueryPort | None = None,
@@ -1455,6 +1465,208 @@ def create_runtime_app(
         return JSONResponse(content=response.model_dump(mode="json"))
 
     del list_creator_activities, get_creator_activity_timeline
+
+    @app.get("/v1/maintenance/status")
+    async def get_creator_maintenance_status(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_maintenance_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None
+                and creator_maintenance_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_MAINTENANCE_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            status = await creator_maintenance_query.status()
+        except CreatorMaintenanceViolation:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_MAINTENANCE_QUERY_UNAVAILABLE"),
+            )
+        session = status.session
+        response = CreatorMaintenanceStatusResponse(
+            contract_version="1.0",
+            projection_version="creator-maintenance.v1",
+            session=(
+                None
+                if session is None
+                else CreatorMaintenanceSessionResponse(
+                    maintenance_session_id=str(session.session_id),
+                    trigger_kind=session.trigger_kind.value,
+                    phase=session.phase.value,
+                    result_status=session.result_status.value,
+                    revision_no=session.revision_no,
+                    head_version=session.head_version,
+                    wake_requested=session.wake_requested,
+                    started_at=Instant(session.started_at).to_wire(),
+                    updated_at=Instant(session.updated_at).to_wire(),
+                    finished_at=(
+                        None
+                        if session.finished_at is None
+                        else Instant(session.finished_at).to_wire()
+                    ),
+                )
+            ),
+            waiting_input_count=status.waiting_input_count,
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
+    @app.get("/v1/maintenance/{maintenance_session_id}/timeline")
+    async def get_creator_maintenance_timeline(
+        maintenance_session_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_maintenance_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None
+                and creator_maintenance_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_MAINTENANCE_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            parsed = UUID(maintenance_session_id)
+            if parsed.version != 7 or str(parsed) != maintenance_session_id:
+                raise ValueError
+        except ValueError:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_MAINTENANCE_NOT_VISIBLE"),
+            )
+        try:
+            timeline = await creator_maintenance_query.timeline(parsed)
+        except CreatorMaintenanceViolation as error:
+            if error.code == "MAINTENANCE-QUERY-NOT-FOUND":
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_MAINTENANCE_NOT_VISIBLE"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_MAINTENANCE_QUERY_UNAVAILABLE"),
+            )
+        response = CreatorMaintenanceTimelineResponse(
+            contract_version="1.0",
+            projection_version="creator-maintenance.v1",
+            maintenance_session_id=str(timeline.session_id),
+            items=[
+                CreatorMaintenanceTimelineItemResponse(
+                    revision_id=str(item.revision_id),
+                    revision_no=item.revision_no,
+                    phase=item.phase.value,
+                    result_status=item.result_status.value,
+                    transition_kind=item.transition_kind,
+                    occurred_at=Instant(item.occurred_at).to_wire(),
+                )
+                for item in timeline.items
+            ],
+            truncated=timeline.truncated,
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
+    @app.post("/v1/maintenance/{maintenance_session_id}/wake")
+    async def request_creator_emergency_wake(
+        maintenance_session_id: str,
+        request: Request,
+    ) -> Response:
+        if (
+            browser_sessions is None
+            or creator_emergency_wake is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_emergency_wake is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_MAINTENANCE_WAKE_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            parsed = UUID(maintenance_session_id)
+            if parsed.version != 7 or str(parsed) != maintenance_session_id:
+                raise ValueError
+        except ValueError:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_MAINTENANCE_NOT_VISIBLE"),
+            )
+        try:
+            await creator_emergency_wake.request_emergency_wake(parsed, uuid7())
+        except LifeViolation as error:
+            if error.code == "LIFE-MAINTENANCE-NOT-ACTIVE":
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("STATE_MAINTENANCE_NOT_ACTIVE"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_MAINTENANCE_WAKE_UNAVAILABLE"),
+            )
+        return Response(status_code=204)
+
+    del (
+        get_creator_maintenance_status,
+        get_creator_maintenance_timeline,
+        request_creator_emergency_wake,
+    )
 
     @app.get("/v1/scenes/{scene_key}/timeline")
     async def get_scene_timeline(scene_key: str, request: Request) -> JSONResponse:

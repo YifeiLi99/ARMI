@@ -1,0 +1,268 @@
+"""PostgreSQL-backed Creator maintenance projections."""
+
+from __future__ import annotations
+
+from typing import Any, cast
+from uuid import UUID
+
+import psycopg
+from armi_kernel.application import (
+    CreatorMaintenanceSession,
+    CreatorMaintenanceStatus,
+    CreatorMaintenanceTimeline,
+    CreatorMaintenanceTimelineItem,
+    CreatorMaintenanceViolation,
+    MaintenancePhase,
+    MaintenanceResultStatus,
+    MaintenanceTransitionKind,
+    MaintenanceTriggerKind,
+)
+from psycopg.pq import TransactionStatus
+from psycopg_pool import AsyncConnectionPool, PoolTimeout
+
+from .role_policy import physical_role_name
+
+_SEARCH_PATH = "pg_catalog, armi"
+_PAGE_SIZE = 100
+
+
+async def _configure(
+    connection: psycopg.AsyncConnection[tuple[Any, ...]],
+) -> None:
+    await connection.set_autocommit(True)
+    await connection.execute("SET search_path TO pg_catalog, armi")
+
+
+async def _reset(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
+    if connection.info.transaction_status != TransactionStatus.IDLE:
+        await connection.rollback()
+    await connection.execute("RESET ROLE")
+    await connection.execute("RESET ALL")
+    await connection.execute("SET search_path TO pg_catalog, armi")
+
+
+class PostgreSQLCreatorMaintenanceQuery:
+    """Read the latest maintenance session without exposing maintenance internals."""
+
+    __slots__ = (
+        "_creator_party_id",
+        "_expected_role",
+        "_pool",
+        "_pool_timeout_seconds",
+    )
+
+    def __init__(
+        self,
+        conninfo: str,
+        *,
+        environment_id: UUID,
+        creator_party_id: UUID,
+        pool_timeout_seconds: int,
+    ) -> None:
+        self._creator_party_id = creator_party_id
+        self._expected_role = physical_role_name(environment_id, "runtime")
+        self._pool_timeout_seconds = pool_timeout_seconds
+
+        async def check(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        ) -> None:
+            row = await (
+                await connection.execute(
+                    "SELECT session_user, current_user, current_setting('search_path')"
+                )
+            ).fetchone()
+            if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
+                raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE")
+
+        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
+            conninfo,
+            min_size=1,
+            max_size=1,
+            open=False,
+            configure=_configure,
+            check=check,
+            reset=_reset,
+            timeout=float(pool_timeout_seconds),
+            name="armi-creator-maintenance-query",
+        )
+
+    async def open(self) -> None:
+        try:
+            await self._pool.open(wait=True)
+        except psycopg.Error, PoolTimeout:
+            raise CreatorMaintenanceViolation(
+                "MAINTENANCE-QUERY-UNAVAILABLE"
+            ) from None
+
+    async def close(self) -> None:
+        await self._pool.close()
+
+    async def status(self) -> CreatorMaintenanceStatus:
+        try:
+            async with (
+                self._pool.connection(
+                    timeout=float(self._pool_timeout_seconds)
+                ) as connection,
+                connection.transaction(),
+            ):
+                await connection.execute("SET TRANSACTION READ ONLY")
+                subject_id = await self._scope(connection)
+                row = await (
+                    await connection.execute(
+                        """
+                        SELECT session.maintenance_session_id,
+                               session.trigger_kind, revision.phase,
+                               revision.result_status, revision.revision_no,
+                               session.head_version,
+                               session.wake_request_id IS NOT NULL,
+                               session.started_at, revision.created_at,
+                               session.finished_at
+                        FROM armi.maintenance_sessions AS session
+                        JOIN armi.maintenance_session_revisions AS revision
+                          ON revision.maintenance_revision_id
+                            = session.current_revision_id
+                         AND revision.maintenance_session_id
+                            = session.maintenance_session_id
+                        WHERE session.subject_id = %s
+                        ORDER BY session.started_at DESC,
+                                 session.maintenance_session_id DESC
+                        LIMIT 1
+                        """,
+                        (subject_id,),
+                    )
+                ).fetchone()
+                if row is None:
+                    return CreatorMaintenanceStatus(None, 0)
+                session = self._session(row)
+                waiting_input_count = 0
+                if session.result_status is MaintenanceResultStatus.RUNNING:
+                    count_row = await (
+                        await connection.execute(
+                            """
+                            SELECT count(*)
+                            FROM armi.opportunities
+                            WHERE subject_id = %s
+                              AND purpose = 'consider_creator_input'
+                              AND eligibility_status = 'eligible'
+                              AND current_disposition = 'open'
+                            """,
+                            (subject_id,),
+                        )
+                    ).fetchone()
+                    if count_row is None:
+                        raise CreatorMaintenanceViolation(
+                            "MAINTENANCE-QUERY-UNAVAILABLE"
+                        )
+                    waiting_input_count = int(count_row[0])
+        except CreatorMaintenanceViolation:
+            raise
+        except psycopg.Error, PoolTimeout:
+            raise CreatorMaintenanceViolation(
+                "MAINTENANCE-QUERY-UNAVAILABLE"
+            ) from None
+        return CreatorMaintenanceStatus(session, waiting_input_count)
+
+    async def timeline(self, session_id: UUID) -> CreatorMaintenanceTimeline:
+        if type(session_id) is not UUID or session_id.version != 7:
+            raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-ID")
+        try:
+            async with (
+                self._pool.connection(
+                    timeout=float(self._pool_timeout_seconds)
+                ) as connection,
+                connection.transaction(),
+            ):
+                await connection.execute("SET TRANSACTION READ ONLY")
+                subject_id = await self._scope(connection)
+                visible = await (
+                    await connection.execute(
+                        """
+                        SELECT 1 FROM armi.maintenance_sessions
+                        WHERE maintenance_session_id = %s AND subject_id = %s
+                        """,
+                        (session_id, subject_id),
+                    )
+                ).fetchone()
+                if visible is None:
+                    raise CreatorMaintenanceViolation(
+                        "MAINTENANCE-QUERY-NOT-FOUND"
+                    )
+                rows = await (
+                    await connection.execute(
+                        """
+                        SELECT maintenance_revision_id, revision_no, phase,
+                               result_status, transition_kind, created_at
+                        FROM armi.maintenance_session_revisions
+                        WHERE maintenance_session_id = %s
+                        ORDER BY revision_no DESC
+                        LIMIT %s
+                        """,
+                        (session_id, _PAGE_SIZE + 1),
+                    )
+                ).fetchall()
+        except CreatorMaintenanceViolation:
+            raise
+        except psycopg.Error, PoolTimeout:
+            raise CreatorMaintenanceViolation(
+                "MAINTENANCE-QUERY-UNAVAILABLE"
+            ) from None
+        return CreatorMaintenanceTimeline(
+            session_id,
+            tuple(self._timeline_item(row) for row in rows[:_PAGE_SIZE]),
+            len(rows) > _PAGE_SIZE,
+        )
+
+    async def _scope(
+        self,
+        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+    ) -> UUID:
+        creator = await (
+            await connection.execute(
+                """
+                SELECT 1 FROM armi.parties
+                WHERE party_id = %s AND party_kind = 'creator'
+                  AND creator_role = 'unique_primary_creator' AND status = 'active'
+                """,
+                (self._creator_party_id,),
+            )
+        ).fetchone()
+        subject = await (
+            await connection.execute(
+                """
+                SELECT subject_id FROM armi.subjects
+                WHERE singleton_key = 1 AND status = 'active'
+                """
+            )
+        ).fetchone()
+        if creator is None or subject is None or not isinstance(subject[0], UUID):
+            raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE")
+        return subject[0]
+
+    @staticmethod
+    def _session(row: tuple[Any, ...]) -> CreatorMaintenanceSession:
+        return CreatorMaintenanceSession(
+            session_id=row[0],
+            trigger_kind=MaintenanceTriggerKind(str(row[1])),
+            phase=MaintenancePhase(str(row[2])),
+            result_status=MaintenanceResultStatus(str(row[3])),
+            revision_no=int(row[4]),
+            head_version=int(row[5]),
+            wake_requested=bool(row[6]),
+            started_at=row[7],
+            updated_at=row[8],
+            finished_at=row[9],
+        )
+
+    @staticmethod
+    def _timeline_item(row: tuple[Any, ...]) -> CreatorMaintenanceTimelineItem:
+        return CreatorMaintenanceTimelineItem(
+            revision_id=row[0],
+            revision_no=int(row[1]),
+            phase=MaintenancePhase(str(row[2])),
+            result_status=MaintenanceResultStatus(str(row[3])),
+            transition_kind=cast(MaintenanceTransitionKind, str(row[4])),
+            occurred_at=row[5],
+        )
+
+
+__all__ = ("PostgreSQLCreatorMaintenanceQuery",)

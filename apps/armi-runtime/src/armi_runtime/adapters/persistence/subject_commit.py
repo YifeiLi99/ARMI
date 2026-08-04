@@ -136,6 +136,27 @@ class PostgreSQLSubjectCommitRepository:
         ).fetchall()
         return tuple(UUID(str(row[0])) for row in rows)
 
+    async def affected_maintenance_session_ids(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        validation_id: UUID,
+    ) -> tuple[UUID, ...]:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        rows = await (
+            await connection.execute(
+                """
+                SELECT session.maintenance_session_id
+                FROM armi.sleep_decisions AS decision
+                JOIN armi.maintenance_sessions AS session
+                  ON session.sleep_decision_id = decision.sleep_decision_id
+                WHERE decision.candidate_validation_id = %s
+                ORDER BY session.maintenance_session_id
+                """,
+                (validation_id,),
+            )
+        ).fetchall()
+        return tuple(UUID(str(row[0])) for row in rows)
+
     async def snapshot(
         self,
         unit_of_work: PostgreSQLUnitOfWork,

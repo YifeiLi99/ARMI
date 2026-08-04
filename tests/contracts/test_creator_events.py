@@ -60,6 +60,16 @@ class CreatorEventContractTests(unittest.TestCase):
         )
         self.assertEqual(invalidation.resource_ref, str(activity_id))
 
+    def test_maintenance_invalidation_uses_session_identity(self) -> None:
+        session_id = uuid7()
+        invalidation = CreatorProjectionInvalidation(
+            resource_kind=CreatorEventResourceKind.MAINTENANCE,
+            resource_ref=str(session_id),
+            occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
+            projection_version="creator-maintenance.v1",
+        )
+        self.assertEqual(invalidation.resource_ref, str(session_id))
+
 
 if __name__ == "__main__":
     unittest.main()

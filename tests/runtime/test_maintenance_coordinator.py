@@ -10,6 +10,8 @@ from armi_kernel.application import (
     LifeViolation,
     MaintenancePhase,
     MaintenanceResultStatus,
+    OpportunityAdmissionOutcome,
+    OpportunityAdmissionStatus,
 )
 from armi_runtime.adapters.persistence.maintenance import MaintenanceProgress
 from armi_runtime.composition.life_opportunity import MaintenanceCoordinator
@@ -23,7 +25,12 @@ class _Factory:
         yield self.unit
 
 
-def _coordinator(repository: object, *, quiet_seconds: int = 60):
+def _coordinator(
+    repository: object,
+    *,
+    quiet_seconds: int = 60,
+    notifier: object | None = None,
+):
     return MaintenanceCoordinator(
         factory=cast(Any, _Factory()),
         repository=cast(Any, repository),
@@ -31,6 +38,7 @@ def _coordinator(repository: object, *, quiet_seconds: int = 60):
         consideration_seconds=57_600,
         deadline_seconds=86_400,
         quiet_seconds=quiet_seconds,
+        notifier=cast(Any, notifier),
     )
 
 
@@ -53,7 +61,11 @@ async def test_active_session_checkpoint_precedes_new_sleep_window() -> None:
 async def test_no_active_session_scans_the_objective_window() -> None:
     repository = AsyncMock()
     repository.maintain_active_session.return_value = None
-    repository.maintain_sleep_window.return_value = object()
+    repository.maintain_sleep_window.return_value = OpportunityAdmissionOutcome(
+        OpportunityAdmissionStatus.REJECTED,
+        None,
+        "LIFE-MAINTENANCE-NOT-DUE",
+    )
     outcome = await _coordinator(repository).maintain_once()
     assert outcome is repository.maintain_sleep_window.return_value
     repository.maintain_sleep_window.assert_awaited_once()
@@ -62,16 +74,36 @@ async def test_no_active_session_scans_the_objective_window() -> None:
 @pytest.mark.asyncio
 async def test_emergency_wake_is_forwarded_as_a_durable_request() -> None:
     repository = AsyncMock()
-    request_id = uuid7()
     session_id = uuid7()
+    request_id = uuid7()
     repository.request_emergency_wake.return_value = session_id
     assert (
-        await _coordinator(repository).request_emergency_wake(request_id) == session_id
+        await _coordinator(repository).request_emergency_wake(session_id, request_id)
+        == session_id
     )
     repository.request_emergency_wake.assert_awaited_once_with(
         _Factory.unit,
+        session_id=session_id,
         request_id=request_id,
     )
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_publishes_a_creator_maintenance_invalidation() -> None:
+    repository = AsyncMock()
+    session_id = uuid7()
+    repository.maintain_active_session.return_value = MaintenanceProgress(
+        session_id,
+        MaintenancePhase.SELF_CHECK,
+        MaintenanceResultStatus.RUNNING,
+        3,
+        "LIFE-MAINTENANCE-ADVANCED",
+    )
+    notifier = AsyncMock()
+    await _coordinator(repository, notifier=notifier).maintain_once()
+    invalidation = notifier.notify.await_args.args[0]
+    assert invalidation.resource_kind.value == "maintenance"
+    assert invalidation.resource_ref == str(session_id)
 
 
 def test_negative_quiet_window_is_rejected() -> None:

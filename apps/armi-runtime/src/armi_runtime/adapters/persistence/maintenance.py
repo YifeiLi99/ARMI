@@ -218,11 +218,12 @@ class PostgreSQLMaintenanceRepository:
         self,
         unit_of_work: PostgreSQLUnitOfWork,
         *,
+        session_id: UUID,
         request_id: UUID,
     ) -> UUID:
         """Record one idempotent wake request without forcing a response."""
 
-        if request_id.version != 7:
+        if session_id.version != 7 or request_id.version != 7:
             raise LifeViolation("LIFE-WAKE-REQUEST")
         fence = unit_of_work.runtime_fence
         if fence is None:
@@ -231,21 +232,18 @@ class PostgreSQLMaintenanceRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT maintenance_session_id, wake_request_id
+                SELECT maintenance_session_id, wake_request_id, finished_at
                 FROM armi.maintenance_sessions
-                WHERE subject_id = %s AND life_generation_id = %s
-                  AND finished_at IS NULL
+                WHERE maintenance_session_id = %s
+                  AND subject_id = %s AND life_generation_id = %s
                 FOR UPDATE
                 """,
-                (fence.subject_id, fence.life_generation_id),
+                (session_id, fence.subject_id, fence.life_generation_id),
             )
         ).fetchone()
-        if row is None:
+        if row is None or (row[2] is not None and row[1] is None):
             raise LifeViolation("LIFE-MAINTENANCE-NOT-ACTIVE")
-        session_id: UUID = row[0]
         existing = row[1]
-        if existing is not None and existing != request_id:
-            raise LifeViolation("LIFE-WAKE-ALREADY-REQUESTED")
         if existing is None:
             await connection.execute(
                 """
@@ -273,6 +271,29 @@ class PostgreSQLMaintenanceRepository:
                 )
             )
         return session_id
+
+    async def active_session_id(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+    ) -> UUID | None:
+        """Return the active session identity inside the current Runtime fence."""
+
+        fence = unit_of_work.runtime_fence
+        if fence is None:
+            raise LifeViolation("LIFE-FENCE-REQUIRED")
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                SELECT maintenance_session_id
+                FROM armi.maintenance_sessions
+                WHERE subject_id = %s AND life_generation_id = %s
+                  AND finished_at IS NULL
+                """,
+                (fence.subject_id, fence.life_generation_id),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
 
 
 __all__ = ("MaintenanceProgress", "PostgreSQLMaintenanceRepository")

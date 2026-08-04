@@ -21,6 +21,7 @@ from armi_kernel.application import (
     CreatorActivityViolation,
     CreatorInputCommand,
     CreatorInputViolation,
+    CreatorMaintenanceViolation,
     EffectViolation,
     LifeViolation,
     ModelViolation,
@@ -63,6 +64,7 @@ from .database import (
     compose_context_pipeline,
     compose_creator_activity_query,
     compose_creator_input,
+    compose_creator_maintenance_query,
     compose_effect_registration_pipeline,
     compose_life_opportunity_pipeline,
     compose_model_pipeline,
@@ -139,6 +141,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     browser_sessions: BrowserSessionStore | None = None
     scene_timeline_query = None
     creator_activity_query = None
+    creator_maintenance_query = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
     life_opportunity_pipeline = None
@@ -221,6 +224,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 creator_party_id=creator_context.party_id,
             )
             await creator_activity_query.open()
+            creator_maintenance_query = compose_creator_maintenance_query(
+                prepared,
+                creator_party_id=creator_context.party_id,
+            )
+            await creator_maintenance_query.open()
             creator_events = CreatorEventBroker(
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -251,6 +259,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 prepared,
                 authority_admission=authority.require_writable,
                 wakeups=work_wakeups,
+                notifier=creator_events,
             )
             await life_opportunity_pipeline.open()
             context_pipeline = compose_context_pipeline(
@@ -408,6 +417,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             ContextViolation,
             CreatorInputViolation,
             CreatorActivityViolation,
+            CreatorMaintenanceViolation,
             SceneQueryViolation,
             SubjectCommitViolation,
             ResponseViolation,
@@ -424,6 +434,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await scene_timeline_query.close()
             if creator_activity_query is not None:
                 await creator_activity_query.close()
+            if creator_maintenance_query is not None:
+                await creator_maintenance_query.close()
             if creator_input is not None:
                 await creator_input.close()
             if context_pipeline is not None:
@@ -591,6 +603,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await scene_timeline_query.close()
         if creator_activity_query is not None:
             await creator_activity_query.close()
+        if creator_maintenance_query is not None:
+            await creator_maintenance_query.close()
         if creator_input is not None:
             await creator_input.close()
         if context_pipeline is not None:
@@ -759,6 +773,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         browser_sessions=browser_sessions,
         scene_timeline_query=scene_timeline_query,
         creator_activity_query=creator_activity_query,
+        creator_maintenance_query=creator_maintenance_query,
+        creator_emergency_wake=life_opportunity_pipeline,
         creator_events=creator_events,
         creator_input=creator_input,
         creator_operations=creator_input,
@@ -825,6 +841,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await scene_timeline_query.close()
         if creator_activity_query is not None:
             await creator_activity_query.close()
+        if creator_maintenance_query is not None:
+            await creator_maintenance_query.close()
         if creator_input is not None:
             await creator_input.close()
         if context_pipeline is not None:

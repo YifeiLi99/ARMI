@@ -336,11 +336,119 @@ class CreatorActivityTimelineResponse(_StrictWireModel):
     truncated: bool
 
 
+type MaintenancePhaseValue = Literal[
+    "preparing",
+    "memory_maintenance",
+    "self_check",
+    "life_quiet",
+    "resume_check",
+    "completed",
+]
+type MaintenanceResultValue = Literal[
+    "running",
+    "completed",
+    "interrupted",
+    "failed",
+]
+type MaintenanceTransitionValue = Literal[
+    "started",
+    "advanced",
+    "completed",
+    "interrupted",
+    "system_failed",
+]
+
+
+class CreatorMaintenanceSessionResponse(_StrictWireModel):
+    maintenance_session_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    trigger_kind: Literal["subject_choice", "system_deadline"]
+    phase: MaintenancePhaseValue
+    result_status: MaintenanceResultValue
+    revision_no: Annotated[int, Field(ge=1)]
+    head_version: Annotated[int, Field(ge=1)]
+    wake_requested: bool
+    started_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    updated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    finished_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+
+    @field_validator("maintenance_session_id")
+    @classmethod
+    def validate_session_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-MAINTENANCE-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("started_at", "updated_at", "finished_at")
+    @classmethod
+    def validate_maintenance_time(cls, value: str | None) -> str | None:
+        if value is not None and Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-MAINTENANCE-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_session_shape(self) -> CreatorMaintenanceSessionResponse:
+        if (
+            self.revision_no != self.head_version
+            or (self.result_status == "running") == (self.finished_at is not None)
+        ):
+            raise ValueError("CON-MAINTENANCE-SHAPE: session fields are inconsistent")
+        return self
+
+
+class CreatorMaintenanceStatusResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-maintenance.v1"]
+    session: CreatorMaintenanceSessionResponse | None
+    waiting_input_count: Annotated[int, Field(ge=0)]
+
+    @model_validator(mode="after")
+    def validate_status_shape(self) -> CreatorMaintenanceStatusResponse:
+        if (self.session is None or self.session.result_status != "running") and (
+            self.waiting_input_count != 0
+        ):
+            raise ValueError("CON-MAINTENANCE-SHAPE: waiting count requires maintenance")
+        return self
+
+
+class CreatorMaintenanceTimelineItemResponse(_StrictWireModel):
+    revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    revision_no: Annotated[int, Field(ge=1)]
+    phase: MaintenancePhaseValue
+    result_status: MaintenanceResultValue
+    transition_kind: MaintenanceTransitionValue
+    occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("revision_id")
+    @classmethod
+    def validate_revision_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-MAINTENANCE-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("occurred_at")
+    @classmethod
+    def validate_revision_time(cls, value: str) -> str:
+        if Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-MAINTENANCE-TIME: instant must be canonical")
+        return value
+
+
+class CreatorMaintenanceTimelineResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-maintenance.v1"]
+    maintenance_session_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    items: Annotated[list[CreatorMaintenanceTimelineItemResponse], Field(max_length=100)]
+    truncated: bool
+
+
 class CreatorProjectionEventResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     event_id: Annotated[str, Field(pattern=_EVENT_ID_PATTERN, max_length=128)]
     event_kind: Literal[
         "activity.invalidated",
+        "maintenance.invalidated",
         "scene.timeline.invalidated",
         "capability.request.invalidated",
         "operation.invalidated",
@@ -349,6 +457,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     ]
     resource_kind: Literal[
         "activity",
+        "maintenance",
         "scene_timeline",
         "capability_request",
         "operation",
@@ -358,6 +467,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     resource_ref: Annotated[str, Field(min_length=1, max_length=64)]
     projection_version: Literal[
         "creator-activity.v1",
+        "creator-maintenance.v1",
         "scene-timeline.v3",
         "capability-request.v3",
         "creator-operation.v1",
@@ -379,6 +489,11 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             "activity": (
                 "activity.invalidated",
                 "creator-activity.v1",
+                _UUIDV7_PATTERN,
+            ),
+            "maintenance": (
+                "maintenance.invalidated",
+                "creator-maintenance.v1",
                 _UUIDV7_PATTERN,
             ),
             "scene_timeline": (
@@ -1265,6 +1380,59 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/maintenance/status",
+        operation_id="getCreatorMaintenanceStatus",
+        response_model=CreatorMaintenanceStatusResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_maintenance_status() -> CreatorMaintenanceStatusResponse:
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/maintenance/{maintenance_session_id}/timeline",
+        operation_id="getCreatorMaintenanceTimeline",
+        response_model=CreatorMaintenanceTimelineResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_maintenance_timeline(
+        maintenance_session_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+    ) -> CreatorMaintenanceTimelineResponse:
+        del maintenance_session_id
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/maintenance/{maintenance_session_id}/wake",
+        operation_id="requestCreatorEmergencyWake",
+        status_code=204,
+        response_class=Response,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def request_creator_emergency_wake(
+        maintenance_session_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+    ) -> Response:
+        del maintenance_session_id
+        raise NotImplementedError
+
+    @app.get(
         "/v1/scenes/{scene_key}/timeline",
         operation_id="getSceneTimeline",
         response_model=SceneTimelinePageResponse,
@@ -1464,6 +1632,9 @@ def build_creator_openapi() -> dict[str, object]:
         subject_summary,
         list_creator_activities,
         get_creator_activity_timeline,
+        get_creator_maintenance_status,
+        get_creator_maintenance_timeline,
+        request_creator_emergency_wake,
         list_capability_requests,
         decide_capability_request,
         scene_timeline,
@@ -1483,6 +1654,12 @@ def build_creator_openapi() -> dict[str, object]:
     schema["paths"]["/v1/activities/{activity_id}/timeline"]["get"]["responses"].pop(
         "422", None
     )
+    schema["paths"]["/v1/maintenance/{maintenance_session_id}/timeline"]["get"][
+        "responses"
+    ].pop("422", None)
+    schema["paths"]["/v1/maintenance/{maintenance_session_id}/wake"]["post"][
+        "responses"
+    ].pop("422", None)
     schema["paths"]["/v1/scenes/{scene_key}/events"]["get"]["responses"].pop(
         "422", None
     )
@@ -1527,6 +1704,10 @@ __all__ = (
     "CreatorActivityTimelineResponse",
     "CreatorCodexTaskRequest",
     "CreatorInputRequest",
+    "CreatorMaintenanceSessionResponse",
+    "CreatorMaintenanceStatusResponse",
+    "CreatorMaintenanceTimelineItemResponse",
+    "CreatorMaintenanceTimelineResponse",
     "CreatorProjectionEventResponse",
     "EffectResponse",
     "ErrorDescriptorResponse",

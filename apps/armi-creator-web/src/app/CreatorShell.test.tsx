@@ -144,6 +144,15 @@ function activityPageResponse(goal?: string): object {
   };
 }
 
+function maintenanceStatusResponse(): object {
+  return {
+    contract_version: "1.0",
+    projection_version: "creator-maintenance.v1",
+    session: null,
+    waiting_input_count: 0,
+  };
+}
+
 function subjectSummaryResponse(): object {
   return {
     contract_version: "1.0",
@@ -218,6 +227,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
@@ -236,7 +246,7 @@ describe("Creator browser session shell", () => {
     expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
     expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(fetchMock).toHaveBeenCalledTimes(9);
     expect(screen.getByText("权威版本")).toBeInTheDocument();
   });
 
@@ -325,6 +335,7 @@ describe("Creator browser session shell", () => {
           next_cursor: cursor,
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
@@ -418,6 +429,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
@@ -450,7 +462,7 @@ describe("Creator browser session shell", () => {
     await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(9);
+    expect(fetchMock).toHaveBeenCalledTimes(10);
   });
 
   it("uses an Activity invalidation only to refetch its read projection", async () => {
@@ -533,6 +545,114 @@ describe("Creator browser session shell", () => {
     expect(activityReads).toBe(2);
   });
 
+  it("uses a maintenance invalidation to recover the current phase", async () => {
+    const eventId = `sse-v1.${"g".repeat(22)}.1`;
+    const event = JSON.stringify({
+      contract_version: "1.0",
+      event_id: eventId,
+      event_kind: "maintenance.invalidated",
+      resource_kind: "maintenance",
+      resource_ref: ENVIRONMENT_ID,
+      projection_version: "creator-maintenance.v1",
+      occurred_at: "2026-07-30T10:02:00.000000Z",
+    });
+    let maintenanceReads = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/browser-sessions" && init?.method === "POST") {
+        return jsonResponse(sessionResponse(true));
+      }
+      if (url === "/v1/browser-sessions/current") {
+        return jsonResponse(sessionResponse(false));
+      }
+      if (url === "/v1/runtime/status") {
+        return jsonResponse({
+          contract_version: "1.0",
+          environment_id: ENVIRONMENT_ID,
+          runtime_state: "ready",
+          readiness: "ready",
+          reason_codes: [],
+          observed_at: "2026-07-30T10:00:01.000000Z",
+        });
+      }
+      if (url.startsWith("/v1/scenes/default/timeline")) {
+        return jsonResponse({
+          contract_version: "1.0",
+          projection_version: "scene-timeline.v3",
+          scene_key: "default",
+          items: [],
+        });
+      }
+      if (url === "/v1/activities") {
+        return jsonResponse(activityPageResponse());
+      }
+      if (url === "/v1/maintenance/status") {
+        maintenanceReads += 1;
+        return jsonResponse(
+          maintenanceReads === 1
+            ? maintenanceStatusResponse()
+            : {
+                contract_version: "1.0",
+                projection_version: "creator-maintenance.v1",
+                session: {
+                  maintenance_session_id: ENVIRONMENT_ID,
+                  trigger_kind: "system_deadline",
+                  phase: "self_check",
+                  result_status: "running",
+                  revision_no: 3,
+                  head_version: 3,
+                  wake_requested: false,
+                  started_at: "2026-07-30T09:00:00.000000Z",
+                  updated_at: "2026-07-30T10:02:00.000000Z",
+                  finished_at: null,
+                },
+                waiting_input_count: 1,
+              },
+        );
+      }
+      if (url === `/v1/maintenance/${ENVIRONMENT_ID}/timeline`) {
+        return jsonResponse({
+          contract_version: "1.0",
+          projection_version: "creator-maintenance.v1",
+          maintenance_session_id: ENVIRONMENT_ID,
+          items: [],
+          truncated: false,
+        });
+      }
+      if (url.startsWith("/v1/capability-requests")) {
+        return jsonResponse(capabilityPageResponse());
+      }
+      if (url === "/v1/subject/summary") {
+        return jsonResponse(subjectSummaryResponse());
+      }
+      if (url === "/v1/scenes/default/events") {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `retry: 1000\n\nid: ${eventId}\nevent: maintenance.invalidated\ndata: ${event}\n\n`,
+                ),
+              );
+            },
+          }),
+          { headers: { "Content-Type": "text/event-stream; charset=utf-8" } },
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<CreatorShell />);
+
+    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
+    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
+
+    expect(await screen.findByText(/正在维护 · 状态检查/)).toBeInTheDocument();
+    expect(screen.getByText(/当前有 1 条输入等待处理/)).toBeInTheDocument();
+    expect(maintenanceReads).toBe(2);
+  });
+
   it("clears session state when the authenticated stream returns 401", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -556,6 +676,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))

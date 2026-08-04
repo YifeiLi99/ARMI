@@ -10,6 +10,7 @@ from typing import Any, cast
 from armi_runtime.interfaces.creator_contract import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
+    CreatorMaintenanceStatusResponse,
     CreatorProjectionEventResponse,
     FailedOutcomeResponse,
     RejectedOutcomeResponse,
@@ -66,6 +67,9 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/browser-sessions/current",
                 "/v1/activities",
                 "/v1/activities/{activity_id}/timeline",
+                "/v1/maintenance/status",
+                "/v1/maintenance/{maintenance_session_id}/timeline",
+                "/v1/maintenance/{maintenance_session_id}/wake",
                 "/v1/runtime/status",
                 "/v1/operations/{result_ref}",
                 "/v1/effects/{effect_id}",
@@ -116,6 +120,24 @@ class CreatorContractTests(unittest.TestCase):
             set(activity_timeline["responses"]),
             {"200", "400", "401", "403", "404", "503"},
         )
+        maintenance = paths["/v1/maintenance/status"]["get"]
+        self.assertEqual(maintenance["operationId"], "getCreatorMaintenanceStatus")
+        self.assertEqual(maintenance["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(set(maintenance["responses"]), {"200", "401", "403", "503"})
+        maintenance_timeline = paths[
+            "/v1/maintenance/{maintenance_session_id}/timeline"
+        ]["get"]
+        self.assertEqual(
+            maintenance_timeline["operationId"],
+            "getCreatorMaintenanceTimeline",
+        )
+        self.assertEqual(
+            set(maintenance_timeline["responses"]),
+            {"200", "400", "401", "403", "404", "503"},
+        )
+        wake = paths["/v1/maintenance/{maintenance_session_id}/wake"]["post"]
+        self.assertEqual(wake["operationId"], "requestCreatorEmergencyWake")
+        self.assertEqual(set(wake["responses"]), {"204", "401", "403", "404", "409", "503"})
         events = paths["/v1/scenes/{scene_key}/events"]["get"]
         self.assertEqual(events["operationId"], "streamSceneEvents")
         self.assertEqual(events["security"], [{"browserSessionBearer": []}])
@@ -170,6 +192,39 @@ class CreatorContractTests(unittest.TestCase):
             separators=(",", ":"),
         )
         self.assertEqual(first, second)
+
+    def test_maintenance_status_separates_objective_state_from_hidden_details(
+        self,
+    ) -> None:
+        status = CreatorMaintenanceStatusResponse.model_validate(
+            {
+                "contract_version": "1.0",
+                "projection_version": "creator-maintenance.v1",
+                "session": {
+                    "maintenance_session_id": ENVIRONMENT_ID,
+                    "trigger_kind": "system_deadline",
+                    "phase": "self_check",
+                    "result_status": "running",
+                    "revision_no": 3,
+                    "head_version": 3,
+                    "wake_requested": False,
+                    "started_at": INSTANT,
+                    "updated_at": INSTANT,
+                    "finished_at": None,
+                },
+                "waiting_input_count": 2,
+            }
+        )
+        assert status.session is not None
+        self.assertEqual(status.session.trigger_kind, "system_deadline")
+        self.assertEqual(status.waiting_input_count, 2)
+        with self.assertRaises(ValidationError):
+            CreatorMaintenanceStatusResponse.model_validate(
+                {
+                    **status.model_dump(),
+                    "private_memory": "hidden",
+                }
+            )
 
     def test_runtime_status_accepts_canonical_wire(self) -> None:
         model = RuntimeStatusResponse.model_validate_json(json.dumps(runtime_status()))

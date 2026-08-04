@@ -292,7 +292,8 @@ textarea:focus-visible {
 }
 
 .activity-list,
-.activity-timeline ol {
+.activity-timeline ol,
+.maintenance-timeline ol {
   display: grid;
   gap: 0.85rem;
   padding: 0;
@@ -353,6 +354,32 @@ textarea:focus-visible {
 .activity-timeline li {
   display: grid;
   gap: 0.3rem;
+}
+
+.maintenance-state {
+  color: var(--ink-strong);
+  font-weight: 700;
+}
+
+.maintenance-timeline {
+  margin-top: 1rem;
+}
+
+.maintenance-timeline h3 {
+  margin-bottom: 0.65rem;
+  font-size: 0.95rem;
+}
+
+.maintenance-timeline li {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid rgb(32 32 31 / 10%);
+}
+
+.maintenance-timeline time {
+  color: #6d685f;
+  font-size: 0.78rem;
 }
 
 .activity-timeline time {

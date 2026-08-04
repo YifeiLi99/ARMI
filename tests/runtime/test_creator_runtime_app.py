@@ -20,10 +20,18 @@ from armi_kernel.application import (
     CreatorInputAcceptance,
     CreatorInputCommand,
     CreatorInteractionId,
+    CreatorMaintenanceSession,
+    CreatorMaintenanceStatus,
+    CreatorMaintenanceTimeline,
+    CreatorMaintenanceTimelineItem,
+    CreatorMaintenanceViolation,
     CreatorOperation,
     CreatorOperationPhase,
     EffectArtifactKind,
     EvidenceId,
+    MaintenancePhase,
+    MaintenanceResultStatus,
+    MaintenanceTriggerKind,
     OpportunityId,
     SceneTimelinePage,
     SceneTimelineQuery,
@@ -102,6 +110,65 @@ class _CreatorActivityQuery:
             False,
         )
 
+
+class _CreatorMaintenanceQuery:
+    def __init__(self) -> None:
+        self.session_id = uuid7()
+        self.revision_id = uuid7()
+        self.occurred_at = datetime(2026, 8, 4, 11, 0, tzinfo=UTC)
+        self.wake_requested = False
+
+    async def status(self) -> CreatorMaintenanceStatus:
+        return CreatorMaintenanceStatus(
+            CreatorMaintenanceSession(
+                session_id=self.session_id,
+                trigger_kind=MaintenanceTriggerKind.SYSTEM_DEADLINE,
+                phase=MaintenancePhase.SELF_CHECK,
+                result_status=MaintenanceResultStatus.RUNNING,
+                revision_no=3,
+                head_version=3,
+                wake_requested=self.wake_requested,
+                started_at=self.occurred_at,
+                updated_at=self.occurred_at,
+                finished_at=None,
+            ),
+            2,
+        )
+
+    async def timeline(self, session_id: UUID) -> CreatorMaintenanceTimeline:
+        if session_id != self.session_id:
+            raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-NOT-FOUND")
+        return CreatorMaintenanceTimeline(
+            session_id,
+            (
+                CreatorMaintenanceTimelineItem(
+                    revision_id=self.revision_id,
+                    revision_no=3,
+                    phase=MaintenancePhase.SELF_CHECK,
+                    result_status=MaintenanceResultStatus.RUNNING,
+                    transition_kind="advanced",
+                    occurred_at=self.occurred_at,
+                ),
+            ),
+            False,
+        )
+
+
+class _EmergencyWake:
+    def __init__(self, query: _CreatorMaintenanceQuery) -> None:
+        self.query = query
+        self.requests: list[tuple[UUID, UUID]] = []
+
+    async def request_emergency_wake(
+        self,
+        session_id: UUID,
+        request_id: UUID,
+    ) -> UUID:
+        if session_id != self.query.session_id:
+            raise AssertionError("unexpected maintenance session")
+        self.requests.append((session_id, request_id))
+        self.query.wake_requested = True
+        return session_id
 
 class _CreatorInput:
     def __init__(self) -> None:
@@ -237,6 +304,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.creator_codex_task = _CreatorCodexTask()
         self.capability_policy = _CapabilityPolicy()
         self.activity_query = _CreatorActivityQuery()
+        self.maintenance_query = _CreatorMaintenanceQuery()
+        self.emergency_wake = _EmergencyWake(self.maintenance_query)
 
     def test_codex_final_result_projects_only_verified_deliverable(self) -> None:
         content, media_type = _creator_visible_codex_artifact(
@@ -278,6 +347,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             on_stopping=stopping,
             scene_timeline_query=_SceneTimelineQuery(),
             creator_activity_query=self.activity_query,
+            creator_maintenance_query=self.maintenance_query,
+            creator_emergency_wake=self.emergency_wake,
             creator_events=self.events,
             creator_input=self.creator_input,
             codex_task_admission=self.creator_codex_task,
@@ -480,6 +551,55 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(timeline.status_code, 200)
         self.assertEqual(timeline.json()["items"][0]["event_kind"], "created")
         self.assertEqual(missing.status_code, 404)
+        self.assertEqual(unauthenticated.status_code, 401)
+
+    def test_maintenance_status_timeline_and_wake_are_session_bound(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            status = client.get(
+                "/v1/maintenance/status",
+                headers=self._browser_headers(token),
+            )
+            timeline = client.get(
+                f"/v1/maintenance/{self.maintenance_query.session_id}/timeline",
+                headers=self._browser_headers(token),
+            )
+            missing = client.get(
+                f"/v1/maintenance/{uuid7()}/timeline",
+                headers=self._browser_headers(token),
+            )
+            wake = client.post(
+                f"/v1/maintenance/{self.maintenance_query.session_id}/wake",
+                headers=self._browser_headers(token),
+            )
+            unauthenticated = client.get(
+                "/v1/maintenance/status",
+                headers=self._browser_headers(),
+            )
+
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(
+            status.json()["session"]["trigger_kind"],
+            "system_deadline",
+        )
+        self.assertEqual(status.json()["waiting_input_count"], 2)
+        self.assertNotIn("memory", status.text)
+        self.assertEqual(timeline.status_code, 200)
+        self.assertEqual(timeline.json()["items"][0]["phase"], "self_check")
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(wake.status_code, 204)
+        self.assertEqual(len(self.emergency_wake.requests), 1)
+        self.assertEqual(self.emergency_wake.requests[0][0], self.maintenance_query.session_id)
+        self.assertEqual(self.emergency_wake.requests[0][1].version, 7)
         self.assertEqual(unauthenticated.status_code, 401)
 
     def test_creator_message_acceptance_and_operation_are_authoritative(self) -> None:

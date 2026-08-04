@@ -5,10 +5,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from armi_kernel.application import (
+    CreatorEventResourceKind,
+    CreatorEventViolation,
+    CreatorProjectionInvalidation,
+    CreatorProjectionNotifier,
     LifeOpportunitySourcePort,
     LifeViolation,
     LockPlan,
@@ -17,6 +22,7 @@ from armi_kernel.application import (
     OpportunityAdmissionStatus,
     RuntimeFence,
 )
+from armi_kernel.contracts import Instant
 
 from armi_runtime.adapters.persistence.life_opportunity import (
     PostgreSQLLifeOpportunityRepository,
@@ -37,6 +43,7 @@ class MaintenanceCoordinator:
         "_consideration_seconds",
         "_deadline_seconds",
         "_factory",
+        "_notifier",
         "_opportunities",
         "_quiet_seconds",
         "_repository",
@@ -51,6 +58,7 @@ class MaintenanceCoordinator:
         consideration_seconds: int,
         deadline_seconds: int,
         quiet_seconds: int = 60,
+        notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         if not 0 < consideration_seconds < deadline_seconds:
             raise LifeViolation("LIFE-MAINTENANCE-CONFIG")
@@ -62,31 +70,62 @@ class MaintenanceCoordinator:
         if type(quiet_seconds) is not int or quiet_seconds < 0:
             raise LifeViolation("LIFE-MAINTENANCE-CONFIG")
         self._quiet_seconds = quiet_seconds
+        self._notifier = notifier
 
     async def maintain_once(self) -> OpportunityAdmissionOutcome:
+        session_id: UUID | None = None
         async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
             progress = await self._repository.maintain_active_session(
                 unit_of_work,
                 quiet_seconds=self._quiet_seconds,
             )
             if progress is not None:
-                return OpportunityAdmissionOutcome(
+                session_id = progress.session_id
+                outcome = OpportunityAdmissionOutcome(
                     OpportunityAdmissionStatus.REJECTED,
                     None,
                     progress.reason_code,
                 )
-            return await self._opportunities.maintain_sleep_window(
-                unit_of_work,
-                consideration_after_seconds=self._consideration_seconds,
-                deadline_after_seconds=self._deadline_seconds,
-            )
+            else:
+                outcome = await self._opportunities.maintain_sleep_window(
+                    unit_of_work,
+                    consideration_after_seconds=self._consideration_seconds,
+                    deadline_after_seconds=self._deadline_seconds,
+                )
+                if outcome.reason_code == "LIFE-MAINTENANCE-DEADLINE":
+                    session_id = await self._repository.active_session_id(unit_of_work)
+        if session_id is not None:
+            await self._notify(session_id)
+        return outcome
 
-    async def request_emergency_wake(self, request_id: UUID) -> UUID:
+    async def request_emergency_wake(
+        self,
+        session_id: UUID,
+        request_id: UUID,
+    ) -> UUID:
         async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
-            return await self._repository.request_emergency_wake(
+            result = await self._repository.request_emergency_wake(
                 unit_of_work,
+                session_id=session_id,
                 request_id=request_id,
             )
+        await self._notify(result)
+        return result
+
+    async def _notify(self, session_id: UUID) -> None:
+        if self._notifier is None:
+            return
+        try:
+            await self._notifier.notify(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.MAINTENANCE,
+                    str(session_id),
+                    Instant(datetime.now(UTC)),
+                    "creator-maintenance.v1",
+                )
+            )
+        except CreatorEventViolation:
+            return
 
 
 class LifeOpportunityPipeline(LifeOpportunitySourcePort):
@@ -107,6 +146,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         model_concurrency: int = 2,
         maintenance_consideration_seconds: int = 57_600,
         maintenance_deadline_seconds: int = 86_400,
+        notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._factory = factory
         self._repository = PostgreSQLLifeOpportunityRepository()
@@ -121,6 +161,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
             opportunities=self._repository,
             consideration_seconds=maintenance_consideration_seconds,
             deadline_seconds=maintenance_deadline_seconds,
+            notifier=notifier,
         )
 
     async def open(self) -> None:
@@ -175,9 +216,16 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         except DatabaseTransactionError:
             raise LifeViolation("LIFE-DATABASE") from None
 
-    async def request_emergency_wake(self, request_id: UUID) -> UUID:
+    async def request_emergency_wake(
+        self,
+        session_id: UUID,
+        request_id: UUID,
+    ) -> UUID:
         try:
-            return await self._maintenance.request_emergency_wake(request_id)
+            return await self._maintenance.request_emergency_wake(
+                session_id,
+                request_id,
+            )
         except LifeViolation:
             raise
         except DatabaseTransactionError:
@@ -203,6 +251,7 @@ def compose_life_opportunity_pipeline(
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
     maintenance_deadline_seconds: int = 86_400,
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
     return LifeOpportunityPipeline(
         factory=factory,
@@ -210,6 +259,7 @@ def compose_life_opportunity_pipeline(
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,
         maintenance_deadline_seconds=maintenance_deadline_seconds,
+        notifier=notifier,
     )
 
 
@@ -226,6 +276,7 @@ def build_life_opportunity_pipeline(
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
     maintenance_deadline_seconds: int = 86_400,
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -247,6 +298,7 @@ def build_life_opportunity_pipeline(
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,
         maintenance_deadline_seconds=maintenance_deadline_seconds,
+        notifier=notifier,
     )
 
 

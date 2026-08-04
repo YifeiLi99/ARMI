@@ -144,6 +144,17 @@ from .creator_input import (
     EvidenceId,
     OpportunityId,
 )
+from .creator_maintenance import (
+    MAINTENANCE_PROJECTION_VERSION,
+    CreatorEmergencyWakePort,
+    CreatorMaintenanceQueryPort,
+    CreatorMaintenanceSession,
+    CreatorMaintenanceStatus,
+    CreatorMaintenanceTimeline,
+    CreatorMaintenanceTimelineItem,
+    CreatorMaintenanceViolation,
+    MaintenanceTransitionKind,
+)
 from .credentials import (
     CredentialLocator,
     CredentialPort,
@@ -325,6 +336,7 @@ from .web_observation import (
 
 __all__: tuple[str, ...] = (
     "ACTIVITY_PROJECTION_VERSION",
+    "MAINTENANCE_PROJECTION_VERSION",
     "PROJECTION_VERSION",
     "ActionAdapterPort",
     "ActionIntentId",
@@ -429,6 +441,7 @@ __all__: tuple[str, ...] = (
     "CreatorActivityViolation",
     "CreatorCodexTaskAdmissionPort",
     "CreatorCodexTaskCommand",
+    "CreatorEmergencyWakePort",
     "CreatorEventResourceKind",
     "CreatorEventViolation",
     "CreatorGrantCommand",
@@ -440,6 +453,12 @@ __all__: tuple[str, ...] = (
     "CreatorInputCommand",
     "CreatorInputViolation",
     "CreatorInteractionId",
+    "CreatorMaintenanceQueryPort",
+    "CreatorMaintenanceSession",
+    "CreatorMaintenanceStatus",
+    "CreatorMaintenanceTimeline",
+    "CreatorMaintenanceTimelineItem",
+    "CreatorMaintenanceViolation",
     "CreatorOperation",
     "CreatorOperationPhase",
     "CreatorOperationQueryPort",
@@ -496,6 +515,7 @@ __all__: tuple[str, ...] = (
     "MaintenancePhase",
     "MaintenancePhaseState",
     "MaintenanceResultStatus",
+    "MaintenanceTransitionKind",
     "MaintenanceTriggerKind",
     "MaintenanceViolation",
     "ModelAttemptId",

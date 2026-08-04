@@ -1081,6 +1081,198 @@
         "title": "CreatorInputRequest",
         "type": "object"
       },
+      "CreatorMaintenanceSessionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "finished_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "head_version": {
+            "minimum": 1.0,
+            "title": "Head Version",
+            "type": "integer"
+          },
+          "maintenance_session_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Maintenance Session Id",
+            "type": "string"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/MaintenancePhaseValue"
+          },
+          "result_status": {
+            "$ref": "#/components/schemas/MaintenanceResultValue"
+          },
+          "revision_no": {
+            "minimum": 1.0,
+            "title": "Revision No",
+            "type": "integer"
+          },
+          "started_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Started At",
+            "type": "string"
+          },
+          "trigger_kind": {
+            "enum": [
+              "subject_choice",
+              "system_deadline"
+            ],
+            "title": "Trigger Kind",
+            "type": "string"
+          },
+          "updated_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "wake_requested": {
+            "title": "Wake Requested",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "maintenance_session_id",
+          "trigger_kind",
+          "phase",
+          "result_status",
+          "revision_no",
+          "head_version",
+          "wake_requested",
+          "started_at",
+          "updated_at",
+          "finished_at"
+        ],
+        "title": "CreatorMaintenanceSessionResponse",
+        "type": "object"
+      },
+      "CreatorMaintenanceStatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "creator-maintenance.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreatorMaintenanceSessionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waiting_input_count": {
+            "minimum": 0.0,
+            "title": "Waiting Input Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "session",
+          "waiting_input_count"
+        ],
+        "title": "CreatorMaintenanceStatusResponse",
+        "type": "object"
+      },
+      "CreatorMaintenanceTimelineItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "occurred_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/MaintenancePhaseValue"
+          },
+          "result_status": {
+            "$ref": "#/components/schemas/MaintenanceResultValue"
+          },
+          "revision_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "revision_no": {
+            "minimum": 1.0,
+            "title": "Revision No",
+            "type": "integer"
+          },
+          "transition_kind": {
+            "$ref": "#/components/schemas/MaintenanceTransitionValue"
+          }
+        },
+        "required": [
+          "revision_id",
+          "revision_no",
+          "phase",
+          "result_status",
+          "transition_kind",
+          "occurred_at"
+        ],
+        "title": "CreatorMaintenanceTimelineItemResponse",
+        "type": "object"
+      },
+      "CreatorMaintenanceTimelineResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CreatorMaintenanceTimelineItemResponse"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "maintenance_session_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Maintenance Session Id",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "creator-maintenance.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "maintenance_session_id",
+          "items",
+          "truncated"
+        ],
+        "title": "CreatorMaintenanceTimelineResponse",
+        "type": "object"
+      },
       "CreatorOperationDetails": {
         "additionalProperties": false,
         "properties": {
@@ -1165,6 +1357,7 @@
           "event_kind": {
             "enum": [
               "activity.invalidated",
+              "maintenance.invalidated",
               "scene.timeline.invalidated",
               "capability.request.invalidated",
               "operation.invalidated",
@@ -1182,6 +1375,7 @@
           "projection_version": {
             "enum": [
               "creator-activity.v1",
+              "creator-maintenance.v1",
               "scene-timeline.v3",
               "capability-request.v3",
               "creator-operation.v1",
@@ -1194,6 +1388,7 @@
           "resource_kind": {
             "enum": [
               "activity",
+              "maintenance",
               "scene_timeline",
               "capability_request",
               "operation",
@@ -1684,6 +1879,36 @@
         ],
         "title": "LiveResponse",
         "type": "object"
+      },
+      "MaintenancePhaseValue": {
+        "enum": [
+          "preparing",
+          "memory_maintenance",
+          "self_check",
+          "life_quiet",
+          "resume_check",
+          "completed"
+        ],
+        "type": "string"
+      },
+      "MaintenanceResultValue": {
+        "enum": [
+          "running",
+          "completed",
+          "interrupted",
+          "failed"
+        ],
+        "type": "string"
+      },
+      "MaintenanceTransitionValue": {
+        "enum": [
+          "started",
+          "advanced",
+          "completed",
+          "interrupted",
+          "system_failed"
+        ],
+        "type": "string"
       },
       "OperationAcceptedOutcomeResponse": {
         "additionalProperties": false,
@@ -3490,6 +3715,222 @@
           }
         ],
         "summary": "Get Effect Artifact"
+      }
+    },
+    "/v1/maintenance/status": {
+      "get": {
+        "operationId": "getCreatorMaintenanceStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorMaintenanceStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Get Creator Maintenance Status"
+      }
+    },
+    "/v1/maintenance/{maintenance_session_id}/timeline": {
+      "get": {
+        "operationId": "getCreatorMaintenanceTimeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "maintenance_session_id",
+            "required": true,
+            "schema": {
+              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+              "title": "Maintenance Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorMaintenanceTimelineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Get Creator Maintenance Timeline"
+      }
+    },
+    "/v1/maintenance/{maintenance_session_id}/wake": {
+      "post": {
+        "operationId": "requestCreatorEmergencyWake",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "maintenance_session_id",
+            "required": true,
+            "schema": {
+              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+              "title": "Maintenance Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Request Creator Emergency Wake"
       }
     },
     "/v1/operations/{result_ref}": {
