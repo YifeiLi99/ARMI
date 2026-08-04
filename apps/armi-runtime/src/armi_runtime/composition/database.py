@@ -16,6 +16,7 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
+    LifeRecordQueryViolation,
     LifeViolation,
     ModelViolation,
     ResponseViolation,
@@ -41,6 +42,7 @@ from armi_runtime.adapters.persistence.creator_activities import (
 from armi_runtime.adapters.persistence.creator_maintenance import (
     PostgreSQLCreatorMaintenanceQuery,
 )
+from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
 )
@@ -359,6 +361,44 @@ def compose_creator_activity_query(
             return handle.consume(create)
     except ConfigurationViolation:
         raise CreatorActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
+
+
+def compose_life_record_query(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+    cursor_key: bytes,
+) -> PostgreSQLLifeRecordQuery:
+    """Resolve the shared read-only exact-life and memory projection."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLLifeRecordQuery:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise LifeRecordQueryViolation(
+                        "LIFE-QUERY-UNAVAILABLE"
+                    ) from None
+                config = prepared.effective.config
+                return PostgreSQLLifeRecordQuery(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    cursor_key=cursor_key,
+                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
 
 
 def compose_creator_maintenance_query(
@@ -1154,6 +1194,7 @@ __all__ = (
     "compose_creator_maintenance_query",
     "compose_effect_registration_pipeline",
     "compose_life_opportunity_pipeline",
+    "compose_life_record_query",
     "compose_model_pipeline",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",

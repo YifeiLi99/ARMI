@@ -192,6 +192,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/life-records": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Query Creator Life Records */
+    get: operations["queryCreatorLifeRecords"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/maintenance/status": {
     parameters: {
       query?: never;
@@ -237,6 +254,40 @@ export interface paths {
     put?: never;
     /** Request Creator Emergency Wake */
     post: operations["requestCreatorEmergencyWake"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/memories": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Creator Memories */
+    get: operations["listCreatorMemories"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/memories/{memory_id}/timeline": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Creator Memory Timeline */
+    get: operations["getCreatorMemoryTimeline"];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -844,6 +895,98 @@ export interface components {
       /** Truncated */
       truncated: boolean;
     };
+    /** CreatorMemoryItemResponse */
+    CreatorMemoryItemResponse: {
+      accessibility: components["schemas"]["MemoryAccessibilityValue"];
+      /** Created At */
+      created_at: string;
+      /** Head Version */
+      head_version: number;
+      /** Memory Id */
+      memory_id: string;
+      revision_kind: components["schemas"]["MemoryRevisionKindValue"];
+      /** Revision No */
+      revision_no: number;
+      /** Source Fact Class */
+      source_fact_class: string;
+      /** Source Kind */
+      source_kind: string;
+      /** Summary */
+      summary: string;
+      /** Uncertainty */
+      uncertainty: string | null;
+      /** Updated At */
+      updated_at: string;
+    };
+    /** CreatorMemoryPageResponse */
+    CreatorMemoryPageResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["CreatorMemoryItemResponse"][];
+      /** Next Cursor */
+      next_cursor: string | null;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-memory.v1";
+      /**
+       * Retrieval Kind
+       * @constant
+       */
+      retrieval_kind: "creator_view";
+    };
+    /** CreatorMemoryTimelineItemResponse */
+    CreatorMemoryTimelineItemResponse: {
+      accessibility: components["schemas"]["MemoryAccessibilityValue"];
+      /** Occurred At */
+      occurred_at: string;
+      /** Related Memory Id */
+      related_memory_id: string | null;
+      /** Relation Kind */
+      relation_kind: ("supports" | "contradicts" | "reinterprets") | null;
+      /** Revision Id */
+      revision_id: string;
+      revision_kind: components["schemas"]["MemoryRevisionKindValue"];
+      /** Revision No */
+      revision_no: number;
+      /** Source Fact Class */
+      source_fact_class: string;
+      /** Source Kind */
+      source_kind: string;
+      /** Summary */
+      summary: string;
+      /** Uncertainty */
+      uncertainty: string | null;
+    };
+    /** CreatorMemoryTimelineResponse */
+    CreatorMemoryTimelineResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["CreatorMemoryTimelineItemResponse"][];
+      /** Memory Id */
+      memory_id: string;
+      /** Next Cursor */
+      next_cursor: string | null;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-memory.v1";
+      /**
+       * Retrieval Kind
+       * @constant
+       */
+      retrieval_kind: "creator_view";
+    };
     /** CreatorOperationDetails */
     CreatorOperationDetails: {
       /**
@@ -895,6 +1038,7 @@ export interface components {
        */
       event_kind:
         | "activity.invalidated"
+        | "memory.invalidated"
         | "maintenance.invalidated"
         | "scene.timeline.invalidated"
         | "capability.request.invalidated"
@@ -909,6 +1053,7 @@ export interface components {
        */
       projection_version:
         | "creator-activity.v1"
+        | "creator-memory.v1"
         | "creator-maintenance.v1"
         | "scene-timeline.v3"
         | "capability-request.v3"
@@ -921,6 +1066,7 @@ export interface components {
        */
       resource_kind:
         | "activity"
+        | "memory"
         | "maintenance"
         | "scene_timeline"
         | "capability_request"
@@ -1078,6 +1224,49 @@ export interface components {
       detail?: components["schemas"]["ValidationError"][];
     };
     JsonValue: unknown;
+    /** LifeRecordItemResponse */
+    LifeRecordItemResponse: {
+      /** Naturally Recallable */
+      naturally_recallable: boolean | null;
+      /** Occurred At */
+      occurred_at: string;
+      record_kind: components["schemas"]["LifeRecordKindValue"];
+      /** Record Ref */
+      record_ref: string;
+      /**
+       * Retrieval Kind
+       * @enum {string}
+       */
+      retrieval_kind: "exact_query" | "creator_view";
+      /** Source Kind */
+      source_kind: string;
+      /** Summary */
+      summary: string;
+    };
+    /** @enum {string} */
+    LifeRecordKindValue: "activity" | "conversation" | "memory" | "self_change";
+    /** LifeRecordPageResponse */
+    LifeRecordPageResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["LifeRecordItemResponse"][];
+      /** Next Cursor */
+      next_cursor: string | null;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "life-record-query.v1";
+      /**
+       * Retrieval Kind
+       * @enum {string}
+       */
+      retrieval_kind: "exact_query" | "creator_view";
+    };
     /** LiveResponse */
     LiveResponse: {
       /**
@@ -1099,6 +1288,11 @@ export interface components {
     /** @enum {string} */
     MaintenanceTransitionValue:
       "started" | "advanced" | "completed" | "interrupted" | "system_failed";
+    /** @enum {string} */
+    MemoryAccessibilityValue: "available" | "faded" | "forgotten";
+    /** @enum {string} */
+    MemoryRevisionKindValue:
+      "formed" | "recalled" | "faded" | "forgotten" | "reinterpreted";
     /** OperationAcceptedOutcomeResponse */
     OperationAcceptedOutcomeResponse: {
       /**
@@ -2184,6 +2378,76 @@ export interface operations {
       };
     };
   };
+  queryCreatorLifeRecords: {
+    parameters: {
+      query?: {
+        kind?: components["schemas"]["LifeRecordKindValue"] | null;
+        q?: string | null;
+        limit?: number;
+        cursor?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LifeRecordPageResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
   getCreatorMaintenanceStatus: {
     parameters: {
       query?: never;
@@ -2315,6 +2579,154 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  listCreatorMemories: {
+    parameters: {
+      query?: {
+        q?: string | null;
+        limit?: number;
+        cursor?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatorMemoryPageResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getCreatorMemoryTimeline: {
+    parameters: {
+      query?: {
+        limit?: number;
+        cursor?: string | null;
+      };
+      header?: never;
+      path: {
+        memory_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatorMemoryTimelineResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
       };
       /** @description Unauthorized */
       401: {

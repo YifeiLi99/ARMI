@@ -1,4 +1,4 @@
-"""Explicit S008 Runtime composition root and Uvicorn process ownership."""
+"""Explicit S009 Runtime composition root and Uvicorn process ownership."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from armi_kernel.application import (
     CreatorInputViolation,
     CreatorMaintenanceViolation,
     EffectViolation,
+    LifeRecordQueryViolation,
     LifeViolation,
     ModelViolation,
     RecoveryStatus,
@@ -67,6 +68,7 @@ from .database import (
     compose_creator_maintenance_query,
     compose_effect_registration_pipeline,
     compose_life_opportunity_pipeline,
+    compose_life_record_query,
     compose_model_pipeline,
     compose_response_admission_pipeline,
     compose_runtime_authority,
@@ -141,6 +143,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     browser_sessions: BrowserSessionStore | None = None
     scene_timeline_query = None
     creator_activity_query = None
+    life_record_query = None
     creator_maintenance_query = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
@@ -224,6 +227,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 creator_party_id=creator_context.party_id,
             )
             await creator_activity_query.open()
+            life_record_query = compose_life_record_query(
+                prepared,
+                creator_party_id=creator_context.party_id,
+                cursor_key=derive_timeline_cursor_key(prepared),
+            )
+            await life_record_query.open()
             creator_maintenance_query = compose_creator_maintenance_query(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -418,6 +427,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             CreatorInputViolation,
             CreatorActivityViolation,
             CreatorMaintenanceViolation,
+            LifeRecordQueryViolation,
             SceneQueryViolation,
             SubjectCommitViolation,
             ResponseViolation,
@@ -434,6 +444,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await scene_timeline_query.close()
             if creator_activity_query is not None:
                 await creator_activity_query.close()
+            if life_record_query is not None:
+                await life_record_query.close()
             if creator_maintenance_query is not None:
                 await creator_maintenance_query.close()
             if creator_input is not None:
@@ -603,6 +615,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await scene_timeline_query.close()
         if creator_activity_query is not None:
             await creator_activity_query.close()
+        if life_record_query is not None:
+            await life_record_query.close()
         if creator_maintenance_query is not None:
             await creator_maintenance_query.close()
         if creator_input is not None:
@@ -773,6 +787,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         browser_sessions=browser_sessions,
         scene_timeline_query=scene_timeline_query,
         creator_activity_query=creator_activity_query,
+        life_record_query=life_record_query,
+        creator_memory_query=life_record_query,
         creator_maintenance_query=creator_maintenance_query,
         creator_emergency_wake=life_opportunity_pipeline,
         creator_events=creator_events,
@@ -841,6 +857,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await scene_timeline_query.close()
         if creator_activity_query is not None:
             await creator_activity_query.close()
+        if life_record_query is not None:
+            await life_record_query.close()
         if creator_maintenance_query is not None:
             await creator_maintenance_query.close()
         if creator_input is not None:

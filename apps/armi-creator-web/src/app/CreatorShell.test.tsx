@@ -144,6 +144,36 @@ function activityPageResponse(goal?: string): object {
   };
 }
 
+function lifeRecordPageResponse(): object {
+  return {
+    contract_version: "1.0",
+    projection_version: "life-record-query.v1",
+    retrieval_kind: "creator_view",
+    items: [],
+    next_cursor: null,
+  };
+}
+
+function memoryPageResponse(): object {
+  return {
+    contract_version: "1.0",
+    projection_version: "creator-memory.v1",
+    retrieval_kind: "creator_view",
+    items: [],
+    next_cursor: null,
+  };
+}
+
+function optionalLifeProjectionResponse(url: string): Response | undefined {
+  if (url.startsWith("/v1/life-records?")) {
+    return jsonResponse(lifeRecordPageResponse());
+  }
+  if (url.startsWith("/v1/memories?")) {
+    return jsonResponse(memoryPageResponse());
+  }
+  return undefined;
+}
+
 function maintenanceStatusResponse(): object {
   return {
     contract_version: "1.0",
@@ -229,6 +259,8 @@ describe("Creator browser session shell", () => {
       )
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse());
@@ -246,7 +278,7 @@ describe("Creator browser session shell", () => {
     expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
     expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(9);
+    expect(fetchMock).toHaveBeenCalledTimes(11);
     expect(screen.getByText("权威版本")).toBeInTheDocument();
   });
 
@@ -337,6 +369,8 @@ describe("Creator browser session shell", () => {
       )
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse())
@@ -431,6 +465,8 @@ describe("Creator browser session shell", () => {
       )
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(
@@ -462,7 +498,7 @@ describe("Creator browser session shell", () => {
     await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(10);
+    expect(fetchMock).toHaveBeenCalledTimes(12);
   });
 
   it("uses an Activity invalidation only to refetch its read projection", async () => {
@@ -479,6 +515,10 @@ describe("Creator browser session shell", () => {
     let activityReads = 0;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input);
+      const optionalProjection = optionalLifeProjectionResponse(url);
+      if (optionalProjection !== undefined) {
+        return optionalProjection;
+      }
       if (url === "/v1/browser-sessions" && init?.method === "POST") {
         return jsonResponse(sessionResponse(true));
       }
@@ -559,6 +599,10 @@ describe("Creator browser session shell", () => {
     let maintenanceReads = 0;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input);
+      const optionalProjection = optionalLifeProjectionResponse(url);
+      if (optionalProjection !== undefined) {
+        return optionalProjection;
+      }
       if (url === "/v1/browser-sessions" && init?.method === "POST") {
         return jsonResponse(sessionResponse(true));
       }
@@ -678,6 +722,8 @@ describe("Creator browser session shell", () => {
       )
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(new Response(null, { status: 401 }));
@@ -699,6 +745,10 @@ describe("Creator browser session shell", () => {
     const keys: string[] = [];
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input);
+      const optionalProjection = optionalLifeProjectionResponse(url);
+      if (optionalProjection !== undefined) {
+        return optionalProjection;
+      }
       if (url === "/v1/browser-sessions" && init?.method === "POST") {
         return jsonResponse(sessionResponse(true));
       }
@@ -805,6 +855,10 @@ describe("Creator browser session shell", () => {
     let messageAttempts = 0;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input);
+      const optionalProjection = optionalLifeProjectionResponse(url);
+      if (optionalProjection !== undefined) {
+        return optionalProjection;
+      }
       if (url === "/v1/browser-sessions" && init?.method === "POST") {
         return jsonResponse(sessionResponse(true));
       }

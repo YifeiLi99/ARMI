@@ -67,6 +67,9 @@ export function useSceneEventStream({
             "scene-timeline",
             "activities",
             "activity-timeline",
+            "life-records",
+            "memories",
+            "memory-timeline",
             "maintenance-status",
             "maintenance-timeline",
             "capability-requests",
@@ -93,6 +96,16 @@ export function useSceneEventStream({
           predicate: (query) =>
             query.queryKey[0] === "activities" ||
             (query.queryKey[0] === "activity-timeline" &&
+              query.queryKey.includes(resourceRef)),
+        });
+        return;
+      }
+      if (resourceKind === "memory") {
+        await queryClient.resetQueries({
+          predicate: (query) =>
+            query.queryKey[0] === "life-records" ||
+            query.queryKey[0] === "memories" ||
+            (query.queryKey[0] === "memory-timeline" &&
               query.queryKey.includes(resourceRef)),
         });
         return;
@@ -215,6 +228,9 @@ export function useSceneEventStream({
               "scene-timeline",
               "activities",
               "activity-timeline",
+              "life-records",
+              "memories",
+              "memory-timeline",
               "maintenance-status",
               "maintenance-timeline",
               "capability-requests",

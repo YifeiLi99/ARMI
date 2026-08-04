@@ -11,6 +11,11 @@ export type CreatorActivityPage =
   components["schemas"]["CreatorActivityPageResponse"];
 export type CreatorActivityTimeline =
   components["schemas"]["CreatorActivityTimelineResponse"];
+export type LifeRecordPage = components["schemas"]["LifeRecordPageResponse"];
+export type CreatorMemoryPage =
+  components["schemas"]["CreatorMemoryPageResponse"];
+export type CreatorMemoryTimeline =
+  components["schemas"]["CreatorMemoryTimelineResponse"];
 export type CreatorMaintenanceStatus =
   components["schemas"]["CreatorMaintenanceStatusResponse"];
 export type CreatorMaintenanceTimeline =
@@ -163,6 +168,79 @@ export async function getCreatorActivityTimeline(
 ): Promise<CreatorActivityTimeline> {
   const response = await fetch(
     `/v1/activities/${encodeURIComponent(activityId)}/timeline`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
+}
+
+export type LifeRecordKind =
+  "activity" | "conversation" | "memory" | "self_change";
+
+export async function queryCreatorLifeRecords(
+  token: string,
+  limit: number,
+  kind?: LifeRecordKind,
+  queryText?: string,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<LifeRecordPage> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (kind !== undefined) {
+    query.set("kind", kind);
+  }
+  if (queryText !== undefined) {
+    query.set("q", queryText);
+  }
+  if (cursor !== undefined) {
+    query.set("cursor", cursor);
+  }
+  const response = await fetch(`/v1/life-records?${query.toString()}`, {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getCreatorMemories(
+  token: string,
+  limit: number,
+  queryText?: string,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<CreatorMemoryPage> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (queryText !== undefined) {
+    query.set("q", queryText);
+  }
+  if (cursor !== undefined) {
+    query.set("cursor", cursor);
+  }
+  const response = await fetch(`/v1/memories?${query.toString()}`, {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getCreatorMemoryTimeline(
+  token: string,
+  memoryId: string,
+  limit: number,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<CreatorMemoryTimeline> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) {
+    query.set("cursor", cursor);
+  }
+  const response = await fetch(
+    `/v1/memories/${encodeURIComponent(memoryId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
       headers: { Authorization: `Bearer ${token}` },

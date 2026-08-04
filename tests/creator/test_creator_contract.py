@@ -1,4 +1,4 @@
-"""CON-OPENAPI checks for the frozen S007 steel-frame contract."""
+"""CON-OPENAPI checks for the current Creator contract."""
 
 from __future__ import annotations
 
@@ -11,8 +11,10 @@ from armi_runtime.interfaces.creator_contract import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
     CreatorMaintenanceStatusResponse,
+    CreatorMemoryItemResponse,
     CreatorProjectionEventResponse,
     FailedOutcomeResponse,
+    LifeRecordItemResponse,
     RejectedOutcomeResponse,
     RuntimeStatusResponse,
     SceneTimelineItemResponse,
@@ -67,6 +69,9 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/browser-sessions/current",
                 "/v1/activities",
                 "/v1/activities/{activity_id}/timeline",
+                "/v1/life-records",
+                "/v1/memories",
+                "/v1/memories/{memory_id}/timeline",
                 "/v1/maintenance/status",
                 "/v1/maintenance/{maintenance_session_id}/timeline",
                 "/v1/maintenance/{maintenance_session_id}/wake",
@@ -119,6 +124,20 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(
             set(activity_timeline["responses"]),
             {"200", "400", "401", "403", "404", "503"},
+        )
+        life_records = paths["/v1/life-records"]["get"]
+        self.assertEqual(life_records["operationId"], "queryCreatorLifeRecords")
+        self.assertEqual(life_records["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(
+            set(life_records["responses"]),
+            {"200", "400", "401", "403", "409", "503"},
+        )
+        memories = paths["/v1/memories"]["get"]
+        self.assertEqual(memories["operationId"], "listCreatorMemories")
+        memory_timeline = paths["/v1/memories/{memory_id}/timeline"]["get"]
+        self.assertEqual(
+            memory_timeline["operationId"],
+            "getCreatorMemoryTimeline",
         )
         maintenance = paths["/v1/maintenance/status"]["get"]
         self.assertEqual(maintenance["operationId"], "getCreatorMaintenanceStatus")
@@ -356,6 +375,44 @@ class CreatorContractTests(unittest.TestCase):
                 self.assertRaises(ValidationError),
             ):
                 CreatorProjectionEventResponse.model_validate({**sample, field: value})
+
+    def test_exact_record_and_memory_projection_keep_recallability_explicit(self) -> None:
+        record = LifeRecordItemResponse.model_validate(
+            {
+                "record_ref": ENVIRONMENT_ID,
+                "record_kind": "memory",
+                "summary": "刚从记录取得的内容",
+                "source_kind": "reported",
+                "occurred_at": INSTANT,
+                "naturally_recallable": False,
+                "retrieval_kind": "creator_view",
+            }
+        )
+        self.assertFalse(record.naturally_recallable)
+        memory = CreatorMemoryItemResponse.model_validate(
+            {
+                "memory_id": ENVIRONMENT_ID,
+                "summary": "刚从记录取得的内容",
+                "uncertainty": None,
+                "source_kind": "reported",
+                "source_fact_class": "external_claim",
+                "accessibility": "forgotten",
+                "revision_kind": "forgotten",
+                "revision_no": 2,
+                "head_version": 2,
+                "created_at": INSTANT,
+                "updated_at": INSTANT,
+            }
+        )
+        self.assertEqual(memory.accessibility, "forgotten")
+        with self.assertRaises(ValidationError):
+            LifeRecordItemResponse.model_validate(
+                {
+                    **record.model_dump(),
+                    "record_kind": "activity",
+                    "naturally_recallable": False,
+                }
+            )
 
     def test_timeline_v2_exposes_only_creator_input_operation_refs(self) -> None:
         operation_ref = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad"

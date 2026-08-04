@@ -70,6 +70,16 @@ class CreatorEventContractTests(unittest.TestCase):
         )
         self.assertEqual(invalidation.resource_ref, str(session_id))
 
+    def test_memory_invalidation_uses_memory_identity(self) -> None:
+        memory_id = uuid7()
+        invalidation = CreatorProjectionInvalidation(
+            resource_kind=CreatorEventResourceKind.MEMORY,
+            resource_ref=str(memory_id),
+            occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
+            projection_version="creator-memory.v1",
+        )
+        self.assertEqual(invalidation.resource_ref, str(memory_id))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,28 +4,28 @@
       "cache_class": "metadata-no-store",
       "media_type": "application/json",
       "path": "static/.vite/manifest.json",
-      "sha256": "b23e8ed65a561f42867157094a6ac1b52e89b15828ab8c3a1710ba6c44ca9615",
+      "sha256": "45848fa592a9846592047f611739b5b4a7fd63a455d9822b0c79490a75c6c163",
       "size": 185
     },
     {
       "cache_class": "immutable",
-      "media_type": "text/css",
-      "path": "static/assets/index-Bl5yLI2y.css",
-      "sha256": "c7cf96ccaee03beddf0ce43e28993749c3f856287b8da8c545adf4ca53c6ad01",
-      "size": 7011
+      "media_type": "text/javascript",
+      "path": "static/assets/index-DCHbO9V_.js",
+      "sha256": "e1a10bd824101ad1c0739c6bddccfd5d9fe3b9850b974aa2c38a47e60d4420db",
+      "size": 282724
     },
     {
       "cache_class": "immutable",
-      "media_type": "text/javascript",
-      "path": "static/assets/index-Y-PrYHKN.js",
-      "sha256": "39c0ef4def56cf23710380d8104a5325be0a7c3efc60c44a39bd98422b16e213",
-      "size": 275375
+      "media_type": "text/css",
+      "path": "static/assets/index-DS7YOWsP.css",
+      "sha256": "243354861a8de1575e252dd09636f38b396de110deb8729a483077042222d847",
+      "size": 8337
     },
     {
       "cache_class": "entrypoint-no-store",
       "media_type": "text/html",
       "path": "static/index.html",
-      "sha256": "02e66fc97349b2f1e342c740719f75f85414a63d9c8b13d7c7e1e4473a06cc18",
+      "sha256": "24106cdabc8cc9967a3d12317fbfd5ea45ac119038b932e88b52e5ffd1a8cf46",
       "size": 455
     }
   ],
@@ -33,11 +33,11 @@
   "entrypoint": "static/index.html",
   "generated_types": {
     "path": "apps/armi-creator-web/src/api/generated/creator.ts",
-    "sha256": "4107f0534d4f3194ec53e328c87f5e6f059e545fbac744c26c3f92605d6c368e"
+    "sha256": "70c2673198b358fa686196bc4e24d6efd46a2342789ac16207fa3c3da58c815d"
   },
   "openapi": {
     "path": "openapi.json",
-    "sha256": "2851be7c486599bb24d5ae3c246cf6a68d2892b44e8d39c61c98887d0160236c"
+    "sha256": "31fad531dad7012d7efc489c23da831f0a3ad29190c52bc3d86edc743939bcf4"
   },
   "package_lock_sha256": "fcbf9d8b21e025af368f76edf270fffd54cc24ffa5c3f7a0a4ee57328ab59ae4",
   "runtime_discovery": false,
@@ -51,5 +51,5 @@
     "typescript": "5.9.3",
     "vite": "8.1.5"
   },
-  "vite_manifest_sha256": "b23e8ed65a561f42867157094a6ac1b52e89b15828ab8c3a1710ba6c44ca9615"
+  "vite_manifest_sha256": "45848fa592a9846592047f611739b5b4a7fd63a455d9822b0c79490a75c6c163"
 }

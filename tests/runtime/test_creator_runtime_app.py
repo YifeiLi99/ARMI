@@ -25,10 +25,20 @@ from armi_kernel.application import (
     CreatorMaintenanceTimeline,
     CreatorMaintenanceTimelineItem,
     CreatorMaintenanceViolation,
+    CreatorMemoryItem,
+    CreatorMemoryPage,
+    CreatorMemoryTimeline,
+    CreatorMemoryTimelineItem,
     CreatorOperation,
     CreatorOperationPhase,
     EffectArtifactKind,
     EvidenceId,
+    LifeRecordActor,
+    LifeRecordItem,
+    LifeRecordKind,
+    LifeRecordPage,
+    LifeRecordQuery,
+    LifeRecordQueryViolation,
     MaintenancePhase,
     MaintenanceResultStatus,
     MaintenanceTriggerKind,
@@ -36,7 +46,13 @@ from armi_kernel.application import (
     SceneTimelinePage,
     SceneTimelineQuery,
 )
-from armi_kernel.contracts import Digest
+from armi_kernel.application.life_records import (
+    MemoryAccessibility as QueryMemoryAccessibility,
+)
+from armi_kernel.application.life_records import (
+    MemoryRevisionKind as QueryMemoryRevisionKind,
+)
+from armi_kernel.contracts import Digest, Instant
 from armi_runtime.composition.lifecycle import LifecycleController
 from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import (
@@ -151,6 +167,85 @@ class _CreatorMaintenanceQuery:
                 ),
             ),
             False,
+        )
+
+
+class _LifeRecordQuery:
+    def __init__(self) -> None:
+        self.memory_id = uuid7()
+        self.revision_id = uuid7()
+        self.occurred_at = datetime(2026, 8, 4, 10, 30, tzinfo=UTC)
+        self.requests: list[LifeRecordQuery] = []
+
+    async def query(self, request: LifeRecordQuery) -> LifeRecordPage:
+        self.requests.append(request)
+        return LifeRecordPage(
+            (
+                LifeRecordItem(
+                    record_ref=self.memory_id,
+                    record_kind=LifeRecordKind.MEMORY,
+                    summary="刚从记录查到的旧理解",
+                    source_kind="reported",
+                    occurred_at=Instant(self.occurred_at),
+                    naturally_recallable=False,
+                    retrieval_kind=request.retrieval_kind,
+                ),
+            )
+        )
+
+    async def list_current(
+        self,
+        *,
+        limit: int,
+        query_text: str | None = None,
+        cursor=None,
+    ) -> CreatorMemoryPage:
+        del limit, query_text, cursor
+        return CreatorMemoryPage(
+            (
+                CreatorMemoryItem(
+                    memory_id=self.memory_id,
+                    summary="刚从记录查到的旧理解",
+                    uncertainty="来源是转述",
+                    source_kind="reported",
+                    source_fact_class="external_claim",
+                    accessibility=QueryMemoryAccessibility.FORGOTTEN,
+                    revision_kind=QueryMemoryRevisionKind.FORGOTTEN,
+                    revision_no=2,
+                    head_version=2,
+                    created_at=Instant(self.occurred_at),
+                    updated_at=Instant(self.occurred_at),
+                ),
+            )
+        )
+
+    async def timeline(
+        self,
+        memory_id: UUID,
+        *,
+        limit: int,
+        cursor=None,
+    ) -> CreatorMemoryTimeline:
+        del limit, cursor
+        if memory_id != self.memory_id:
+            raise LifeRecordQueryViolation("LIFE-QUERY-NOT-FOUND")
+        return CreatorMemoryTimeline(
+            memory_id,
+            (
+                CreatorMemoryTimelineItem(
+                    revision_id=self.revision_id,
+                    revision_no=2,
+                    revision_kind=QueryMemoryRevisionKind.FORGOTTEN,
+                    accessibility=QueryMemoryAccessibility.FORGOTTEN,
+                    summary="刚从记录查到的旧理解",
+                    uncertainty="来源是转述",
+                    source_kind="reported",
+                    source_fact_class="external_claim",
+                    relation_kind=None,
+                    related_memory_id=None,
+                    occurred_at=Instant(self.occurred_at),
+                ),
+            ),
         )
 
 
@@ -304,6 +399,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.creator_codex_task = _CreatorCodexTask()
         self.capability_policy = _CapabilityPolicy()
         self.activity_query = _CreatorActivityQuery()
+        self.life_record_query = _LifeRecordQuery()
         self.maintenance_query = _CreatorMaintenanceQuery()
         self.emergency_wake = _EmergencyWake(self.maintenance_query)
 
@@ -347,6 +443,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             on_stopping=stopping,
             scene_timeline_query=_SceneTimelineQuery(),
             creator_activity_query=self.activity_query,
+            life_record_query=self.life_record_query,
+            creator_memory_query=self.life_record_query,
             creator_maintenance_query=self.maintenance_query,
             creator_emergency_wake=self.emergency_wake,
             creator_events=self.events,
@@ -552,6 +650,53 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(timeline.json()["items"][0]["event_kind"], "created")
         self.assertEqual(missing.status_code, 404)
         self.assertEqual(unauthenticated.status_code, 401)
+
+    def test_exact_life_query_and_memory_history_do_not_masquerade_as_recall(
+        self,
+    ) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            records = client.get(
+                "/v1/life-records?kind=memory&q=%E6%97%A7%E7%90%86%E8%A7%A3&limit=20",
+                headers=self._browser_headers(token),
+            )
+            memories = client.get(
+                "/v1/memories?limit=20",
+                headers=self._browser_headers(token),
+            )
+            timeline = client.get(
+                f"/v1/memories/{self.life_record_query.memory_id}/timeline?limit=20",
+                headers=self._browser_headers(token),
+            )
+            invalid = client.get(
+                "/v1/life-records?kind=secret",
+                headers=self._browser_headers(token),
+            )
+            missing = client.get(
+                f"/v1/memories/{uuid7()}/timeline?limit=20",
+                headers=self._browser_headers(token),
+            )
+
+        self.assertEqual(records.status_code, 200)
+        self.assertEqual(records.json()["retrieval_kind"], "creator_view")
+        self.assertFalse(records.json()["items"][0]["naturally_recallable"])
+        request = self.life_record_query.requests[0]
+        self.assertIs(request.actor, LifeRecordActor.CREATOR)
+        self.assertIs(request.record_kind, LifeRecordKind.MEMORY)
+        self.assertEqual(request.query_text, "旧理解")
+        self.assertEqual(memories.json()["items"][0]["accessibility"], "forgotten")
+        self.assertEqual(timeline.json()["items"][0]["revision_kind"], "forgotten")
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(missing.status_code, 404)
 
     def test_maintenance_status_timeline_and_wake_are_session_bound(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

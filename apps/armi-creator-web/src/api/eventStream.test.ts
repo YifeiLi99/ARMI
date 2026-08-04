@@ -42,6 +42,12 @@ describe("authenticated Creator event stream parser", () => {
       "creator-activity.v1",
     ],
     [
+      "memory.invalidated",
+      "memory",
+      "018f47a6-7b2d-7c35-8b18-684e38ab6ef5",
+      "creator-memory.v1",
+    ],
+    [
       "maintenance.invalidated",
       "maintenance",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",

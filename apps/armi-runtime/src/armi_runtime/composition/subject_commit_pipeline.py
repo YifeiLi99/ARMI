@@ -414,6 +414,25 @@ class SubjectCommitPipeline:
             async with self._factory.unit_of_work(
                 LockPlan(), read_only=True
             ) as unit_of_work:
+                memory_ids = await self._repository.affected_memory_ids(
+                    unit_of_work,
+                    snapshot.validation_id,
+                )
+            invalidations.extend(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.MEMORY,
+                    str(memory_id),
+                    now,
+                    "creator-memory.v1",
+                )
+                for memory_id in memory_ids
+            )
+        except DatabaseTransactionError:
+            self._diagnostic("subject_commit.memory_notification.lookup_failed")
+        try:
+            async with self._factory.unit_of_work(
+                LockPlan(), read_only=True
+            ) as unit_of_work:
                 maintenance_ids = (
                     await self._repository.affected_maintenance_session_ids(
                         unit_of_work,

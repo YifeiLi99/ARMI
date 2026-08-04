@@ -33,6 +33,7 @@ from armi_kernel.application import (
     CreatorInputViolation,
     CreatorMaintenanceQueryPort,
     CreatorMaintenanceViolation,
+    CreatorMemoryQueryPort,
     CreatorOperation,
     CreatorOperationPhase,
     CreatorOperationQueryPort,
@@ -41,6 +42,12 @@ from armi_kernel.application import (
     EffectId,
     EffectLedgerPort,
     EffectViolation,
+    LifeRecordActor,
+    LifeRecordKind,
+    LifeRecordQuery,
+    LifeRecordQueryPort,
+    LifeRecordQueryViolation,
+    LifeRecordRetrievalKind,
     LifeViolation,
     OpportunityId,
     SceneKey,
@@ -99,7 +106,13 @@ from .creator_contract import (
     CreatorMaintenanceStatusResponse,
     CreatorMaintenanceTimelineItemResponse,
     CreatorMaintenanceTimelineResponse,
+    CreatorMemoryItemResponse,
+    CreatorMemoryPageResponse,
+    CreatorMemoryTimelineItemResponse,
+    CreatorMemoryTimelineResponse,
     EffectResponse,
+    LifeRecordItemResponse,
+    LifeRecordPageResponse,
     LiveResponse,
     Readiness,
     ReadyResponse,
@@ -793,6 +806,52 @@ def _input_failure(error: CreatorInputViolation) -> tuple[int, dict[str, object]
     return 503, _unavailable("DEPENDENCY_INPUT_ACCEPTANCE_UNAVAILABLE")
 
 
+def _life_query_parameters(
+    request: Request,
+    *,
+    allow_kind: bool,
+    allow_text: bool,
+) -> tuple[int, str | None, LifeRecordKind | None, OpaqueCursor | None]:
+    allowed = {"limit", "cursor"}
+    if allow_kind:
+        allowed.add("kind")
+    if allow_text:
+        allowed.add("q")
+    pairs = list(request.query_params.multi_items())
+    names = [name for name, _value in pairs]
+    if set(names) - allowed or any(names.count(name) > 1 for name in allowed):
+        raise ContractViolation("CON-PAGE", "query parameters are invalid")
+    values = dict(pairs)
+    limit_text = values.get("limit", "50")
+    if not limit_text.isascii() or not limit_text.isdecimal():
+        raise ContractViolation("CON-PAGE", "page limit is invalid")
+    limit = int(limit_text)
+    if not 1 <= limit <= 100:
+        raise ContractViolation("CON-PAGE", "page limit is invalid")
+    query_text = values.get("q")
+    if query_text is not None:
+        try:
+            encoded = query_text.encode("utf-8", errors="strict")
+        except UnicodeEncodeError:
+            raise ContractViolation("CON-PAGE", "query text is invalid") from None
+        if not query_text.strip() or b"\x00" in encoded or len(encoded) > 1024:
+            raise ContractViolation("CON-PAGE", "query text is invalid")
+    try:
+        record_kind = (
+            LifeRecordKind(values["kind"])
+            if allow_kind and "kind" in values
+            else None
+        )
+        cursor = (
+            OpaqueCursor.from_wire(values["cursor"])
+            if "cursor" in values
+            else None
+        )
+    except (ValueError, ContractViolation):
+        raise ContractViolation("CON-PAGE", "query scope is invalid") from None
+    return limit, query_text, record_kind, cursor
+
+
 def create_runtime_app(
     *,
     readiness: ReadinessProvider,
@@ -805,6 +864,8 @@ def create_runtime_app(
     on_stopping: AsyncCallback,
     scene_timeline_query: SceneTimelineQueryPort | None = None,
     creator_activity_query: CreatorActivityQueryPort | None = None,
+    life_record_query: LifeRecordQueryPort | None = None,
+    creator_memory_query: CreatorMemoryQueryPort | None = None,
     creator_maintenance_query: CreatorMaintenanceQueryPort | None = None,
     creator_emergency_wake: CreatorEmergencyWakePort | None = None,
     creator_events: CreatorEventBroker | None = None,
@@ -858,11 +919,20 @@ def create_runtime_app(
             r"/v1/scenes/[^/]{1,256}/timeline",
             request.url.path,
         )
+        paged_query_path = (
+            request.url.path in {"/v1/life-records", "/v1/memories"}
+            or re.fullmatch(
+                r"/v1/memories/[^/]{1,64}/timeline",
+                request.url.path,
+            )
+            is not None
+        )
         if (
             request.url.query
             and request.url.path.startswith("/v1/")
             and timeline_path is None
             and request.url.path != "/v1/capability-requests"
+            and not paged_query_path
         ):
             emit("creator.request.url_token_rejected")
             return Response(status_code=400, headers=_SECURITY_HEADERS)
@@ -1465,6 +1535,299 @@ def create_runtime_app(
         return JSONResponse(content=response.model_dump(mode="json"))
 
     del list_creator_activities, get_creator_activity_timeline
+
+    @app.get("/v1/life-records")
+    async def query_creator_life_records(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or life_record_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and life_record_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_LIFE_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            limit, query_text, record_kind, cursor = _life_query_parameters(
+                request,
+                allow_kind=True,
+                allow_text=True,
+            )
+            page = await life_record_query.query(
+                LifeRecordQuery(
+                    actor=LifeRecordActor.CREATOR,
+                    retrieval_kind=LifeRecordRetrievalKind.CREATOR_VIEW,
+                    limit=limit,
+                    record_kind=record_kind,
+                    query_text=query_text,
+                    cursor=cursor,
+                )
+            )
+        except ContractViolation:
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_LIFE_QUERY_INVALID"),
+            )
+        except LifeRecordQueryViolation as error:
+            if error.code == "LIFE-QUERY-CURSOR-INVALID":
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_CURSOR_INVALID"),
+                )
+            if error.code == "LIFE-QUERY-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("CONFLICT_CURSOR_STALE"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_LIFE_QUERY_UNAVAILABLE"),
+            )
+        response = LifeRecordPageResponse(
+            contract_version="1.0",
+            projection_version="life-record-query.v1",
+            retrieval_kind="creator_view",
+            items=[
+                LifeRecordItemResponse(
+                    record_ref=str(item.record_ref),
+                    record_kind=item.record_kind.value,
+                    summary=item.summary,
+                    source_kind=item.source_kind,
+                    occurred_at=item.occurred_at.to_wire(),
+                    naturally_recallable=item.naturally_recallable,
+                    retrieval_kind=item.retrieval_kind.value,
+                )
+                for item in page.items
+            ],
+            next_cursor=(
+                None if page.next_cursor is None else page.next_cursor.to_wire()
+            ),
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
+    @app.get("/v1/memories")
+    async def list_creator_memories(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_memory_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_memory_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            limit, query_text, _kind, cursor = _life_query_parameters(
+                request,
+                allow_kind=False,
+                allow_text=True,
+            )
+            page = await creator_memory_query.list_current(
+                limit=limit,
+                query_text=query_text,
+                cursor=cursor,
+            )
+        except ContractViolation:
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_MEMORY_QUERY_INVALID"),
+            )
+        except LifeRecordQueryViolation as error:
+            if error.code == "LIFE-QUERY-CURSOR-INVALID":
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_CURSOR_INVALID"),
+                )
+            if error.code == "LIFE-QUERY-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("CONFLICT_CURSOR_STALE"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE"),
+            )
+        response = CreatorMemoryPageResponse(
+            contract_version="1.0",
+            projection_version="creator-memory.v1",
+            retrieval_kind="creator_view",
+            items=[
+                CreatorMemoryItemResponse(
+                    memory_id=str(item.memory_id),
+                    summary=item.summary,
+                    uncertainty=item.uncertainty,
+                    source_kind=item.source_kind,
+                    source_fact_class=item.source_fact_class,
+                    accessibility=item.accessibility.value,
+                    revision_kind=item.revision_kind.value,
+                    revision_no=item.revision_no,
+                    head_version=item.head_version,
+                    created_at=item.created_at.to_wire(),
+                    updated_at=item.updated_at.to_wire(),
+                )
+                for item in page.items
+            ],
+            next_cursor=(
+                None if page.next_cursor is None else page.next_cursor.to_wire()
+            ),
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
+    @app.get("/v1/memories/{memory_id}/timeline")
+    async def get_creator_memory_timeline(
+        memory_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_memory_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_memory_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            parsed = UUID(memory_id)
+            if parsed.version != 7 or str(parsed) != memory_id:
+                raise ValueError
+        except ValueError:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_MEMORY_NOT_VISIBLE"),
+            )
+        try:
+            limit, _query_text, _kind, cursor = _life_query_parameters(
+                request,
+                allow_kind=False,
+                allow_text=False,
+            )
+            timeline = await creator_memory_query.timeline(
+                parsed,
+                limit=limit,
+                cursor=cursor,
+            )
+        except ContractViolation:
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_MEMORY_QUERY_INVALID"),
+            )
+        except LifeRecordQueryViolation as error:
+            if error.code == "LIFE-QUERY-NOT-FOUND":
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_MEMORY_NOT_VISIBLE"),
+                )
+            if error.code == "LIFE-QUERY-CURSOR-INVALID":
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_CURSOR_INVALID"),
+                )
+            if error.code == "LIFE-QUERY-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("CONFLICT_CURSOR_STALE"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE"),
+            )
+        response = CreatorMemoryTimelineResponse(
+            contract_version="1.0",
+            projection_version="creator-memory.v1",
+            retrieval_kind="creator_view",
+            memory_id=str(timeline.memory_id),
+            items=[
+                CreatorMemoryTimelineItemResponse(
+                    revision_id=str(item.revision_id),
+                    revision_no=item.revision_no,
+                    revision_kind=item.revision_kind.value,
+                    accessibility=item.accessibility.value,
+                    summary=item.summary,
+                    uncertainty=item.uncertainty,
+                    source_kind=item.source_kind,
+                    source_fact_class=item.source_fact_class,
+                    relation_kind=(
+                        None
+                        if item.relation_kind is None
+                        else item.relation_kind.value
+                    ),
+                    related_memory_id=(
+                        None
+                        if item.related_memory_id is None
+                        else str(item.related_memory_id)
+                    ),
+                    occurred_at=item.occurred_at.to_wire(),
+                )
+                for item in timeline.items
+            ],
+            next_cursor=(
+                None
+                if timeline.next_cursor is None
+                else timeline.next_cursor.to_wire()
+            ),
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
+    del query_creator_life_records, list_creator_memories
+    del get_creator_memory_timeline
 
     @app.get("/v1/maintenance/status")
     async def get_creator_maintenance_status(request: Request) -> JSONResponse:

@@ -336,6 +336,159 @@ class CreatorActivityTimelineResponse(_StrictWireModel):
     truncated: bool
 
 
+type LifeRecordKindValue = Literal[
+    "activity",
+    "conversation",
+    "memory",
+    "self_change",
+]
+type MemoryAccessibilityValue = Literal["available", "faded", "forgotten"]
+type MemoryRevisionKindValue = Literal[
+    "formed",
+    "recalled",
+    "faded",
+    "forgotten",
+    "reinterpreted",
+]
+
+
+class LifeRecordItemResponse(_StrictWireModel):
+    record_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    record_kind: LifeRecordKindValue
+    summary: Annotated[str, Field(min_length=1, max_length=16384)]
+    source_kind: Annotated[str, Field(min_length=1, max_length=128)]
+    occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    naturally_recallable: bool | None
+    retrieval_kind: Literal["exact_query", "creator_view"]
+
+    @field_validator("record_ref")
+    @classmethod
+    def validate_record_ref(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-LIFE-QUERY-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("occurred_at")
+    @classmethod
+    def validate_record_time(cls, value: str) -> str:
+        if Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-LIFE-QUERY-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_record_shape(self) -> LifeRecordItemResponse:
+        if (self.record_kind == "memory") != (
+            self.naturally_recallable is not None
+        ):
+            raise ValueError("CON-LIFE-QUERY-SHAPE: recallability is inconsistent")
+        return self
+
+
+class LifeRecordPageResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["life-record-query.v1"]
+    retrieval_kind: Literal["exact_query", "creator_view"]
+    items: Annotated[list[LifeRecordItemResponse], Field(max_length=100)]
+    next_cursor: (
+        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
+    )
+
+
+class CreatorMemoryItemResponse(_StrictWireModel):
+    memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    summary: Annotated[str, Field(min_length=1, max_length=4096)]
+    uncertainty: Annotated[str, Field(min_length=1, max_length=4096)] | None
+    source_kind: Annotated[str, Field(min_length=1, max_length=64)]
+    source_fact_class: Annotated[str, Field(min_length=1, max_length=64)]
+    accessibility: MemoryAccessibilityValue
+    revision_kind: MemoryRevisionKindValue
+    revision_no: Annotated[int, Field(ge=1)]
+    head_version: Annotated[int, Field(ge=1)]
+    created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    updated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("memory_id")
+    @classmethod
+    def validate_memory_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-LIFE-QUERY-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("created_at", "updated_at")
+    @classmethod
+    def validate_memory_time(cls, value: str) -> str:
+        if Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-LIFE-QUERY-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_memory_shape(self) -> CreatorMemoryItemResponse:
+        if self.revision_no != self.head_version:
+            raise ValueError("CON-LIFE-QUERY-SHAPE: memory head is inconsistent")
+        return self
+
+
+class CreatorMemoryPageResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-memory.v1"]
+    retrieval_kind: Literal["creator_view"]
+    items: Annotated[list[CreatorMemoryItemResponse], Field(max_length=100)]
+    next_cursor: (
+        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
+    )
+
+
+class CreatorMemoryTimelineItemResponse(_StrictWireModel):
+    revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    revision_no: Annotated[int, Field(ge=1)]
+    revision_kind: MemoryRevisionKindValue
+    accessibility: MemoryAccessibilityValue
+    summary: Annotated[str, Field(min_length=1, max_length=4096)]
+    uncertainty: Annotated[str, Field(min_length=1, max_length=4096)] | None
+    source_kind: Annotated[str, Field(min_length=1, max_length=64)]
+    source_fact_class: Annotated[str, Field(min_length=1, max_length=64)]
+    relation_kind: Literal["supports", "contradicts", "reinterprets"] | None
+    related_memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
+    occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("revision_id", "related_memory_id")
+    @classmethod
+    def validate_memory_revision_id(cls, value: str | None) -> str | None:
+        if value is not None:
+            parsed = UUID(value)
+            if parsed.version != 7 or str(parsed) != value:
+                raise ValueError(
+                    "CON-LIFE-QUERY-ID: identity must be canonical UUIDv7"
+                )
+        return value
+
+    @field_validator("occurred_at")
+    @classmethod
+    def validate_memory_revision_time(cls, value: str) -> str:
+        if Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-LIFE-QUERY-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_memory_relation(self) -> CreatorMemoryTimelineItemResponse:
+        if (self.relation_kind is None) != (self.related_memory_id is None):
+            raise ValueError("CON-LIFE-QUERY-SHAPE: memory relation is incomplete")
+        return self
+
+
+class CreatorMemoryTimelineResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-memory.v1"]
+    retrieval_kind: Literal["creator_view"]
+    memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    items: Annotated[list[CreatorMemoryTimelineItemResponse], Field(max_length=100)]
+    next_cursor: (
+        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
+    )
+
+
 type MaintenancePhaseValue = Literal[
     "preparing",
     "memory_maintenance",
@@ -448,6 +601,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     event_id: Annotated[str, Field(pattern=_EVENT_ID_PATTERN, max_length=128)]
     event_kind: Literal[
         "activity.invalidated",
+        "memory.invalidated",
         "maintenance.invalidated",
         "scene.timeline.invalidated",
         "capability.request.invalidated",
@@ -457,6 +611,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     ]
     resource_kind: Literal[
         "activity",
+        "memory",
         "maintenance",
         "scene_timeline",
         "capability_request",
@@ -467,6 +622,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     resource_ref: Annotated[str, Field(min_length=1, max_length=64)]
     projection_version: Literal[
         "creator-activity.v1",
+        "creator-memory.v1",
         "creator-maintenance.v1",
         "scene-timeline.v3",
         "capability-request.v3",
@@ -489,6 +645,11 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             "activity": (
                 "activity.invalidated",
                 "creator-activity.v1",
+                _UUIDV7_PATTERN,
+            ),
+            "memory": (
+                "memory.invalidated",
+                "creator-memory.v1",
                 _UUIDV7_PATTERN,
             ),
             "maintenance": (
@@ -1380,6 +1541,80 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/life-records",
+        operation_id="queryCreatorLifeRecords",
+        response_model=LifeRecordPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def query_creator_life_records(
+        kind: LifeRecordKindValue | None = None,
+        q: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        cursor: Annotated[
+            str | None,
+            Query(pattern=_CURSOR_PATTERN, max_length=2048),
+        ] = None,
+    ) -> LifeRecordPageResponse:
+        del kind, q, limit, cursor
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/memories",
+        operation_id="listCreatorMemories",
+        response_model=CreatorMemoryPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def list_creator_memories(
+        q: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        cursor: Annotated[
+            str | None,
+            Query(pattern=_CURSOR_PATTERN, max_length=2048),
+        ] = None,
+    ) -> CreatorMemoryPageResponse:
+        del q, limit, cursor
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/memories/{memory_id}/timeline",
+        operation_id="getCreatorMemoryTimeline",
+        response_model=CreatorMemoryTimelineResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_memory_timeline(
+        memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        cursor: Annotated[
+            str | None,
+            Query(pattern=_CURSOR_PATTERN, max_length=2048),
+        ] = None,
+    ) -> CreatorMemoryTimelineResponse:
+        del memory_id, limit, cursor
+        raise NotImplementedError
+
+    @app.get(
         "/v1/maintenance/status",
         operation_id="getCreatorMaintenanceStatus",
         response_model=CreatorMaintenanceStatusResponse,
@@ -1632,6 +1867,9 @@ def build_creator_openapi() -> dict[str, object]:
         subject_summary,
         list_creator_activities,
         get_creator_activity_timeline,
+        query_creator_life_records,
+        list_creator_memories,
+        get_creator_memory_timeline,
         get_creator_maintenance_status,
         get_creator_maintenance_timeline,
         request_creator_emergency_wake,
@@ -1652,6 +1890,11 @@ def build_creator_openapi() -> dict[str, object]:
         "422", None
     )
     schema["paths"]["/v1/activities/{activity_id}/timeline"]["get"]["responses"].pop(
+        "422", None
+    )
+    schema["paths"]["/v1/life-records"]["get"]["responses"].pop("422", None)
+    schema["paths"]["/v1/memories"]["get"]["responses"].pop("422", None)
+    schema["paths"]["/v1/memories/{memory_id}/timeline"]["get"]["responses"].pop(
         "422", None
     )
     schema["paths"]["/v1/maintenance/{maintenance_session_id}/timeline"]["get"][
@@ -1708,10 +1951,16 @@ __all__ = (
     "CreatorMaintenanceStatusResponse",
     "CreatorMaintenanceTimelineItemResponse",
     "CreatorMaintenanceTimelineResponse",
+    "CreatorMemoryItemResponse",
+    "CreatorMemoryPageResponse",
+    "CreatorMemoryTimelineItemResponse",
+    "CreatorMemoryTimelineResponse",
     "CreatorProjectionEventResponse",
     "EffectResponse",
     "ErrorDescriptorResponse",
     "FailedOutcomeResponse",
+    "LifeRecordItemResponse",
+    "LifeRecordPageResponse",
     "LiveResponse",
     "OperationOutcomeResponse",
     "Readiness",

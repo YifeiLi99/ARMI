@@ -386,6 +386,106 @@ textarea:focus-visible {
   font-size: 0.82rem;
 }
 
+.memory-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(9rem, 0.35fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.memory-search label {
+  display: grid;
+  gap: 0.35rem;
+  color: #6d685f;
+  font-size: 0.82rem;
+}
+
+.memory-search input,
+.memory-search select {
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgb(32 32 31 / 18%);
+  border-radius: 0.65rem;
+  background: rgb(255 255 255 / 72%);
+  color: var(--ink-strong);
+  font: inherit;
+}
+
+.life-record-list,
+.memory-list,
+.memory-timeline ol {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.life-record-list > li,
+.memory-list > li {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.9rem;
+  border: 1px solid rgb(32 32 31 / 12%);
+  border-radius: 0.9rem;
+  background: rgb(255 255 255 / 48%);
+}
+
+.life-record-list p,
+.memory-list p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.life-record-list time,
+.memory-timeline time,
+.life-record-list small,
+.memory-list small {
+  color: #6d685f;
+  font-size: 0.78rem;
+}
+
+.memory-title-row,
+.memory-section-heading {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.memory-title-row span,
+.memory-section-heading span {
+  flex: none;
+  color: #6d685f;
+  font-size: 0.78rem;
+}
+
+.memory-section-heading {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(32 32 31 / 10%);
+}
+
+.memory-section-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.memory-timeline {
+  padding-top: 0.8rem;
+  border-top: 1px solid rgb(32 32 31 / 10%);
+}
+
+.memory-timeline li {
+  display: grid;
+  gap: 0.3rem;
+}
+
+@media (max-width: 680px) {
+  .memory-search {
+    grid-template-columns: 1fr;
+  }
+}
+
 .timeline-panel h2 {
   margin: 0;
   color: #443f38;

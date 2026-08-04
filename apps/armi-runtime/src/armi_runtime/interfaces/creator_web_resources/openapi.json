@@ -1273,6 +1273,294 @@
         "title": "CreatorMaintenanceTimelineResponse",
         "type": "object"
       },
+      "CreatorMemoryItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accessibility": {
+            "$ref": "#/components/schemas/MemoryAccessibilityValue"
+          },
+          "created_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Created At",
+            "type": "string"
+          },
+          "head_version": {
+            "minimum": 1.0,
+            "title": "Head Version",
+            "type": "integer"
+          },
+          "memory_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Memory Id",
+            "type": "string"
+          },
+          "revision_kind": {
+            "$ref": "#/components/schemas/MemoryRevisionKindValue"
+          },
+          "revision_no": {
+            "minimum": 1.0,
+            "title": "Revision No",
+            "type": "integer"
+          },
+          "source_fact_class": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source Fact Class",
+            "type": "string"
+          },
+          "source_kind": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "uncertainty": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uncertainty"
+          },
+          "updated_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memory_id",
+          "summary",
+          "uncertainty",
+          "source_kind",
+          "source_fact_class",
+          "accessibility",
+          "revision_kind",
+          "revision_no",
+          "head_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CreatorMemoryItemResponse",
+        "type": "object"
+      },
+      "CreatorMemoryPageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CreatorMemoryItemResponse"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_version": {
+            "const": "creator-memory.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "retrieval_kind": {
+            "const": "creator_view",
+            "title": "Retrieval Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "retrieval_kind",
+          "items",
+          "next_cursor"
+        ],
+        "title": "CreatorMemoryPageResponse",
+        "type": "object"
+      },
+      "CreatorMemoryTimelineItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accessibility": {
+            "$ref": "#/components/schemas/MemoryAccessibilityValue"
+          },
+          "occurred_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "related_memory_id": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Memory Id"
+          },
+          "relation_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "supports",
+                  "contradicts",
+                  "reinterprets"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relation Kind"
+          },
+          "revision_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "revision_kind": {
+            "$ref": "#/components/schemas/MemoryRevisionKindValue"
+          },
+          "revision_no": {
+            "minimum": 1.0,
+            "title": "Revision No",
+            "type": "integer"
+          },
+          "source_fact_class": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source Fact Class",
+            "type": "string"
+          },
+          "source_kind": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "uncertainty": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uncertainty"
+          }
+        },
+        "required": [
+          "revision_id",
+          "revision_no",
+          "revision_kind",
+          "accessibility",
+          "summary",
+          "uncertainty",
+          "source_kind",
+          "source_fact_class",
+          "relation_kind",
+          "related_memory_id",
+          "occurred_at"
+        ],
+        "title": "CreatorMemoryTimelineItemResponse",
+        "type": "object"
+      },
+      "CreatorMemoryTimelineResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CreatorMemoryTimelineItemResponse"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "memory_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Memory Id",
+            "type": "string"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_version": {
+            "const": "creator-memory.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "retrieval_kind": {
+            "const": "creator_view",
+            "title": "Retrieval Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "retrieval_kind",
+          "memory_id",
+          "items",
+          "next_cursor"
+        ],
+        "title": "CreatorMemoryTimelineResponse",
+        "type": "object"
+      },
       "CreatorOperationDetails": {
         "additionalProperties": false,
         "properties": {
@@ -1357,6 +1645,7 @@
           "event_kind": {
             "enum": [
               "activity.invalidated",
+              "memory.invalidated",
               "maintenance.invalidated",
               "scene.timeline.invalidated",
               "capability.request.invalidated",
@@ -1375,6 +1664,7 @@
           "projection_version": {
             "enum": [
               "creator-activity.v1",
+              "creator-memory.v1",
               "creator-maintenance.v1",
               "scene-timeline.v3",
               "capability-request.v3",
@@ -1388,6 +1678,7 @@
           "resource_kind": {
             "enum": [
               "activity",
+              "memory",
               "maintenance",
               "scene_timeline",
               "capability_request",
@@ -1865,6 +2156,128 @@
         "type": "object"
       },
       "JsonValue": {},
+      "LifeRecordItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "naturally_recallable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Naturally Recallable"
+          },
+          "occurred_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "record_kind": {
+            "$ref": "#/components/schemas/LifeRecordKindValue"
+          },
+          "record_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Record Ref",
+            "type": "string"
+          },
+          "retrieval_kind": {
+            "enum": [
+              "exact_query",
+              "creator_view"
+            ],
+            "title": "Retrieval Kind",
+            "type": "string"
+          },
+          "source_kind": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_ref",
+          "record_kind",
+          "summary",
+          "source_kind",
+          "occurred_at",
+          "naturally_recallable",
+          "retrieval_kind"
+        ],
+        "title": "LifeRecordItemResponse",
+        "type": "object"
+      },
+      "LifeRecordKindValue": {
+        "enum": [
+          "activity",
+          "conversation",
+          "memory",
+          "self_change"
+        ],
+        "type": "string"
+      },
+      "LifeRecordPageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LifeRecordItemResponse"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_version": {
+            "const": "life-record-query.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "retrieval_kind": {
+            "enum": [
+              "exact_query",
+              "creator_view"
+            ],
+            "title": "Retrieval Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "retrieval_kind",
+          "items",
+          "next_cursor"
+        ],
+        "title": "LifeRecordPageResponse",
+        "type": "object"
+      },
       "LiveResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1907,6 +2320,24 @@
           "completed",
           "interrupted",
           "system_failed"
+        ],
+        "type": "string"
+      },
+      "MemoryAccessibilityValue": {
+        "enum": [
+          "available",
+          "faded",
+          "forgotten"
+        ],
+        "type": "string"
+      },
+      "MemoryRevisionKindValue": {
+        "enum": [
+          "formed",
+          "recalled",
+          "faded",
+          "forgotten",
+          "reinterpreted"
         ],
         "type": "string"
       },
@@ -3717,6 +4148,145 @@
         "summary": "Get Effect Artifact"
       }
     },
+    "/v1/life-records": {
+      "get": {
+        "operationId": "queryCreatorLifeRecords",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/LifeRecordKindValue"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifeRecordPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Query Creator Life Records"
+      }
+    },
     "/v1/maintenance/status": {
       "get": {
         "operationId": "getCreatorMaintenanceStatus",
@@ -3931,6 +4501,254 @@
           }
         ],
         "summary": "Request Creator Emergency Wake"
+      }
+    },
+    "/v1/memories": {
+      "get": {
+        "operationId": "listCreatorMemories",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorMemoryPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "List Creator Memories"
+      }
+    },
+    "/v1/memories/{memory_id}/timeline": {
+      "get": {
+        "operationId": "getCreatorMemoryTimeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+              "title": "Memory Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorMemoryTimelineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Get Creator Memory Timeline"
       }
     },
     "/v1/operations/{result_ref}": {

@@ -25,6 +25,7 @@ KEEPALIVE_SECONDS = 15
 RETRY_MILLISECONDS = 1000
 EVENT_KINDS = {
     "activity": "activity.invalidated",
+    "memory": "memory.invalidated",
     "maintenance": "maintenance.invalidated",
     "scene_timeline": "scene.timeline.invalidated",
     "capability_request": "capability.request.invalidated",
