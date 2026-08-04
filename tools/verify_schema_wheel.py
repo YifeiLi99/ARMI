@@ -8,18 +8,10 @@ import zipfile
 from collections.abc import Sequence
 from pathlib import Path
 
-_RESOURCE_PREFIX = "armi_runtime/composition/runtime_resources/schema/"
-_FILES = (
-    "checks/invariants.sql",
-    "manifests/database-role-manifest.json",
-    "manifests/schema-manifest.json",
-    "migrations/0001_m0_baseline.sql",
-    "migrations/0002_database_permissions.sql",
-    "migrations/0003_content_addressed_artifacts.sql",
-    "migrations/0004_normal_audit_foundation.sql",
-    "migrations/0005_durable_work_and_outbox.sql",
-    "migrations/0006_unique_birth.sql",
-)
+try:
+    from tools.candidate_bundle import sha256_bytes, verify_schema_archive
+except ModuleNotFoundError:  # Direct execution from the tools directory.
+    from candidate_bundle import sha256_bytes, verify_schema_archive
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -32,30 +24,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     root = args.root.resolve()
     try:
         with zipfile.ZipFile(args.wheel) as archive:
-            names = set(archive.namelist())
-            for relative in _FILES:
-                packaged = f"{_RESOURCE_PREFIX}{relative}"
-                if packaged not in names:
-                    raise ValueError("DB-SCHEMA-MISSING")
-                expected = (
-                    root / "apps/armi-runtime/src/armi_runtime/composition/"
-                    "runtime_resources/schema" / relative
-                ).read_bytes()
-                if archive.read(packaged) != expected:
-                    raise ValueError("DB-MANIFEST-DRIFT")
-            forbidden = [
-                name
-                for name in names
-                if name.startswith("schema/")
-                or (name.endswith(".sql") and not name.startswith(_RESOURCE_PREFIX))
-            ]
-            if forbidden:
-                raise ValueError("DB-SCHEMA-DIRTY")
+            digest, target_version, _ = verify_schema_archive(archive)
+            manifest_path = (
+                root / "apps/armi-runtime/src/armi_runtime/composition/"
+                "runtime_resources/schema/manifests/schema-manifest.json"
+            )
+            if digest != sha256_bytes(manifest_path.read_bytes()):
+                raise ValueError("DB-MANIFEST-DRIFT")
     except (OSError, ValueError, zipfile.BadZipFile) as error:
-        code = str(error) if str(error).startswith("DB-") else "DB-MANIFEST-DRIFT"
+        code = getattr(error, "code", None) or (
+            str(error) if str(error).startswith("DB-") else "DB-MANIFEST-DRIFT"
+        )
         print(f"{code}: Runtime wheel schema resources are invalid", file=sys.stderr)
         return 1
-    print("schema-wheel: verified")
+    print(f"schema-wheel: verified target v{target_version}")
     return 0
 
 

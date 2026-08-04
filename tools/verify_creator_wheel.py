@@ -94,10 +94,13 @@ def main() -> int:
         entry_points = [
             name for name in names if name.endswith(".dist-info/entry_points.txt")
         ]
-        entry_point_valid = (
-            len(entry_points) == 1
-            and archive.read(entry_points[0])
-            == b"[console_scripts]\narmi = armi_runtime.cli:main\n\n"
+        entry_point_valid = len(entry_points) == 1 and archive.read(
+            entry_points[0]
+        ) == (
+            b"[console_scripts]\n"
+            b"armi = armi_runtime.cli:main\n"
+            b"armi-codex-runner = armi_runtime.codex_runner_cli:main\n"
+            b"\n"
         )
     if missing:
         print(f"WEB-WHEEL-MISSING: {', '.join(missing)}", file=sys.stderr)
@@ -115,7 +118,7 @@ def main() -> int:
         )
         return 1
     if not entry_point_valid:
-        print("LIFE-WHEEL-ENTRY: armi console entry point has drifted", file=sys.stderr)
+        print("LIFE-WHEEL-ENTRY: Runtime console entries have drifted", file=sys.stderr)
         return 1
 
     sys.path.insert(0, str(wheel))

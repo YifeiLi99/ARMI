@@ -24,8 +24,8 @@ GATE_ORDER = (
     "WEB-LINT",
     "WEB-TYPE",
     "WEB-TEST",
-    "BUILD-PY",
     "BUILD-WEB",
+    "BUILD-PY",
 )
 
 
@@ -117,8 +117,19 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             path.name for path in python_dist.glob("*") if path.is_file()
         )
         expected = ("armi_admin", "armi_kernel", "armi_runtime")
-        valid = all(
-            any(name.startswith(prefix) for name in artifacts) for prefix in expected
+        wheels = [name for name in artifacts if name.endswith(".whl")]
+        source_distributions = [name for name in artifacts if name.endswith(".tar.gz")]
+        valid = (
+            len(artifacts) == 6
+            and len(wheels) == 3
+            and len(source_distributions) == 3
+            and all(
+                any(name.startswith(prefix) for name in wheels) for prefix in expected
+            )
+            and all(
+                any(name.startswith(prefix) for name in source_distributions)
+                for prefix in expected
+            )
         )
         return valid, f"python build artifacts: {', '.join(artifacts)}"
 

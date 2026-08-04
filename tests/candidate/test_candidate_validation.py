@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, cast
 from uuid import uuid7
@@ -177,7 +178,7 @@ def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     }
 
 
-def _bytes(value: dict[str, object]) -> bytes:
+def _bytes(value: Mapping[str, object]) -> bytes:
     return rfc8785.dumps(cast(Any, value))
 
 
