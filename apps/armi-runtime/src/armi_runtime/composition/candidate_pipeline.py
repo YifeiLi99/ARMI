@@ -12,6 +12,7 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_kernel.application import (
+    ActivityStatus,
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
@@ -162,6 +163,13 @@ class CandidateValidationPipeline:
                     True,
                     snapshot.codex_task_sources,
                     snapshot.opportunity_id,
+                    snapshot.current_activity_id,
+                    snapshot.current_activity_revision_id,
+                    snapshot.current_activity_head_version,
+                    None
+                    if snapshot.current_activity_status is None
+                    else ActivityStatus(snapshot.current_activity_status),
+                    snapshot.resource_snapshot_digest,
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)

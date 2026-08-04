@@ -659,6 +659,41 @@ def build_role_manifest() -> dict[str, object]:
                         "status",
                         "terminal_reason",
                         "related_scene_id",
+                        "transition_kind",
+                        "waiting_condition_kind",
+                        "resume_not_before",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.activity_attention_decisions",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "attention_decision_id",
+                        "opportunity_id",
+                        "cognitive_episode_id",
+                        "candidate_validation_id",
+                        "candidate_application_id",
+                        "activity_id",
+                        "expected_revision_id",
+                        "expected_head_version",
+                        "resource_snapshot_digest",
+                        "decision_kind",
+                        "result_revision_id",
+                        "review_not_before",
                         "schema_version",
                     ]
                 },
@@ -1822,6 +1857,12 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "name": "armi.activity_revisions",
                 "logical_owner": "activity-authority",
                 "activation_step": "P0-S001",
+            },
+            {
+                "kind": "table",
+                "name": "armi.activity_attention_decisions",
+                "logical_owner": "activity-attention-authority",
+                "activation_step": "P0-S002",
             },
             {
                 "kind": "table",

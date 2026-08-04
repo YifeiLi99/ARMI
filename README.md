@@ -25,7 +25,8 @@ result acceptance `accepted`。因此第一阶段“能正常对话、能发任�
 Admin MCP、S033/S034 ARMI 网页观察、Windows 服务身份/DACL、跨候选回退和 24 小时 soak
 移入 P0 稳定化，不再阻塞个人内测。当前仍不是生产发布版本；Memory 与 Relationship
 owner 尚未激活。Activity owner 已进入正式组合根，但首次真实自主认知没有创建 `ready`
-Activity，因此当前施工入口仍是 P0-S001，而不是 P0-S002。
+Activity。当前允许实现 P0-S002，施工入口为 P0-S001/S002 联合验收；真实 Ark 依次创建
+Activity 并作出合法注意决定前，两步都不标记完成。
 
 ## 本地 Runtime 生命周期
 

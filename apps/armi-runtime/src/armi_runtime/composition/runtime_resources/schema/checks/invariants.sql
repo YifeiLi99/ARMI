@@ -30,7 +30,7 @@ FROM (
                     ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = 'armi'
                   AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-            ) <> 56
+            ) <> 57
         ),
         (
             'DB-SCHEMA-MISSING',
@@ -384,6 +384,38 @@ FROM (
                       'resumable_codex_task_count',
                       'resumable_codex_effect_count',
                       'pending_codex_result_acceptance_count'
+                  )
+                  AND attribute.attnum > 0
+                  AND NOT attribute.attisdropped
+            ) <> 3
+        ),
+        (
+            'DB-SCHEMA-MISSING',
+            NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relname = 'activity_attention_decisions'
+                  AND relation.relkind = 'r'
+            )
+        ),
+        (
+            'DB-SCHEMA-MISSING',
+            (
+                SELECT count(*)
+                FROM pg_catalog.pg_attribute AS attribute
+                JOIN pg_catalog.pg_class AS relation
+                    ON relation.oid = attribute.attrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relname = 'activity_revisions'
+                  AND attribute.attname IN (
+                      'transition_kind',
+                      'waiting_condition_kind',
+                      'resume_not_before'
                   )
                   AND attribute.attnum > 0
                   AND NOT attribute.attisdropped

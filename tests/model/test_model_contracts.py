@@ -22,6 +22,7 @@ from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
+    ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -59,6 +60,50 @@ def test_autonomous_activity_contract_is_compact_strict_and_byte_bounded() -> No
                 value,
                 allowed_context_refs=frozenset(),
                 expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+            )
+
+
+def test_activity_attention_contract_rejects_authority_and_invalid_wait_shapes() -> (
+    None
+):
+    parsed = parse_candidate(
+        b'{"kind":"progress","progress_summary":"done","next_step":"continue"}',
+        allowed_context_refs=frozenset(),
+        expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
+    )
+    assert getattr(parsed, "kind", None) == "progress"
+    schema_text = json.dumps(
+        candidate_schema(ACTIVITY_ATTENTION_CANDIDATE_VERSION), separators=(",", ":")
+    )
+    assert "activity_id" not in schema_text
+    assert '"failed"' not in schema_text
+
+    invalid = (
+        {"kind": "engage", "activity_id": str(uuid7())},
+        {
+            "kind": "wait",
+            "progress_summary": "blocked",
+            "next_step": "continue",
+            "waiting_summary": "wait",
+            "resumption_cue": "time",
+            "condition_kind": "time",
+        },
+        {
+            "kind": "wait",
+            "progress_summary": "blocked",
+            "next_step": "continue",
+            "waiting_summary": "wait",
+            "resumption_cue": "input",
+            "condition_kind": "creator_input",
+            "delay_seconds": 60,
+        },
+    )
+    for value in invalid:
+        with pytest.raises(ModelViolation):
+            parse_candidate(
+                json.dumps(value).encode(),
+                allowed_context_refs=frozenset(),
+                expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
             )
 
 

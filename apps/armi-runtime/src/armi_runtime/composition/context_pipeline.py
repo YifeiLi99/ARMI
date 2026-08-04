@@ -360,6 +360,24 @@ def _context_request(
             relevance=100,
         ),
         _item(
+            ContextSection.RUNTIME_TRUTH,
+            "resource_snapshot",
+            UUID("01985d00-0000-7000-8000-000000000029"),
+            1,
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.life-resource-snapshot.v1",
+                    "model_concurrency": 2,
+                    "reserved_creator_slots": 1,
+                    "activity_burst_limit": 1,
+                }
+            ),
+            ContextTrustClass.RUNTIME_AUTHORITY,
+            required=snapshot.purpose == "consider_activity_attention",
+            relevance=100,
+            source_kind="resource_snapshot",
+        ),
+        _item(
             ContextSection.PURPOSE,
             "current_purpose",
             snapshot.opportunity_id,
@@ -431,9 +449,21 @@ def _context_request(
                 1,
                 snapshot.activity_summary_bytes,
                 ContextTrustClass.RUNTIME_AUTHORITY,
-                required=snapshot.purpose == "consider_autonomous_life",
+                required=snapshot.purpose
+                in {"consider_autonomous_life", "consider_activity_attention"},
                 relevance=95,
                 source_kind="activity_summary",
+            ),
+            _item(
+                ContextSection.ACTIVITY,
+                "current_activity",
+                snapshot.opportunity_source_ref,
+                snapshot.opportunity_source_version,
+                snapshot.activity_summary_bytes,
+                ContextTrustClass.RUNTIME_AUTHORITY,
+                required=snapshot.purpose == "consider_activity_attention",
+                relevance=100,
+                source_kind=snapshot.opportunity_source_kind,
             ),
             _item(
                 ContextSection.CAPABILITY,

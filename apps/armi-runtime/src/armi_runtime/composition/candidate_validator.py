@@ -10,7 +10,10 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_kernel.application import (
+    ActivityAttentionDecisionKind,
     ActivityStatus,
+    ActivityWaitingKind,
+    CandidateActivityDecisionDraft,
     CandidateActivityDraft,
     CandidateBasis,
     CandidateComponentDraft,
@@ -40,6 +43,15 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 
+from .activity_attention_candidate_contract import (
+    ACTIVITY_ATTENTION_CANDIDATE_VERSION,
+    ActivityAttentionCandidate,
+    AttentionPauseDecision,
+    AttentionProgressDecision,
+    AttentionSimpleDecision,
+    AttentionTerminalDecision,
+    AttentionWaitDecision,
+)
 from .autonomous_activity_candidate_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AutonomousTerminalDecision,
@@ -72,13 +84,14 @@ from .model_contract import (
     parse_candidate,
 )
 
-CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v2"
+CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v3"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
 CHANGE_SET_VERSION = "armi.subject-change-set.v3"
 WEB_CHANGE_SET_VERSION = "armi.subject-change-set.v4"
 CODEX_CHANGE_SET_VERSION = "armi.subject-change-set.v5"
 RUNTIME_BOUND_CHANGE_SET_VERSION = "armi.subject-change-set.v6"
 ACTIVITY_CHANGE_SET_VERSION = "armi.subject-change-set.v7"
+ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +112,11 @@ class CandidateValidationContext:
     codex_active: bool = False
     codex_task_sources: tuple[tuple[UUID, Digest, str], ...] = ()
     opportunity_id: UUID | None = None
+    current_activity_id: UUID | None = None
+    current_activity_revision_id: UUID | None = None
+    current_activity_head_version: int | None = None
+    current_activity_status: ActivityStatus | None = None
+    resource_snapshot_digest: Digest | None = None
 
     def __post_init__(self) -> None:
         if any(
@@ -112,7 +130,13 @@ class CandidateValidationContext:
             )
         ):
             raise CandidateViolation("CON-CANDIDATE-CONTEXT")
-        for value in (self.scene_id, self.creator_party_id, self.opportunity_id):
+        for value in (
+            self.scene_id,
+            self.creator_party_id,
+            self.opportunity_id,
+            self.current_activity_id,
+            self.current_activity_revision_id,
+        ):
             if value is not None and (type(value) is not UUID or value.version != 7):
                 raise CandidateViolation("CON-CANDIDATE-CONTEXT")
         if (
@@ -123,6 +147,22 @@ class CandidateValidationContext:
             or type(self.context_digest) is not Digest
         ):
             raise CandidateViolation("CON-CANDIDATE-CONTEXT")
+        activity_values = (
+            self.current_activity_id,
+            self.current_activity_revision_id,
+            self.current_activity_head_version,
+            self.current_activity_status,
+            self.resource_snapshot_digest,
+        )
+        if any(value is not None for value in activity_values) and (
+            self.current_activity_id is None
+            or self.current_activity_revision_id is None
+            or type(self.current_activity_head_version) is not int
+            or self.current_activity_head_version <= 0
+            or type(self.current_activity_status) is not ActivityStatus
+            or type(self.resource_snapshot_digest) is not Digest
+        ):
+            raise CandidateViolation("CON-CANDIDATE-ACTIVITY-CONTEXT")
 
 
 class DeterministicCandidateValidator:
@@ -149,7 +189,9 @@ class DeterministicCandidateValidator:
                 candidate_bytes,
                 allowed_context_refs=frozenset(basis_by_ref),
                 expected_version=(
-                    AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
+                    ACTIVITY_ATTENTION_CANDIDATE_VERSION
+                    if self._context.purpose == "consider_activity_attention"
+                    else AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
                     if self._context.purpose == "consider_autonomous_life"
                     else None
                 ),
@@ -174,6 +216,21 @@ class DeterministicCandidateValidator:
         candidate_digest = Digest.from_bytes(
             rfc8785.dumps(cast(Any, parsed_candidate.model_dump(mode="json")))
         )
+        if isinstance(
+            parsed_candidate,
+            (
+                AttentionSimpleDecision,
+                AttentionProgressDecision,
+                AttentionWaitDecision,
+                AttentionPauseDecision,
+                AttentionTerminalDecision,
+            ),
+        ):
+            return self._validate_attention(
+                parsed_candidate,
+                bases=bases,
+                candidate_digest=candidate_digest,
+            )
         if isinstance(
             parsed_candidate,
             (StartActivityDecision, AutonomousTerminalDecision),
@@ -681,6 +738,150 @@ class DeterministicCandidateValidator:
             CandidateValidationStatus.ACCEPTED,
             change_set,
             len(activities),
+            0,
+            None,
+        )
+
+    def _validate_attention(
+        self,
+        candidate: ActivityAttentionCandidate,
+        *,
+        bases: tuple[CandidateBasis, ...],
+        candidate_digest: Digest,
+    ) -> CandidateValidationResult:
+        context = self._context
+        if (
+            context.purpose != "consider_activity_attention"
+            or context.opportunity_id is None
+            or context.scene_id is not None
+            or context.creator_party_id is not None
+            or context.current_activity_id is None
+            or context.current_activity_revision_id is None
+            or context.current_activity_head_version is None
+            or context.current_activity_status is None
+            or context.resource_snapshot_digest is None
+        ):
+            return _rejected("CANDIDATE-ACTIVITY-ATTENTION-CONTEXT")
+        source = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_activity"
+                and item.trust_class == "runtime_authority"
+                and item.source_ref == context.current_activity_revision_id
+            ),
+            None,
+        )
+        if source is None:
+            return _rejected("CANDIDATE-ACTIVITY-ATTENTION-SOURCE")
+        kind = ActivityAttentionDecisionKind(candidate.kind)
+        if not _attention_transition_allowed(context.current_activity_status, kind):
+            return _rejected("CANDIDATE-ACTIVITY-TRANSITION")
+        progress = next_step = waiting = cue = terminal = None
+        waiting_kind = None
+        delay = None
+        if isinstance(candidate, AttentionProgressDecision):
+            progress, next_step = candidate.progress_summary, candidate.next_step
+        elif isinstance(candidate, AttentionWaitDecision):
+            progress = candidate.progress_summary
+            next_step = candidate.next_step
+            waiting = candidate.waiting_summary
+            cue = candidate.resumption_cue
+            waiting_kind = ActivityWaitingKind(candidate.condition_kind)
+            delay = candidate.delay_seconds
+        elif isinstance(candidate, AttentionPauseDecision):
+            progress = candidate.progress_summary
+            next_step = candidate.next_step
+            waiting = "scheduled review"
+            cue = candidate.resumption_cue
+            waiting_kind = ActivityWaitingKind.SCHEDULED_REVIEW
+            delay = candidate.review_after_seconds
+        elif isinstance(candidate, AttentionTerminalDecision):
+            progress = candidate.progress_summary
+            terminal = candidate.terminal_reason
+        decision = CandidateActivityDecisionDraft(
+            "proposal:1",
+            "group:1",
+            (source.ordinal,),
+            context.current_activity_id,
+            context.current_activity_revision_id,
+            context.current_activity_head_version,
+            context.resource_snapshot_digest,
+            kind,
+            progress,
+            next_step,
+            waiting,
+            cue,
+            waiting_kind,
+            delay,
+            terminal,
+        )
+        disposition = (
+            CandidateDisposition.CHANGE
+            if kind
+            not in {
+                ActivityAttentionDecisionKind.NO_ACTION,
+                ActivityAttentionDecisionKind.DEFER,
+                ActivityAttentionDecisionKind.NEED_INFORMATION,
+            }
+            else CandidateDisposition.NO_ACTION
+            if kind is ActivityAttentionDecisionKind.NO_ACTION
+            else CandidateDisposition.DEFER
+            if kind is ActivityAttentionDecisionKind.DEFER
+            else CandidateDisposition.NEED_INFORMATION
+        )
+        value = {
+            "schema_version": ACTIVITY_ATTENTION_CHANGE_SET_VERSION,
+            "subject_id": str(context.subject_id),
+            "generation_id": str(context.generation_id),
+            "episode_id": str(context.episode_id),
+            "model_attempt_id": str(context.model_attempt_id),
+            "base": {
+                "subject_version": context.base_subject_version,
+                "state_epoch": context.base_state_epoch,
+                "bundle_activation_id": str(context.bundle_activation_id),
+                "context_digest": context.context_digest.value,
+            },
+            "candidate_digest": candidate_digest.value,
+            "disposition": disposition.value,
+            "experiences": [],
+            "components": [],
+            "capability_requests": [],
+            "action_choices": [],
+            "codex_delegations": [],
+            "activities": [],
+            "activity_decisions": [_activity_decision_wire(decision)],
+            "rejections": [],
+        }
+        canonical = rfc8785.dumps(cast(Any, value))
+        change_set = SubjectChangeSet(
+            canonical,
+            Digest.from_bytes(canonical),
+            context.subject_id,
+            context.generation_id,
+            context.episode_id,
+            context.model_attempt_id,
+            context.base_subject_version,
+            context.base_state_epoch,
+            context.bundle_activation_id,
+            context.context_digest,
+            candidate_digest,
+            disposition,
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (decision,),
+        )
+        return CandidateValidationResult(
+            CandidateValidationId(uuid7()),
+            CandidateValidationStatus.ACCEPTED,
+            change_set,
+            1,
             0,
             None,
         )
@@ -1220,6 +1421,37 @@ def _codex_delegation_failure(
     return None
 
 
+def _attention_transition_allowed(
+    status: ActivityStatus, decision: ActivityAttentionDecisionKind
+) -> bool:
+    passive = {
+        ActivityAttentionDecisionKind.NO_ACTION,
+        ActivityAttentionDecisionKind.DEFER,
+        ActivityAttentionDecisionKind.NEED_INFORMATION,
+    }
+    if decision in passive:
+        return status in {
+            ActivityStatus.READY,
+            ActivityStatus.IN_PROGRESS,
+            ActivityStatus.WAITING,
+            ActivityStatus.PAUSED,
+            ActivityStatus.RESUMING,
+        }
+    return decision in {
+        ActivityStatus.READY: {ActivityAttentionDecisionKind.ENGAGE},
+        ActivityStatus.IN_PROGRESS: {
+            ActivityAttentionDecisionKind.PROGRESS,
+            ActivityAttentionDecisionKind.WAIT,
+            ActivityAttentionDecisionKind.PAUSE,
+            ActivityAttentionDecisionKind.COMPLETE,
+            ActivityAttentionDecisionKind.ABANDON,
+        },
+        ActivityStatus.WAITING: {ActivityAttentionDecisionKind.RESUME},
+        ActivityStatus.PAUSED: {ActivityAttentionDecisionKind.RESUME},
+        ActivityStatus.RESUMING: {ActivityAttentionDecisionKind.ENGAGE},
+    }.get(status, set())
+
+
 def _rejected(code: str) -> CandidateValidationResult:
     return CandidateValidationResult(
         CandidateValidationId(uuid7()),
@@ -1303,6 +1535,30 @@ def _activity_wire(value: CandidateActivityDraft) -> dict[str, object]:
         "next_safe_step": value.next_safe_step,
         "status": value.status.value,
         "privacy_scope": value.privacy_scope,
+    }
+
+
+def _activity_decision_wire(
+    value: CandidateActivityDecisionDraft,
+) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "activity_id": str(value.activity_id),
+        "current_revision_id": str(value.current_revision_id),
+        "expected_head_version": value.expected_head_version,
+        "resource_snapshot_digest": value.resource_snapshot_digest.value,
+        "decision_kind": value.decision_kind.value,
+        "progress_summary": value.progress_summary,
+        "next_safe_step": value.next_safe_step,
+        "waiting_summary": value.waiting_summary,
+        "resumption_cue": value.resumption_cue,
+        "waiting_kind": (
+            None if value.waiting_kind is None else value.waiting_kind.value
+        ),
+        "delay_seconds": value.delay_seconds,
+        "terminal_reason": value.terminal_reason,
     }
 
 

@@ -12,7 +12,11 @@ from armi_kernel.contracts import Digest
 
 from .capability import CapabilityRequestDraft
 from .codex_delegation import CodexDelegationDraft
-from .life import ActivityStatus
+from .life import (
+    ActivityAttentionDecisionKind,
+    ActivityStatus,
+    ActivityWaitingKind,
+)
 from .response import ResponseChoiceDraft
 from .web_evidence import WebResearchRequestDraft
 
@@ -217,6 +221,137 @@ class CandidateActivityDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateActivityDecisionDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    activity_id: UUID
+    current_revision_id: UUID
+    expected_head_version: int
+    resource_snapshot_digest: Digest
+    decision_kind: ActivityAttentionDecisionKind
+    progress_summary: str | None = None
+    next_safe_step: str | None = None
+    waiting_summary: str | None = None
+    resumption_cue: str | None = None
+    waiting_kind: ActivityWaitingKind | None = None
+    delay_seconds: int | None = None
+    terminal_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        _validate_proposal(
+            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
+        )
+        if (
+            any(
+                type(value) is not UUID or value.version != 7
+                for value in (self.activity_id, self.current_revision_id)
+            )
+            or type(self.expected_head_version) is not int
+            or self.expected_head_version <= 0
+            or type(self.resource_snapshot_digest) is not Digest
+            or type(self.decision_kind) is not ActivityAttentionDecisionKind
+            or not _optional_text(self.progress_summary, 2048)
+            or not _optional_text(self.next_safe_step, 1024)
+            or not _optional_text(self.waiting_summary, 2048)
+            or not _optional_text(self.resumption_cue, 2048)
+            or not _optional_text(self.terminal_reason, 1024)
+            or (
+                self.delay_seconds is not None
+                and (
+                    type(self.delay_seconds) is not int
+                    or not 1 <= self.delay_seconds <= 86400
+                )
+            )
+        ):
+            raise CandidateViolation("CON-CANDIDATE-ACTIVITY-DECISION")
+        kind = self.decision_kind
+        simple = {
+            ActivityAttentionDecisionKind.ENGAGE,
+            ActivityAttentionDecisionKind.RESUME,
+            ActivityAttentionDecisionKind.NO_ACTION,
+            ActivityAttentionDecisionKind.DEFER,
+            ActivityAttentionDecisionKind.NEED_INFORMATION,
+        }
+        if kind in simple and any(
+            value is not None
+            for value in (
+                self.progress_summary,
+                self.next_safe_step,
+                self.waiting_summary,
+                self.resumption_cue,
+                self.waiting_kind,
+                self.delay_seconds,
+                self.terminal_reason,
+            )
+        ):
+            raise CandidateViolation("CON-CANDIDATE-ACTIVITY-DECISION-SHAPE")
+        if kind is ActivityAttentionDecisionKind.PROGRESS and not (
+            self.progress_summary is not None
+            and self.next_safe_step is not None
+            and all(
+                value is None
+                for value in (
+                    self.waiting_summary,
+                    self.resumption_cue,
+                    self.waiting_kind,
+                    self.delay_seconds,
+                    self.terminal_reason,
+                )
+            )
+        ):
+            raise CandidateViolation("CON-CANDIDATE-ACTIVITY-DECISION-SHAPE")
+        if kind in {
+            ActivityAttentionDecisionKind.WAIT,
+            ActivityAttentionDecisionKind.PAUSE,
+        } and not (
+            self.progress_summary is not None
+            and self.next_safe_step is not None
+            and self.waiting_summary is not None
+            and self.resumption_cue is not None
+            and self.waiting_kind is not None
+            and self.terminal_reason is None
+        ):
+            raise CandidateViolation("CON-CANDIDATE-ACTIVITY-DECISION-SHAPE")
+        if kind is ActivityAttentionDecisionKind.WAIT and (
+            self.waiting_kind
+            not in {
+                ActivityWaitingKind.TIME,
+                ActivityWaitingKind.CREATOR_INPUT,
+                ActivityWaitingKind.EXTERNAL_EVIDENCE,
+            }
+            or (
+                (self.waiting_kind is ActivityWaitingKind.TIME)
+                != (self.delay_seconds is not None)
+            )
+        ):
+            raise CandidateViolation("CON-CANDIDATE-ACTIVITY-DECISION-SHAPE")
+        if kind is ActivityAttentionDecisionKind.PAUSE and (
+            self.waiting_kind is not ActivityWaitingKind.SCHEDULED_REVIEW
+            or self.delay_seconds is None
+        ):
+            raise CandidateViolation("CON-CANDIDATE-ACTIVITY-DECISION-SHAPE")
+        if kind in {
+            ActivityAttentionDecisionKind.COMPLETE,
+            ActivityAttentionDecisionKind.ABANDON,
+        } and not (
+            self.progress_summary is not None
+            and self.terminal_reason is not None
+            and all(
+                value is None
+                for value in (
+                    self.next_safe_step,
+                    self.waiting_summary,
+                    self.resumption_cue,
+                    self.waiting_kind,
+                    self.delay_seconds,
+                )
+            )
+        ):
+            raise CandidateViolation("CON-CANDIDATE-ACTIVITY-DECISION-SHAPE")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateRejection:
     proposal_ref: str
     atomic_group_ref: str
@@ -263,6 +398,7 @@ class SubjectChangeSet:
     rejections: tuple[CandidateRejection, ...]
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()
     activities: tuple[CandidateActivityDraft, ...] = ()
+    activity_decisions: tuple[CandidateActivityDecisionDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -355,7 +491,19 @@ def _validate_proposal(
         raise CandidateViolation("CON-CANDIDATE-PROPOSAL")
 
 
+def _optional_text(value: str | None, maximum: int) -> bool:
+    if value is None:
+        return True
+    if type(value) is not str or not value.strip() or "\x00" in value:
+        return False
+    try:
+        return 1 <= len(value.encode("utf-8", errors="strict")) <= maximum
+    except UnicodeEncodeError:
+        return False
+
+
 __all__ = (
+    "CandidateActivityDecisionDraft",
     "CandidateActivityDraft",
     "CandidateBasis",
     "CandidateComponentDraft",

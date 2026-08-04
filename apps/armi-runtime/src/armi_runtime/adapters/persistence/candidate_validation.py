@@ -19,6 +19,7 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CandidateActivityDecisionDraft,
     CandidateActivityDraft,
     CandidateBasis,
     CandidateComponentDraft,
@@ -78,6 +79,11 @@ class CandidateEpisodeSnapshot:
     purpose: str
     codex_task_sources: tuple[tuple[UUID, Digest, str], ...] = ()
     opportunity_id: UUID | None = None
+    current_activity_id: UUID | None = None
+    current_activity_revision_id: UUID | None = None
+    current_activity_head_version: int | None = None
+    current_activity_status: str | None = None
+    resource_snapshot_digest: Digest | None = None
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -231,6 +237,34 @@ class PostgreSQLCandidateValidationRepository:
                 (row[0],),
             )
         ).fetchall()
+        activity_row = await (
+            await connection.execute(
+                """
+                SELECT opportunity.activity_id, activity.current_revision_id,
+                       activity.head_version, revision.status
+                FROM armi.cognitive_episodes AS episode
+                JOIN armi.opportunities AS opportunity
+                  ON opportunity.opportunity_id = episode.opportunity_id
+                JOIN armi.activities AS activity
+                  ON activity.activity_id = opportunity.activity_id
+                JOIN armi.activity_revisions AS revision
+                  ON revision.activity_revision_id = activity.current_revision_id
+                WHERE episode.cognitive_episode_id = %s
+                  AND episode.purpose = 'consider_activity_attention'
+                  AND opportunity.source_ref = activity.current_revision_id
+                """,
+                (row[0],),
+            )
+        ).fetchone()
+        resource_digest = next(
+            (
+                basis.source_digest
+                for basis in bases
+                if basis.item_kind == "resource_snapshot"
+                and basis.trust_class == "runtime_authority"
+            ),
+            None,
+        )
         return CandidateEpisodeSnapshot(
             row[0],
             row[1],
@@ -251,6 +285,11 @@ class PostgreSQLCandidateValidationRepository:
             str(row[13]),
             tuple((item[0], Digest(str(item[1])), str(item[2])) for item in codex_rows),
             row[14],
+            None if activity_row is None else activity_row[0],
+            None if activity_row is None else activity_row[1],
+            None if activity_row is None else int(activity_row[2]),
+            None if activity_row is None else str(activity_row[3]),
+            resource_digest,
         )
 
     async def settle(
@@ -475,6 +514,7 @@ def _validation_drafts(
     | WebResearchRequestDraft
     | CodexDelegationDraft
     | CandidateActivityDraft
+    | CandidateActivityDecisionDraft
     | CandidateRejection,
     ...,
 ]:
@@ -486,6 +526,7 @@ def _validation_drafts(
         *change_set.web_research_requests,
         *change_set.codex_delegations,
         *change_set.activities,
+        *change_set.activity_decisions,
         *change_set.rejections,
     )
 
@@ -499,6 +540,7 @@ def _item_semantic(
     | WebResearchRequestDraft
     | CodexDelegationDraft
     | CandidateActivityDraft
+    | CandidateActivityDecisionDraft
     | CandidateRejection,
 ) -> dict[str, object]:
     result: dict[str, object] = {
@@ -507,7 +549,18 @@ def _item_semantic(
         "basis_ordinals": list(value.basis_ordinals),
         "fact_class": _implicit_fact_class(value).value,
     }
-    if isinstance(value, CandidateActivityDraft):
+    if isinstance(value, CandidateActivityDecisionDraft):
+        result.update(
+            {
+                "owner": "activity",
+                "activity_id": str(value.activity_id),
+                "current_revision_id": str(value.current_revision_id),
+                "expected_head_version": value.expected_head_version,
+                "resource_snapshot_digest": value.resource_snapshot_digest.value,
+                "decision_kind": value.decision_kind.value,
+            }
+        )
+    elif isinstance(value, CandidateActivityDraft):
         result.update(
             {
                 "owner": "activity",
@@ -570,9 +623,10 @@ def _owner(
     | WebResearchRequestDraft
     | CodexDelegationDraft
     | CandidateActivityDraft
+    | CandidateActivityDecisionDraft
     | CandidateRejection,
 ) -> CandidateOwner:
-    if isinstance(value, CandidateActivityDraft):
+    if isinstance(value, (CandidateActivityDraft, CandidateActivityDecisionDraft)):
         return CandidateOwner.ACTIVITY
     if isinstance(value, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
@@ -596,6 +650,7 @@ def _implicit_fact_class(
     | WebResearchRequestDraft
     | CodexDelegationDraft
     | CandidateActivityDraft
+    | CandidateActivityDecisionDraft
     | CandidateRejection,
 ) -> CandidateFactClass:
     if isinstance(
@@ -608,6 +663,8 @@ def _implicit_fact_class(
         ),
     ):
         return value.fact_class
+    if isinstance(value, CandidateActivityDecisionDraft):
+        return CandidateFactClass.INFERENCE
     return CandidateFactClass.INFERENCE
 
 

@@ -8,8 +8,10 @@ from dataclasses import replace
 from typing import Any, cast
 from uuid import uuid7
 
+import pytest
 import rfc8785
 from armi_kernel.application import (
+    ActivityStatus,
     CandidateBasis,
     CandidateOwner,
     CandidateValidationStatus,
@@ -229,6 +231,234 @@ def test_autonomous_candidate_rejects_scene_or_missing_source() -> None:
     )
     assert result.status is CandidateValidationStatus.REJECTED
     assert result.error_code == "CANDIDATE-ACTIVITY-CONTEXT"
+
+
+def test_attention_candidate_binds_authority_and_round_trips_change_set_v8() -> None:
+    context, bases = _fixture()
+    activity_id = uuid7()
+    revision_id = uuid7()
+    resource_digest = Digest.from_bytes(b"resources")
+    attention = replace(
+        context,
+        purpose="consider_activity_attention",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+        current_activity_id=activity_id,
+        current_activity_revision_id=revision_id,
+        current_activity_head_version=1,
+        current_activity_status=ActivityStatus.IN_PROGRESS,
+        resource_snapshot_digest=resource_digest,
+    )
+    current = CandidateBasis(
+        4,
+        "activity",
+        "current_activity",
+        revision_id,
+        1,
+        Digest.from_bytes(b"activity revision"),
+        "runtime_authority",
+        "private",
+    )
+    resources = CandidateBasis(
+        5,
+        "runtime_truth",
+        "resource_snapshot",
+        uuid7(),
+        1,
+        resource_digest,
+        "runtime_authority",
+        "internal",
+    )
+    result = DeterministicCandidateValidator(attention).validate(
+        b'{"kind":"progress","progress_summary":"one bounded step",'
+        b'"next_step":"wait for the next consideration"}',
+        bases=(*bases, current, resources),
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert b"armi.subject-change-set.v8" in result.change_set.canonical_bytes
+    decision = result.change_set.activity_decisions[0]
+    assert decision.activity_id == activity_id
+    assert decision.current_revision_id == revision_id
+    assert decision.resource_snapshot_digest == resource_digest
+    parsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert parsed.activity_decisions == result.change_set.activity_decisions
+    assert len(_validation_drafts(parsed)) == 1
+
+
+def test_attention_candidate_rejects_illegal_ready_progress_transition() -> None:
+    context, bases = _fixture()
+    revision_id = uuid7()
+    attention = replace(
+        context,
+        purpose="consider_activity_attention",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+        current_activity_id=uuid7(),
+        current_activity_revision_id=revision_id,
+        current_activity_head_version=1,
+        current_activity_status=ActivityStatus.READY,
+        resource_snapshot_digest=Digest.from_bytes(b"resources"),
+    )
+    current = CandidateBasis(
+        4,
+        "activity",
+        "current_activity",
+        revision_id,
+        1,
+        Digest.from_bytes(b"activity revision"),
+        "runtime_authority",
+        "private",
+    )
+    result = DeterministicCandidateValidator(attention).validate(
+        b'{"kind":"progress","progress_summary":"step","next_step":"next"}',
+        bases=(*bases, current),
+    )
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.error_code == "CANDIDATE-ACTIVITY-TRANSITION"
+
+
+@pytest.mark.parametrize(
+    ("status", "kind", "accepted"),
+    [
+        (status, kind, kind in allowed)
+        for status, allowed in {
+            ActivityStatus.CONSIDERING: set(),
+            ActivityStatus.READY: {
+                "engage",
+                "no_action",
+                "defer",
+                "need_information",
+            },
+            ActivityStatus.IN_PROGRESS: {
+                "progress",
+                "wait",
+                "pause",
+                "complete",
+                "abandon",
+                "no_action",
+                "defer",
+                "need_information",
+            },
+            ActivityStatus.WAITING: {
+                "resume",
+                "no_action",
+                "defer",
+                "need_information",
+            },
+            ActivityStatus.PAUSED: {
+                "resume",
+                "no_action",
+                "defer",
+                "need_information",
+            },
+            ActivityStatus.RESUMING: {
+                "engage",
+                "no_action",
+                "defer",
+                "need_information",
+            },
+            ActivityStatus.COMPLETED: set(),
+            ActivityStatus.ABANDONED: set(),
+            ActivityStatus.FAILED: set(),
+        }.items()
+        for kind in (
+            "engage",
+            "progress",
+            "wait",
+            "pause",
+            "resume",
+            "complete",
+            "abandon",
+            "no_action",
+            "defer",
+            "need_information",
+        )
+    ],
+)
+def test_attention_candidate_enforces_complete_status_matrix(
+    status: ActivityStatus, kind: str, accepted: bool
+) -> None:
+    context, bases = _fixture()
+    revision_id = uuid7()
+    resource_digest = Digest.from_bytes(b"attention resources")
+    attention = replace(
+        context,
+        purpose="consider_activity_attention",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+        current_activity_id=uuid7(),
+        current_activity_revision_id=revision_id,
+        current_activity_head_version=2,
+        current_activity_status=status,
+        resource_snapshot_digest=resource_digest,
+    )
+    current = CandidateBasis(
+        4,
+        "activity",
+        "current_activity",
+        revision_id,
+        1,
+        Digest.from_bytes(b"activity revision"),
+        "runtime_authority",
+        "private",
+    )
+    resources = CandidateBasis(
+        5,
+        "runtime_truth",
+        "resource_snapshot",
+        uuid7(),
+        1,
+        resource_digest,
+        "runtime_authority",
+        "internal",
+    )
+    payloads = {
+        "engage": {"kind": "engage"},
+        "progress": {
+            "kind": "progress",
+            "progress_summary": "bounded progress",
+            "next_step": "continue later",
+        },
+        "wait": {
+            "kind": "wait",
+            "progress_summary": "bounded progress",
+            "waiting_summary": "await evidence",
+            "condition_kind": "external_evidence",
+            "resumption_cue": "matching evidence arrives",
+            "next_step": "review the evidence",
+        },
+        "pause": {
+            "kind": "pause",
+            "progress_summary": "bounded progress",
+            "resumption_cue": "scheduled review",
+            "review_after_seconds": 60,
+            "next_step": "reconsider",
+        },
+        "resume": {"kind": "resume"},
+        "complete": {
+            "kind": "complete",
+            "progress_summary": "bounded progress",
+            "terminal_reason": "goal reached",
+        },
+        "abandon": {
+            "kind": "abandon",
+            "progress_summary": "bounded progress",
+            "terminal_reason": "no longer wanted",
+        },
+        "no_action": {"kind": "no_action"},
+        "defer": {"kind": "defer"},
+        "need_information": {"kind": "need_information"},
+    }
+    result = DeterministicCandidateValidator(attention).validate(
+        _bytes(payloads[kind]), bases=(*bases, current, resources)
+    )
+    assert (result.status is CandidateValidationStatus.ACCEPTED) is accepted
+    if not accepted:
+        assert result.error_code == "CANDIDATE-ACTIVITY-TRANSITION"
 
 
 def _bytes(value: Mapping[str, object]) -> bytes:

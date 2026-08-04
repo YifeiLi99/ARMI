@@ -127,7 +127,21 @@ def _projection(connection: psycopg.Connection[Any]) -> dict[str, Any]:
              FROM armi.cognitive_attempts AS attempt
              JOIN armi.cognitive_episodes AS episode
                ON episode.cognitive_episode_id = attempt.cognitive_episode_id
-             WHERE episode.purpose = 'consider_autonomous_life')
+             WHERE episode.purpose = 'consider_autonomous_life'),
+            (SELECT count(*) FROM armi.opportunities
+             WHERE purpose = 'consider_activity_attention'),
+            (SELECT count(*) FROM armi.cognitive_episodes
+             WHERE purpose = 'consider_activity_attention'),
+            (SELECT count(*) FROM armi.cognitive_attempts AS attempt
+             JOIN armi.cognitive_episodes AS episode
+               ON episode.cognitive_episode_id = attempt.cognitive_episode_id
+             WHERE episode.purpose = 'consider_activity_attention'),
+            (SELECT count(*) FROM armi.activity_attention_decisions),
+            (SELECT COALESCE(sum(attempt.estimated_cost_microyuan), 0)
+             FROM armi.cognitive_attempts AS attempt
+             JOIN armi.cognitive_episodes AS episode
+               ON episode.cognitive_episode_id = attempt.cognitive_episode_id
+             WHERE episode.purpose = 'consider_activity_attention')
         """
     ).fetchone()
     assert row is not None
@@ -167,6 +181,19 @@ def _projection(connection: psycopg.Connection[Any]) -> dict[str, Any]:
         LIMIT 1
         """
     ).fetchone()
+    attention = connection.execute(
+        """
+        SELECT decision.decision_kind, decision.expected_revision_id,
+               decision.expected_head_version, decision.result_revision_id,
+               decision.resource_snapshot_digest,
+               CASE WHEN decision.review_not_before IS NULL THEN false ELSE true END,
+               application.resolution
+        FROM armi.activity_attention_decisions AS decision
+        JOIN armi.cognitive_candidate_applications AS application
+          ON application.candidate_application_id = decision.candidate_application_id
+        ORDER BY decision.decided_at DESC LIMIT 1
+        """
+    ).fetchone()
     return {
         "root_opportunity_count": int(row[0]),
         "episode_count": int(row[1]),
@@ -174,6 +201,11 @@ def _projection(connection: psycopg.Connection[Any]) -> dict[str, Any]:
         "activity_count": int(row[3]),
         "activity_revision_count": int(row[4]),
         "estimated_cost_microyuan": int(row[5]),
+        "attention_opportunity_count": int(row[6]),
+        "attention_episode_count": int(row[7]),
+        "attention_model_attempt_count": int(row[8]),
+        "attention_decision_count": int(row[9]),
+        "attention_estimated_cost_microyuan": int(row[10]),
         "activity": None
         if activity is None
         else {
@@ -203,6 +235,17 @@ def _projection(connection: psycopg.Connection[Any]) -> dict[str, Any]:
             "final_disposition": episode[1],
             "application_resolution": episode[2],
             "failure_code": episode[3],
+        },
+        "attention": None
+        if attention is None
+        else {
+            "decision_kind": str(attention[0]),
+            "expected_revision_id": str(attention[1]),
+            "expected_head_version": int(attention[2]),
+            "result_revision_id": (None if attention[3] is None else str(attention[3])),
+            "resource_snapshot_digest": str(attention[4]),
+            "has_review_not_before": bool(attention[5]),
+            "application_resolution": str(attention[6]),
         },
     }
 
@@ -236,6 +279,28 @@ def _wait_activity(dsn: str) -> dict[str, Any]:
     raise AcceptanceFailure("P0-ACC-TIMEOUT")
 
 
+def _wait_attention(dsn: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 180
+    latest: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        with psycopg.connect(dsn) as connection:
+            latest = _projection(connection)
+            failed = connection.execute(
+                """
+                SELECT status, failure_code
+                FROM armi.cognitive_episodes
+                WHERE purpose = 'consider_activity_attention'
+                ORDER BY created_at DESC LIMIT 1
+                """
+            ).fetchone()
+        if latest.get("attention_decision_count") == 1:
+            return latest
+        if failed is not None and failed[0] in {"failed", "cancelled", "stale"}:
+            raise AcceptanceFailure("P0-ACC-ATTENTION-FAILED")
+        time.sleep(0.25)
+    raise AcceptanceFailure("P0-ACC-ATTENTION-TIMEOUT")
+
+
 def _sha256(value: bytes) -> str:
     return f"sha256:{hashlib.sha256(value).hexdigest()}"
 
@@ -245,6 +310,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--provisioner-conninfo-file", type=Path, required=True)
     parser.add_argument("--ark-api-key-file", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--s002-evidence", type=Path, required=True)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -398,6 +464,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             activity = before["activity"]
             if activity is None or activity["status"] != "ready":
                 raise AcceptanceFailure("P0-ACC-ACTIVITY")
+            before = _wait_attention(database_dsn)
+            if before["attention_estimated_cost_microyuan"] > 2_000_000:
+                raise AcceptanceFailure("P0-ACC-ATTENTION-BUDGET")
+            if (
+                before["estimated_cost_microyuan"]
+                + before["attention_estimated_cost_microyuan"]
+                > 4_000_000
+            ):
+                raise AcceptanceFailure("P0-ACC-TOTAL-BUDGET")
+            if before["attention"] is None:
+                raise AcceptanceFailure("P0-ACC-ATTENTION")
             _stop_runtime(process)
             process = None
             restarted = _start_runtime(executable, work, cwd=root)
@@ -419,7 +496,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     capture_output=True,
                     text=True,
                 ).stdout.strip(),
-                "schema_target": 28,
+                "schema_target": 29,
                 "composition_digest": packaged["composition_digest"].value,
                 "source": {
                     "kind": "life_generation_available",
@@ -436,6 +513,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             evidence_bytes = rfc8785.dumps(evidence) + b"\n"
             args.evidence.resolve().parent.mkdir(parents=True, exist_ok=True)
             args.evidence.resolve().write_bytes(evidence_bytes)
+            s002_evidence = {
+                "schema_version": "armi.p0-s002-evidence.v1",
+                "source_revision": evidence["source_revision"],
+                "schema_target": 29,
+                "composition_digest": packaged["composition_digest"].value,
+                "result": {"status": "pass"},
+                "projection": {
+                    "opportunity_count": before["attention_opportunity_count"],
+                    "episode_count": before["attention_episode_count"],
+                    "model_attempt_count": before["attention_model_attempt_count"],
+                    "decision_count": before["attention_decision_count"],
+                    "estimated_cost_microyuan": before[
+                        "attention_estimated_cost_microyuan"
+                    ],
+                    "decision": before["attention"],
+                    "activity": before["activity"],
+                },
+                "restart_projection": {
+                    "opportunity_count": after["attention_opportunity_count"],
+                    "episode_count": after["attention_episode_count"],
+                    "model_attempt_count": after["attention_model_attempt_count"],
+                    "decision_count": after["attention_decision_count"],
+                    "decision": after["attention"],
+                    "activity": after["activity"],
+                },
+                "cleanup": {
+                    "database": "pending",
+                    "roles": "pending",
+                    "runtime": "stopped",
+                },
+            }
+            args.s002_evidence.resolve().parent.mkdir(parents=True, exist_ok=True)
+            args.s002_evidence.resolve().write_bytes(
+                rfc8785.dumps(s002_evidence) + b"\n"
+            )
         status = "pass"
     except AcceptanceFailure as error:
         if created:
@@ -452,7 +564,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         capture_output=True,
                         text=True,
                     ).stdout.strip(),
-                    "schema_target": 28,
+                    "schema_target": 29,
                     "composition_digest": packaged["composition_digest"].value,
                     "result": {"status": "failed", "code": error.code},
                     "source": {
@@ -472,6 +584,39 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.evidence.resolve().parent.mkdir(parents=True, exist_ok=True)
                 args.evidence.resolve().write_bytes(
                     rfc8785.dumps(failure_evidence) + b"\n"
+                )
+                s002_status = (
+                    "not_run"
+                    if error.code
+                    in {
+                        "P0-ACC-NO-ACTIVITY",
+                        "P0-ACC-DEFERRED",
+                        "P0-ACC-NEED-INFORMATION",
+                    }
+                    else "failed"
+                )
+                args.s002_evidence.resolve().parent.mkdir(parents=True, exist_ok=True)
+                args.s002_evidence.resolve().write_bytes(
+                    rfc8785.dumps(
+                        {
+                            "schema_version": "armi.p0-s002-evidence.v1",
+                            "source_revision": failure_evidence["source_revision"],
+                            "schema_target": 29,
+                            "composition_digest": packaged["composition_digest"].value,
+                            "result": {
+                                "status": s002_status,
+                                "code": error.code,
+                            },
+                            "projection": None,
+                            "restart_projection": None,
+                            "cleanup": {
+                                "database": "pending",
+                                "roles": "pending",
+                                "runtime": "pending",
+                            },
+                        }
+                    )
+                    + b"\n"
                 )
             except OSError, psycopg.Error, subprocess.SubprocessError:
                 pass
@@ -512,6 +657,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "runtime": "stopped",
             }
             evidence_path.write_bytes(rfc8785.dumps(document) + b"\n")
+        s002_path = args.s002_evidence.resolve()
+        if s002_path.is_file():
+            s002_document = json.loads(s002_path.read_bytes())
+            s002_document["cleanup"] = {
+                "database": "removed",
+                "roles": "removed",
+                "runtime": "stopped",
+            }
+            s002_path.write_bytes(rfc8785.dumps(s002_document) + b"\n")
     evidence_path = args.evidence.resolve()
     document = json.loads(evidence_path.read_bytes())
     document["cleanup"] = {
@@ -520,12 +674,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         "runtime": "stopped",
     }
     evidence_path.write_bytes(rfc8785.dumps(document) + b"\n")
+    s002_path = args.s002_evidence.resolve()
+    s002_document = json.loads(s002_path.read_bytes())
+    s002_document["cleanup"] = {
+        "database": "removed",
+        "roles": "removed",
+        "runtime": "stopped",
+    }
+    s002_path.write_bytes(rfc8785.dumps(s002_document) + b"\n")
     print(
         json.dumps(
             {
                 "status": status,
                 "activity_id": document["projection"]["activity"]["activity_id"],
                 "evidence_sha256": _sha256(evidence_path.read_bytes()),
+                "s002_evidence_sha256": _sha256(s002_path.read_bytes()),
             },
             separators=(",", ":"),
         )

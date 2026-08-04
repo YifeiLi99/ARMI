@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -19,6 +19,7 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CandidateActivityDecisionDraft,
     CandidateActivityDraft,
     CandidateApplicationId,
     CandidateApplicationStatus,
@@ -343,6 +344,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.web_research_requests
             and not change_set.codex_delegations
             and not change_set.activities
+            and not change_set.activity_decisions
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -507,6 +509,12 @@ class PostgreSQLSubjectCommitRepository:
             commit_id=commit_id,
             activities=change_set.activities,
         )
+        attention_result_revision = await _apply_activity_attention_transition(
+            connection,
+            snapshot=snapshot,
+            commit_id=commit_id,
+            decisions=change_set.activity_decisions,
+        )
 
         await _insert_capability_requests(
             unit_of_work,
@@ -565,6 +573,13 @@ class PostgreSQLSubjectCommitRepository:
             observed_version=new_version,
             completion_digest=commit_digest,
             commit_id=commit_id,
+        )
+        await _insert_activity_attention_decision(
+            connection,
+            snapshot=snapshot,
+            application_id=application_id,
+            decisions=change_set.activity_decisions,
+            result_revision_id=attention_result_revision,
         )
         if snapshot.scene_id is not None:
             timeline_item_id = uuid7()
@@ -725,6 +740,11 @@ async def _settle_without_commit(
         observed_version,
     )
     application_id = CandidateApplicationId(uuid7())
+    successor_id = await _insert_attention_reconsideration(
+        connection,
+        snapshot=snapshot,
+        decisions=change_set.activity_decisions,
+    )
     await _insert_application(
         connection,
         unit_of_work=unit_of_work,
@@ -734,8 +754,16 @@ async def _settle_without_commit(
         status=status,
         observed_version=observed_version,
         completion_digest=completion,
+        successor_id=successor_id,
     )
-    if status in {
+    await _insert_activity_attention_decision(
+        connection,
+        snapshot=snapshot,
+        application_id=application_id,
+        decisions=change_set.activity_decisions,
+        result_revision_id=None,
+    )
+    if not change_set.activity_decisions and status in {
         CandidateApplicationStatus.DECLINED,
         CandidateApplicationStatus.NO_ACTION,
     }:
@@ -774,7 +802,12 @@ async def _settle_without_commit(
             completion,
         )
     )
-    return SubjectCommitResult(application_id, status, completion)
+    return SubjectCommitResult(
+        application_id,
+        status,
+        completion,
+        successor_opportunity_id=successor_id,
+    )
 
 
 async def _finish_episode_and_work(
@@ -996,10 +1029,11 @@ async def _insert_activities(
                 candidate_validation_id, proposal_ref, goal,
                 progress_summary, waiting_condition, resumption_cue,
                 next_safe_step, status, terminal_reason,
-                related_scene_id, schema_version
+                related_scene_id, transition_kind,
+                waiting_condition_kind, resume_not_before, schema_version
             ) VALUES (
                 %s, %s, 1, NULL, %s, %s, %s, %s,
-                NULL, NULL, NULL, %s, %s, NULL, %s, 1
+                NULL, NULL, NULL, %s, %s, NULL, %s, 'created', NULL, NULL, 1
             )
             """,
             (
@@ -1029,6 +1063,317 @@ async def _insert_activities(
         ).fetchone()
         if updated is None:
             raise SubjectCommitViolation("SUBJECT-ACTIVITY-HEAD-STALE")
+
+
+async def _apply_activity_attention_transition(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    decisions: tuple[CandidateActivityDecisionDraft, ...],
+) -> UUID | None:
+    if not decisions:
+        return None
+    if len(decisions) != 1:
+        raise SubjectCommitViolation("SUBJECT-ACTIVITY-DECISION-COUNT")
+    decision = decisions[0]
+    row = await (
+        await connection.execute(
+            """
+            SELECT activity.current_revision_id, activity.head_version,
+                   revision.revision_no, revision.goal, revision.progress_summary,
+                   revision.next_safe_step, revision.status
+            FROM armi.activities AS activity
+            JOIN armi.activity_revisions AS revision
+              ON revision.activity_revision_id = activity.current_revision_id
+            WHERE activity.activity_id = %s AND activity.subject_id = %s
+            FOR UPDATE OF activity
+            """,
+            (decision.activity_id, snapshot.subject_id),
+        )
+    ).fetchone()
+    if (
+        row is None
+        or row[0] != decision.current_revision_id
+        or int(row[1]) != decision.expected_head_version
+        or snapshot.source_activity_id != decision.activity_id
+        or snapshot.source_ref != decision.current_revision_id
+    ):
+        raise SubjectCommitViolation("SUBJECT-ACTIVITY-HEAD-STALE")
+    validation = await (
+        await connection.execute(
+            """
+            SELECT 1 FROM armi.cognitive_candidate_validation_items
+            WHERE candidate_validation_id = %s AND proposal_ref = %s
+              AND owner_kind = 'activity' AND validation_status = 'accepted'
+            """,
+            (snapshot.validation_id, decision.proposal_ref),
+        )
+    ).fetchone()
+    if validation is None:
+        raise SubjectCommitViolation("SUBJECT-ACTIVITY-VALIDATION")
+
+    kind = decision.decision_kind.value
+    target = {
+        "engage": "in_progress",
+        "progress": "in_progress",
+        "wait": "waiting",
+        "pause": "paused",
+        "resume": "resuming",
+        "complete": "completed",
+        "abandon": "abandoned",
+    }.get(kind)
+    if target is None:
+        raise SubjectCommitViolation("SUBJECT-ACTIVITY-TRANSITION")
+    current_status = str(row[6])
+    allowed = {
+        "ready": {"engage"},
+        "in_progress": {"progress", "wait", "pause", "complete", "abandon"},
+        "waiting": {"resume"},
+        "paused": {"resume"},
+        "resuming": {"engage"},
+    }
+    if kind not in allowed.get(current_status, set()):
+        raise SubjectCommitViolation("SUBJECT-ACTIVITY-TRANSITION")
+
+    revision_id = uuid7()
+    resume_not_before = (
+        None
+        if decision.delay_seconds is None
+        else datetime.now(UTC) + timedelta(seconds=decision.delay_seconds)
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.activity_revisions (
+            activity_revision_id, activity_id, revision_no,
+            previous_revision_id, subject_commit_id, candidate_validation_id,
+            proposal_ref, goal, progress_summary, waiting_condition,
+            resumption_cue, next_safe_step, status, terminal_reason,
+            related_scene_id, transition_kind, waiting_condition_kind,
+            resume_not_before, schema_version
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, NULL, %s, %s, %s, 1
+        )
+        """,
+        (
+            revision_id,
+            decision.activity_id,
+            int(row[2]) + 1,
+            decision.current_revision_id,
+            commit_id.value,
+            snapshot.validation_id,
+            decision.proposal_ref,
+            str(row[3]),
+            decision.progress_summary
+            if decision.progress_summary is not None
+            else row[4],
+            decision.waiting_summary,
+            decision.resumption_cue,
+            decision.next_safe_step
+            if decision.next_safe_step is not None
+            else None
+            if target in {"completed", "abandoned"}
+            else row[5],
+            target,
+            decision.terminal_reason,
+            kind,
+            None if decision.waiting_kind is None else decision.waiting_kind.value,
+            resume_not_before,
+        ),
+    )
+    updated = await (
+        await connection.execute(
+            """
+            UPDATE armi.activities
+            SET current_revision_id = %s, head_version = head_version + 1
+            WHERE activity_id = %s AND current_revision_id = %s
+              AND head_version = %s
+            RETURNING activity_id
+            """,
+            (
+                revision_id,
+                decision.activity_id,
+                decision.current_revision_id,
+                decision.expected_head_version,
+            ),
+        )
+    ).fetchone()
+    if updated is None:
+        raise SubjectCommitViolation("SUBJECT-ACTIVITY-HEAD-STALE")
+    await _update_life_focus(
+        connection,
+        snapshot=snapshot,
+        commit_id=commit_id,
+        decision=decision,
+        engage=kind == "engage",
+    )
+    return revision_id
+
+
+async def _update_life_focus(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    decision: CandidateActivityDecisionDraft,
+    engage: bool,
+) -> None:
+    head = await (
+        await connection.execute(
+            """
+            SELECT head.current_revision_id, head.component_version,
+                   revision.semantic_payload
+            FROM armi.subject_component_heads AS head
+            JOIN armi.subject_component_revisions AS revision
+              ON revision.component_revision_id = head.current_revision_id
+            WHERE head.subject_id = %s AND head.component_kind = 'life_mode'
+            FOR UPDATE OF head
+            """,
+            (snapshot.subject_id,),
+        )
+    ).fetchone()
+    if head is None or not isinstance(head[2], dict):
+        raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
+    payload = cast(dict[str, object], head[2]).copy()
+    active = payload.get("active_activities")
+    if type(active) is not list:
+        raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
+    active_values = cast(list[object], active)
+    if len(active_values) > 1:
+        raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
+    payload["active_activities"] = [str(decision.activity_id)] if engage else []
+    canonical = rfc8785.dumps(cast(Any, payload))
+    revision_id = uuid7()
+    await connection.execute(
+        """
+        INSERT INTO armi.subject_component_revisions (
+            component_revision_id, subject_id, component_kind,
+            component_version, previous_revision_id, origin_kind, origin_ref,
+            subject_commit_id, proposal_ref, semantic_digest,
+            semantic_payload, privacy_scope
+        ) VALUES (
+            %s, %s, 'life_mode', %s, %s, 'subject_commit', %s,
+            %s, %s, %s, %s, 'private'
+        )
+        """,
+        (
+            revision_id,
+            snapshot.subject_id,
+            int(head[1]) + 1,
+            head[0],
+            commit_id.value,
+            commit_id.value,
+            decision.proposal_ref,
+            Digest.from_bytes(canonical).value,
+            json.loads(canonical),
+        ),
+    )
+    updated = await (
+        await connection.execute(
+            """
+            UPDATE armi.subject_component_heads
+            SET current_revision_id = %s, component_version = component_version + 1
+            WHERE subject_id = %s AND component_kind = 'life_mode'
+              AND current_revision_id = %s AND component_version = %s
+            RETURNING subject_id
+            """,
+            (revision_id, snapshot.subject_id, head[0], int(head[1])),
+        )
+    ).fetchone()
+    if updated is None:
+        raise SubjectCommitViolation("SUBJECT-LIFE-MODE-STALE")
+
+
+async def _insert_attention_reconsideration(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    decisions: tuple[CandidateActivityDecisionDraft, ...],
+) -> UUID | None:
+    if (
+        len(decisions) != 1
+        or decisions[0].decision_kind.value != "defer"
+        or snapshot.reconsideration_no != 0
+    ):
+        return None
+    successor_id = uuid7()
+    inserted = await (
+        await connection.execute(
+            """
+            INSERT INTO armi.opportunities (
+                opportunity_id, evidence_id, subject_id, scene_id,
+                creator_party_id, purpose, eligibility_status,
+                current_disposition, available_after, root_opportunity_id,
+                predecessor_opportunity_id, reconsideration_no, source_kind,
+                source_ref, source_version, source_digest, activity_id,
+                schema_version
+            ) VALUES (
+                %s, NULL, %s, NULL, NULL, 'consider_activity_attention',
+                'eligible', 'open', statement_timestamp() + interval '60 seconds',
+                %s, %s, 1, 'activity_revision', %s, %s, %s, %s, 1
+            )
+            ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+            RETURNING opportunity_id
+            """,
+            (
+                successor_id,
+                snapshot.subject_id,
+                snapshot.root_opportunity_id,
+                snapshot.opportunity_id,
+                snapshot.source_ref,
+                snapshot.source_version,
+                snapshot.source_digest.value,
+                snapshot.source_activity_id,
+            ),
+        )
+    ).fetchone()
+    return None if inserted is None else inserted[0]
+
+
+async def _insert_activity_attention_decision(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    application_id: CandidateApplicationId,
+    decisions: tuple[CandidateActivityDecisionDraft, ...],
+    result_revision_id: UUID | None,
+) -> None:
+    if not decisions:
+        return
+    if len(decisions) != 1:
+        raise SubjectCommitViolation("SUBJECT-ACTIVITY-DECISION-COUNT")
+    decision = decisions[0]
+    review_not_before = (
+        datetime.now(UTC) + timedelta(seconds=60)
+        if decision.decision_kind.value == "defer"
+        else None
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.activity_attention_decisions (
+            attention_decision_id, opportunity_id, cognitive_episode_id,
+            candidate_validation_id, candidate_application_id, activity_id,
+            expected_revision_id, expected_head_version,
+            resource_snapshot_digest, decision_kind, result_revision_id,
+            review_not_before, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+        """,
+        (
+            uuid7(),
+            snapshot.opportunity_id,
+            snapshot.episode_id,
+            snapshot.validation_id,
+            application_id.value,
+            decision.activity_id,
+            decision.current_revision_id,
+            decision.expected_head_version,
+            decision.resource_snapshot_digest.value,
+            decision.decision_kind.value,
+            result_revision_id,
+            review_not_before,
+        ),
+    )
 
 
 async def _insert_capability_requests(

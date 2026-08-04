@@ -25,7 +25,7 @@ class CompositionManifestTests(unittest.TestCase):
         ]
 
         self.assertEqual(verified.schema_version, COMPOSITION_SCHEMA_VERSION)
-        self.assertEqual(len(verified.active_bindings), 11)
+        self.assertEqual(len(verified.active_bindings), 12)
         self.assertEqual(
             active,
             [
@@ -48,6 +48,10 @@ class CompositionManifestTests(unittest.TestCase):
                 (
                     "P0-SEAM-LIFE-OPPORTUNITY",
                     "armi.life-opportunity-source.postgresql-v1",
+                ),
+                (
+                    "P0-SEAM-LIFE-SCHEDULER",
+                    "armi.life-scheduler.postgresql-fair-v1",
                 ),
                 (
                     "M0-SEAM-POLICY",

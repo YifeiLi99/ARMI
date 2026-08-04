@@ -19,7 +19,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest
 
 CONTEXT_MANIFEST_VERSION = "armi.context-manifest.v1"
-CONTEXT_POLICY_VERSION = "armi.context-policy.v2"
+CONTEXT_POLICY_VERSION = "armi.context-policy.v3"
 CONTEXT_MECHANISM = "armi.context-compiler.deterministic-v1"
 
 _SECTION_ORDER = tuple(ContextSection)

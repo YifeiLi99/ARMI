@@ -56,6 +56,8 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .model_contract import (
+    ACTIVITY_ATTENTION_CANDIDATE_VERSION,
+    ACTIVITY_ATTENTION_INSTRUCTIONS,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     DIALOGUE_CANDIDATE_VERSION,
@@ -129,6 +131,10 @@ class ModelPipeline:
             "consider_autonomous_life",
             expected_dialogue_version=dialogue_version,
         )
+        attention_binding = load_purpose_binding(
+            "consider_activity_attention",
+            expected_dialogue_version=dialogue_version,
+        )
         self._dialogue_version = dialogue_version
 
         def parse_dialogue(
@@ -151,6 +157,17 @@ class ModelPipeline:
                 value,
                 allowed_context_refs=allowed_context_refs,
                 expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+            )
+
+        def parse_attention(
+            value: bytes,
+            *,
+            allowed_context_refs: frozenset[str],
+        ):
+            return parse_candidate(
+                value,
+                allowed_context_refs=allowed_context_refs,
+                expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
             )
 
         self._factory = factory
@@ -194,6 +211,17 @@ class ModelPipeline:
                 candidate_parser=parse_autonomous,
                 instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
                 schema_name="armi_autonomous_activity_candidate_v1",
+            ),
+            "consider_activity_attention": VolcengineArkModelAdapter(
+                binding=attention_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    attention_binding.response_contract_version
+                ),
+                candidate_parser=parse_attention,
+                instructions=ACTIVITY_ATTENTION_INSTRUCTIONS,
+                schema_name="armi_activity_attention_candidate_v1",
             ),
         }
         self._catalog = ArtifactCatalogRepository()

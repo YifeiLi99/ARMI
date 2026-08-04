@@ -248,7 +248,7 @@ class MindState(_ComponentState):
 class LifeModeState(_ComponentState):
     schema_version: Literal["armi.life-mode.v1"]
     mode: Literal["awake"]
-    active_activities: tuple[str, ...] = Field(default=(), max_length=0)
+    active_activities: tuple[str, ...] = Field(default=(), max_length=1)
 
 
 ComponentState = Annotated[

@@ -369,11 +369,30 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("progress_summary", "text", False),
         ("waiting_condition", "text", False),
         ("resumption_cue", "text", False),
-        ("next_safe_step", "text", True),
+        ("next_safe_step", "text", False),
         ("status", "text", True),
         ("terminal_reason", "text", False),
         ("related_scene_id", "uuid", False),
         ("created_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+        ("transition_kind", "text", True),
+        ("waiting_condition_kind", "text", False),
+        ("resume_not_before", "timestamp(6) with time zone", False),
+    ),
+    "activity_attention_decisions": (
+        ("attention_decision_id", "uuid", True),
+        ("opportunity_id", "uuid", True),
+        ("cognitive_episode_id", "uuid", True),
+        ("candidate_validation_id", "uuid", True),
+        ("candidate_application_id", "uuid", True),
+        ("activity_id", "uuid", True),
+        ("expected_revision_id", "uuid", True),
+        ("expected_head_version", "bigint", True),
+        ("resource_snapshot_digest", "text", True),
+        ("decision_kind", "text", True),
+        ("result_revision_id", "uuid", False),
+        ("review_not_before", "timestamp(6) with time zone", False),
+        ("decided_at", "timestamp(6) with time zone", True),
         ("schema_version", "smallint", True),
     ),
     "cognitive_episodes": (
@@ -1013,7 +1032,10 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 8, *("f",) * 3, "p", *("u",) * 3))
     ),
     "activity_revisions": tuple(
-        sorted((*("c",) * 9, *("n",) * 11, *("f",) * 5, "p", *("u",) * 3))
+        sorted((*("c",) * 13, *("n",) * 11, *("f",) * 5, "p", *("u",) * 3))
+    ),
+    "activity_attention_decisions": tuple(
+        sorted((*("c",) * 7, *("n",) * 12, *("f",) * 7, "p", *("u",) * 4))
     ),
     "cognitive_episodes": tuple(
         sorted((*("c",) * 16, *("n",) * 14, *("f",) * 4, "p", "u"))
@@ -1608,6 +1630,11 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(activity_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 29:
+            expected_objects.append(("activity_attention_decisions", "r"))
+            expected_tables.append("activity_attention_decisions")
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -1801,6 +1828,17 @@ class PostgreSQLSchemaGateway:
                 elif applied_version < 14:
                     expected = expected[:-2]
             if (
+                table_name == "activity_revisions"
+                and applied_version < 29
+                and expected is not None
+            ):
+                expected = tuple(
+                    (name, type_name, True)
+                    if name == "next_safe_step"
+                    else (name, type_name, not_null)
+                    for name, type_name, not_null in expected[:-3]
+                )
+            if (
                 table_name == "subject_component_revisions"
                 and applied_version < 14
                 and expected is not None
@@ -1977,6 +2015,15 @@ class PostgreSQLSchemaGateway:
                     prior_kinds.remove("c")
                     prior_kinds.remove("u")
                 expected = tuple(sorted(prior_kinds))
+            if (
+                table_name == "activity_revisions"
+                and applied_version < 29
+                and expected is not None
+            ):
+                prior_kinds = list(expected)
+                for _ in range(4):
+                    prior_kinds.remove("c")
+                expected = tuple(prior_kinds)
             if (
                 table_name == "subject_component_revisions"
                 and applied_version < 14

@@ -8,7 +8,10 @@ from uuid import UUID
 
 import rfc8785
 from armi_kernel.application import (
+    ActivityAttentionDecisionKind,
     ActivityStatus,
+    ActivityWaitingKind,
+    CandidateActivityDecisionDraft,
     CandidateActivityDraft,
     CandidateComponentDraft,
     CandidateDisposition,
@@ -53,6 +56,7 @@ _TOP_KEYS_V4 = {*_TOP_KEYS_V3, "web_research_requests"}
 _TOP_KEYS_V5 = {*_TOP_KEYS_V3, "codex_delegations"}
 _TOP_KEYS_V6 = _TOP_KEYS_V5
 _TOP_KEYS_V7 = {*_TOP_KEYS_V6, "activities"}
+_TOP_KEYS_V8 = {*_TOP_KEYS_V7, "activity_decisions"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -69,6 +73,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v5",
             "armi.subject-change-set.v6",
             "armi.subject-change-set.v7",
+            "armi.subject-change-set.v8",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -86,6 +91,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V6
             if version.endswith(".v6")
             else _TOP_KEYS_V7
+            if version.endswith(".v7")
+            else _TOP_KEYS_V8
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -125,6 +132,10 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         activities = tuple(
             _activity(item) for item in _array(document.get("activities", []), 4)
         )
+        activity_decisions = tuple(
+            _activity_decision(item)
+            for item in _array(document.get("activity_decisions", []), 1)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -149,6 +160,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             rejections,
             codex_delegations,
             activities,
+            activity_decisions,
         )
         proposal_refs = [
             item.proposal_ref
@@ -160,6 +172,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *web_research_requests,
                 *codex_delegations,
                 *activities,
+                *activity_decisions,
                 *rejections,
             )
         ]
@@ -172,27 +185,53 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.web_research_requests
             or result.codex_delegations
             or result.activities
+            or result.activity_decisions
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
             item for item in action_choices if isinstance(item, FormalNoActionDraft)
         )
-        if result.disposition is CandidateDisposition.CHANGE:
-            if no_action:
-                raise ValueError
-        elif change_material or reply:
-            raise ValueError
-        if result.disposition in {
-            CandidateDisposition.DECLINE,
-            CandidateDisposition.NO_ACTION,
-        }:
-            if (
-                len(no_action) != 1
-                or no_action[0].kind.value != result.disposition.value
+        if version.endswith(".v8"):
+            if len(activity_decisions) != 1 or any(
+                (
+                    experiences,
+                    components,
+                    capability_requests,
+                    action_choices,
+                    web_research_requests,
+                    codex_delegations,
+                    activities,
+                    rejections,
+                )
             ):
                 raise ValueError
-        elif no_action:
-            raise ValueError
+            expected_disposition = {
+                "no_action": CandidateDisposition.NO_ACTION,
+                "defer": CandidateDisposition.DEFER,
+                "need_information": CandidateDisposition.NEED_INFORMATION,
+            }.get(
+                activity_decisions[0].decision_kind.value,
+                CandidateDisposition.CHANGE,
+            )
+            if result.disposition is not expected_disposition:
+                raise ValueError
+        else:
+            if result.disposition is CandidateDisposition.CHANGE:
+                if no_action:
+                    raise ValueError
+            elif change_material or reply:
+                raise ValueError
+            if result.disposition in {
+                CandidateDisposition.DECLINE,
+                CandidateDisposition.NO_ACTION,
+            }:
+                if (
+                    len(no_action) != 1
+                    or no_action[0].kind.value != result.disposition.value
+                ):
+                    raise ValueError
+            elif no_action:
+                raise ValueError
         return result
     except (
         CandidateViolation,
@@ -258,6 +297,48 @@ def _activity(value: object) -> CandidateActivityDraft:
         ActivityStatus(_text(item["status"])),
         _text(item["activity_kind"]),
         _text(item["privacy_scope"]),
+    )
+
+
+def _activity_decision(value: object) -> CandidateActivityDecisionDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "activity_id",
+            "current_revision_id",
+            "expected_head_version",
+            "resource_snapshot_digest",
+            "decision_kind",
+            "progress_summary",
+            "next_safe_step",
+            "waiting_summary",
+            "resumption_cue",
+            "waiting_kind",
+            "delay_seconds",
+            "terminal_reason",
+        },
+    )
+    return CandidateActivityDecisionDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        _uuid7(item["activity_id"]),
+        _uuid7(item["current_revision_id"]),
+        _positive(item["expected_head_version"]),
+        Digest(_text(item["resource_snapshot_digest"])),
+        ActivityAttentionDecisionKind(_text(item["decision_kind"])),
+        _optional_text_value(item["progress_summary"]),
+        _optional_text_value(item["next_safe_step"]),
+        _optional_text_value(item["waiting_summary"]),
+        _optional_text_value(item["resumption_cue"]),
+        None
+        if item["waiting_kind"] is None
+        else ActivityWaitingKind(_text(item["waiting_kind"])),
+        None if item["delay_seconds"] is None else _positive(item["delay_seconds"]),
+        _optional_text_value(item["terminal_reason"]),
     )
 
 
@@ -517,6 +598,10 @@ def _text(value: object) -> str:
     if type(value) is not str:
         raise ValueError
     return value
+
+
+def _optional_text_value(value: object) -> str | None:
+    return None if value is None else _text(value)
 
 
 def _uuid7(value: object) -> UUID:
