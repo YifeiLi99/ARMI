@@ -19,7 +19,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 
 S039 的 Creator→Codex 产品纵向 gate 已通过：正式 `codex-tasks` 输入经 ARMI 认知、Creator grant、Codex effect、官方 `openai-codex==0.144.4` SDK runner、独立 validator、result evidence 和第二次 T-03 收敛为唯一 private Experience。新任务可逐项选择 `gpt-5.6-sol/terra/luna`、思考级别和内置 Web Search；一次性 workspace 默认可操作，明确 forbidden paths 和禁止逃逸构成安全边界。纯内容任务由结构化 deliverable 落为 `result.md`，代码与文件任务按 task manifest 和独立 validator 核验。正式 Creator 链已经用 Luna、`max` 和 Web Search 完成实机验收，不再把组件级成功冒充产品闭环。
 
-Admin MCP 保持 SDK 2.0.0、协议 `2026-07-28`、stdio 和 23 个静态工具。S033/S034 的 ARMI 网页证据 live gate 仍延至 M0 总验收，不能用 Codex Web Search 的成功替代。原 M0-S040—S043 不再单独实施，其必要检查并入 M0-S044—S046；下一施工入口为 M0-S044。Memory、Relationship 与 Activity owner 仍未激活，因此当前还不是发布版本。
+Admin MCP 保持 SDK 2.0.0、协议 `2026-07-28`、stdio 和 23 个静态工具。S033/S034 的 ARMI 网页证据 live gate 仍延至 M0 总验收，不能用 Codex Web Search 的成功替代。原 M0-S040—S043 不再单独实施，其必要检查并入 M0-S044—S046。S044 已从固定 revision 生成并核验不可变 M0 候选，下一施工入口为 M0-S045。Memory、Relationship 与 Activity owner 仍未激活，因此当前还不是发布版本。
 
 ## 本地 Runtime 生命周期
 
