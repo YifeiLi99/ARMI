@@ -208,12 +208,14 @@ from .life import (
 )
 from .life_scheduler import PostgreSqlFairLifeScheduler
 from .maintenance import (
+    MaintenanceCheckpointPlan,
     MaintenancePhase,
     MaintenancePhaseState,
     MaintenanceResultStatus,
     MaintenanceTriggerKind,
     MaintenanceViolation,
     SleepDecisionKind,
+    plan_maintenance_checkpoint,
     validate_maintenance_advance,
 )
 from .model import (
@@ -490,6 +492,7 @@ __all__: tuple[str, ...] = (
     "LockPlan",
     "LockTarget",
     "LockTargetKind",
+    "MaintenanceCheckpointPlan",
     "MaintenancePhase",
     "MaintenancePhaseState",
     "MaintenanceResultStatus",
@@ -591,5 +594,6 @@ __all__: tuple[str, ...] = (
     "WorkStatus",
     "WorkViolation",
     "classify_cas_rows",
+    "plan_maintenance_checkpoint",
     "validate_maintenance_advance",
 )

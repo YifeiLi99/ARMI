@@ -370,7 +370,7 @@
   "database_role_manifest": {
     "activation_step": "M0-S010",
     "path": "schema/manifests/database-role-manifest.json",
-    "sha256": "sha256:e2b934fa247e0473cba4c84884883aa1acc84b02737ca7ae78e50a26e415b883"
+    "sha256": "sha256:efc1b9d3e512fa859a1fa07ea224bc0a4ba734c3a3e2a6e4f15000a24329cb89"
   },
   "deferred_objects": [
     {
@@ -383,7 +383,7 @@
     "read_only": true,
     "sha256": "sha256:84878c57bd0d9ae5f2d547aeac7db0dd13161571d4b43704ebab2ab25388ba6b"
   },
-  "migration_set_sha256": "sha256:e892d1d680499ad25adb294ee28300612615116642eef5d3c2e55abdcec7557e",
+  "migration_set_sha256": "sha256:a098dedc19c904aac527a77c8080e18117db1fa29864bd29bc925ac18f154e84",
   "migrations": [
     {
       "name": "m0_baseline",
@@ -564,6 +564,12 @@
       "path": "schema/migrations/0030_p0_sleep_decision_and_maintenance_state.sql",
       "sha256": "sha256:88205ed5b844069daf9860605a36ef1501a1a24dcebba2e870e2b6f16a21acc3",
       "version": 30
+    },
+    {
+      "name": "p0_maintenance_checkpoints_and_wake",
+      "path": "schema/migrations/0031_p0_maintenance_checkpoints_and_wake.sql",
+      "sha256": "sha256:07a204d70d5fea1f705b57b53049cc0f4086bfa62732d1c7f3f1146ca0ae7769",
+      "version": 31
     }
   ],
   "postgresql": {
@@ -575,6 +581,6 @@
   "schema_version": "armi.schema-manifest.v1",
   "target": {
     "schema": "armi",
-    "version": 30
+    "version": 31
   }
 }

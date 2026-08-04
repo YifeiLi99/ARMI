@@ -21,6 +21,9 @@ from armi_kernel.application import (
 from armi_runtime.adapters.persistence.life_opportunity import (
     PostgreSQLLifeOpportunityRepository,
 )
+from armi_runtime.adapters.persistence.maintenance import (
+    PostgreSQLMaintenanceRepository,
+)
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
@@ -34,6 +37,8 @@ class MaintenanceCoordinator:
         "_consideration_seconds",
         "_deadline_seconds",
         "_factory",
+        "_opportunities",
+        "_quiet_seconds",
         "_repository",
     )
 
@@ -41,23 +46,46 @@ class MaintenanceCoordinator:
         self,
         *,
         factory: PostgreSQLUnitOfWorkFactory,
-        repository: PostgreSQLLifeOpportunityRepository,
+        repository: PostgreSQLMaintenanceRepository,
+        opportunities: PostgreSQLLifeOpportunityRepository,
         consideration_seconds: int,
         deadline_seconds: int,
+        quiet_seconds: int = 60,
     ) -> None:
         if not 0 < consideration_seconds < deadline_seconds:
             raise LifeViolation("LIFE-MAINTENANCE-CONFIG")
         self._factory = factory
         self._repository = repository
+        self._opportunities = opportunities
         self._consideration_seconds = consideration_seconds
         self._deadline_seconds = deadline_seconds
+        if type(quiet_seconds) is not int or quiet_seconds < 0:
+            raise LifeViolation("LIFE-MAINTENANCE-CONFIG")
+        self._quiet_seconds = quiet_seconds
 
     async def maintain_once(self) -> OpportunityAdmissionOutcome:
         async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
-            return await self._repository.maintain_sleep_window(
+            progress = await self._repository.maintain_active_session(
+                unit_of_work,
+                quiet_seconds=self._quiet_seconds,
+            )
+            if progress is not None:
+                return OpportunityAdmissionOutcome(
+                    OpportunityAdmissionStatus.REJECTED,
+                    None,
+                    progress.reason_code,
+                )
+            return await self._opportunities.maintain_sleep_window(
                 unit_of_work,
                 consideration_after_seconds=self._consideration_seconds,
                 deadline_after_seconds=self._deadline_seconds,
+            )
+
+    async def request_emergency_wake(self, request_id: UUID) -> UUID:
+        async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            return await self._repository.request_emergency_wake(
+                unit_of_work,
+                request_id=request_id,
             )
 
 
@@ -89,7 +117,8 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         self._model_concurrency = model_concurrency
         self._maintenance = MaintenanceCoordinator(
             factory=factory,
-            repository=self._repository,
+            repository=PostgreSQLMaintenanceRepository(),
+            opportunities=self._repository,
             consideration_seconds=maintenance_consideration_seconds,
             deadline_seconds=maintenance_deadline_seconds,
         )
@@ -141,6 +170,14 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
     async def maintain_sleep_once(self) -> OpportunityAdmissionOutcome:
         try:
             return await self._maintenance.maintain_once()
+        except LifeViolation:
+            raise
+        except DatabaseTransactionError:
+            raise LifeViolation("LIFE-DATABASE") from None
+
+    async def request_emergency_wake(self, request_id: UUID) -> UUID:
+        try:
+            return await self._maintenance.request_emergency_wake(request_id)
         except LifeViolation:
             raise
         except DatabaseTransactionError:

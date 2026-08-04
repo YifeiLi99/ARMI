@@ -43,13 +43,13 @@
     "server_name": "armi_admin"
   },
   "config_schema_sha256": "sha256:8dc85a1e578cc9a36301aec1dfc0b5894071a6b42b4f2ff79c723e37154a7ab4",
-  "package_surface_digest": "sha256:97ca3fcedf3c33370209232f87c07be52ac96c97e12995de309d28025263165d",
+  "package_surface_digest": "sha256:2f6130e5f83e2bf4c880360983f671f0ef111d78ae91d0987cc7082001d62cd8",
   "protocol": {
     "discovery_method": "server/discover",
     "legacy_initialize_compatible": true,
     "target_revision": "2026-07-28"
   },
-  "schema_manifest_sha256": "sha256:be6636c971aaeca2651e96e662cf4acc6d3d3e8976fbd28d0c1f04372b803c1f",
+  "schema_manifest_sha256": "sha256:3fedd46dc46c7daa146540c14e9c015e3d61b6e6ca4a67ff4274f5774e8b0aab",
   "schema_version": "armi.admin-mcp.v3",
   "sdk": {
     "name": "mcp",

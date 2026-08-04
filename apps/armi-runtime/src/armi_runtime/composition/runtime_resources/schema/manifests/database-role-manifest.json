@@ -1393,7 +1393,10 @@
           "UPDATE": [
             "current_revision_id",
             "head_version",
-            "finished_at"
+            "finished_at",
+            "wake_request_id",
+            "wake_requested_at",
+            "quiet_until"
           ]
         }
       },

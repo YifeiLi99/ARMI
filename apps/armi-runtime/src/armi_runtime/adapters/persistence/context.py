@@ -150,6 +150,11 @@ class PostgreSQLContextRepository:
                       opportunity.expires_at IS NULL
                       OR opportunity.expires_at > transaction_timestamp()
                   )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM armi.maintenance_sessions AS maintenance
+                      WHERE maintenance.subject_id = opportunity.subject_id
+                        AND maintenance.finished_at IS NULL
+                  )
                 ORDER BY opportunity.available_after, opportunity.opportunity_id
                 FOR UPDATE OF opportunity SKIP LOCKED
                 LIMIT 1

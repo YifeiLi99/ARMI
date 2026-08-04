@@ -8,6 +8,7 @@ from armi_kernel.application import (
     MaintenancePhaseState,
     MaintenanceResultStatus,
     MaintenanceViolation,
+    plan_maintenance_checkpoint,
     validate_maintenance_advance,
 )
 from armi_runtime.composition.sleep_decision_candidate_contract import (
@@ -66,3 +67,62 @@ def test_completed_result_and_phase_are_coupled() -> None:
         MaintenancePhaseState(
             MaintenancePhase.RESUME_CHECK, MaintenanceResultStatus.COMPLETED
         )
+
+
+def test_checkpoint_plan_advances_waits_completes_and_interrupts() -> None:
+    preparing = MaintenancePhaseState(
+        MaintenancePhase.PREPARING, MaintenanceResultStatus.RUNNING
+    )
+    advanced = plan_maintenance_checkpoint(
+        preparing,
+        wake_requested=False,
+        quiet_elapsed=False,
+    )
+    assert advanced is not None
+    assert advanced.following.phase is MaintenancePhase.MEMORY_MAINTENANCE
+    assert advanced.transition_kind == "advanced"
+    assert not advanced.terminal
+
+    quiet = MaintenancePhaseState(
+        MaintenancePhase.LIFE_QUIET, MaintenanceResultStatus.RUNNING
+    )
+    assert (
+        plan_maintenance_checkpoint(
+            quiet,
+            wake_requested=False,
+            quiet_elapsed=False,
+        )
+        is None
+    )
+    resumed = plan_maintenance_checkpoint(
+        quiet,
+        wake_requested=False,
+        quiet_elapsed=True,
+    )
+    assert resumed is not None
+    assert resumed.following.phase is MaintenancePhase.RESUME_CHECK
+
+    completed = plan_maintenance_checkpoint(
+        MaintenancePhaseState(
+            MaintenancePhase.RESUME_CHECK,
+            MaintenanceResultStatus.RUNNING,
+        ),
+        wake_requested=False,
+        quiet_elapsed=True,
+    )
+    assert completed is not None
+    assert completed.following == MaintenancePhaseState(
+        MaintenancePhase.COMPLETED,
+        MaintenanceResultStatus.COMPLETED,
+    )
+    assert completed.terminal
+
+    interrupted = plan_maintenance_checkpoint(
+        preparing,
+        wake_requested=True,
+        quiet_elapsed=False,
+    )
+    assert interrupted is not None
+    assert interrupted.following.result_status is MaintenanceResultStatus.INTERRUPTED
+    assert interrupted.following.phase is MaintenancePhase.PREPARING
+    assert interrupted.terminal

@@ -38,6 +38,13 @@ class MaintenanceResultStatus(StrEnum):
     FAILED = "failed"
 
 
+@dataclass(frozen=True, slots=True)
+class MaintenanceCheckpointPlan:
+    following: MaintenancePhaseState
+    transition_kind: str
+    terminal: bool
+
+
 _NEXT_PHASE = {
     MaintenancePhase.PREPARING: MaintenancePhase.MEMORY_MAINTENANCE,
     MaintenancePhase.MEMORY_MAINTENANCE: MaintenancePhase.SELF_CHECK,
@@ -77,12 +84,52 @@ def validate_maintenance_advance(
         raise MaintenanceViolation("maintenance phases must advance in order")
 
 
+def plan_maintenance_checkpoint(
+    current: MaintenancePhaseState,
+    *,
+    wake_requested: bool,
+    quiet_elapsed: bool,
+) -> MaintenanceCheckpointPlan | None:
+    """Choose the next durable checkpoint without performing side effects."""
+
+    if current.result_status is not MaintenanceResultStatus.RUNNING:
+        raise MaintenanceViolation("terminal maintenance session cannot advance")
+    if wake_requested:
+        following = MaintenancePhaseState(
+            current.phase,
+            MaintenanceResultStatus.INTERRUPTED,
+        )
+        validate_maintenance_advance(current, following)
+        return MaintenanceCheckpointPlan(following, "interrupted", True)
+    if current.phase is MaintenancePhase.LIFE_QUIET and not quiet_elapsed:
+        return None
+    following_phase = _NEXT_PHASE.get(current.phase)
+    if following_phase is None:
+        raise MaintenanceViolation("completed maintenance session cannot advance")
+    following_result = (
+        MaintenanceResultStatus.COMPLETED
+        if following_phase is MaintenancePhase.COMPLETED
+        else MaintenanceResultStatus.RUNNING
+    )
+    following = MaintenancePhaseState(following_phase, following_result)
+    validate_maintenance_advance(current, following)
+    return MaintenanceCheckpointPlan(
+        following,
+        "completed"
+        if following_result is MaintenanceResultStatus.COMPLETED
+        else "advanced",
+        following_result is MaintenanceResultStatus.COMPLETED,
+    )
+
+
 __all__ = (
+    "MaintenanceCheckpointPlan",
     "MaintenancePhase",
     "MaintenancePhaseState",
     "MaintenanceResultStatus",
     "MaintenanceTriggerKind",
     "MaintenanceViolation",
     "SleepDecisionKind",
+    "plan_maintenance_checkpoint",
     "validate_maintenance_advance",
 )

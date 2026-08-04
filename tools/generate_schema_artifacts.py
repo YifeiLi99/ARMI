@@ -722,7 +722,14 @@ def build_role_manifest() -> dict[str, object]:
             },
             "column_grants": {
                 "armi_runtime": {
-                    "UPDATE": ["current_revision_id", "head_version", "finished_at"]
+                    "UPDATE": [
+                        "current_revision_id",
+                        "head_version",
+                        "finished_at",
+                        "wake_request_id",
+                        "wake_requested_at",
+                        "quiet_until",
+                    ]
                 },
                 "armi_admin": {},
                 "armi_migrator": {},

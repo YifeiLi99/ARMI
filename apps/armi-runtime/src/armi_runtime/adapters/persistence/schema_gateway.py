@@ -429,6 +429,9 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("started_at", "timestamp(6) with time zone", True),
         ("finished_at", "timestamp(6) with time zone", False),
         ("schema_version", "smallint", True),
+        ("wake_request_id", "uuid", False),
+        ("wake_requested_at", "timestamp(6) with time zone", False),
+        ("quiet_until", "timestamp(6) with time zone", False),
     ),
     "maintenance_session_revisions": (
         ("maintenance_revision_id", "uuid", True),
@@ -1087,7 +1090,7 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 6, *("n",) * 12, *("f",) * 6, "p", *("u",) * 4))
     ),
     "maintenance_sessions": tuple(
-        sorted((*("c",) * 12, *("n",) * 14, *("f",) * 5, "p", *("u",) * 2))
+        sorted((*("c",) * 15, *("n",) * 14, *("f",) * 5, "p", *("u",) * 3))
     ),
     "maintenance_session_revisions": tuple(
         sorted((*("c",) * 8, *("n",) * 8, *("f",) * 2, "p", *("u",) * 2))

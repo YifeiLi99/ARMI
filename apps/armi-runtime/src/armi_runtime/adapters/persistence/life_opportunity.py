@@ -349,17 +349,27 @@ class PostgreSQLLifeOpportunityRepository:
                         WHERE status NOT IN (
                             'completed', 'stale', 'failed', 'cancelled',
                             'candidate_rejected'
-                        ))
+                        )),
+                       EXISTS (
+                           SELECT 1 FROM armi.maintenance_sessions
+                           WHERE subject_id = %s AND finished_at IS NULL
+                       )
                 FROM armi.subject_component_heads AS head
                 JOIN armi.subject_component_revisions AS revision
                   ON revision.component_revision_id = head.current_revision_id
                 WHERE head.subject_id = %s AND head.component_kind = 'life_mode'
                 """,
-                (fence.subject_id, fence.subject_id),
+                (fence.subject_id, fence.subject_id, fence.subject_id),
             )
         ).fetchone()
         if state is None or not isinstance(state[0], dict):
             raise LifeViolation("LIFE-SCHEDULER-STATE")
+        if bool(state[3]):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-BACKPRESSURE-MAINTENANCE",
+            )
         life_mode = cast(dict[str, object], state[0])
         active_values = life_mode.get("active_activities")
         if type(active_values) is not list:
