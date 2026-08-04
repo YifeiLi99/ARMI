@@ -18,6 +18,7 @@ from armi_kernel.application import (
     CapabilityViolation,
     CodexDelegationViolation,
     ContextViolation,
+    CreatorActivityViolation,
     CreatorInputCommand,
     CreatorInputViolation,
     EffectViolation,
@@ -60,6 +61,7 @@ from .database import (
     compose_capability_policy,
     compose_codex_pipeline,
     compose_context_pipeline,
+    compose_creator_activity_query,
     compose_creator_input,
     compose_effect_registration_pipeline,
     compose_life_opportunity_pipeline,
@@ -136,6 +138,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     recovery_reasons: tuple[str, ...] = ()
     browser_sessions: BrowserSessionStore | None = None
     scene_timeline_query = None
+    creator_activity_query = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
     life_opportunity_pipeline = None
@@ -213,6 +216,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 cursor_key=derive_timeline_cursor_key(prepared),
             )
             await scene_timeline_query.open()
+            creator_activity_query = compose_creator_activity_query(
+                prepared,
+                creator_party_id=creator_context.party_id,
+            )
+            await creator_activity_query.open()
             creator_events = CreatorEventBroker(
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -399,6 +407,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             CapabilityViolation,
             ContextViolation,
             CreatorInputViolation,
+            CreatorActivityViolation,
             SceneQueryViolation,
             SubjectCommitViolation,
             ResponseViolation,
@@ -413,6 +422,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             )
             if scene_timeline_query is not None:
                 await scene_timeline_query.close()
+            if creator_activity_query is not None:
+                await creator_activity_query.close()
             if creator_input is not None:
                 await creator_input.close()
             if context_pipeline is not None:
@@ -578,6 +589,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             )
         if scene_timeline_query is not None:
             await scene_timeline_query.close()
+        if creator_activity_query is not None:
+            await creator_activity_query.close()
         if creator_input is not None:
             await creator_input.close()
         if context_pipeline is not None:
@@ -745,6 +758,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         assets=assets,
         browser_sessions=browser_sessions,
         scene_timeline_query=scene_timeline_query,
+        creator_activity_query=creator_activity_query,
         creator_events=creator_events,
         creator_input=creator_input,
         creator_operations=creator_input,
@@ -809,6 +823,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     finally:
         if scene_timeline_query is not None:
             await scene_timeline_query.close()
+        if creator_activity_query is not None:
+            await creator_activity_query.close()
         if creator_input is not None:
             await creator_input.close()
         if context_pipeline is not None:

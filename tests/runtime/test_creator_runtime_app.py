@@ -5,8 +5,15 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
+    ActivityStatus,
+    ActivityTransition,
     CapabilityRequestStatus,
     CodexModel,
+    CreatorActivityItem,
+    CreatorActivityPage,
+    CreatorActivityTimeline,
+    CreatorActivityTimelineItem,
+    CreatorActivityViolation,
     CreatorCodexTaskCommand,
     CreatorGrantCommand,
     CreatorGrantResult,
@@ -46,6 +53,54 @@ CREATOR_BEARER = f"creator-v1.{'a' * 43}"
 class _SceneTimelineQuery:
     async def query(self, request: SceneTimelineQuery) -> SceneTimelinePage:
         return SceneTimelinePage(scene_key=request.scene_key, items=())
+
+
+class _CreatorActivityQuery:
+    def __init__(self) -> None:
+        self.activity_id = uuid7()
+        self.created_at = datetime(2026, 8, 4, 10, 0, tzinfo=UTC)
+
+    async def list_current(self) -> CreatorActivityPage:
+        return CreatorActivityPage(
+            (
+                CreatorActivityItem(
+                    activity_id=self.activity_id,
+                    activity_kind="self_directed",
+                    status=ActivityStatus.READY,
+                    goal="整理今天想继续探索的事情",
+                    progress_summary=None,
+                    waiting_kind=None,
+                    waiting_summary=None,
+                    resume_not_before=None,
+                    terminal_reason=None,
+                    revision_no=1,
+                    head_version=1,
+                    transition_kind=ActivityTransition.CREATED,
+                    is_focused=False,
+                    created_at=self.created_at,
+                    updated_at=self.created_at,
+                ),
+            ),
+            False,
+        )
+
+    async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline:
+        if activity_id != self.activity_id:
+            raise CreatorActivityViolation("ACTIVITY-QUERY-NOT-FOUND")
+        return CreatorActivityTimeline(
+            activity_id,
+            (
+                CreatorActivityTimelineItem(
+                    event_id=uuid7(),
+                    event_kind="created",
+                    resulting_status=ActivityStatus.READY,
+                    summary=None,
+                    review_not_before=None,
+                    occurred_at=self.created_at,
+                ),
+            ),
+            False,
+        )
 
 
 class _CreatorInput:
@@ -181,6 +236,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.creator_input = _CreatorInput()
         self.creator_codex_task = _CreatorCodexTask()
         self.capability_policy = _CapabilityPolicy()
+        self.activity_query = _CreatorActivityQuery()
 
     def test_codex_final_result_projects_only_verified_deliverable(self) -> None:
         content, media_type = _creator_visible_codex_artifact(
@@ -221,6 +277,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             on_started=started,
             on_stopping=stopping,
             scene_timeline_query=_SceneTimelineQuery(),
+            creator_activity_query=self.activity_query,
             creator_events=self.events,
             creator_input=self.creator_input,
             codex_task_admission=self.creator_codex_task,
@@ -384,6 +441,46 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 400)
         self.assertEqual(unrelated.status_code, 400)
+
+    def test_activity_overview_and_timeline_are_read_only_and_session_bound(
+        self,
+    ) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            activities = client.get(
+                "/v1/activities",
+                headers=self._browser_headers(token),
+            )
+            timeline = client.get(
+                f"/v1/activities/{self.activity_query.activity_id}/timeline",
+                headers=self._browser_headers(token),
+            )
+            missing = client.get(
+                f"/v1/activities/{uuid7()}/timeline",
+                headers=self._browser_headers(token),
+            )
+            unauthenticated = client.get(
+                "/v1/activities",
+                headers=self._browser_headers(),
+            )
+
+        self.assertEqual(activities.status_code, 200)
+        self.assertEqual(activities.json()["projection_version"], "creator-activity.v1")
+        self.assertEqual(activities.json()["items"][0]["status"], "ready")
+        self.assertNotIn("resumption_cue", activities.text)
+        self.assertEqual(timeline.status_code, 200)
+        self.assertEqual(timeline.json()["items"][0]["event_kind"], "created")
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(unauthenticated.status_code, 401)
 
     def test_creator_message_acceptance_and_operation_are_authoritative(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

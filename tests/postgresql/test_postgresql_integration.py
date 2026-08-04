@@ -60,6 +60,7 @@ from armi_kernel.application import (
     CapabilityViolation,
     CasStatus,
     CodexDelegatedWorkScope,
+    CreatorActivityViolation,
     CreatorCodexTaskCommand,
     CreatorGrantCommand,
     CreatorGrantDecision,
@@ -127,6 +128,9 @@ from armi_runtime.adapters.persistence.birth import (
 )
 from armi_runtime.adapters.persistence.capability_policy import (
     PostgreSQLCreatorGrantPolicy,
+)
+from armi_runtime.adapters.persistence.creator_activities import (
+    PostgreSQLCreatorActivityQuery,
 )
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
@@ -564,6 +568,98 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         assert row is not None
         self.assertEqual(row[0:2], (1, 1))
         self.assertEqual(row[2], row[3])
+
+    def test_creator_activity_query_is_scoped_on_born_database(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        creator_party_id = _uuid7()
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="简洁自然",
+            traits=("自主",),
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=creator_party_id,
+            idempotency_key="p0-s003-creator-activity-query",
+            personality_anchor=anchor,
+            personality_anchor_digest=Digest.from_bytes(
+                rfc8785.dumps(
+                    {
+                        "schema_version": anchor.schema_version,
+                        "voice_style": anchor.voice_style,
+                        "traits": list(anchor.traits),
+                    }
+                )
+            ),
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            schema_manifest_digest=packaged["schema_manifest_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"p0-s003-creator-activity-query"),
+        )
+
+        async def reject_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("birth and read query need no dynamic business lock")
+
+        async def exercise(root: Path) -> None:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_lock,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            await factory.open()
+            try:
+                await BirthTransaction(
+                    ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                    ArtifactCatalogRepository(),
+                    BirthRepository(),
+                    factory,
+                ).birth(manifest)
+            finally:
+                await factory.close()
+
+            query = PostgreSQLCreatorActivityQuery(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            await query.open()
+            try:
+                page = await query.list_current()
+                self.assertEqual(page.items, ())
+                self.assertFalse(page.truncated)
+                with self.assertRaisesRegex(
+                    CreatorActivityViolation,
+                    "ACTIVITY-QUERY-NOT-FOUND",
+                ):
+                    await query.timeline(_uuid7())
+            finally:
+                await query.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            asyncio.run(
+                exercise(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
 
     def test_creator_codex_task_intake_is_atomic_and_idempotent(self) -> None:
         fixture = self.create_database()

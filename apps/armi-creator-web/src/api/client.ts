@@ -7,6 +7,10 @@ export type BrowserSessionEstablished =
 export type RuntimeStatus = components["schemas"]["RuntimeStatusResponse"];
 export type SceneTimelinePage =
   components["schemas"]["SceneTimelinePageResponse"];
+export type CreatorActivityPage =
+  components["schemas"]["CreatorActivityPageResponse"];
+export type CreatorActivityTimeline =
+  components["schemas"]["CreatorActivityTimelineResponse"];
 export type AcceptedOperation =
   components["schemas"]["AcceptedOutcomeResponse"];
 export type CreatorOperation =
@@ -127,6 +131,34 @@ export async function getSceneTimeline(
   }
   const response = await fetch(
     `/v1/scenes/${encodeURIComponent(sceneKey)}/timeline?${query.toString()}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
+}
+
+export async function getCreatorActivities(
+  token: string,
+  signal?: AbortSignal,
+): Promise<CreatorActivityPage> {
+  const response = await fetch("/v1/activities", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getCreatorActivityTimeline(
+  token: string,
+  activityId: string,
+  signal?: AbortSignal,
+): Promise<CreatorActivityTimeline> {
+  const response = await fetch(
+    `/v1/activities/${encodeURIComponent(activityId)}/timeline`,
     {
       credentials: "omit",
       headers: { Authorization: `Bearer ${token}` },

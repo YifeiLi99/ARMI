@@ -11,6 +11,7 @@ from armi_kernel.application import (
     CandidateViolation,
     CapabilityViolation,
     CodexDelegationViolation,
+    CreatorActivityViolation,
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
@@ -32,6 +33,9 @@ from armi_runtime.adapters.persistence.birth import (
 )
 from armi_runtime.adapters.persistence.capability_policy import (
     PostgreSQLCreatorGrantPolicy,
+)
+from armi_runtime.adapters.persistence.creator_activities import (
+    PostgreSQLCreatorActivityQuery,
 )
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
@@ -319,6 +323,42 @@ def compose_scene_timeline_query(
             status="unavailable",
             exit_code=3,
         ) from None
+
+
+def compose_creator_activity_query(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+) -> PostgreSQLCreatorActivityQuery:
+    """Resolve the Runtime credential for the bounded Activity projection."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise CreatorActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLCreatorActivityQuery:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise CreatorActivityViolation(
+                        "ACTIVITY-QUERY-UNAVAILABLE"
+                    ) from None
+                config = prepared.effective.config
+                return PostgreSQLCreatorActivityQuery(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise CreatorActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
 
 
 def compose_runtime_authority(
@@ -1062,6 +1102,7 @@ __all__ = (
     "compose_capability_policy",
     "compose_codex_pipeline",
     "compose_context_pipeline",
+    "compose_creator_activity_query",
     "compose_creator_input",
     "compose_effect_registration_pipeline",
     "compose_life_opportunity_pipeline",

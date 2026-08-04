@@ -115,6 +115,16 @@ from .context import (
     ContextViolation,
     OpportunitySelector,
 )
+from .creator_activities import (
+    ACTIVITY_PROJECTION_VERSION,
+    ActivityTimelineKind,
+    CreatorActivityItem,
+    CreatorActivityPage,
+    CreatorActivityQueryPort,
+    CreatorActivityTimeline,
+    CreatorActivityTimelineItem,
+    CreatorActivityViolation,
+)
 from .creator_events import (
     CreatorEventResourceKind,
     CreatorEventViolation,
@@ -301,13 +311,15 @@ from .web_observation import (
     WebObservationViolation,
 )
 
-__all__ = (
+__all__: tuple[str, ...] = (
+    "ACTIVITY_PROJECTION_VERSION",
     "PROJECTION_VERSION",
     "ActionAdapterPort",
     "ActionIntentId",
     "ActivityAttentionDecisionKind",
     "ActivityHeadSnapshot",
     "ActivityStatus",
+    "ActivityTimelineKind",
     "ActivityTransition",
     "ActivityWaitingKind",
     "ArtifactId",
@@ -396,6 +408,12 @@ __all__ = (
     "ContextSourceIdentity",
     "ContextTrustClass",
     "ContextViolation",
+    "CreatorActivityItem",
+    "CreatorActivityPage",
+    "CreatorActivityQueryPort",
+    "CreatorActivityTimeline",
+    "CreatorActivityTimelineItem",
+    "CreatorActivityViolation",
     "CreatorCodexTaskAdmissionPort",
     "CreatorCodexTaskCommand",
     "CreatorEventResourceKind",

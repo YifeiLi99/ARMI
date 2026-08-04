@@ -38,6 +38,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/activities": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Creator Activities */
+    get: operations["listCreatorActivities"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/activities/{activity_id}/timeline": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Creator Activity Timeline */
+    get: operations["getCreatorActivityTimeline"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/browser-bootstrap-codes": {
     parameters: {
       query?: never;
@@ -308,6 +342,31 @@ export interface components {
       /** Trace Id */
       trace_id: string;
     };
+    /** @enum {string} */
+    ActivityStatusValue:
+      | "considering"
+      | "ready"
+      | "in_progress"
+      | "waiting"
+      | "paused"
+      | "resuming"
+      | "completed"
+      | "abandoned"
+      | "failed";
+    ActivityTimelineKind:
+      | components["schemas"]["ActivityTransitionValue"]
+      | ("no_action" | "defer" | "need_information");
+    /** @enum {string} */
+    ActivityTransitionValue:
+      | "created"
+      | "engage"
+      | "progress"
+      | "wait"
+      | "pause"
+      | "resume"
+      | "complete"
+      | "abandon"
+      | "system_fail";
     /** AppliedOutcomeResponse */
     AppliedOutcomeResponse: {
       /**
@@ -529,6 +588,91 @@ export interface components {
        */
       workspace_scope: "isolated_ephemeral";
     };
+    /** CreatorActivityItemResponse */
+    CreatorActivityItemResponse: {
+      /** Activity Id */
+      activity_id: string;
+      /**
+       * Activity Kind
+       * @constant
+       */
+      activity_kind: "self_directed";
+      /** Created At */
+      created_at: string;
+      /** Goal */
+      goal: string;
+      /** Head Version */
+      head_version: number;
+      /** Is Focused */
+      is_focused: boolean;
+      /** Progress Summary */
+      progress_summary: string | null;
+      /** Resume Not Before */
+      resume_not_before: string | null;
+      /** Revision No */
+      revision_no: number;
+      status: components["schemas"]["ActivityStatusValue"];
+      /** Terminal Reason */
+      terminal_reason: string | null;
+      transition_kind: components["schemas"]["ActivityTransitionValue"];
+      /** Updated At */
+      updated_at: string;
+      /** Waiting Kind */
+      waiting_kind:
+        | ("time" | "creator_input" | "external_evidence" | "scheduled_review")
+        | null;
+      /** Waiting Summary */
+      waiting_summary: string | null;
+    };
+    /** CreatorActivityPageResponse */
+    CreatorActivityPageResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["CreatorActivityItemResponse"][];
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-activity.v1";
+      /** Truncated */
+      truncated: boolean;
+    };
+    /** CreatorActivityTimelineItemResponse */
+    CreatorActivityTimelineItemResponse: {
+      /** Event Id */
+      event_id: string;
+      event_kind: components["schemas"]["ActivityTimelineKind"];
+      /** Occurred At */
+      occurred_at: string;
+      resulting_status: components["schemas"]["ActivityStatusValue"] | null;
+      /** Review Not Before */
+      review_not_before: string | null;
+      /** Summary */
+      summary: string | null;
+    };
+    /** CreatorActivityTimelineResponse */
+    CreatorActivityTimelineResponse: {
+      /** Activity Id */
+      activity_id: string;
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["CreatorActivityTimelineItemResponse"][];
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-activity.v1";
+      /** Truncated */
+      truncated: boolean;
+    };
     /** CreatorCodexTaskRequest */
     CreatorCodexTaskRequest: {
       /**
@@ -627,6 +771,7 @@ export interface components {
        * @enum {string}
        */
       event_kind:
+        | "activity.invalidated"
         | "scene.timeline.invalidated"
         | "capability.request.invalidated"
         | "operation.invalidated"
@@ -639,6 +784,7 @@ export interface components {
        * @enum {string}
        */
       projection_version:
+        | "creator-activity.v1"
         | "scene-timeline.v3"
         | "capability-request.v3"
         | "creator-operation.v1"
@@ -649,6 +795,7 @@ export interface components {
        * @enum {string}
        */
       resource_kind:
+        | "activity"
         | "scene_timeline"
         | "capability_request"
         | "operation"
@@ -1297,6 +1444,120 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ReadyResponse"];
+        };
+      };
+    };
+  };
+  listCreatorActivities: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatorActivityPageResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getCreatorActivityTimeline: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        activity_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatorActivityTimelineResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
         };
       };
     };

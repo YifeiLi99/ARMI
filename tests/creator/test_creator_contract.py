@@ -64,6 +64,8 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/browser-bootstrap-codes",
                 "/v1/browser-sessions",
                 "/v1/browser-sessions/current",
+                "/v1/activities",
+                "/v1/activities/{activity_id}/timeline",
                 "/v1/runtime/status",
                 "/v1/operations/{result_ref}",
                 "/v1/effects/{effect_id}",
@@ -102,6 +104,17 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(
             set(timeline["responses"]),
             {"200", "400", "401", "403", "404", "409", "503"},
+        )
+        activities = paths["/v1/activities"]["get"]
+        self.assertEqual(activities["operationId"], "listCreatorActivities")
+        self.assertEqual(activities["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(set(activities["responses"]), {"200", "401", "403", "503"})
+        activity_timeline = paths["/v1/activities/{activity_id}/timeline"]["get"]
+        self.assertEqual(activity_timeline["operationId"], "getCreatorActivityTimeline")
+        self.assertEqual(activity_timeline["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(
+            set(activity_timeline["responses"]),
+            {"200", "400", "401", "403", "404", "503"},
         )
         events = paths["/v1/scenes/{scene_key}/events"]["get"]
         self.assertEqual(events["operationId"], "streamSceneEvents")

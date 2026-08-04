@@ -212,10 +212,135 @@ class SceneTimelinePageResponse(_StrictWireModel):
     ) = None
 
 
+type ActivityStatusValue = Literal[
+    "considering",
+    "ready",
+    "in_progress",
+    "waiting",
+    "paused",
+    "resuming",
+    "completed",
+    "abandoned",
+    "failed",
+]
+type ActivityTransitionValue = Literal[
+    "created",
+    "engage",
+    "progress",
+    "wait",
+    "pause",
+    "resume",
+    "complete",
+    "abandon",
+    "system_fail",
+]
+type ActivityTimelineKind = (
+    ActivityTransitionValue | Literal["no_action", "defer", "need_information"]
+)
+
+
+class CreatorActivityItemResponse(_StrictWireModel):
+    activity_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    activity_kind: Literal["self_directed"]
+    status: ActivityStatusValue
+    goal: Annotated[str, Field(min_length=1, max_length=8192)]
+    progress_summary: Annotated[str, Field(min_length=1, max_length=8192)] | None
+    waiting_kind: (
+        Literal["time", "creator_input", "external_evidence", "scheduled_review"] | None
+    )
+    waiting_summary: Annotated[str, Field(min_length=1, max_length=8192)] | None
+    resume_not_before: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+    terminal_reason: Annotated[str, Field(min_length=1, max_length=8192)] | None
+    revision_no: Annotated[int, Field(ge=1)]
+    head_version: Annotated[int, Field(ge=1)]
+    transition_kind: ActivityTransitionValue
+    is_focused: bool
+    created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    updated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("activity_id")
+    @classmethod
+    def validate_activity_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-ACTIVITY-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("created_at", "updated_at", "resume_not_before")
+    @classmethod
+    def validate_activity_time(cls, value: str | None) -> str | None:
+        if value is not None and Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-ACTIVITY-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_activity_shape(self) -> CreatorActivityItemResponse:
+        waiting = self.status in {"waiting", "paused"}
+        terminal = self.status in {"completed", "abandoned", "failed"}
+        if waiting != (
+            self.waiting_kind is not None and self.waiting_summary is not None
+        ) or terminal != (self.terminal_reason is not None):
+            raise ValueError("CON-ACTIVITY-SHAPE: projection fields are inconsistent")
+        return self
+
+
+class CreatorActivityPageResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-activity.v1"]
+    items: Annotated[list[CreatorActivityItemResponse], Field(max_length=100)]
+    truncated: bool
+
+
+class CreatorActivityTimelineItemResponse(_StrictWireModel):
+    event_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    event_kind: ActivityTimelineKind
+    resulting_status: ActivityStatusValue | None
+    summary: Annotated[str, Field(min_length=1, max_length=8192)] | None
+    review_not_before: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+    occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("event_id")
+    @classmethod
+    def validate_event_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-ACTIVITY-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("review_not_before", "occurred_at")
+    @classmethod
+    def validate_event_time(cls, value: str | None) -> str | None:
+        if value is not None and Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-ACTIVITY-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_event_shape(self) -> CreatorActivityTimelineItemResponse:
+        decision_only = self.event_kind in {
+            "no_action",
+            "defer",
+            "need_information",
+        }
+        if decision_only == (self.resulting_status is not None) or (
+            (self.event_kind == "defer") != (self.review_not_before is not None)
+        ):
+            raise ValueError("CON-ACTIVITY-EVENT: projection fields are inconsistent")
+        return self
+
+
+class CreatorActivityTimelineResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-activity.v1"]
+    activity_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    items: Annotated[list[CreatorActivityTimelineItemResponse], Field(max_length=100)]
+    truncated: bool
+
+
 class CreatorProjectionEventResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     event_id: Annotated[str, Field(pattern=_EVENT_ID_PATTERN, max_length=128)]
     event_kind: Literal[
+        "activity.invalidated",
         "scene.timeline.invalidated",
         "capability.request.invalidated",
         "operation.invalidated",
@@ -223,6 +348,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "subject.summary.invalidated",
     ]
     resource_kind: Literal[
+        "activity",
         "scene_timeline",
         "capability_request",
         "operation",
@@ -231,6 +357,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     ]
     resource_ref: Annotated[str, Field(min_length=1, max_length=64)]
     projection_version: Literal[
+        "creator-activity.v1",
         "scene-timeline.v3",
         "capability-request.v3",
         "creator-operation.v1",
@@ -249,6 +376,11 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     @model_validator(mode="after")
     def validate_resource(self) -> CreatorProjectionEventResponse:
         expected = {
+            "activity": (
+                "activity.invalidated",
+                "creator-activity.v1",
+                _UUIDV7_PATTERN,
+            ),
             "scene_timeline": (
                 "scene.timeline.invalidated",
                 "scene-timeline.v3",
@@ -1100,6 +1232,39 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/activities",
+        operation_id="listCreatorActivities",
+        response_model=CreatorActivityPageResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def list_creator_activities() -> CreatorActivityPageResponse:
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/activities/{activity_id}/timeline",
+        operation_id="getCreatorActivityTimeline",
+        response_model=CreatorActivityTimelineResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_activity_timeline(
+        activity_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+    ) -> CreatorActivityTimelineResponse:
+        del activity_id
+        raise NotImplementedError
+
+    @app.get(
         "/v1/scenes/{scene_key}/timeline",
         operation_id="getSceneTimeline",
         response_model=SceneTimelinePageResponse,
@@ -1297,6 +1462,8 @@ def build_creator_openapi() -> dict[str, object]:
         delete_browser_session,
         runtime_status,
         subject_summary,
+        list_creator_activities,
+        get_creator_activity_timeline,
         list_capability_requests,
         decide_capability_request,
         scene_timeline,
@@ -1311,6 +1478,9 @@ def build_creator_openapi() -> dict[str, object]:
     schema = app.openapi()
     schema.pop("servers", None)
     schema["paths"]["/v1/scenes/{scene_key}/timeline"]["get"]["responses"].pop(
+        "422", None
+    )
+    schema["paths"]["/v1/activities/{activity_id}/timeline"]["get"]["responses"].pop(
         "422", None
     )
     schema["paths"]["/v1/scenes/{scene_key}/events"]["get"]["responses"].pop(
@@ -1351,6 +1521,10 @@ __all__ = (
     "CapabilityRequestItemResponse",
     "CapabilityRequestPageResponse",
     "CompletedOutcomeResponse",
+    "CreatorActivityItemResponse",
+    "CreatorActivityPageResponse",
+    "CreatorActivityTimelineItemResponse",
+    "CreatorActivityTimelineResponse",
     "CreatorCodexTaskRequest",
     "CreatorInputRequest",
     "CreatorProjectionEventResponse",

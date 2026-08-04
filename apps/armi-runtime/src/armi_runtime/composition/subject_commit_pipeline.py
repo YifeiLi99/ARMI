@@ -392,6 +392,24 @@ class SubjectCommitPipeline:
                 )
             except DatabaseTransactionError:
                 self._diagnostic("subject_commit.notification.lookup_failed")
+        try:
+            async with self._factory.unit_of_work(
+                LockPlan(), read_only=True
+            ) as unit_of_work:
+                activity_ids = await self._repository.affected_activity_ids(
+                    unit_of_work, snapshot.validation_id
+                )
+            invalidations.extend(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.ACTIVITY,
+                    str(activity_id),
+                    now,
+                    "creator-activity.v1",
+                )
+                for activity_id in activity_ids
+            )
+        except DatabaseTransactionError:
+            self._diagnostic("subject_commit.activity_notification.lookup_failed")
         for invalidation in invalidations:
             try:
                 await self._notifier.notify(invalidation)

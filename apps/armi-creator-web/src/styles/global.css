@@ -279,6 +279,86 @@ textarea:focus-visible {
   justify-content: space-between;
 }
 
+.panel-heading-row,
+.activity-title-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-heading-row .eyebrow {
+  margin-bottom: 0.35rem;
+}
+
+.activity-list,
+.activity-timeline ol {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-list > li {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid rgb(32 32 31 / 12%);
+  border-radius: 0.9rem;
+  background: rgb(255 255 255 / 48%);
+}
+
+.activity-title-row strong {
+  line-height: 1.45;
+}
+
+.activity-focus {
+  flex: none;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: #dce9df;
+  color: #315d43;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.activity-list dl {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.activity-list dl div {
+  display: grid;
+  grid-template-columns: minmax(5rem, 0.3fr) minmax(0, 1fr);
+  gap: 0.8rem;
+}
+
+.activity-list dt,
+.activity-timeline time {
+  color: #6d685f;
+}
+
+.activity-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-timeline {
+  padding-top: 0.8rem;
+  border-top: 1px solid rgb(32 32 31 / 10%);
+}
+
+.activity-timeline li {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.activity-timeline time {
+  font-size: 0.82rem;
+}
+
 .timeline-panel h2 {
   margin: 0;
   color: #443f38;

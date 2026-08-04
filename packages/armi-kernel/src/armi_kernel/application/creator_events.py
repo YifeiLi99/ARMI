@@ -34,6 +34,7 @@ class CreatorEventViolation(RuntimeError):
 
 
 class CreatorEventResourceKind(StrEnum):
+    ACTIVITY = "activity"
     SCENE_TIMELINE = "scene_timeline"
     CAPABILITY_REQUEST = "capability_request"
     OPERATION = "operation"
@@ -42,6 +43,7 @@ class CreatorEventResourceKind(StrEnum):
 
 
 _PROJECTIONS = {
+    CreatorEventResourceKind.ACTIVITY: "creator-activity.v1",
     CreatorEventResourceKind.SCENE_TIMELINE: "scene-timeline.v3",
     CreatorEventResourceKind.CAPABILITY_REQUEST: "capability-request.v3",
     CreatorEventResourceKind.OPERATION: "creator-operation.v1",

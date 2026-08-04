@@ -18,6 +18,8 @@ from armi_kernel.application import (
     CodexDelegationViolation,
     CodexModel,
     CodexReasoningEffort,
+    CreatorActivityQueryPort,
+    CreatorActivityViolation,
     CreatorCodexTaskAdmissionPort,
     CreatorCodexTaskCommand,
     CreatorEventResourceKind,
@@ -83,6 +85,10 @@ from .creator_contract import (
     CapabilityRequestDecisionRequest,
     CapabilityRequestItemResponse,
     CapabilityRequestPageResponse,
+    CreatorActivityItemResponse,
+    CreatorActivityPageResponse,
+    CreatorActivityTimelineItemResponse,
+    CreatorActivityTimelineResponse,
     CreatorCodexTaskRequest,
     CreatorInputRequest,
     EffectResponse,
@@ -790,6 +796,7 @@ def create_runtime_app(
     on_started: AsyncCallback,
     on_stopping: AsyncCallback,
     scene_timeline_query: SceneTimelineQueryPort | None = None,
+    creator_activity_query: CreatorActivityQueryPort | None = None,
     creator_events: CreatorEventBroker | None = None,
     creator_input: CreatorInputAcceptancePort | None = None,
     creator_operations: CreatorOperationQueryPort | None = None,
@@ -1296,6 +1303,158 @@ def create_runtime_app(
         return JSONResponse(content=applied.to_wire())
 
     del list_capability_requests, decide_capability_request
+
+    @app.get("/v1/activities")
+    async def list_creator_activities(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_activity_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_activity_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_ACTIVITY_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            page = await creator_activity_query.list_current()
+        except CreatorActivityViolation:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_ACTIVITY_QUERY_UNAVAILABLE"),
+            )
+        response = CreatorActivityPageResponse(
+            contract_version="1.0",
+            projection_version="creator-activity.v1",
+            items=[
+                CreatorActivityItemResponse(
+                    activity_id=str(item.activity_id),
+                    activity_kind=item.activity_kind,
+                    status=item.status.value,
+                    goal=item.goal,
+                    progress_summary=item.progress_summary,
+                    waiting_kind=(
+                        None if item.waiting_kind is None else item.waiting_kind.value
+                    ),
+                    waiting_summary=item.waiting_summary,
+                    resume_not_before=(
+                        None
+                        if item.resume_not_before is None
+                        else Instant(item.resume_not_before).to_wire()
+                    ),
+                    terminal_reason=item.terminal_reason,
+                    revision_no=item.revision_no,
+                    head_version=item.head_version,
+                    transition_kind=item.transition_kind.value,
+                    is_focused=item.is_focused,
+                    created_at=Instant(item.created_at).to_wire(),
+                    updated_at=Instant(item.updated_at).to_wire(),
+                )
+                for item in page.items
+            ],
+            truncated=page.truncated,
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
+    @app.get("/v1/activities/{activity_id}/timeline")
+    async def get_creator_activity_timeline(
+        activity_id: str, request: Request
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_activity_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_activity_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_ACTIVITY_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            parsed = UUID(activity_id)
+            if parsed.version != 7 or str(parsed) != activity_id:
+                raise ValueError
+        except ValueError:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_ACTIVITY_NOT_VISIBLE"),
+            )
+        try:
+            timeline = await creator_activity_query.timeline(parsed)
+        except CreatorActivityViolation as error:
+            if error.code == "ACTIVITY-QUERY-NOT-FOUND":
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_ACTIVITY_NOT_VISIBLE"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_ACTIVITY_QUERY_UNAVAILABLE"),
+            )
+        response = CreatorActivityTimelineResponse(
+            contract_version="1.0",
+            projection_version="creator-activity.v1",
+            activity_id=str(timeline.activity_id),
+            items=[
+                CreatorActivityTimelineItemResponse(
+                    event_id=str(item.event_id),
+                    event_kind=item.event_kind,
+                    resulting_status=(
+                        None
+                        if item.resulting_status is None
+                        else item.resulting_status.value
+                    ),
+                    summary=item.summary,
+                    review_not_before=(
+                        None
+                        if item.review_not_before is None
+                        else Instant(item.review_not_before).to_wire()
+                    ),
+                    occurred_at=Instant(item.occurred_at).to_wire(),
+                )
+                for item in timeline.items
+            ],
+            truncated=timeline.truncated,
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
+    del list_creator_activities, get_creator_activity_timeline
 
     @app.get("/v1/scenes/{scene_key}/timeline")
     async def get_scene_timeline(scene_key: str, request: Request) -> JSONResponse:

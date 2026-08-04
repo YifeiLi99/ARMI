@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 from typing import cast
+from uuid import uuid7
 
 from armi_kernel.application import (
     CreatorEventResourceKind,
@@ -48,6 +49,16 @@ class CreatorEventContractTests(unittest.TestCase):
                 occurred_at=instant,
                 projection_version="scene-timeline.v1",
             )
+
+    def test_activity_invalidation_uses_activity_identity(self) -> None:
+        activity_id = uuid7()
+        invalidation = CreatorProjectionInvalidation(
+            resource_kind=CreatorEventResourceKind.ACTIVITY,
+            resource_ref=str(activity_id),
+            occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
+            projection_version="creator-activity.v1",
+        )
+        self.assertEqual(invalidation.resource_ref, str(activity_id))
 
 
 if __name__ == "__main__":

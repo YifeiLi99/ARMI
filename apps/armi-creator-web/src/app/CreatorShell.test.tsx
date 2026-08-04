@@ -114,6 +114,36 @@ function capabilityPageResponse(): object {
   };
 }
 
+function activityPageResponse(goal?: string): object {
+  return {
+    contract_version: "1.0",
+    projection_version: "creator-activity.v1",
+    items:
+      goal === undefined
+        ? []
+        : [
+            {
+              activity_id: ENVIRONMENT_ID,
+              activity_kind: "self_directed",
+              status: "ready",
+              goal,
+              progress_summary: null,
+              waiting_kind: null,
+              waiting_summary: null,
+              resume_not_before: null,
+              terminal_reason: null,
+              transition_kind: "created",
+              revision_no: 1,
+              head_version: 1,
+              is_focused: false,
+              created_at: "2026-07-30T10:00:00.000000Z",
+              updated_at: "2026-07-30T10:00:00.000000Z",
+            },
+          ],
+    truncated: false,
+  };
+}
+
 function subjectSummaryResponse(): object {
   return {
     contract_version: "1.0",
@@ -188,6 +218,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse());
@@ -205,7 +236,7 @@ describe("Creator browser session shell", () => {
     expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
     expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
     expect(screen.getByText("权威版本")).toBeInTheDocument();
   });
 
@@ -294,6 +325,7 @@ describe("Creator browser session shell", () => {
           next_cursor: cursor,
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse())
@@ -386,6 +418,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(
@@ -417,7 +450,87 @@ describe("Creator browser session shell", () => {
     await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(fetchMock).toHaveBeenCalledTimes(9);
+  });
+
+  it("uses an Activity invalidation only to refetch its read projection", async () => {
+    const eventId = `sse-v1.${"f".repeat(22)}.1`;
+    const event = JSON.stringify({
+      contract_version: "1.0",
+      event_id: eventId,
+      event_kind: "activity.invalidated",
+      resource_kind: "activity",
+      resource_ref: ENVIRONMENT_ID,
+      projection_version: "creator-activity.v1",
+      occurred_at: "2026-07-30T10:02:00.000000Z",
+    });
+    let activityReads = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/browser-sessions" && init?.method === "POST") {
+        return jsonResponse(sessionResponse(true));
+      }
+      if (url === "/v1/browser-sessions/current") {
+        return jsonResponse(sessionResponse(false));
+      }
+      if (url === "/v1/runtime/status") {
+        return jsonResponse({
+          contract_version: "1.0",
+          environment_id: ENVIRONMENT_ID,
+          runtime_state: "ready",
+          readiness: "ready",
+          reason_codes: [],
+          observed_at: "2026-07-30T10:00:01.000000Z",
+        });
+      }
+      if (url === "/v1/activities") {
+        activityReads += 1;
+        return jsonResponse(
+          activityPageResponse(
+            activityReads === 1 ? "旧活动投影" : "新活动投影",
+          ),
+        );
+      }
+      if (url.includes("/timeline?")) {
+        return jsonResponse({
+          contract_version: "1.0",
+          projection_version: "scene-timeline.v3",
+          scene_key: "default",
+          items: [],
+        });
+      }
+      if (url.startsWith("/v1/capability-requests?")) {
+        return jsonResponse(capabilityPageResponse());
+      }
+      if (url === "/v1/subject/summary") {
+        return jsonResponse(subjectSummaryResponse());
+      }
+      if (url.endsWith("/events")) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `retry: 1000\n\nid: ${eventId}\nevent: activity.invalidated\ndata: ${event}\n\n`,
+                ),
+              );
+            },
+          }),
+          { headers: { "Content-Type": "text/event-stream; charset=utf-8" } },
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<CreatorShell />);
+
+    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
+    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
+
+    expect(await screen.findByText("新活动投影")).toBeInTheDocument();
+    expect(screen.queryByText("旧活动投影")).toBeNull();
+    expect(activityReads).toBe(2);
   });
 
   it("clears session state when the authenticated stream returns 401", async () => {
@@ -443,6 +556,7 @@ describe("Creator browser session shell", () => {
           items: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(new Response(null, { status: 401 }));
@@ -482,6 +596,9 @@ describe("Creator browser session shell", () => {
       }
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());
+      }
+      if (url === "/v1/activities") {
+        return jsonResponse(activityPageResponse());
       }
       if (url.startsWith("/v1/capability-requests?")) {
         return jsonResponse(capabilityPageResponse());
@@ -585,6 +702,9 @@ describe("Creator browser session shell", () => {
       }
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());
+      }
+      if (url === "/v1/activities") {
+        return jsonResponse(activityPageResponse());
       }
       if (url.startsWith("/v1/capability-requests?")) {
         return jsonResponse(capabilityPageResponse());

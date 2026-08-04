@@ -24,6 +24,7 @@ MAX_EVENT_BYTES = 4096
 KEEPALIVE_SECONDS = 15
 RETRY_MILLISECONDS = 1000
 EVENT_KINDS = {
+    "activity": "activity.invalidated",
     "scene_timeline": "scene.timeline.invalidated",
     "capability_request": "capability.request.invalidated",
     "operation": "operation.invalidated",

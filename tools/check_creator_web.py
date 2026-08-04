@@ -173,6 +173,7 @@ def check_repository(root: Path) -> list[Violation]:
                 for child in feature_root.iterdir()
                 if child.name
                 not in {
+                    "activity",
                     "capability",
                     "effect",
                     "operation",

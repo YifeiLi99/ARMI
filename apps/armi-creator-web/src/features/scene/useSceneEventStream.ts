@@ -65,6 +65,8 @@ export function useSceneEventStream({
         predicate: (query) =>
           [
             "scene-timeline",
+            "activities",
+            "activity-timeline",
             "capability-requests",
             "creator-operation",
             "creator-effect",
@@ -82,6 +84,15 @@ export function useSceneEventStream({
           throw new EventStreamFailure("event");
         }
         await queryClient.resetQueries({ queryKey, exact: true });
+        return;
+      }
+      if (resourceKind === "activity") {
+        await queryClient.resetQueries({
+          predicate: (query) =>
+            query.queryKey[0] === "activities" ||
+            (query.queryKey[0] === "activity-timeline" &&
+              query.queryKey.includes(resourceRef)),
+        });
         return;
       }
       const prefix = {
@@ -191,6 +202,8 @@ export function useSceneEventStream({
           predicate: (query) =>
             [
               "scene-timeline",
+              "activities",
+              "activity-timeline",
               "capability-requests",
               "creator-operation",
               "creator-effect",
