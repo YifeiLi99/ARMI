@@ -15,11 +15,16 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目目前处于 M0 候选收尾阶段，当前实现基线仍为 S001 5.7、schema v27。普通 `consider_creator_input` 只调用一次主模型，并使用紧凑的 `armi.creator-dialogue-candidate.v1`：模型只返回本轮决定、必要正文和可选 Experience；固定 identity、usage、subject、scene、版本、digest、basis 与 grant scope 由适配器和 Runtime 保管。普通对话不使用多模型流水线，也不让模型重复回显数据库合同。全新隔离 PostgreSQL 环境的真实回复闭环为 2.327 秒，其中方舟模型 1.774 秒。
+项目当前已达到 M0-Core 单机个人内测可用，基线为 S001 5.7、schema v27。普通 `consider_creator_input` 只调用一次主模型，并使用紧凑的 `armi.creator-dialogue-candidate.v1`：模型只返回本轮决定、必要正文和可选 Experience；固定 identity、usage、subject、scene、版本、digest、basis 与 grant scope 由适配器和 Runtime 保管。普通对话不使用多模型流水线，也不让模型重复回显数据库合同。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
 
 S039 的 Creator→Codex 产品纵向 gate 已通过：正式 `codex-tasks` 输入经 ARMI 认知、Creator grant、Codex effect、官方 `openai-codex==0.144.4` SDK runner、独立 validator、result evidence 和第二次 T-03 收敛为唯一 private Experience。新任务可逐项选择 `gpt-5.6-sol/terra/luna`、思考级别和内置 Web Search；一次性 workspace 默认可操作，明确 forbidden paths 和禁止逃逸构成安全边界。纯内容任务由结构化 deliverable 落为 `result.md`，代码与文件任务按 task manifest 和独立 validator 核验。正式 Creator 链已经用 Luna、`max` 和 Web Search 完成实机验收，不再把组件级成功冒充产品闭环。
 
-Admin MCP 保持 SDK 2.0.0、协议 `2026-07-28`、stdio 和 23 个静态工具。S033/S034 的 ARMI 网页证据 live gate 仍延至 M0 总验收，不能用 Codex Web Search 的成功替代。原 M0-S040—S043 不再单独实施，其必要检查并入 M0-S044—S046。S044 已从固定 revision 生成并核验不可变 M0 候选，下一施工入口为 M0-S045。Memory、Relationship 与 Activity owner 仍未激活，因此当前还不是发布版本。
+2026-08-04 又从正式 Creator `codex-tasks` 入口完成一次 `gpt-5.6-terra` 委托：官方
+`openai-codex==0.144.4` 一次 attempt，validator `passed`、workspace cleanup `succeeded`、
+result acceptance `accepted`。因此第一阶段“能正常对话、能发任务给 Codex”已经成立。
+Admin MCP、S033/S034 ARMI 网页观察、Windows 服务身份/DACL、跨候选回退和 24 小时 soak
+移入 P0 稳定化，不再阻塞个人内测。当前仍不是生产发布版本；Memory、Relationship 与
+Activity owner 也尚未激活。
 
 ## 本地 Runtime 生命周期
 
@@ -41,7 +46,7 @@ armi start --environment-root C:\path\to\environment
 `armi start` 创建无控制台的后台进程并等待私有控制端点可用后返回；`armi stop`
 先停止接纳新写入并完成优雅停机。原有
 `armi runtime start --environment-root <path>` 保留为前台诊断入口。该本地入口不注册
-Windows 服务，也不提供开机自启；正式安装和服务身份仍归 S045。
+Windows 服务，也不提供开机自启；正式安装、服务身份和无人值守运行归 P0 稳定化。
 
 ## 开发验证
 
