@@ -183,6 +183,7 @@ def _invoke_elevated(
     ]
     encoded_arguments = ",".join(_quote_powershell(item) for item in arguments)
     command = (
+        "$ErrorActionPreference='Stop'; "
         "$process=Start-Process -FilePath 'pwsh' -Verb RunAs "
         f"-ArgumentList @({encoded_arguments}) -Wait -PassThru; "
         "exit $process.ExitCode"
@@ -194,6 +195,8 @@ def _invoke_elevated(
     )
     if completed.returncode != 0:
         raise RehearsalError("S045-ELEVATED-FAILED")
+    if not summary_path.is_file():
+        raise RehearsalError("S045-ELEVATED-SUMMARY-MISSING")
 
 
 def rehearse(root: Path, bundle: Path, work: Path, evidence: Path) -> dict[str, Any]:
