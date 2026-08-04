@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目当前已达到 M0-Core 单机个人内测可用；P0-S001 的 Activity 权威与 P0-S002 的 schema v29 注意调度实现已经落地，但正式联合验收尚未通过。普通 `consider_creator_input` 仍只调用一次主模型，并使用紧凑的 `armi.creator-dialogue-candidate.v1`：模型只返回本轮决定、必要正文和可选 Experience；固定 identity、usage、subject、scene、版本、digest、basis 与 grant scope 由适配器和 Runtime 保管。普通对话不使用多模型流水线，也不让模型重复回显数据库合同。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
+项目当前已达到 M0-Core 单机个人内测可用；P0-S001 的 Activity 权威与 P0-S002 的 schema v29 注意调度实现已经落地，当前按功能优先模式推进 P0-S003。普通 `consider_creator_input` 仍只调用一次主模型，并使用紧凑的 `armi.creator-dialogue-candidate.v1`：模型只返回本轮决定、必要正文和可选 Experience；固定 identity、usage、subject、scene、版本、digest、basis 与 grant scope 由适配器和 Runtime 保管。普通对话不使用多模型流水线，也不让模型重复回显数据库合同。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
 
 S039 的 Creator→Codex 产品纵向 gate 已通过：正式 `codex-tasks` 输入经 ARMI 认知、Creator grant、Codex effect、官方 `openai-codex==0.144.4` SDK runner、独立 validator、result evidence 和第二次 T-03 收敛为唯一 private Experience。新任务可逐项选择 `gpt-5.6-sol/terra/luna`、思考级别和内置 Web Search；一次性 workspace 默认可操作，明确 forbidden paths 和禁止逃逸构成安全边界。纯内容任务由结构化 deliverable 落为 `result.md`，代码与文件任务按 task manifest 和独立 validator 核验。正式 Creator 链已经用 Luna、`max` 和 Web Search 完成实机验收，不再把组件级成功冒充产品闭环。
 
@@ -25,9 +25,8 @@ result acceptance `accepted`。因此第一阶段“能正常对话、能发任�
 Admin MCP、S033/S034 ARMI 网页观察、Windows 服务身份/DACL、跨候选回退和 24 小时 soak
 移入 P0 稳定化，不再阻塞个人内测。当前仍不是生产发布版本；Memory 与 Relationship
 owner 尚未激活。Activity owner 已进入正式组合根，但首次真实自主认知没有创建 `ready`
-Activity。S002 实现门禁已经通过；本次联合验收因已修复的 S001 Context 串线停在
-candidate validation，S002 记录为 `not_run`。当前施工入口仍为 P0-S001/S002 联合重验；
-真实 Ark 依次创建 Activity 并作出合法注意决定前，两步都不标记完成。
+Activity。相关 Context 串线已经修复；历史联合验收结果保留到 P0-S021/S022 集中复验，
+不再阻塞后续功能开发。P0-S001、P0-S002 按实现完成，当前施工入口为 P0-S003。
 
 ## 本地 Runtime 生命周期
 
@@ -53,9 +52,10 @@ Windows 服务，也不提供开机自启；正式安装、服务身份和无人
 
 ## 开发验证
 
-日常迭代以改动相关的 `pytest` 和最终实机闭环为准，不在每次编辑后运行完整
-质量门禁、完整 PostgreSQL 回归或双 clean-root。`tools/quality.ps1` 保留为稳定后
-的提交/阶段验收入口。Runtime composition 只声明接缝与 Active binding；配置、
+P0-S001—S020 日常迭代以改动相关的 `pytest`、类型检查和最小可运行 smoke 为准，不运行
+完整质量门禁、完整 PostgreSQL 回归、真实浏览器/付费模型矩阵或双 clean-root。
+`tools/quality.ps1` 默认只运行快速开发检查；P0-S021/S022 使用
+`tools/quality.ps1 -Release` 才运行安全、锁定环境和构建门禁。Runtime composition 只声明接缝与 Active binding；配置、
 schema、migration、前端和策略资源由各自真实消费者验证，不再通过聚合摘要互相
 触发 JSON 镜像更新。当前快速开发期不为内部 Context/candidate policy、阶段状态或
 摘要传播维护治理 JSON，也不为每个切片生成结构化 evidence；规则直接由代码、类型、

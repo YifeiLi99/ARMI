@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string[]]$Gate,
+    [switch]$Release,
     [string]$ToolRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) '.armi-tools')
 )
 
@@ -32,6 +33,9 @@ $arguments = @(
 )
 foreach ($gateId in $Gate) {
     $arguments += @('--gate', $gateId)
+}
+if ($Release) {
+    $arguments += '--release'
 }
 
 $previousPythonIoEncoding = $env:PYTHONIOENCODING

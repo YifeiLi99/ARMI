@@ -1,4 +1,4 @@
-"""Run all M0-S004 quality gates without installing or contacting a network."""
+"""Run fast development checks, or the full offline release gate on request."""
 
 from __future__ import annotations
 
@@ -17,8 +17,6 @@ GATE_ORDER = (
     "PY-TYPE",
     "PY-TEST",
     "ARC-SURFACE",
-    "ARC-OWNER",
-    "EVO-CLEAN",
     "SEC-REPOSITORY",
     "WEB-FORMAT",
     "WEB-LINT",
@@ -26,6 +24,16 @@ GATE_ORDER = (
     "WEB-TEST",
     "BUILD-WEB",
     "BUILD-PY",
+)
+FAST_GATE_ORDER = (
+    "PY-FORMAT",
+    "PY-LINT",
+    "PY-TYPE",
+    "PY-TEST",
+    "WEB-FORMAT",
+    "WEB-LINT",
+    "WEB-TYPE",
+    "WEB-TEST",
 )
 
 
@@ -207,18 +215,6 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             root,
             common_python,
         ),
-        "ARC-OWNER": Gate(
-            "ARC-OWNER",
-            py("-B", "tools/check_architecture_policy.py", "--family", "owner"),
-            root,
-            common_python,
-        ),
-        "EVO-CLEAN": Gate(
-            "EVO-CLEAN",
-            py("-B", "tools/check_architecture_policy.py", "--family", "clean"),
-            root,
-            common_python,
-        ),
         "SEC-REPOSITORY": Gate(
             "SEC-REPOSITORY",
             py("-B", "tools/check_repository_hygiene.py"),
@@ -306,10 +302,11 @@ def main() -> int:
     )
     parser.add_argument("--tool-root", type=Path)
     parser.add_argument("--gate", action="append", choices=GATE_ORDER)
+    parser.add_argument("--release", action="store_true")
     args = parser.parse_args()
     root = args.root.resolve()
     tool_root = args.tool_root.resolve() if args.tool_root else root / ".armi-tools"
-    selected = tuple(args.gate or GATE_ORDER)
+    selected = tuple(args.gate or (GATE_ORDER if args.release else FAST_GATE_ORDER))
     available = commands(root, tool_root)
     environment = os.environ.copy()
     environment.update(

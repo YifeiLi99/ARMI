@@ -164,6 +164,7 @@ def _quality_build(root: Path, tool_root: Path) -> list[Path]:
             "tools/quality.py",
             "--tool-root",
             str(tool_root),
+            "--release",
         ],
         root,
         "BND-QUALITY",

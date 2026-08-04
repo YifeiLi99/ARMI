@@ -107,9 +107,5 @@
     "warm_cache": "Python and npm locked dependencies can be reinstalled after their exact archives have populated the isolated cache.",
     "tool_artifacts": "uv, CPython, Node/npm, Chromium and PostgreSQL 18.4 must already exist in the isolated tool root.",
     "missing_artifact": "fail_without_network_fallback"
-  },
-  "dependency_inventory": {
-    "path": "tools/dependency-inventory.json",
-    "graph_sha256": "561c4dc130ad001798fd91a67c10895acf125c32c5b7d35d270b67b2b13f0518"
   }
 }

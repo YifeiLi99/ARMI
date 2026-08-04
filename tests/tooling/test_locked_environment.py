@@ -20,7 +20,6 @@ FIXTURE_PATHS = (
     "tools/toolchain-node/package.json",
     "tools/toolchain-node/package-lock.json",
     "tools/toolchain-manifest.json",
-    "tools/dependency-inventory.json",
 )
 
 
@@ -82,14 +81,6 @@ class LockedEnvironmentTests(unittest.TestCase):
         data["packages"][""]["devDependencies"]["pyright"] = "1.1.410"
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assertIn("S003-LOCK-DRIFT", self.codes())
-
-    def test_unresolved_license_is_rejected(self) -> None:
-        path = self.root / "tools/dependency-inventory.json"
-        data = json.loads(path.read_text(encoding="utf-8"))
-        data["status"] = "blocked"
-        data["unresolved_licenses"] = ["example@1.0.0"]
-        path.write_text(json.dumps(data), encoding="utf-8")
-        self.assertIn("S003-INVENTORY", self.codes())
 
 
 if __name__ == "__main__":

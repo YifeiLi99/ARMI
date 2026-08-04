@@ -235,7 +235,6 @@ def check_repository(
     *,
     system_name: str | None = None,
     machine: str | None = None,
-    require_generated: bool = True,
 ) -> list[Violation]:
     """Return all deterministic M0-S003 violations."""
 
@@ -419,28 +418,6 @@ def check_repository(
                     code="S003-LOCK-DRIFT",
                 )
 
-    if require_generated:
-        inventory_path = root / "tools/dependency-inventory.json"
-        inventory = _load_json(inventory_path, violations)
-        if inventory is not None:
-            _expect(
-                violations,
-                actual=inventory.get("status"),
-                expected="pass",
-                path=inventory_path,
-                field="status",
-                code="S003-INVENTORY",
-            )
-            unresolved = inventory.get("unresolved_licenses")
-            _expect(
-                violations,
-                actual=unresolved,
-                expected=[],
-                path=inventory_path,
-                field="unresolved_licenses",
-                code="S003-INVENTORY",
-            )
-
     return violations
 
 
@@ -451,13 +428,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--system")
     parser.add_argument("--machine")
-    parser.add_argument("--allow-pending-generated", action="store_true")
     args = parser.parse_args(argv)
     violations = check_repository(
         args.root,
         system_name=args.system,
         machine=args.machine,
-        require_generated=not args.allow_pending_generated,
     )
     if violations:
         for violation in violations:

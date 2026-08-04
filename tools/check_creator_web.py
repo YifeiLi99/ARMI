@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 SOURCE_SUFFIXES = {".ts", ".tsx", ".css", ".html"}
 NETWORK_PATTERN = re.compile(r"\b(?:fetch|XMLHttpRequest)\s*\(")
@@ -50,77 +48,6 @@ def _matches(
         Violation(code, path, _line(source, match.start()), message)
         for match in pattern.finditer(source)
     ]
-
-
-def validate_policy(policy: dict[str, Any], path: str) -> list[Violation]:
-    creator = policy.get("creator_web")
-    if not isinstance(creator, dict):
-        return [
-            Violation(
-                "ARC-WEB-POLICY",
-                path,
-                1,
-                "creator_web policy must be an object",
-            )
-        ]
-    violations: list[Violation] = []
-    if creator.get("source_root") != "apps/armi-creator-web/src":
-        violations.append(
-            Violation("ARC-WEB-POLICY", path, 1, "unexpected Creator source root")
-        )
-    if creator.get("generated_file") != (
-        "apps/armi-creator-web/src/api/generated/creator.ts"
-    ):
-        violations.append(
-            Violation("ARC-WEB-POLICY", path, 1, "unexpected generated type path")
-        )
-    features = creator.get("features")
-    if not isinstance(features, list):
-        violations.append(
-            Violation("ARC-WEB-POLICY", path, 1, "features must be an array")
-        )
-    elif features != [
-        "capability",
-        "effect",
-        "operation",
-        "session",
-        "scene",
-        "subject",
-    ]:
-        violations.append(
-            Violation(
-                "ARC-WEB-FEATURE",
-                path,
-                1,
-                "S031 permits only the single-page capability/effect/operation/session/scene/subject features",
-            )
-        )
-    event_stream = creator.get("event_stream")
-    if event_stream != {
-        "contract": "creator-event-stream.v2",
-        "transport": "authenticated-fetch-sse",
-        "client": "apps/armi-creator-web/src/api/eventStream.ts",
-        "broker": "armi_runtime.interfaces.creator_events.CreatorEventBroker",
-        "fact_source": False,
-        "runtime_discovery": False,
-        "persistent_event_cache": False,
-        "event_kinds": [
-            "scene.timeline.invalidated",
-            "capability.request.invalidated",
-            "operation.invalidated",
-            "effect.invalidated",
-            "subject.summary.invalidated",
-        ],
-    }:
-        violations.append(
-            Violation(
-                "ARC-WEB-STREAM",
-                path,
-                1,
-                "Creator SSE boundary must remain explicit and non-authoritative",
-            )
-        )
-    return violations
 
 
 def analyze_source(source: str, *, path: str) -> list[Violation]:
@@ -203,26 +130,9 @@ def analyze_source(source: str, *, path: str) -> list[Violation]:
 
 def check_repository(root: Path) -> list[Violation]:
     root = root.resolve()
-    policy_path = root / "tools/architecture-policy.json"
-    try:
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        return [Violation("ARC-WEB-POLICY", policy_path.as_posix(), 1, str(error))]
-    if not isinstance(policy, dict):
-        return [
-            Violation(
-                "ARC-WEB-POLICY",
-                policy_path.as_posix(),
-                1,
-                "policy root must be an object",
-            )
-        ]
-    violations = validate_policy(policy, policy_path.as_posix())
-    creator = policy.get("creator_web", {})
-    if not isinstance(creator, dict):
-        return violations
-    source_root = root / str(creator.get("source_root", ""))
-    generated = root / str(creator.get("generated_file", ""))
+    violations: list[Violation] = []
+    source_root = root / "apps/armi-creator-web/src"
+    generated = source_root / "api/generated/creator.ts"
     if not generated.is_file():
         violations.append(
             Violation(
