@@ -809,7 +809,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "environment_root": Path.cwd(),
                 "experiment_root": Path.cwd(),
                 "template_manifest": Path.cwd()
-                / "schema/manifests/schema-manifest.json",
+                / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
+                "schema/manifests/schema-manifest.json",
                 "postgresql_tool_root": Path(
                     os.environ.get("S003_TOOL_ROOT", Path.cwd() / ".armi-tools")
                 )

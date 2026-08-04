@@ -12,8 +12,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
-import rfc8785
-
 _SCHEMA_ROOT = Path("schema")
 _MIRROR_ROOT = Path(
     "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
@@ -2094,8 +2092,10 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
     }
 
 
-def canonical_manifest_bytes(value: dict[str, object]) -> bytes:
-    return rfc8785.dumps(cast(Any, value)) + b"\n"
+def render_manifest_bytes(value: dict[str, object]) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
 
 
 def generated_files(root: Path) -> dict[Path, bytes]:
@@ -2283,8 +2283,8 @@ def generated_files(root: Path) -> dict[Path, bytes]:
     security_definer["not_applicable_reason"] = (
         "M0-S038 uses fixed direct grants and has no security-definer function."
     )
-    role_manifest = canonical_manifest_bytes(role_value)
-    manifest = canonical_manifest_bytes(build_manifest(schema_root, role_manifest))
+    role_manifest = render_manifest_bytes(role_value)
+    manifest = render_manifest_bytes(build_manifest(schema_root, role_manifest))
     generated = {
         _MANIFEST: manifest,
         _ROLE_MANIFEST: role_manifest,
@@ -2297,23 +2297,20 @@ def generated_files(root: Path) -> dict[Path, bytes]:
 
 
 def _matches(root: Path, generated: dict[Path, bytes]) -> bool:
-    schema_root = root / _SCHEMA_ROOT
     mirror_root = root / _MIRROR_ROOT
     return all(
-        (schema_root / relative).is_file()
-        and (schema_root / relative).read_bytes() == value
-        and (mirror_root / relative).is_file()
+        (mirror_root / relative).is_file()
         and (mirror_root / relative).read_bytes() == value
         for relative, value in generated.items()
     )
 
 
 def _write(root: Path, generated: dict[Path, bytes]) -> None:
-    for base in (root / _SCHEMA_ROOT, root / _MIRROR_ROOT):
-        for relative, value in generated.items():
-            destination = base / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(value)
+    base = root / _MIRROR_ROOT
+    for relative, value in generated.items():
+        destination = base / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(value)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -1232,7 +1232,10 @@ def _load_packaged_schema() -> _PackagedSchema:
         ) from None
     if (
         manifest.get("schema_version") != "armi.schema-manifest.v1"
-        or rfc8785.dumps(cast(Any, manifest)) + b"\n" != manifest_bytes
+        or (
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        ).encode("utf-8")
+        != manifest_bytes
         or manifest.get("runtime_upgrade_allowed") is not False
     ):
         raise DatabaseViolation(

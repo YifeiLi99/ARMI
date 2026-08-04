@@ -17,8 +17,6 @@ REQUIRED = {
     f"{PACKAGE_PREFIX}static/index.html",
     f"{PACKAGE_PREFIX}static/.vite/manifest.json",
     f"{RUNTIME_PREFIX}runtime.defaults.toml",
-    f"{RUNTIME_PREFIX}runtime.schema.json",
-    f"{RUNTIME_PREFIX}runtime-config-manifest.json",
     f"{RUNTIME_PREFIX}runtime-composition.manifest.json",
 }
 FORBIDDEN_PARTS = (

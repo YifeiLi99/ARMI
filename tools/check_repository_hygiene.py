@@ -141,6 +141,15 @@ def scan_paths(paths: Iterable[Path], root: Path) -> list[Violation]:
             violations.append(
                 Violation("SEC-TEXT-LF", relative, 1, "CR/CRLF is forbidden")
             )
+        if path.suffix.lower() == ".json" and len(text.splitlines()) < 2:
+            violations.append(
+                Violation(
+                    "REP-JSON-FORMAT",
+                    relative,
+                    1,
+                    "committed JSON must use readable multi-line formatting",
+                )
+            )
         for code, pattern, message in PATTERNS:
             for match in pattern.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1

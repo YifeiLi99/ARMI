@@ -6,9 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from importlib.resources import files
-from typing import Any, Final, cast
-
-import rfc8785
+from typing import Final
 
 from .runtime_errors import RuntimeViolation
 
@@ -96,8 +94,10 @@ def build_composition_manifest() -> dict[str, object]:
     }
 
 
-def canonical_manifest_bytes(value: dict[str, object]) -> bytes:
-    return rfc8785.dumps(cast(Any, value)) + b"\n"
+def render_manifest_bytes(value: dict[str, object]) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +140,7 @@ def verify_packaged_composition() -> VerifiedComposition:
             "the packaged Runtime composition manifest is malformed",
         ) from None
     expected = build_composition_manifest()
-    if parsed != expected or committed != canonical_manifest_bytes(expected):
+    if parsed != expected or committed != render_manifest_bytes(expected):
         raise RuntimeViolation(
             "CMP-MANIFEST-DRIFT",
             "the packaged Runtime composition declaration has drifted",
@@ -162,6 +162,6 @@ __all__ = (
     "WEB_BINDING_ID",
     "VerifiedComposition",
     "build_composition_manifest",
-    "canonical_manifest_bytes",
+    "render_manifest_bytes",
     "verify_packaged_composition",
 )

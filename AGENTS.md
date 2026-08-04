@@ -50,7 +50,8 @@
 - PostgreSQL 是唯一权威关系数据库。首个物理 schema 应能从空库原子安装，只包含已接入正式组合根并被真实 M0 纵切使用的对象；运行时不得临时补列、自动建表或依赖 ORM metadata 拼装正式 schema。
 - 新能力通过端口和适配器接入。可替换策略返回候选，不取得领域 current state 的所有权；只有跨模块语义改变时才修改公共契约及其消费者。
 - 当前处于快速开发期。默认禁止为内部策略、实现选择、阶段状态、摘要传播或“看起来完整”新增 JSON manifest、inventory、evidence contract 或跨 distribution 镜像；这些事实优先放在代码常量、类型、迁移、测试和简短 Markdown 记录中。
-- 只有运行时/安装器当前直接读取的机器合同才保留 JSON：外部 wire/schema、数据库安装与权限 manifest、实际 provider/model binding、运行配置 schema、包管理锁文件及候选发布必需的最小 composition identity。没有产品消费者、只被测试反向验证存在的治理 JSON 应删除，而不是为它新增生成器。
+- 只有运行时/安装器当前直接读取的机器合同才保留 JSON：外部 wire/schema、数据库安装与权限 manifest、实际 provider/model binding、包管理锁文件及候选发布必需的最小 composition identity。没有产品消费者、只被测试反向验证存在的治理 JSON 应删除，而不是为它新增生成器。
+- 提交到仓库、供人检查的 JSON 必须使用 UTF-8、2 空格缩进和结尾换行；RFC 8785 只用于摘要输入或 wire 编码，不得作为把仓库文件压成单行的理由。运行时配置 schema 默认由代码按需导出，不提交重复 schema/摘要镜像。
 - Context policy、candidate policy 及类似单进程内部机制以代码 contract version 形成审计摘要，不保存重复 policy JSON。普通切片不生成结构化 evidence JSON；只记录测试结果和必要 live gate 摘要。到 P0 候选/发布阶段，再按当时真实发布边界集中生成 bundle identity 和脱敏验收证据，不追补每个开发切片的治理包。
 - 只有耐久数据格式、外部 wire、跨 distribution 资源或真实发布兼容性发生变化时才增加 migration 或版本化 manifest。生成镜像只能由生成器维护，禁止手工逐份编辑；若保留镜像的唯一理由是开发期摘要传播，应删除镜像并让消费者读取真源或代码 contract。
 - `runtime-composition` 只记录接缝与 Active binding，不聚合配置、前端、schema、migration 或策略文件摘要。各资源只在真实消费边界验证，前端构建不得顺带校验 Runtime composition。

@@ -19,13 +19,15 @@ from armi_admin.mcp.server import (
 
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCE_ROOT = ROOT / "apps/armi-admin/src/armi_admin/mcp/resources"
-SCHEMA_SOURCE = ROOT / "schema/manifests/schema-manifest.json"
+SCHEMA_SOURCE = (
+    ROOT / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
+    "schema/manifests/schema-manifest.json"
+)
 
 
 def _json_bytes(value: Any) -> bytes:
     return (
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-        + "\n"
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
 
 

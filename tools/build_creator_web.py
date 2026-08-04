@@ -13,9 +13,8 @@ import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-import rfc8785
 from armi_runtime.interfaces.creator_contract import build_creator_openapi
 
 RESOURCE_RELATIVE = Path(
@@ -52,8 +51,10 @@ def sha256_file(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
 
 
-def canonical_json(value: object) -> bytes:
-    return rfc8785.dumps(cast(Any, value)) + b"\n"
+def render_json(value: object) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -246,7 +247,7 @@ def generate(root: Path, tool_root: Path, stage: Path) -> tuple[Path, Path]:
 
     schema = build_creator_openapi()
     validate_openapi(schema)
-    openapi_bytes = canonical_json(schema)
+    openapi_bytes = render_json(schema)
     openapi_path = resources / "openapi.json"
     openapi_path.write_bytes(openapi_bytes)
 
@@ -358,7 +359,7 @@ def generate(root: Path, tool_root: Path, stage: Path) -> tuple[Path, Path]:
         "assets": assets,
         "runtime_discovery": False,
     }
-    (resources / "manifest.json").write_bytes(canonical_json(manifest))
+    (resources / "manifest.json").write_bytes(render_json(manifest))
     return generated, resources
 
 

@@ -10,15 +10,11 @@ from pathlib import Path
 
 from armi_runtime.composition.manifest import (
     build_composition_manifest,
-    canonical_manifest_bytes,
+    render_manifest_bytes,
 )
 
 _TARGET = Path("apps/armi-runtime/src/armi_runtime/composition/runtime_resources")
-_CONFIG = {
-    "runtime.defaults.toml": Path("config/runtime.defaults.toml"),
-    "runtime.schema.json": Path("config/runtime.schema.json"),
-    "runtime-config-manifest.json": Path("config/runtime-config-manifest.json"),
-}
+_CONFIG = {"runtime.defaults.toml": Path("config/runtime.defaults.toml")}
 
 
 def _generate(root: Path, output: Path) -> None:
@@ -28,7 +24,7 @@ def _generate(root: Path, output: Path) -> None:
         (output / target_name).write_bytes(value)
     manifest = build_composition_manifest()
     (output / "runtime-composition.manifest.json").write_bytes(
-        canonical_manifest_bytes(manifest)
+        render_manifest_bytes(manifest)
     )
 
 

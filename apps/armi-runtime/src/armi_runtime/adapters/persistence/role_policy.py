@@ -70,7 +70,11 @@ def _load_role_policy() -> _LoadedRolePolicy:
     digest = _digest(role_bytes)
     if (
         role_manifest.get("schema_version") != "armi.database-roles.v1"
-        or rfc8785.dumps(cast(Any, role_manifest)) + b"\n" != role_bytes
+        or (
+            json.dumps(role_manifest, ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n"
+        ).encode("utf-8")
+        != role_bytes
         or reference.get("path") != _ROLE_MANIFEST_PATH
         or reference.get("sha256") != digest
     ):

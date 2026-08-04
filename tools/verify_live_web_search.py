@@ -14,10 +14,10 @@ from typing import Any, cast
 import httpx
 from armi_runtime.adapters.model.web_search import (
     API_BASE,
+    BINDING_ID,
     MODEL,
     TOOL_DECLARATION,
     WebSearchViolation,
-    load_governance,
     normalize_provider_response,
     validate_response,
     validate_tool_declaration,
@@ -82,9 +82,6 @@ def _cost(evidence: Mapping[str, int], rates: tuple[int, int]) -> int:
 
 
 async def _run(root: Path, env_file: Path) -> dict[str, object]:
-    governance = load_governance(
-        (root / "model/web-search-binding.manifest.json").read_bytes()
-    )
     validate_tool_declaration(dict(TOOL_DECLARATION))
     http_client = httpx.AsyncClient(trust_env=False)
     client = AsyncOpenAI(
@@ -119,7 +116,7 @@ async def _run(root: Path, env_file: Path) -> dict[str, object]:
             "status": "pass",
             "provider": "volcengine_ark",
             "model": raw.get("model"),
-            "binding_id": governance.binding_id,
+            "binding_id": BINDING_ID,
             "store": False,
             "request_id_sha256": "sha256:"
             + hashlib.sha256(request_id.encode()).hexdigest(),

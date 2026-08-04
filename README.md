@@ -61,6 +61,9 @@ schema、migration、前端和策略资源由各自真实消费者验证，不�
 摘要传播维护治理 JSON，也不为每个切片生成结构化 evidence；规则直接由代码、类型、
 migration 和测试表达。只有运行/安装真正读取的 schema、model binding、配置、锁文件及
 候选最小 identity 保留机器合同，完整证据留到 P0 候选与发布阶段集中生成。
+仓库内保留的 JSON 一律以 2 空格缩进提交，便于直接审查；规范化 JSON 只在计算摘要或
+外部 wire 确实要求时临时生成。配置 schema 由 Python contract 按需导出，schema manifest
+只保留各发行包实际消费的副本，不再保留仓库根重复镜像。
 
 ## 关于学习与参考
 

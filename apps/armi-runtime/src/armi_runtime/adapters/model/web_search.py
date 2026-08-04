@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Any, Final, cast
 from urllib.parse import urlsplit
 
-SCHEMA_VERSION: Final = "armi.ark-web-search-binding.v1"
 PROVIDER: Final = "volcengine_ark"
 MODEL: Final = "doubao-seed-evolving"
 API_BASE: Final = "https://ark.cn-beijing.volces.com/api/v3"
@@ -22,25 +20,6 @@ MAX_RESPONSE_BYTES: Final = 1024 * 1024
 MAX_TOOL_CALLS: Final = 8
 MAX_SOURCES: Final = 128
 
-_ROOT_KEYS = frozenset(
-    {
-        "schema_version",
-        "provider",
-        "model",
-        "api_base",
-        "binding_id",
-        "tool_declaration",
-        "store",
-        "max_retries",
-        "provider_managed_network",
-        "additional_credential",
-        "dynamic_tools",
-        "production_model_tools",
-        "limits",
-        "live_gate",
-        "activation",
-    }
-)
 _ACTION_TYPES = frozenset({"search", "open_page", "find_in_page"})
 _PROHIBITED_KEYS = frozenset(
     {
@@ -115,102 +94,6 @@ def _source_url(value: object) -> str:
     ):
         raise WebSearchViolation("WEB-SEARCH-SOURCE")
     return url
-
-
-@dataclass(frozen=True, slots=True)
-class WebSearchGovernance:
-    binding_id: str
-    live_status: str
-    calls_made: int
-    cost_microyuan: int
-
-
-def load_governance(raw: bytes) -> WebSearchGovernance:
-    """Validate the committed built-in tool declaration without discovery."""
-
-    parsed = strict_json_bytes(raw, maximum=256 * 1024)
-    if not isinstance(parsed, dict):
-        raise WebSearchViolation("WEB-SEARCH-MANIFEST-FORMAT")
-    value = cast(dict[str, Any], parsed)
-    _exact(value, _ROOT_KEYS, "WEB-SEARCH-MANIFEST-FIELDS")
-    if (
-        value["schema_version"] != SCHEMA_VERSION
-        or value["provider"] != PROVIDER
-        or value["model"] != MODEL
-        or value["api_base"] != API_BASE
-        or value["binding_id"] != BINDING_ID
-        or value["tool_declaration"] != TOOL_DECLARATION
-        or value["store"] is not False
-        or value["max_retries"] != 0
-        or value["provider_managed_network"] is not True
-        or value["additional_credential"] is not False
-        or value["dynamic_tools"] is not False
-        or value["production_model_tools"] != []
-    ):
-        raise WebSearchViolation("WEB-SEARCH-MANIFEST-IDENTITY")
-    if value["limits"] != {
-        "max_response_bytes": MAX_RESPONSE_BYTES,
-        "max_sources": MAX_SOURCES,
-        "max_tool_calls": MAX_TOOL_CALLS,
-    }:
-        raise WebSearchViolation("WEB-SEARCH-MANIFEST-LIMITS")
-    gate_value = value["live_gate"]
-    if not isinstance(gate_value, dict):
-        raise WebSearchViolation("WEB-SEARCH-MANIFEST-LIVE")
-    gate = cast(dict[str, Any], gate_value)
-    _exact(
-        gate,
-        frozenset(
-            {
-                "status",
-                "calls_made",
-                "calls_maximum",
-                "cost_limit_microyuan",
-                "estimated_model_cost_microyuan",
-                "input_tokens",
-                "output_tokens",
-                "web_search_calls",
-                "citation_count",
-                "response_model",
-                "store",
-                "request_id_sha256",
-            }
-        ),
-        "WEB-SEARCH-MANIFEST-LIVE-FIELDS",
-    )
-    calls = _positive_int(gate["calls_made"], "WEB-SEARCH-MANIFEST-LIVE")
-    maximum = _positive_int(gate["calls_maximum"], "WEB-SEARCH-MANIFEST-LIVE")
-    budget = _positive_int(gate["cost_limit_microyuan"], "WEB-SEARCH-MANIFEST-LIVE")
-    cost = _positive_int(
-        gate["estimated_model_cost_microyuan"], "WEB-SEARCH-MANIFEST-LIVE"
-    )
-    response_model = _text(gate["response_model"], "WEB-SEARCH-MANIFEST-LIVE")
-    request_digest = _text(gate["request_id_sha256"], "WEB-SEARCH-MANIFEST-LIVE")
-    if (
-        gate["status"] != "pass"
-        or calls > maximum
-        or maximum > 3
-        or cost > budget
-        or budget != 2_000_000
-        or gate["store"] is not False
-        or not response_model.startswith(MODEL)
-        or _positive_int(gate["input_tokens"], "WEB-SEARCH-MANIFEST-LIVE") < 1
-        or _positive_int(gate["output_tokens"], "WEB-SEARCH-MANIFEST-LIVE") < 1
-        or _positive_int(gate["web_search_calls"], "WEB-SEARCH-MANIFEST-LIVE") < 1
-        or _positive_int(gate["citation_count"], "WEB-SEARCH-MANIFEST-LIVE") < 1
-        or len(request_digest) != 71
-        or not request_digest.startswith("sha256:")
-    ):
-        raise WebSearchViolation("WEB-SEARCH-MANIFEST-LIVE")
-    activation = value["activation"]
-    if activation != {
-        "m0_seam_web": None,
-        "s032": "binding-proof-only",
-        "s033": "durable-tool-call-custody",
-        "s034": "external-evidence-and-seam-activation",
-    }:
-        raise WebSearchViolation("WEB-SEARCH-MANIFEST-ACTIVATION")
-    return WebSearchGovernance(BINDING_ID, "pass", calls, cost)
 
 
 def validate_tool_declaration(value: object) -> None:

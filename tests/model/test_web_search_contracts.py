@@ -5,14 +5,13 @@ from __future__ import annotations
 import json
 import unittest
 from copy import deepcopy
-from pathlib import Path
 
 from armi_runtime.adapters.model.web_search import (
     BINDING_ID,
     TOOL_DECLARATION,
     WebSearchViolation,
-    load_governance,
     normalize_provider_response,
+    strict_json_bytes,
     validate_response,
     validate_tool_declaration,
 )
@@ -66,13 +65,8 @@ class WebSearchContractTests(unittest.TestCase):
             callback()  # type: ignore[operator]
         return caught.exception.code
 
-    def test_committed_manifest_records_verified_provider_tool(self) -> None:
-        governance = load_governance(
-            Path("model/web-search-binding.manifest.json").read_bytes()
-        )
-        self.assertEqual(governance.binding_id, BINDING_ID)
-        self.assertEqual(governance.live_status, "pass")
-        self.assertGreaterEqual(governance.calls_made, 1)
+    def test_binding_identity_is_a_code_contract(self) -> None:
+        self.assertEqual(BINDING_ID, "armi.model-tool.volcengine-ark-web-search-v1")
 
     def test_only_exact_builtin_tool_is_allowed(self) -> None:
         validate_tool_declaration(dict(TOOL_DECLARATION))
@@ -90,12 +84,14 @@ class WebSearchContractTests(unittest.TestCase):
     def test_duplicate_key_and_invalid_utf8_are_rejected(self) -> None:
         self.assertEqual(
             self.code(
-                lambda: load_governance(b'{"schema_version":1,"schema_version":2}')
+                lambda: strict_json_bytes(
+                    b'{"schema_version":1,"schema_version":2}', maximum=1024
+                )
             ),
             "WEB-SEARCH-CODEC-DUPLICATE-KEY",
         )
         self.assertEqual(
-            self.code(lambda: load_governance(b"\xff")),
+            self.code(lambda: strict_json_bytes(b"\xff", maximum=1024)),
             "WEB-SEARCH-CODEC-JSON",
         )
 

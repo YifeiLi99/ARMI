@@ -52,7 +52,9 @@ def _config() -> AdminConfig:
             "test_controls_enabled": True,
             "environment_root": root,
             "experiment_root": root,
-            "template_manifest": root / "schema/manifests/schema-manifest.json",
+            "template_manifest": root
+            / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
+            "schema/manifests/schema-manifest.json",
             "postgresql_tool_root": root / ".armi-tools/installs/postgresql/18.4/pgsql",
             "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
             "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
@@ -245,7 +247,7 @@ class AdminToolServiceTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 29)
+        self.assertEqual(status.result.applied_version, 30)
         self.assertIsNone(status.error_code)
         serialized = health.model_dump_json() + status.model_dump_json()
         self.assertNotIn("postgresql://", serialized)
@@ -271,7 +273,7 @@ class AdminToolServiceTests(unittest.TestCase):
             timezone=current.timezone,
             migrations=(
                 *current.migrations[:-1],
-                (29, "changed", current.migrations[-1][2]),
+                (30, "changed", current.migrations[-1][2]),
             ),
         )
         with patch.object(AdminToolService, "_read_snapshot", return_value=dirty):
@@ -320,7 +322,7 @@ class AdminProtocolTests(unittest.TestCase):
                         "test_controls_enabled = true",
                         f'environment_root = "{root.as_posix()}"',
                         f'experiment_root = "{root.as_posix()}"',
-                        f'template_manifest = "{(Path.cwd() / "schema/manifests/schema-manifest.json").as_posix()}"',
+                        f'template_manifest = "{(Path.cwd() / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema/manifests/schema-manifest.json").as_posix()}"',
                         f'postgresql_tool_root = "{(Path.cwd() / ".armi-tools/installs/postgresql/18.4").as_posix()}"',
                         'database_locator = "env:ARMI_SECRET_ADMIN_DATABASE"',
                         'migrator_database_locator = "env:ARMI_SECRET_MIGRATOR_DATABASE"',

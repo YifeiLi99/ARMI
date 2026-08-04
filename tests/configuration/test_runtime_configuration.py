@@ -18,12 +18,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
-from tools.generate_runtime_config_artifacts import render_manifest
-
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = ROOT / "config/runtime.defaults.toml"
-SCHEMA = ROOT / "config/runtime.schema.json"
-MANIFEST = ROOT / "config/runtime-config-manifest.json"
 ENVIRONMENT_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"
 
 
@@ -150,9 +146,10 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertNotIn("ARMI_SECRET_MODEL", rendered)
         self.assertIn("reference_digest", rendered)
 
-    def test_schema_artifact_is_reproducible(self) -> None:
-        self.assertEqual(SCHEMA.read_bytes(), schema_bytes())
-        self.assertEqual(MANIFEST.read_bytes(), render_manifest(schema_bytes()))
+    def test_runtime_schema_is_derived_from_the_code_contract(self) -> None:
+        schema = json.loads(schema_bytes())
+        self.assertEqual(schema["title"], "RuntimeConfig")
+        self.assertIn("maintenance", schema["properties"])
 
     def test_model_is_frozen_and_forbids_extra_fields(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

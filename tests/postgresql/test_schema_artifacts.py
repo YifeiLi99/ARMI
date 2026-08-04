@@ -7,23 +7,25 @@ from pathlib import Path
 
 from tools.generate_schema_artifacts import (
     build_manifest,
-    canonical_manifest_bytes,
     generated_files,
+    render_manifest_bytes,
 )
 
 
 class SchemaArtifactTests(unittest.TestCase):
-    def test_manifest_and_wheel_mirror_are_deterministic(self) -> None:
+    def test_packaged_schema_artifacts_are_deterministic(self) -> None:
         root = Path.cwd()
         generated = generated_files(root)
-        role_manifest = (
-            root / "schema/manifests/database-role-manifest.json"
-        ).read_bytes()
-        manifest = canonical_manifest_bytes(
-            build_manifest(root / "schema", role_manifest)
+        packaged = (
+            root
+            / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
         )
+        role_manifest = (
+            packaged / "manifests/database-role-manifest.json"
+        ).read_bytes()
+        manifest = render_manifest_bytes(build_manifest(root / "schema", role_manifest))
         self.assertEqual(
-            (root / "schema/manifests/schema-manifest.json").read_bytes(),
+            (packaged / "manifests/schema-manifest.json").read_bytes(),
             manifest,
         )
         for relative, value in generated.items():
@@ -57,7 +59,10 @@ class SchemaArtifactTests(unittest.TestCase):
 
     def test_manifest_has_exact_target_role_policy_and_no_self_digest(self) -> None:
         manifest = json.loads(
-            Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
+            Path(
+                "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
+                "schema/manifests/schema-manifest.json"
+            ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
         self.assertEqual(manifest["target"], {"schema": "armi", "version": 30})
@@ -206,9 +211,10 @@ class SchemaArtifactTests(unittest.TestCase):
 
     def test_database_role_manifest_is_current_and_has_no_definer(self) -> None:
         role_manifest = json.loads(
-            Path("schema/manifests/database-role-manifest.json").read_text(
-                encoding="utf-8"
-            )
+            Path(
+                "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
+                "schema/manifests/database-role-manifest.json"
+            ).read_text(encoding="utf-8")
         )
         self.assertEqual(role_manifest["schema_version"], "armi.database-roles.v1")
         self.assertEqual(

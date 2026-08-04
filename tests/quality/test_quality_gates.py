@@ -132,6 +132,14 @@ class QualityGateTests(unittest.TestCase):
         self.assertIn("SEC-SECRET-TOKEN", codes)
         self.assertIn("SEC-PATH-PERSONAL", codes)
 
+    def test_single_line_json_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sample = root / "manifest.json"
+            sample.write_text('{"active":true}\n', encoding="utf-8")
+            codes = {item.code for item in scan_paths([sample], root)}
+        self.assertIn("REP-JSON-FORMAT", codes)
+
 
 if __name__ == "__main__":
     unittest.main()
