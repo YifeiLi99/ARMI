@@ -20,6 +20,7 @@ from armi_kernel.application import (
     RuntimeFence,
     SubjectCommitViolation,
     WebObservationViolation,
+    WebResearchViolation,
 )
 from armi_kernel.contracts import Digest
 
@@ -73,6 +74,10 @@ from .response_pipeline import (
 from .subject_commit_pipeline import (
     SubjectCommitPipeline,
     build_subject_commit_pipeline,
+)
+from .web_research_pipeline import (
+    WebResearchAdmissionPipeline,
+    build_web_research_admission_pipeline,
 )
 from .web_search_pipeline import WebSearchPipeline, build_web_search_pipeline
 from .work_wakeup import WorkWakeupBus
@@ -482,6 +487,7 @@ def compose_context_pipeline(
                     ),
                     authority_admission=authority_admission,
                     policy_digest=Digest.from_bytes(policy),
+                    web_search_active=prepared.composition.web_search_active,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                 )
@@ -539,6 +545,7 @@ def compose_model_pipeline(
                     authority_admission=authority_admission,
                     credential_port=prepared.credential_port,
                     credential_locator=model_locator,
+                    web_search_active=prepared.composition.web_search_active,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                 )
@@ -607,6 +614,55 @@ def compose_web_search_pipeline(
         raise WebObservationViolation("WEB-CREDENTIAL") from None
 
 
+def compose_web_research_admission_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    custody: WebSearchPipeline,
+    diagnostic: Callable[[str], None] | None = None,
+) -> WebResearchAdmissionPipeline:
+    """Resolve the active S034 intent-to-custody worker."""
+
+    database_locator = prepared.effective.config.secret_locators.get(
+        RUNTIME_LOCATOR_NAME
+    )
+    if database_locator is None:
+        raise WebResearchViolation("WEB-RESEARCH-DATABASE")
+    try:
+        with prepared.credential_port.resolve(
+            database_locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> WebResearchAdmissionPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise WebResearchViolation("WEB-RESEARCH-DATABASE") from None
+                config = prepared.effective.config
+                return build_web_research_admission_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    custody=custody,
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise WebResearchViolation("WEB-RESEARCH-DATABASE") from None
+
+
 def compose_candidate_validation_pipeline(
     prepared: PreparedEnvironment,
     *,
@@ -654,6 +710,7 @@ def compose_candidate_validation_pipeline(
                     ),
                     authority_admission=authority_admission,
                     policy_digest=Digest.from_bytes(policy),
+                    web_search_active=prepared.composition.web_search_active,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                 )
@@ -976,6 +1033,7 @@ __all__ = (
     "compose_runtime_recovery",
     "compose_scene_timeline_query",
     "compose_subject_commit_pipeline",
+    "compose_web_research_admission_pipeline",
     "compose_web_search_pipeline",
     "inspect_creator_context",
     "inspect_creator_party_id",

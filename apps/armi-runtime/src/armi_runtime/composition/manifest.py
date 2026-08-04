@@ -13,6 +13,7 @@ import rfc8785
 from .runtime_errors import RuntimeViolation
 
 COMPOSITION_SCHEMA_VERSION: Final = "armi.runtime-composition.v1"
+WEB_BINDING_ID: Final = "armi.model-tool.volcengine-ark-web-search-v1"
 _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 _SEAMS: Final = (
     ("M0-SEAM-CONTEXT", ("M0-S023",)),
@@ -97,6 +98,19 @@ class VerifiedComposition:
     readiness_blockers: tuple[str, ...]
     digest: str
 
+    def active_binding_for(self, seam_id: str) -> str | None:
+        try:
+            return dict(self.active_bindings)[seam_id]
+        except KeyError:
+            raise RuntimeViolation(
+                "CMP-SEAM-UNKNOWN",
+                "the requested Runtime composition seam is unknown",
+            ) from None
+
+    @property
+    def web_search_active(self) -> bool:
+        return self.active_binding_for("M0-SEAM-WEB") == WEB_BINDING_ID
+
 
 def verify_packaged_composition() -> VerifiedComposition:
     """Verify the explicit seam set before listening."""
@@ -136,6 +150,7 @@ def verify_packaged_composition() -> VerifiedComposition:
 
 __all__ = (
     "COMPOSITION_SCHEMA_VERSION",
+    "WEB_BINDING_ID",
     "VerifiedComposition",
     "build_composition_manifest",
     "canonical_manifest_bytes",

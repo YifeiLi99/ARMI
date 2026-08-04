@@ -58,6 +58,8 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 from .model_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     DIALOGUE_INSTRUCTIONS,
+    WEB_DIALOGUE_CANDIDATE_VERSION,
+    WEB_DIALOGUE_INSTRUCTIONS,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
@@ -88,6 +90,7 @@ class ModelPipeline:
         "_adapters",
         "_catalog",
         "_diagnostic",
+        "_dialogue_version",
         "_factory",
         "_lease_owner",
         "_repository",
@@ -104,11 +107,34 @@ class ModelPipeline:
         storage: ContentAddressedArtifactStore,
         credential_port: CredentialPort,
         credential_locator: CredentialLocator,
+        web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
-        default_binding = load_active_binding()
-        dialogue_binding = load_purpose_binding("consider_creator_input")
+        dialogue_version = (
+            WEB_DIALOGUE_CANDIDATE_VERSION
+            if web_search_active
+            else DIALOGUE_CANDIDATE_VERSION
+        )
+        default_binding = load_active_binding(
+            expected_dialogue_version=dialogue_version
+        )
+        dialogue_binding = load_purpose_binding(
+            "consider_creator_input",
+            expected_dialogue_version=dialogue_version,
+        )
+        self._dialogue_version = dialogue_version
+
+        def parse_dialogue(
+            value: bytes,
+            *,
+            allowed_context_refs: frozenset[str],
+        ):
+            return parse_candidate(
+                value,
+                allowed_context_refs=allowed_context_refs,
+                expected_version=dialogue_version,
+            )
         self._factory = factory
         self._storage = storage
         self._adapters = {
@@ -128,9 +154,17 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     dialogue_binding.response_contract_version
                 ),
-                candidate_parser=parse_candidate,
-                instructions=DIALOGUE_INSTRUCTIONS,
-                schema_name="armi_creator_dialogue_candidate_v1",
+                candidate_parser=parse_dialogue,
+                instructions=(
+                    WEB_DIALOGUE_INSTRUCTIONS
+                    if web_search_active
+                    else DIALOGUE_INSTRUCTIONS
+                ),
+                schema_name=(
+                    "armi_creator_dialogue_candidate_v2"
+                    if web_search_active
+                    else "armi_creator_dialogue_candidate_v1"
+                ),
             ),
         }
         self._catalog = ArtifactCatalogRepository()
@@ -403,7 +437,7 @@ class ModelPipeline:
         adapter = self._adapters.get(purpose, self._adapters["__default__"])
         if (
             purpose == "consider_creator_input"
-            and adapter.binding.response_contract_version != DIALOGUE_CANDIDATE_VERSION
+            and adapter.binding.response_contract_version != self._dialogue_version
         ):
             raise ModelViolation("MODEL-BINDING")
         return adapter
@@ -522,6 +556,7 @@ def build_model_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     credential_port: CredentialPort,
     credential_locator: CredentialLocator,
+    web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> ModelPipeline:
@@ -547,6 +582,7 @@ def build_model_pipeline(
         ),
         credential_port=credential_port,
         credential_locator=credential_locator,
+        web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )

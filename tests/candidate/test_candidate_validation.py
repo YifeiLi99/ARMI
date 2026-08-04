@@ -339,6 +339,57 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
     assert rejected.error_code == "CANDIDATE-WEB-URL-FORBIDDEN"
 
 
+def test_compact_dialogue_v2_web_research_binds_authority_deterministically() -> (
+    None
+):
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "purpose",
+            "current_purpose",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"purpose"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "web_search_availability",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"web search"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = {
+        "kind": "web_research",
+        "query": "PostgreSQL 18 正式发布说明",
+    }
+    inactive = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert inactive.error_code == "CANDIDATE-WEB-NOT-ACTIVE"
+
+    active = DeterministicCandidateValidator(
+        replace(context, web_search_active=True)
+    )
+    first = active.validate(_bytes(candidate), bases=extended)
+    second = active.validate(_bytes(candidate), bases=extended)
+    assert first.status is CandidateValidationStatus.ACCEPTED
+    assert first.change_set is not None and second.change_set is not None
+    assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v4" in first.change_set.canonical_bytes
+    assert (
+        first.change_set.web_research_requests[0].query_bytes.decode("utf-8")
+        == candidate["query"]
+    )
+
+
 def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis() -> (
     None
 ):

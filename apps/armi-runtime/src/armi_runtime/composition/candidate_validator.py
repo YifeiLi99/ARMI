@@ -40,9 +40,13 @@ from armi_kernel.contracts import Digest
 
 from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
+    WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueReplyDecision,
+    DialogueReplyDecisionV2,
     DialogueTerminalDecision,
+    DialogueTerminalDecisionV2,
+    DialogueWebResearchDecision,
 )
 from .model_contract import (
     ActionChoiceProposal,
@@ -465,11 +469,15 @@ class DeterministicCandidateValidator:
         disposition = CandidateDisposition(candidate.disposition)
         change_set_value = {
             "schema_version": (
-                RUNTIME_BOUND_CHANGE_SET_VERSION
+                WEB_CHANGE_SET_VERSION
+                if source_version == WEB_DIALOGUE_CANDIDATE_VERSION
+                and web_research_requests
+                else RUNTIME_BOUND_CHANGE_SET_VERSION
                 if source_version
                 in {
                     "armi.cognition-candidate.v7",
                     DIALOGUE_CANDIDATE_VERSION,
+                    WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
                 else CODEX_CHANGE_SET_VERSION
                 if source_version == "armi.cognition-candidate.v6"
@@ -497,7 +505,10 @@ class DeterministicCandidateValidator:
             "action_choices": [_action_wire(item) for item in action_choices],
             "rejections": [_rejection_wire(item) for item in rejections],
         }
-        if source_version == "armi.cognition-candidate.v5":
+        if source_version in {
+            "armi.cognition-candidate.v5",
+            WEB_DIALOGUE_CANDIDATE_VERSION,
+        }:
             change_set_value["web_research_requests"] = [
                 _web_research_wire(item) for item in web_research_requests
             ]
@@ -505,7 +516,10 @@ class DeterministicCandidateValidator:
             DIALOGUE_CANDIDATE_VERSION,
             "armi.cognition-candidate.v6",
             "armi.cognition-candidate.v7",
-        }:
+        } or (
+            source_version == WEB_DIALOGUE_CANDIDATE_VERSION
+            and not web_research_requests
+        ):
             change_set_value["codex_delegations"] = [
                 _codex_delegation_wire(item) for item in codex_delegations
             ]
@@ -568,7 +582,10 @@ def _expand_dialogue_candidate(
     *,
     bases: tuple[CandidateBasis, ...],
     context: CandidateValidationContext,
-) -> tuple[CognitionCandidateV7, None] | tuple[None, str]:
+) -> (
+    tuple[CognitionCandidateV5 | CognitionCandidateV7, None]
+    | tuple[None, str]
+):
     evidence = next(
         (
             item
@@ -590,7 +607,16 @@ def _expand_dialogue_candidate(
         return None, "CANDIDATE-EVIDENCE-REQUIRED"
     evidence_ref = f"ctx:{evidence.ordinal}"
     scene_ref = None if scene is None else f"ctx:{scene.ordinal}"
-    if not isinstance(source, (DialogueReplyDecision, DialogueTerminalDecision)):
+    if not isinstance(
+        source,
+        (
+            DialogueReplyDecision,
+            DialogueReplyDecisionV2,
+            DialogueTerminalDecision,
+            DialogueTerminalDecisionV2,
+            DialogueWebResearchDecision,
+        ),
+    ):
         return None, "CANDIDATE-CONTRACT"
     decision = source
     summary = {
@@ -600,12 +626,14 @@ def _expand_dialogue_candidate(
         "no_change": "Creator dialogue no change selected.",
         "defer": "Creator dialogue defer selected.",
         "need_information": "Creator dialogue needs information.",
+        "web_research": "Creator dialogue selected public Web research.",
     }[decision.kind]
     disposition = decision.kind
     experiences: list[dict[str, Any]] = []
     capability_requests: list[dict[str, Any]] = []
     action_choices: list[dict[str, Any]] = []
-    if isinstance(decision, DialogueReplyDecision):
+    understanding_basis_refs = (evidence_ref,)
+    if isinstance(decision, (DialogueReplyDecision, DialogueReplyDecisionV2)):
         catalog = next(
             (
                 item
@@ -700,6 +728,81 @@ def _expand_dialogue_candidate(
                 },
             }
         )
+    elif isinstance(decision, DialogueWebResearchDecision):
+        purpose = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_purpose"
+                and item.trust_class == "policy"
+            ),
+            None,
+        )
+        availability = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "web_search_availability"
+                and item.trust_class == "policy"
+            ),
+            None,
+        )
+        if purpose is None:
+            return None, "CANDIDATE-WEB-PURPOSE-BASIS"
+        if availability is None:
+            return None, "CANDIDATE-WEB-AVAILABILITY-BASIS"
+        understanding_basis_refs = (
+            evidence_ref,
+            f"ctx:{purpose.ordinal}",
+            f"ctx:{availability.ordinal}",
+        )
+        try:
+            return (
+                CognitionCandidateV5.model_validate(
+                    {
+                        "schema_version": "armi.cognition-candidate.v5",
+                        "base": {
+                            "subject_version": context.base_subject_version,
+                            "state_epoch": context.base_state_epoch,
+                            "bundle_activation_id": str(context.bundle_activation_id),
+                            "context_digest": context.context_digest.value,
+                        },
+                        "disposition": "change",
+                        "understanding": {
+                            "text": summary,
+                            "fact_class": "inference",
+                            "basis_refs": understanding_basis_refs,
+                        },
+                        "experiences": (),
+                        "component_changes": (),
+                        "memory_changes": (),
+                        "relationship_changes": (),
+                        "activity_changes": (),
+                        "capability_requests": (),
+                        "action_choices": (),
+                        "web_research_requests": (
+                            {
+                                "proposal_ref": "proposal:1",
+                                "atomic_group_ref": "group:1",
+                                "basis_refs": understanding_basis_refs,
+                                "payload": {
+                                    "proposal_kind": "web_research_requests",
+                                    "fact_class": "subjective_understanding",
+                                    "purpose": "public_web_research",
+                                    "operation_class": "search_read_public",
+                                    "query": decision.query,
+                                },
+                            },
+                        ),
+                        "uncertainties": (),
+                        "reason_summary": summary,
+                    },
+                    strict=True,
+                ),
+                None,
+            )
+        except Exception:
+            return None, "CANDIDATE-CONTRACT"
     try:
         return (
             CognitionCandidateV7.model_validate(
@@ -715,7 +818,7 @@ def _expand_dialogue_candidate(
                     "understanding": {
                         "text": summary,
                         "fact_class": "inference",
-                        "basis_refs": (evidence_ref,),
+                        "basis_refs": understanding_basis_refs,
                     },
                     "experiences": tuple(experiences),
                     "component_changes": (),

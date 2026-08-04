@@ -23,6 +23,7 @@ from armi_runtime.composition.model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
     DIALOGUE_CANDIDATE_VERSION,
+    WEB_DIALOGUE_CANDIDATE_VERSION,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
@@ -134,6 +135,36 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     }
 
 
+def test_web_dialogue_v2_is_compact_versioned_and_rejects_urls() -> None:
+    schema = candidate_schema(WEB_DIALOGUE_CANDIDATE_VERSION)
+    schema_text = json.dumps(schema, separators=(",", ":"))
+    assert '"web_research"' in schema_text
+    assert '"schema_version"' not in schema_text
+    assert '"subject_id"' not in schema_text
+    assert len(schema_text) < 6_144
+
+    parsed = parse_candidate(
+        json.dumps(
+            {"kind": "web_research", "query": "PostgreSQL 18 正式发布说明"},
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset(),
+        expected_version=WEB_DIALOGUE_CANDIDATE_VERSION,
+    )
+    assert parsed.schema_version == WEB_DIALOGUE_CANDIDATE_VERSION
+    assert parsed.model_dump(mode="json") == {
+        "kind": "web_research",
+        "query": "PostgreSQL 18 正式发布说明",
+    }
+
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-LIMIT"):
+        parse_candidate(
+            b'{"kind":"web_research","query":"https://example.com/"}',
+            allowed_context_refs=frozenset(),
+            expected_version=WEB_DIALOGUE_CANDIDATE_VERSION,
+        )
+
+
 def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:
     manifest = json.loads(
         Path(
@@ -146,6 +177,34 @@ def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> Non
     path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ModelViolation, match="MODEL-BINDING-MANIFEST"):
         load_active_binding(path)
+
+
+def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) -> None:
+    manifest = json.loads(
+        Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
+            "model-bindings.manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    manifest["purpose_profiles"]["consider_creator_input"][
+        "response_contract_version"
+    ] = WEB_DIALOGUE_CANDIDATE_VERSION
+    path = tmp_path / "model-bindings.manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ModelViolation, match="MODEL-BINDING-MANIFEST"):
+        load_active_binding(path)
+    binding = load_purpose_binding(
+        "consider_creator_input",
+        path,
+        expected_dialogue_version=WEB_DIALOGUE_CANDIDATE_VERSION,
+    )
+    assert binding.response_contract_version == WEB_DIALOGUE_CANDIDATE_VERSION
+    request = json.loads(_request(binding).canonical_bytes)
+    assert "candidate_base" not in request
+    assert request["output_contract"]["schema_version"] == (
+        WEB_DIALOGUE_CANDIDATE_VERSION
+    )
 
     manifest["bindings"] = [manifest["bindings"][0]]
     manifest["bindings"][0]["model_id"] = "doubao-seed-2-1-turbo-260628"

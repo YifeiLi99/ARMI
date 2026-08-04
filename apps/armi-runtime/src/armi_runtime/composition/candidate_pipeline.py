@@ -83,6 +83,7 @@ class CandidateValidationPipeline:
         "_stop",
         "_storage",
         "_wakeups",
+        "_web_search_active",
         "_work",
     )
 
@@ -92,12 +93,14 @@ class CandidateValidationPipeline:
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         policy_digest: Digest,
+        web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
         self._policy_digest = policy_digest
+        self._web_search_active = web_search_active
         self._catalog = ArtifactCatalogRepository()
         self._repository = PostgreSQLCandidateValidationRepository()
         self._work = PostgreSQLDurableWorkGateway(factory)
@@ -155,7 +158,7 @@ class CandidateValidationPipeline:
                     snapshot.creator_party_id,
                     snapshot.current_components,
                     snapshot.purpose,
-                    False,
+                    self._web_search_active,
                     True,
                     snapshot.codex_task_sources,
                 )
@@ -333,6 +336,7 @@ def build_candidate_validation_pipeline(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     policy_digest: Digest,
+    web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> CandidateValidationPipeline:
@@ -357,6 +361,7 @@ def build_candidate_validation_pipeline(
             max_object_bytes=max_object_bytes,
         ),
         policy_digest=policy_digest,
+        web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )

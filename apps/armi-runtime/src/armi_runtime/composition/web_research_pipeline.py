@@ -1,13 +1,18 @@
-"""Inactive S034 bridge from committed research intent to S033 custody."""
+"""S034 bridge from committed research intent to S033 custody."""
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
-from uuid import uuid7
+from pathlib import Path
+from typing import Any
+from uuid import UUID, uuid7
 
 from armi_kernel.application import (
     ArtifactViolation,
     LockPlan,
+    LockTarget,
+    RuntimeFence,
     WebObservationDraft,
     WebObservationRequestId,
     WebResearchIntentPort,
@@ -35,7 +40,7 @@ def _ignore_diagnostic(_event: str) -> None:
 
 
 class WebResearchAdmissionPipeline(WebResearchIntentPort):
-    """Explicitly callable S034 bridge; composition does not start it before live gate."""
+    """Admit committed S034 intents when the exact Web binding is active."""
 
     __slots__ = (
         "_custody",
@@ -43,6 +48,7 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         "_factory",
         "_lease_owner",
         "_repository",
+        "_stop",
         "_storage",
         "_work",
     )
@@ -61,7 +67,24 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         self._repository = PostgreSQLWebEvidenceRepository()
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
+        self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
+
+    async def open(self) -> None:
+        try:
+            await self._factory.open()
+            await self._storage.prepare()
+        except DatabaseTransactionError:
+            raise WebResearchViolation("WEB-RESEARCH-DATABASE") from None
+        except ArtifactViolation:
+            raise WebResearchViolation("WEB-RESEARCH-ARTIFACT") from None
+
+    async def close(self) -> None:
+        self._stop.set()
+        await self._factory.close()
+
+    def stop(self) -> None:
+        self._stop.set()
 
     async def admit_once(self) -> bool:
         try:
@@ -119,5 +142,55 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
             raise WebResearchViolation("WEB-RESEARCH-ARTIFACT")
         return value
 
+    async def run_worker(self) -> None:
+        while not self._stop.is_set():
+            try:
+                worked = await self.admit_once()
+            except WebResearchViolation:
+                worked = False
+            await asyncio.sleep(0 if worked else 1)
 
-__all__ = ("WebResearchAdmissionPipeline",)
+
+def build_web_research_admission_pipeline(
+    conninfo: str,
+    *,
+    environment_id: UUID,
+    data_root: Path,
+    max_object_bytes: int,
+    pool_min: int,
+    pool_max: int,
+    acquire_timeout_seconds: int,
+    statement_timeout_seconds: int,
+    authority_admission: Callable[[], RuntimeFence],
+    custody: WebSearchPipeline,
+    diagnostic: Diagnostic | None = None,
+) -> WebResearchAdmissionPipeline:
+    async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
+        del connection, target
+        raise WebResearchViolation("WEB-RESEARCH-LOCK")
+
+    factory = PostgreSQLUnitOfWorkFactory(
+        conninfo,
+        environment_id=environment_id,
+        lock_acquirer=reject_dynamic_lock,
+        pool_min=pool_min,
+        pool_max=pool_max,
+        acquire_timeout_seconds=acquire_timeout_seconds,
+        statement_timeout_seconds=statement_timeout_seconds,
+        authority_admission=authority_admission,
+    )
+    return WebResearchAdmissionPipeline(
+        factory=factory,
+        storage=ContentAddressedArtifactStore(
+            data_root / "artifacts",
+            max_object_bytes=max_object_bytes,
+        ),
+        custody=custody,
+        diagnostic=diagnostic,
+    )
+
+
+__all__ = (
+    "WebResearchAdmissionPipeline",
+    "build_web_research_admission_pipeline",
+)

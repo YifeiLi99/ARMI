@@ -8,8 +8,11 @@ from pathlib import Path
 from armi_runtime.composition.lifecycle import RUNTIME_BLOCKING_REASONS
 from armi_runtime.composition.manifest import (
     COMPOSITION_SCHEMA_VERSION,
+    WEB_BINDING_ID,
+    VerifiedComposition,
     verify_packaged_composition,
 )
+from armi_runtime.composition.runtime_errors import RuntimeViolation
 
 
 class CompositionManifestTests(unittest.TestCase):
@@ -62,7 +65,28 @@ class CompositionManifestTests(unittest.TestCase):
             ],
         )
         self.assertEqual(verified.readiness_blockers, RUNTIME_BLOCKING_REASONS)
+        self.assertIsNone(verified.active_binding_for("M0-SEAM-WEB"))
+        self.assertFalse(verified.web_search_active)
         self.assertTrue(verified.digest.startswith("sha256:"))
+
+    def test_web_activation_requires_the_exact_binding(self) -> None:
+        inactive = VerifiedComposition(
+            COMPOSITION_SCHEMA_VERSION,
+            (("M0-SEAM-WEB", "armi.model-tool.unapproved-v1"),),
+            (),
+            "sha256:" + "0" * 64,
+        )
+        active = VerifiedComposition(
+            COMPOSITION_SCHEMA_VERSION,
+            (("M0-SEAM-WEB", WEB_BINDING_ID),),
+            (),
+            "sha256:" + "1" * 64,
+        )
+
+        self.assertFalse(inactive.web_search_active)
+        self.assertTrue(active.web_search_active)
+        with self.assertRaisesRegex(RuntimeViolation, "CMP-SEAM-UNKNOWN"):
+            active.active_binding_for("M0-SEAM-UNKNOWN")
 
     def test_manifest_forbids_runtime_discovery(self) -> None:
         resource = files("armi_runtime.composition.runtime_resources").joinpath(

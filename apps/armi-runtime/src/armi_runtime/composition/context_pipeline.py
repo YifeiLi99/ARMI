@@ -94,6 +94,7 @@ class ContextPipeline(OpportunitySelector):
         "_stop",
         "_storage",
         "_wakeups",
+        "_web_search_active",
         "_work",
     )
 
@@ -103,12 +104,14 @@ class ContextPipeline(OpportunitySelector):
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         policy_digest: Digest,
+        web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
         self._policy_digest = policy_digest
+        self._web_search_active = web_search_active
         self._repository = PostgreSQLContextRepository()
         self._catalog = ArtifactCatalogRepository()
         self._compiler = DeterministicContextCompiler()
@@ -168,7 +171,12 @@ class ContextPipeline(OpportunitySelector):
             snapshot = await self._snapshot(lease)
             evidence_bytes = await self._read_source(snapshot.evidence, snapshot)
             prompt_bytes = await self._read_source(snapshot.fixed_prompt, snapshot)
-            request = _context_request(snapshot, evidence_bytes, prompt_bytes)
+            request = _context_request(
+                snapshot,
+                evidence_bytes,
+                prompt_bytes,
+                web_search_active=self._web_search_active,
+            )
             result = self._compiler.compile(request)
             manifest = await self._publish(
                 result.manifest_bytes,
@@ -325,6 +333,8 @@ def _context_request(
     snapshot: ContextEpisodeSnapshot,
     evidence_bytes: bytes,
     prompt_bytes: bytes,
+    *,
+    web_search_active: bool,
 ) -> ContextRequest:
     runtime_bytes = rfc8785.dumps(
         {
@@ -412,7 +422,7 @@ def _context_request(
                     {
                         "binding": "armi.model-tool.volcengine-ark-web-search-v1",
                         "implementation_status": "complete",
-                        "activation_status": "inactive",
+                        "activation_status": "active" if web_search_active else "inactive",
                         "operation_class": "search_read_public",
                     }
                 ),
@@ -551,6 +561,7 @@ def build_context_pipeline(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     policy_digest: Digest,
+    web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> ContextPipeline:
@@ -578,6 +589,7 @@ def build_context_pipeline(
             max_object_bytes=max_object_bytes,
         ),
         policy_digest=policy_digest,
+        web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )

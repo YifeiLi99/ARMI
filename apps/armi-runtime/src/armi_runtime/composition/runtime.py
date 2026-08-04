@@ -30,6 +30,7 @@ from armi_kernel.application import (
     SceneQueryViolation,
     SubjectCommitViolation,
     WebObservationViolation,
+    WebResearchViolation,
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
 
@@ -66,6 +67,7 @@ from .database import (
     compose_runtime_recovery,
     compose_scene_timeline_query,
     compose_subject_commit_pipeline,
+    compose_web_research_admission_pipeline,
     compose_web_search_pipeline,
     inspect_creator_context,
     inspect_runtime_continuity,
@@ -142,6 +144,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     response_pipeline = None
     effect_pipeline = None
     web_search_pipeline = None
+    web_research_pipeline = None
     codex_pipeline = None
     admin_control: RuntimeAdminControlServer | None = None
     work_wakeups = WorkWakeupBus()
@@ -327,23 +330,41 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                         result_code="MODEL_UNAVAILABLE",
                         reason_codes=("RUNTIME_MODEL_UNAVAILABLE",),
                     )
-                try:
-                    web_search_pipeline = compose_web_search_pipeline(
-                        prepared,
-                        authority_admission=authority.require_writable,
-                        diagnostic=lambda event: diagnostic.emit(
-                            event,
-                            result_code="WEB_SEARCH_CUSTODY",
-                        ),
-                    )
-                    await web_search_pipeline.open()
-                except WebObservationViolation:
-                    web_search_pipeline = None
-                    diagnostic.emit(
-                        "runtime.web_search.unavailable",
-                        level=logging.WARNING,
-                        result_code="WEB_SEARCH_UNAVAILABLE",
-                    )
+                if prepared.composition.web_search_active:
+                    try:
+                        web_search_pipeline = compose_web_search_pipeline(
+                            prepared,
+                            authority_admission=authority.require_writable,
+                            diagnostic=lambda event: diagnostic.emit(
+                                event,
+                                result_code="WEB_SEARCH_CUSTODY",
+                            ),
+                        )
+                        await web_search_pipeline.open()
+                        web_research_pipeline = (
+                            compose_web_research_admission_pipeline(
+                                prepared,
+                                authority_admission=authority.require_writable,
+                                custody=web_search_pipeline,
+                                diagnostic=lambda event: diagnostic.emit(
+                                    event,
+                                    result_code="WEB_RESEARCH_ADMISSION",
+                                ),
+                            )
+                        )
+                        await web_research_pipeline.open()
+                    except (WebObservationViolation, WebResearchViolation):
+                        if web_research_pipeline is not None:
+                            await web_research_pipeline.close()
+                            web_research_pipeline = None
+                        if web_search_pipeline is not None:
+                            await web_search_pipeline.close()
+                        web_search_pipeline = None
+                        diagnostic.emit(
+                            "runtime.web_search.unavailable",
+                            level=logging.WARNING,
+                            result_code="WEB_SEARCH_UNAVAILABLE",
+                        )
             else:
                 lifecycle.add_degradation("RUNTIME_MODEL_UNAVAILABLE")
         except DatabaseViolation, RuntimeAuthorityViolation:
@@ -388,6 +409,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await creator_input.close()
             if context_pipeline is not None:
                 await context_pipeline.close()
+            if model_pipeline is not None:
+                await model_pipeline.close()
+            if web_research_pipeline is not None:
+                await web_research_pipeline.close()
+            if web_search_pipeline is not None:
+                await web_search_pipeline.close()
             if candidate_pipeline is not None:
                 await candidate_pipeline.close()
             if subject_commit_pipeline is not None:
@@ -477,6 +504,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     name=f"model-invoke-worker-{index + 1}",
                 )
         if web_search_pipeline is not None:
+            assert web_research_pipeline is not None
+            supervisor.start(
+                web_research_pipeline.run_worker(),
+                name="web-research-admission-worker",
+            )
             for index in range(config.web.concurrency):
                 supervisor.start(
                     web_search_pipeline.run_worker(),
@@ -539,6 +571,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             model_pipeline.stop()
         if web_search_pipeline is not None:
             web_search_pipeline.stop()
+        if web_research_pipeline is not None:
+            web_research_pipeline.stop()
         if candidate_pipeline is not None:
             candidate_pipeline.stop()
         if subject_commit_pipeline is not None:
@@ -558,6 +592,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await context_pipeline.close()
         if model_pipeline is not None:
             await model_pipeline.close()
+        if web_research_pipeline is not None:
+            await web_research_pipeline.close()
         if web_search_pipeline is not None:
             await web_search_pipeline.close()
         if candidate_pipeline is not None:
@@ -645,6 +681,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             context_pipeline,
             model_pipeline,
             web_search_pipeline,
+            web_research_pipeline,
             candidate_pipeline,
             subject_commit_pipeline,
             response_pipeline,
