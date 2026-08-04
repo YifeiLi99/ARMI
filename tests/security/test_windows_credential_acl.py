@@ -104,6 +104,18 @@ class WindowsCredentialAclTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("environment activation verified", completed.stdout)
 
+    def test_elevated_rehearsal_uses_exact_pwsh_and_persists_failure_code(
+        self,
+    ) -> None:
+        elevated = Path("tools/invoke_s045_elevated.ps1").read_text(encoding="utf-8")
+        launcher = Path("tools/run_s045_rehearsal.py").read_text(encoding="utf-8")
+
+        self.assertIn("Join-Path $PSHOME 'pwsh.exe'", elevated)
+        self.assertIn("Invoke-As $role $pwshExecutable", elevated)
+        self.assertNotIn("Invoke-As $role 'pwsh'", elevated)
+        self.assertIn("armi.s045-elevated-failure.v1", elevated)
+        self.assertIn('Path(f"{summary_path}.failure.json")', launcher)
+
 
 if __name__ == "__main__":
     unittest.main()

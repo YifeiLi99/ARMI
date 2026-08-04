@@ -48,6 +48,10 @@ if ([string]::IsNullOrEmpty($bundleIdentity)) {
 $bundle = $bundleIdentity | ConvertFrom-Json -Depth 50
 $bundleId = [string]$bundle.bundle_id
 $scratch = Join-Path $environment 'run/s045'
+$pwshExecutable = Join-Path $PSHOME 'pwsh.exe'
+if (-not (Test-Path -LiteralPath $pwshExecutable -PathType Leaf)) {
+    throw 'S045-PWSH-EXECUTABLE'
+}
 
 function New-Password {
     return [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(36))
@@ -161,6 +165,8 @@ function Invoke-Deploy {
 }
 
 try {
+& {
+try {
     foreach ($role in $names.Keys) {
         $password = New-Password
         $secure = ConvertTo-SecureString $password -AsPlainText -Force
@@ -261,7 +267,7 @@ try {
             '-WritableDirectory', $spec.writable,
             '-ResultPath', $resultPath
         )
-        [void](Invoke-As $role 'pwsh' $arguments "$role-acl")
+        [void](Invoke-As $role $pwshExecutable $arguments "$role-acl")
         $probe = Get-Content -LiteralPath $resultPath -Raw -Encoding utf8 | ConvertFrom-Json
         if ($probe.sid -ne $sids[$role] -or $probe.passed -ne $true) { throw 'S045-ACL-PROBE' }
         [void]$probeResults.Add([ordered]@{ role = $role; sid = $probe.sid; passed = $true })
@@ -384,7 +390,7 @@ try {
         (($activationRecord | ConvertTo-Json -Depth 20 -Compress) + "`n"),
         [Text.UTF8Encoding]::new($false)
     )
-    & pwsh -NoLogo -NoProfile -NonInteractive -File `
+    & $pwshExecutable -NoLogo -NoProfile -NonInteractive -File `
         (Join-Path $repo 'tools/check_windows_credential_acl.ps1') `
         -ActivationRecord $activationPath | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'S045-ACL-ACTIVATION' }
@@ -471,3 +477,20 @@ if (-not $runtimeStopped -or -not $activeCleared -or -not $accountsRemoved) {
     (($result | ConvertTo-Json -Depth 30) + "`n"),
     [Text.UTF8Encoding]::new($false)
 )
+}
+} catch {
+    $message = [string]$_.Exception.Message
+    $match = [regex]::Match($message, 'S045-[A-Z0-9-]+')
+    $code = if ($match.Success) { $match.Value } else { 'S045-ELEVATED-UNCLASSIFIED' }
+    $failure = [ordered]@{
+        schema_version = 'armi.s045-elevated-failure.v1'
+        code = $code
+        message = $message
+    }
+    [IO.File]::WriteAllText(
+        "$summary.failure.json",
+        (($failure | ConvertTo-Json -Depth 10) + "`n"),
+        [Text.UTF8Encoding]::new($false)
+    )
+    throw
+}

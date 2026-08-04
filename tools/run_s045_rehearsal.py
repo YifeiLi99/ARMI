@@ -194,6 +194,16 @@ def _invoke_elevated(
         check=False,
     )
     if completed.returncode != 0:
+        failure_path = Path(f"{summary_path}.failure.json")
+        if failure_path.is_file():
+            try:
+                failure = json.loads(failure_path.read_bytes())
+            except (OSError, ValueError):
+                failure = None
+            if isinstance(failure, dict):
+                code = failure.get("code")
+                if isinstance(code, str) and code.startswith("S045-"):
+                    raise RehearsalError(f"S045-ELEVATED-FAILED:{code}")
         raise RehearsalError("S045-ELEVATED-FAILED")
     if not summary_path.is_file():
         raise RehearsalError("S045-ELEVATED-SUMMARY-MISSING")
