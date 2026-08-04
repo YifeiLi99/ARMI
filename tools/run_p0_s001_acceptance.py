@@ -587,12 +587,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 s002_status = (
                     "not_run"
-                    if error.code
-                    in {
-                        "P0-ACC-NO-ACTIVITY",
-                        "P0-ACC-DEFERRED",
-                        "P0-ACC-NEED-INFORMATION",
-                    }
+                    if failure_projection["attention_opportunity_count"] == 0
+                    and failure_projection["attention_episode_count"] == 0
                     else "failed"
                 )
                 args.s002_evidence.resolve().parent.mkdir(parents=True, exist_ok=True)
