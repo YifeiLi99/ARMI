@@ -57,7 +57,10 @@ Windows 服务，也不提供开机自启；正式安装、服务身份和无人
 质量门禁、完整 PostgreSQL 回归或双 clean-root。`tools/quality.ps1` 保留为稳定后
 的提交/阶段验收入口。Runtime composition 只声明接缝与 Active binding；配置、
 schema、migration、前端和策略资源由各自真实消费者验证，不再通过聚合摘要互相
-触发 JSON 镜像更新。
+触发 JSON 镜像更新。当前快速开发期不为内部 Context/candidate policy、阶段状态或
+摘要传播维护治理 JSON，也不为每个切片生成结构化 evidence；规则直接由代码、类型、
+migration 和测试表达。只有运行/安装真正读取的 schema、model binding、配置、锁文件及
+候选最小 identity 保留机器合同，完整证据留到 P0 候选与发布阶段集中生成。
 
 ## 关于学习与参考
 

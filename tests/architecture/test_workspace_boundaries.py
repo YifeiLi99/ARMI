@@ -110,6 +110,15 @@ class WorkspaceBoundaryTests(unittest.TestCase):
     def test_current_repository_satisfies_boundaries(self) -> None:
         self.assertEqual(check_repository(ROOT), [])
 
+    def test_internal_policies_are_code_contracts_not_governance_json(self) -> None:
+        resources = (
+            ROOT / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources"
+        )
+        self.assertFalse((resources / "context-policy.manifest.json").exists())
+        self.assertFalse(
+            (resources / "candidate-validation-policy.manifest.json").exists()
+        )
+
     def test_explicit_kernel_application_export_is_allowed(self) -> None:
         violations = self.analyze(
             "from armi_kernel.application import CredentialPort\n",

@@ -49,9 +49,11 @@
 - 首版不预建多租户、多 ARMI、跨设备多活、微服务、通用插件市场、运行时热加载或通用多 Agent 编排。
 - PostgreSQL 是唯一权威关系数据库。首个物理 schema 应能从空库原子安装，只包含已接入正式组合根并被真实 M0 纵切使用的对象；运行时不得临时补列、自动建表或依赖 ORM metadata 拼装正式 schema。
 - 新能力通过端口和适配器接入。可替换策略返回候选，不取得领域 current state 的所有权；只有跨模块语义改变时才修改公共契约及其消费者。
-- 只有耐久数据格式、外部 wire、跨 distribution 资源或真实发布兼容性发生变化时才增加 migration 或版本化 manifest。内部重构和单一 purpose 的实现选择优先使用代码与测试，不为传播摘要而复制治理 JSON；生成镜像只能由生成器维护，禁止手工逐份编辑。
-- 开发期不要求每次代码修改都重算正式设计包、证据摘要、依赖 inventory、composition digest 或全部 distribution 镜像。只有对应真源发生变化且准备提交/构建时，才集中生成一次；普通实现迭代以相关 pytest 和最终实机闭环为主要成败依据。
-- `runtime-composition` 只记录接缝与 Active binding，不聚合配置、前端、schema、migration 或策略文件摘要。各资源只在真实消费边界验证，前端构建不得顺带校验 Runtime composition；仅由 Runtime 使用的资源直接以包内文件为单一真源，不再保留根目录副本，未被产品代码读取的说明性 policy 不保留 JSON。
+- 当前处于快速开发期。默认禁止为内部策略、实现选择、阶段状态、摘要传播或“看起来完整”新增 JSON manifest、inventory、evidence contract 或跨 distribution 镜像；这些事实优先放在代码常量、类型、迁移、测试和简短 Markdown 记录中。
+- 只有运行时/安装器当前直接读取的机器合同才保留 JSON：外部 wire/schema、数据库安装与权限 manifest、实际 provider/model binding、运行配置 schema、包管理锁文件及候选发布必需的最小 composition identity。没有产品消费者、只被测试反向验证存在的治理 JSON 应删除，而不是为它新增生成器。
+- Context policy、candidate policy 及类似单进程内部机制以代码 contract version 形成审计摘要，不保存重复 policy JSON。普通切片不生成结构化 evidence JSON；只记录测试结果和必要 live gate 摘要。到 P0 候选/发布阶段，再按当时真实发布边界集中生成 bundle identity 和脱敏验收证据，不追补每个开发切片的治理包。
+- 只有耐久数据格式、外部 wire、跨 distribution 资源或真实发布兼容性发生变化时才增加 migration 或版本化 manifest。生成镜像只能由生成器维护，禁止手工逐份编辑；若保留镜像的唯一理由是开发期摘要传播，应删除镜像并让消费者读取真源或代码 contract。
+- `runtime-composition` 只记录接缝与 Active binding，不聚合配置、前端、schema、migration 或策略文件摘要。各资源只在真实消费边界验证，前端构建不得顺带校验 Runtime composition。
 - 普通 Creator 对话默认只进行一次主模型调用，模型只返回本轮真正作出的决定和必要正文；模型 identity、usage、固定主体/场景/版本/digest/basis 等由适配器或 Runtime 绑定。不得重新让模型回显整套数据库合同，也不得为普通对话引入多模型流水线；只有独立任务确有不同能力或证据需求时才增加调用。
 - ARMI→Codex 使用官方 SDK 和用户订阅认证。每项委托可显式选择 `gpt-5.6-sol`、`gpt-5.6-terra` 或 `gpt-5.6-luna`、思考级别与内置 Web Search；不得退回固定 Sol、固定低思考或一律禁网。一次性 workspace 默认可操作，安全边界是不得逃出 workspace、不得触碰显式 forbidden paths、宿主秘密/管理面/用户配置或未经授权的外部写入；不要用脆弱的逐文件 allowlist 或“只能写 result.md”冒充通用安全边界。纯内容任务可由结构化 deliverable 落为 `result.md`，代码/文件任务按任务 manifest 和独立 validator 核验。
 - Codex 的内置 Web Search 是按任务显式启用的只读模型工具，不等于生成 shell 获得任意网络；用户 MCP、插件、hooks、任意 endpoint 和宿主凭据仍不得继承。Codex 委托通过不等于 S033/S034 的 ARMI 网页证据闭环通过，两类能力必须分别验收。
@@ -68,7 +70,7 @@
 - 变更先按内部重构、机制替换、公共契约、权威 schema 或不变量/owner 分类；命中后者时不得伪装成普通 adapter 重构。机制替换完成后，删除当前实现中的旧入口、旧接线、旧 selector、旧配置和无调用者兼容路径，并证明每个接缝只有一个 Active 默认实现。
 - 数据库变更须验证唯一约束、外键或等价关系、状态约束、幂等键、历史不可覆盖规则，以及“未知”与“失败”的区分。
 - 进入代码阶段后，按最小相关范围运行静态检查和测试；涉及主体提交、权限、外部效果、恢复或数据迁移时，必须增加失败、并发、重复执行和崩溃恢复验证。
-- 开发循环默认只运行与本次改动直接相关的格式、类型、单元、契约、生成物和数据库用例；先用最小测试定位并修复问题，不得把完整质量入口、完整 PostgreSQL 集成或双 clean-root 当成每次小改后的默认动作。
+- 开发循环默认只运行与本次改动直接相关的格式、类型、单元、契约和必要数据库用例；只有改动命中仍被真实消费者读取的生成物时才复算该生成物。先用最小测试定位并修复问题，不得把完整质量入口、完整 PostgreSQL 集成、结构化证据生成或双 clean-root 当成每次小改后的默认动作。
 - 完整质量门禁和完整 PostgreSQL 回归只在变更已稳定、准备提交或阶段验收时各运行一次；候选默认采用一次构建加一次无源码 clean install，只有出现污染或非确定性证据才增加第二次 clean build；真实进程、浏览器和付费 live gate 只在对应步骤的正式完成条件要求时运行。
 - 全量门禁失败后，先定向复验失败 gate 及其直接依赖。只有修复触及共享契约、权威 schema、依赖锁、生成器、组合根或跨模块公共边界时，才在收尾补跑一次全量；纯格式、换行、镜像同步或单点测试期望修正不得触发反复全量。
 - 每次扩大验证范围前，应能说明该范围覆盖的具体风险；已通过且未受后续改动影响的昂贵门禁不重复执行。最终报告分别列出定向验证、最终全量验证和未运行项。

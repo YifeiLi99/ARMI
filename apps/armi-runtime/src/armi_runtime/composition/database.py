@@ -11,7 +11,6 @@ from armi_kernel.application import (
     CandidateViolation,
     CapabilityViolation,
     CodexDelegationViolation,
-    ContextViolation,
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
@@ -55,8 +54,10 @@ from .candidate_pipeline import (
     CandidateValidationPipeline,
     build_candidate_validation_pipeline,
 )
+from .candidate_validator import CANDIDATE_POLICY_VERSION
 from .codex_pipeline import CodexEffectPipeline
 from .configuration import ConfigurationViolation
+from .context_compiler import CONTEXT_POLICY_VERSION
 from .context_pipeline import ContextPipeline, build_context_pipeline
 from .creator_input import (
     EvidenceAcceptanceTransaction,
@@ -496,14 +497,6 @@ def compose_context_pipeline(
             exit_code=3,
         )
     try:
-        policy = (
-            files("armi_runtime.composition.runtime_resources")
-            .joinpath("context-policy.manifest.json")
-            .read_bytes()
-        )
-    except OSError:
-        raise ContextViolation("CTX-POLICY-MISSING") from None
-    try:
         with prepared.credential_port.resolve(
             locator,
             CredentialPurpose("database.runtime"),
@@ -534,7 +527,9 @@ def compose_context_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
-                    policy_digest=Digest.from_bytes(policy),
+                    policy_digest=Digest.from_bytes(
+                        CONTEXT_POLICY_VERSION.encode("ascii")
+                    ),
                     web_search_active=prepared.composition.web_search_active,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -724,14 +719,6 @@ def compose_candidate_validation_pipeline(
     if locator is None:
         raise CandidateViolation("CANDIDATE-DATABASE")
     try:
-        policy = (
-            files("armi_runtime.composition.runtime_resources")
-            .joinpath("candidate-validation-policy.manifest.json")
-            .read_bytes()
-        )
-    except OSError:
-        raise CandidateViolation("CANDIDATE-POLICY-MISSING") from None
-    try:
         with prepared.credential_port.resolve(
             locator,
             CredentialPurpose("database.runtime"),
@@ -757,7 +744,9 @@ def compose_candidate_validation_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
-                    policy_digest=Digest.from_bytes(policy),
+                    policy_digest=Digest.from_bytes(
+                        CANDIDATE_POLICY_VERSION.encode("ascii")
+                    ),
                     web_search_active=prepared.composition.web_search_active,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
