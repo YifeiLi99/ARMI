@@ -18,8 +18,9 @@ _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 _SEAMS: Final = (
     ("M0-SEAM-CONTEXT", ("M0-S023",)),
     ("M0-SEAM-MODEL", ("M0-S024",)),
-    ("M0-SEAM-COGNITIVE-CANDIDATE", ("M0-S025", "M0-S026")),
-    ("M0-SEAM-WORK-SELECTION", ("M0-S023",)),
+    ("M0-SEAM-COGNITIVE-CANDIDATE", ("M0-S025", "M0-S026", "P0-S001")),
+    ("M0-SEAM-WORK-SELECTION", ("M0-S023", "P0-S001")),
+    ("P0-SEAM-LIFE-OPPORTUNITY", ("P0-S001",)),
     ("M0-SEAM-POLICY", ("M0-S027—M0-S029",)),
     ("M0-SEAM-EFFECT", ("M0-S030",)),
     ("M0-SEAM-WEB", ("M0-S032—M0-S034",)),
@@ -59,8 +60,10 @@ def build_composition_manifest() -> dict[str, object]:
             if seam_id == "M0-SEAM-MODEL"
             else "armi.candidate-validator.deterministic-v1"
             if seam_id == "M0-SEAM-COGNITIVE-CANDIDATE"
-            else "armi.opportunity-selector.creator-fifo-v1"
+            else "armi.opportunity-selector.postgresql-fifo-v2"
             if seam_id == "M0-SEAM-WORK-SELECTION"
+            else "armi.life-opportunity-source.postgresql-v1"
+            if seam_id == "P0-SEAM-LIFE-OPPORTUNITY"
             else "armi.policy-engine.deterministic-v1"
             if seam_id == "M0-SEAM-POLICY"
             else "armi.creator-response-adapter.postgresql-inbox-v1"

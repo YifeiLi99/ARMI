@@ -58,8 +58,8 @@ class ContextEpisodeSnapshot:
     episode_id: UUID
     opportunity_id: UUID
     subject_id: UUID
-    scene_id: UUID
-    creator_party_id: UUID
+    scene_id: UUID | None
+    creator_party_id: UUID | None
     purpose: str
     subject_version: int
     state_epoch: int
@@ -68,9 +68,14 @@ class ContextEpisodeSnapshot:
     mechanism_config_digest: Digest
     trace_id: TraceId
     component_payloads: tuple[tuple[str, UUID, int, bytes, Digest], ...]
-    scene_bytes: bytes
-    scene_digest: Digest
-    evidence: ContextArtifactSource
+    activity_summary_bytes: bytes
+    scene_bytes: bytes | None
+    scene_digest: Digest | None
+    evidence: ContextArtifactSource | None
+    opportunity_source_kind: str
+    opportunity_source_ref: UUID
+    opportunity_source_version: int
+    opportunity_source_digest: Digest
     fixed_prompt: ContextArtifactSource
 
 
@@ -102,15 +107,16 @@ class PostgreSQLContextRepository:
                         interaction.trace_id,
                         intent.trace_id,
                         task_source.trace_id,
-                        result_task_source.trace_id
+                        result_task_source.trace_id,
+                        replace(opportunity.opportunity_id::text, '-', '')
                     ),
                     subject.subject_version,
                     subject.state_epoch,
                     subject.current_bundle_activation_id,
-                    statement_timestamp(),
+                    transaction_timestamp(),
                     opportunity.purpose
                 FROM armi.opportunities AS opportunity
-                JOIN armi.external_evidence AS evidence
+                LEFT JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = opportunity.evidence_id
                 LEFT JOIN armi.creator_input_interactions AS interaction
                   ON interaction.creator_interaction_id
@@ -137,8 +143,11 @@ class PostgreSQLContextRepository:
                  AND subject.status = 'active'
                 WHERE opportunity.eligibility_status = 'eligible'
                   AND opportunity.current_disposition = 'open'
-                  AND opportunity.available_after <= statement_timestamp()
-                  AND opportunity.expires_at IS NULL
+                  AND opportunity.available_after <= transaction_timestamp()
+                  AND (
+                      opportunity.expires_at IS NULL
+                      OR opportunity.expires_at > transaction_timestamp()
+                  )
                 ORDER BY opportunity.available_after, opportunity.opportunity_id
                 FOR UPDATE OF opportunity SKIP LOCKED
                 LIMIT 1
@@ -155,9 +164,10 @@ class PostgreSQLContextRepository:
             """
             UPDATE armi.opportunities
             SET current_disposition = 'selected',
-                selected_at = statement_timestamp()
+                selected_at = transaction_timestamp()
             WHERE opportunity_id = %s
               AND current_disposition = 'open'
+              AND (expires_at IS NULL OR expires_at > transaction_timestamp())
             """,
             (opportunity_id,),
         )
@@ -275,7 +285,11 @@ class PostgreSQLContextRepository:
                     scene.current_status,
                     scene.schema_version,
                     episode.purpose,
-                    evidence.source_kind
+                    evidence.source_kind,
+                    opportunity.source_kind,
+                    opportunity.source_ref,
+                    opportunity.source_version,
+                    opportunity.source_digest
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -283,9 +297,9 @@ class PostgreSQLContextRepository:
                  AND work.work_kind = 'cognition.context.prepare'
                 JOIN armi.opportunities AS opportunity
                   ON opportunity.opportunity_id = episode.opportunity_id
-                JOIN armi.external_evidence AS evidence
+                LEFT JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = opportunity.evidence_id
-                JOIN armi.interaction_scenes AS scene
+                LEFT JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = episode.scene_id
                 JOIN armi.prompt_documents AS document
                   ON document.subject_id = episode.subject_id
@@ -346,13 +360,65 @@ class PostgreSQLContextRepository:
             )
             for item in components
         )
-        scene_bytes = rfc8785.dumps(
+        activity_rows = await (
+            await connection.execute(
+                """
+                SELECT activity.activity_id, activity.head_version,
+                       revision.revision_no, revision.status,
+                       revision.goal, revision.next_safe_step,
+                       revision.progress_summary, revision.waiting_condition,
+                       revision.resumption_cue
+                FROM armi.activities AS activity
+                JOIN armi.activity_revisions AS revision
+                  ON revision.activity_revision_id = activity.current_revision_id
+                WHERE activity.subject_id = %s
+                ORDER BY activity.activity_id
+                """,
+                (row[2],),
+            )
+        ).fetchall()
+        activity_summary_bytes = rfc8785.dumps(
             {
-                "scene_key": str(row[15]),
-                "scene_kind": str(row[16]),
-                "audience_scope": str(row[17]),
-                "status": str(row[18]),
+                "schema_version": "armi.activity-context-summary.v1",
+                "activities": [
+                    {
+                        "activity_id": str(item[0]),
+                        "head_version": int(item[1]),
+                        "revision_no": int(item[2]),
+                        "status": str(item[3]),
+                        "goal": str(item[4]),
+                        "next_safe_step": str(item[5]),
+                        "progress_summary": (None if item[6] is None else str(item[6])),
+                        "waiting_condition": (
+                            None if item[7] is None else str(item[7])
+                        ),
+                        "resumption_cue": (None if item[8] is None else str(item[8])),
+                    }
+                    for item in activity_rows
+                ],
             }
+        )
+        scene_bytes = (
+            None
+            if row[3] is None
+            else rfc8785.dumps(
+                {
+                    "scene_key": str(row[15]),
+                    "scene_kind": str(row[16]),
+                    "audience_scope": str(row[17]),
+                    "status": str(row[18]),
+                }
+            )
+        )
+        evidence = (
+            None
+            if row[12] is None
+            else ContextArtifactSource(
+                await self._artifact_ref(connection, row[12]),
+                row[11],
+                1,
+                str(row[21]),
+            )
         )
         return ContextEpisodeSnapshot(
             row[0],
@@ -368,14 +434,14 @@ class PostgreSQLContextRepository:
             Digest(str(row[9])),
             TraceId(str(row[10])),
             component_payloads,
+            activity_summary_bytes,
             scene_bytes,
-            Digest.from_bytes(scene_bytes),
-            ContextArtifactSource(
-                await self._artifact_ref(connection, row[12]),
-                row[11],
-                1,
-                str(row[21]),
-            ),
+            None if scene_bytes is None else Digest.from_bytes(scene_bytes),
+            evidence,
+            str(row[22]),
+            row[23],
+            int(row[24]),
+            Digest(str(row[25])),
             ContextArtifactSource(
                 await self._artifact_ref(connection, row[14]),
                 row[13],

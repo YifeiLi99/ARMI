@@ -244,15 +244,26 @@ class PostgreSQLWebEvidenceRepository:
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, eligibility_status,
+                creator_party_id, purpose, source_kind, source_ref,
+                source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no, schema_version
             ) VALUES (
                 %s, %s, %s, %s, %s, 'consider_web_evidence',
+                'external_evidence', %s, 1, %s,
                 'eligible', 'open', %s, NULL, 0, 1
             )
             """,
-            (opportunity_id, evidence_id, row[1], row[2], row[3], opportunity_id),
+            (
+                opportunity_id,
+                evidence_id,
+                row[1],
+                row[2],
+                row[3],
+                evidence_id,
+                evidence_digest.value,
+                opportunity_id,
+            ),
         )
         await connection.execute(
             """

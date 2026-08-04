@@ -195,6 +195,10 @@ class CreatorInputRepository:
                 scene_id,
                 creator_party_id,
                 purpose,
+                source_kind,
+                source_ref,
+                source_version,
+                source_digest,
                 eligibility_status,
                 current_disposition,
                 root_opportunity_id,
@@ -203,7 +207,8 @@ class CreatorInputRepository:
             )
             VALUES (
                 %s, %s, %s, %s, %s,
-                'consider_creator_input', 'eligible', 'open', %s, 0, 1
+                'consider_creator_input', 'external_evidence', %s, 1, %s,
+                'eligible', 'open', %s, 0, 1
             )
             """,
             (
@@ -212,6 +217,8 @@ class CreatorInputRepository:
                 context.subject_id,
                 context.scene_id,
                 context.creator_party_id,
+                evidence_id,
+                content_digest.value,
                 opportunity_id,
             ),
         )

@@ -32,6 +32,7 @@ from .birth import (
     PersonalityAnchor,
 )
 from .candidates import (
+    CandidateActivityDraft,
     CandidateBasis,
     CandidateComponentDraft,
     CandidateDisposition,
@@ -176,6 +177,15 @@ from .effects import (
     PolicyDecisionId,
     PolicyDecisionOutcome,
 )
+from .life import (
+    ActivityStatus,
+    LifeOpportunitySourceKind,
+    LifeOpportunitySourcePort,
+    LifeOpportunitySourceSnapshot,
+    LifeViolation,
+    OpportunityAdmissionOutcome,
+    OpportunityAdmissionStatus,
+)
 from .model import (
     ModelAttemptId,
     ModelBinding,
@@ -285,6 +295,7 @@ __all__ = (
     "PROJECTION_VERSION",
     "ActionAdapterPort",
     "ActionIntentId",
+    "ActivityStatus",
     "ArtifactId",
     "ArtifactIntegrityStatus",
     "ArtifactPolicy",
@@ -307,6 +318,7 @@ __all__ = (
     "BirthPort",
     "BirthResult",
     "BirthViolation",
+    "CandidateActivityDraft",
     "CandidateApplicationId",
     "CandidateApplicationStatus",
     "CandidateBasis",
@@ -423,6 +435,10 @@ __all__ = (
     "FrozenEffectRequest",
     "GrantMatcher",
     "GrantStatus",
+    "LifeOpportunitySourceKind",
+    "LifeOpportunitySourcePort",
+    "LifeOpportunitySourceSnapshot",
+    "LifeViolation",
     "LockPlan",
     "LockTarget",
     "LockTargetKind",
@@ -434,6 +450,8 @@ __all__ = (
     "ModelResultStatus",
     "ModelUsage",
     "ModelViolation",
+    "OpportunityAdmissionOutcome",
+    "OpportunityAdmissionStatus",
     "OpportunityId",
     "OpportunitySelector",
     "PermissionGrant",

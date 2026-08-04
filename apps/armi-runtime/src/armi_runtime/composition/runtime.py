@@ -21,6 +21,7 @@ from armi_kernel.application import (
     CreatorInputCommand,
     CreatorInputViolation,
     EffectViolation,
+    LifeViolation,
     ModelViolation,
     RecoveryStatus,
     RecoveryViolation,
@@ -61,6 +62,7 @@ from .database import (
     compose_context_pipeline,
     compose_creator_input,
     compose_effect_registration_pipeline,
+    compose_life_opportunity_pipeline,
     compose_model_pipeline,
     compose_response_admission_pipeline,
     compose_runtime_authority,
@@ -136,6 +138,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     scene_timeline_query = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
+    life_opportunity_pipeline = None
     context_pipeline = None
     model_pipeline = None
     candidate_pipeline = None
@@ -236,6 +239,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 fault_injector=inject_admin_fault,
             )
             await creator_input.open()
+            life_opportunity_pipeline = compose_life_opportunity_pipeline(
+                prepared,
+                authority_admission=authority.require_writable,
+                wakeups=work_wakeups,
+            )
+            await life_opportunity_pipeline.open()
             context_pipeline = compose_context_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
@@ -341,19 +350,17 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                             ),
                         )
                         await web_search_pipeline.open()
-                        web_research_pipeline = (
-                            compose_web_research_admission_pipeline(
-                                prepared,
-                                authority_admission=authority.require_writable,
-                                custody=web_search_pipeline,
-                                diagnostic=lambda event: diagnostic.emit(
-                                    event,
-                                    result_code="WEB_RESEARCH_ADMISSION",
-                                ),
-                            )
+                        web_research_pipeline = compose_web_research_admission_pipeline(
+                            prepared,
+                            authority_admission=authority.require_writable,
+                            custody=web_search_pipeline,
+                            diagnostic=lambda event: diagnostic.emit(
+                                event,
+                                result_code="WEB_RESEARCH_ADMISSION",
+                            ),
                         )
                         await web_research_pipeline.open()
-                    except (WebObservationViolation, WebResearchViolation):
+                    except WebObservationViolation, WebResearchViolation:
                         if web_research_pipeline is not None:
                             await web_research_pipeline.close()
                             web_research_pipeline = None
@@ -396,6 +403,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             SubjectCommitViolation,
             ResponseViolation,
             EffectViolation,
+            LifeViolation,
         ):
             diagnostic.emit(
                 "runtime.creator_interface.unavailable",
@@ -409,6 +417,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await creator_input.close()
             if context_pipeline is not None:
                 await context_pipeline.close()
+            if life_opportunity_pipeline is not None:
+                await life_opportunity_pipeline.close()
             if model_pipeline is not None:
                 await model_pipeline.close()
             if web_research_pipeline is not None:
@@ -497,6 +507,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 context_pipeline.run_worker(),
                 name="context-prepare-worker",
             )
+        if life_opportunity_pipeline is not None:
+            supervisor.start(
+                life_opportunity_pipeline.run(),
+                name="life-opportunity-source",
+            )
         if model_pipeline is not None:
             for index in range(config.model.concurrency):
                 supervisor.start(
@@ -567,6 +582,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_input.close()
         if context_pipeline is not None:
             context_pipeline.stop()
+        if life_opportunity_pipeline is not None:
+            life_opportunity_pipeline.stop()
         if model_pipeline is not None:
             model_pipeline.stop()
         if web_search_pipeline is not None:
@@ -590,6 +607,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         )
         if context_pipeline is not None:
             await context_pipeline.close()
+        if life_opportunity_pipeline is not None:
+            await life_opportunity_pipeline.close()
         if model_pipeline is not None:
             await model_pipeline.close()
         if web_research_pipeline is not None:
@@ -678,6 +697,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         if authority is not None:
             authority.begin_drain()
         for pipeline in (
+            life_opportunity_pipeline,
             context_pipeline,
             model_pipeline,
             web_search_pipeline,
@@ -793,6 +813,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_input.close()
         if context_pipeline is not None:
             await context_pipeline.close()
+        if life_opportunity_pipeline is not None:
+            await life_opportunity_pipeline.close()
         if candidate_pipeline is not None:
             await candidate_pipeline.close()
         if capability_policy is not None:

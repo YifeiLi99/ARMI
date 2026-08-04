@@ -400,6 +400,11 @@ def build_role_manifest() -> dict[str, object]:
                         "root_opportunity_id",
                         "predecessor_opportunity_id",
                         "reconsideration_no",
+                        "source_kind",
+                        "source_ref",
+                        "source_version",
+                        "source_digest",
+                        "activity_id",
                         "schema_version",
                     ],
                     "UPDATE": ["current_disposition", "selected_at", "resolved_at"],
@@ -596,6 +601,71 @@ def build_role_manifest() -> dict[str, object]:
             "armi.experience_evidence_links",
             "armi.cognitive_candidate_applications",
         )
+    ]
+    activity_objects = [
+        {
+            "kind": "table",
+            "name": "armi.activities",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "activity_id",
+                        "subject_id",
+                        "activity_kind",
+                        "origin_opportunity_id",
+                        "current_revision_id",
+                        "head_version",
+                        "privacy_scope",
+                        "schema_version",
+                    ],
+                    "UPDATE": ["current_revision_id", "head_version"],
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
+        {
+            "kind": "table",
+            "name": "armi.activity_revisions",
+            "owner": "armi_owner",
+            "public_privileges": [],
+            "grants": {
+                "armi_runtime": ["SELECT"],
+                "armi_admin": [],
+                "armi_migrator": [],
+            },
+            "column_grants": {
+                "armi_runtime": {
+                    "INSERT": [
+                        "activity_revision_id",
+                        "activity_id",
+                        "revision_no",
+                        "previous_revision_id",
+                        "subject_commit_id",
+                        "candidate_validation_id",
+                        "proposal_ref",
+                        "goal",
+                        "progress_summary",
+                        "waiting_condition",
+                        "resumption_cue",
+                        "next_safe_step",
+                        "status",
+                        "terminal_reason",
+                        "related_scene_id",
+                        "schema_version",
+                    ]
+                },
+                "armi_admin": {},
+                "armi_migrator": {},
+            },
+        },
     ]
     capability_objects = [
         {
@@ -1547,6 +1617,7 @@ def build_role_manifest() -> dict[str, object]:
             model_attempt_object,
             *candidate_validation_objects,
             *subject_commit_objects,
+            *activity_objects,
             *capability_objects,
             *response_objects,
             *web_observation_objects,
@@ -1739,6 +1810,18 @@ def build_manifest(schema_root: Path, role_manifest_bytes: bytes) -> dict[str, o
                 "name": "armi.opportunities",
                 "logical_owner": "opportunity-custody",
                 "activation_step": "M0-S021",
+            },
+            {
+                "kind": "table",
+                "name": "armi.activities",
+                "logical_owner": "activity-authority",
+                "activation_step": "P0-S001",
+            },
+            {
+                "kind": "table",
+                "name": "armi.activity_revisions",
+                "logical_owner": "activity-authority",
+                "activation_step": "P0-S001",
             },
             {
                 "kind": "table",

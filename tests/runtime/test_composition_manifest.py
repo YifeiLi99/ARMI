@@ -25,7 +25,7 @@ class CompositionManifestTests(unittest.TestCase):
         ]
 
         self.assertEqual(verified.schema_version, COMPOSITION_SCHEMA_VERSION)
-        self.assertEqual(len(verified.active_bindings), 10)
+        self.assertEqual(len(verified.active_bindings), 11)
         self.assertEqual(
             active,
             [
@@ -43,7 +43,11 @@ class CompositionManifestTests(unittest.TestCase):
                 ),
                 (
                     "M0-SEAM-WORK-SELECTION",
-                    "armi.opportunity-selector.creator-fifo-v1",
+                    "armi.opportunity-selector.postgresql-fifo-v2",
+                ),
+                (
+                    "P0-SEAM-LIFE-OPPORTUNITY",
+                    "armi.life-opportunity-source.postgresql-v1",
                 ),
                 (
                     "M0-SEAM-POLICY",
@@ -106,7 +110,7 @@ class CompositionManifestTests(unittest.TestCase):
         bindings = dict(verified.active_bindings)
         self.assertEqual(
             bindings["M0-SEAM-WORK-SELECTION"],
-            "armi.opportunity-selector.creator-fifo-v1",
+            "armi.opportunity-selector.postgresql-fifo-v2",
         )
         self.assertEqual(verified.readiness_blockers, ())
         runtime_source = Path(

@@ -19,6 +19,7 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CandidateActivityDraft,
     CandidateApplicationId,
     CandidateApplicationStatus,
     CandidateDisposition,
@@ -67,10 +68,10 @@ class SubjectCommitSnapshot:
     opportunity_id: UUID
     root_opportunity_id: UUID
     reconsideration_no: int
-    evidence_id: UUID
-    scene_id: UUID
-    scene_key: str
-    creator_party_id: UUID
+    evidence_id: UUID | None
+    scene_id: UUID | None
+    scene_key: str | None
+    creator_party_id: UUID | None
     change_set_artifact: ArtifactRef
     change_set_digest: Digest
     base_subject_version: int
@@ -78,6 +79,11 @@ class SubjectCommitSnapshot:
     context_digest: Digest
     trace_id: TraceId
     opportunity_purpose: str
+    source_kind: str
+    source_ref: UUID
+    source_version: int
+    source_digest: Digest
+    source_activity_id: UUID | None
 
 
 class PostgreSQLSubjectCommitRepository:
@@ -132,7 +138,12 @@ class PostgreSQLSubjectCommitRepository:
                     validation.base_state_epoch,
                     validation.context_digest,
                     episode.trace_id,
-                    opportunity.purpose
+                    opportunity.purpose,
+                    opportunity.source_kind,
+                    opportunity.source_ref,
+                    opportunity.source_version,
+                    opportunity.source_digest,
+                    opportunity.activity_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -140,7 +151,7 @@ class PostgreSQLSubjectCommitRepository:
                   ON validation.cognitive_episode_id = episode.cognitive_episode_id
                 JOIN armi.opportunities AS opportunity
                   ON opportunity.opportunity_id = episode.opportunity_id
-                JOIN armi.interaction_scenes AS scene
+                LEFT JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = opportunity.scene_id
                 WHERE work.work_id = %s
                   AND work.work_kind = 'cognition.subject.commit'
@@ -180,7 +191,7 @@ class PostgreSQLSubjectCommitRepository:
             int(row[7]),
             row[8],
             row[9],
-            str(row[10]),
+            None if row[10] is None else str(row[10]),
             row[11],
             await _artifact_ref(connection, row[12]),
             Digest(str(row[13])),
@@ -189,6 +200,11 @@ class PostgreSQLSubjectCommitRepository:
             Digest(str(row[16])),
             TraceId(str(row[17])),
             str(row[18]),
+            str(row[19]),
+            row[20],
+            int(row[21]),
+            Digest(str(row[22])),
+            row[23],
         )
 
     async def existing_result(
@@ -326,6 +342,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.action_choices
             and not change_set.web_research_requests
             and not change_set.codex_delegations
+            and not change_set.activities
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -484,6 +501,13 @@ class PostgreSQLSubjectCommitRepository:
             if updated is None:
                 raise SubjectCommitViolation("SUBJECT-HEAD-STALE")
 
+        await _insert_activities(
+            connection,
+            snapshot=snapshot,
+            commit_id=commit_id,
+            activities=change_set.activities,
+        )
+
         await _insert_capability_requests(
             unit_of_work,
             snapshot=snapshot,
@@ -542,19 +566,20 @@ class PostgreSQLSubjectCommitRepository:
             completion_digest=commit_digest,
             commit_id=commit_id,
         )
-        timeline_item_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.scene_timeline_items (
-                timeline_item_id, scene_id, source_kind, source_ref,
-                source_event_no, result_status, occurred_at, schema_version
-            ) VALUES (
-                %s, %s, 'subject_commit', %s, 1, 'applied',
-                statement_timestamp(), 1
+        if snapshot.scene_id is not None:
+            timeline_item_id = uuid7()
+            await connection.execute(
+                """
+                INSERT INTO armi.scene_timeline_items (
+                    timeline_item_id, scene_id, source_kind, source_ref,
+                    source_event_no, result_status, occurred_at, schema_version
+                ) VALUES (
+                    %s, %s, 'subject_commit', %s, 1, 'applied',
+                    statement_timestamp(), 1
+                )
+                """,
+                (timeline_item_id, snapshot.scene_id, commit_id.value),
             )
-            """,
-            (timeline_item_id, snapshot.scene_id, commit_id.value),
-        )
         await _finish_episode_and_work(
             unit_of_work,
             lease=lease,
@@ -599,10 +624,12 @@ class PostgreSQLSubjectCommitRepository:
                     creator_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     predecessor_opportunity_id, reconsideration_no,
-                    schema_version
+                    source_kind, source_ref, source_version, source_digest,
+                    activity_id, schema_version
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s,
-                    'eligible', 'open', %s, %s, 1, 1
+                    'eligible', 'open', %s, %s, 1,
+                    %s, %s, %s, %s, %s, 1
                 )
                 """,
                 (
@@ -614,6 +641,11 @@ class PostgreSQLSubjectCommitRepository:
                     snapshot.opportunity_purpose,
                     snapshot.root_opportunity_id,
                     snapshot.opportunity_id,
+                    snapshot.source_kind,
+                    snapshot.source_ref,
+                    snapshot.source_version,
+                    snapshot.source_digest.value,
+                    snapshot.source_activity_id,
                 ),
             )
         completion = _completion_digest(
@@ -914,6 +946,89 @@ async def _evidence_links(
         )
     ).fetchall()
     return [(row[0], row[1], row[2]) for row in rows]
+
+
+async def _insert_activities(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    activities: tuple[CandidateActivityDraft, ...],
+) -> None:
+    for activity in activities:
+        validation = await (
+            await connection.execute(
+                """
+                SELECT 1
+                FROM armi.cognitive_candidate_validation_items
+                WHERE candidate_validation_id = %s
+                  AND proposal_ref = %s
+                  AND owner_kind = 'activity'
+                  AND validation_status = 'accepted'
+                """,
+                (snapshot.validation_id, activity.proposal_ref),
+            )
+        ).fetchone()
+        if validation is None:
+            raise SubjectCommitViolation("SUBJECT-ACTIVITY-VALIDATION")
+        await connection.execute(
+            """
+            INSERT INTO armi.activities (
+                activity_id, subject_id, activity_kind,
+                origin_opportunity_id, current_revision_id, head_version,
+                privacy_scope, schema_version
+            ) VALUES (%s, %s, %s, %s, NULL, 0, %s, 1)
+            """,
+            (
+                activity.activity_id,
+                snapshot.subject_id,
+                activity.activity_kind,
+                snapshot.opportunity_id,
+                activity.privacy_scope,
+            ),
+        )
+        revision_id = uuid7()
+        await connection.execute(
+            """
+            INSERT INTO armi.activity_revisions (
+                activity_revision_id, activity_id, revision_no,
+                previous_revision_id, subject_commit_id,
+                candidate_validation_id, proposal_ref, goal,
+                progress_summary, waiting_condition, resumption_cue,
+                next_safe_step, status, terminal_reason,
+                related_scene_id, schema_version
+            ) VALUES (
+                %s, %s, 1, NULL, %s, %s, %s, %s,
+                NULL, NULL, NULL, %s, %s, NULL, %s, 1
+            )
+            """,
+            (
+                revision_id,
+                activity.activity_id,
+                commit_id.value,
+                snapshot.validation_id,
+                activity.proposal_ref,
+                activity.goal,
+                activity.next_safe_step,
+                activity.status.value,
+                snapshot.scene_id,
+            ),
+        )
+        updated = await (
+            await connection.execute(
+                """
+                UPDATE armi.activities
+                SET current_revision_id = %s, head_version = 1
+                WHERE activity_id = %s
+                  AND current_revision_id IS NULL
+                  AND head_version = 0
+                RETURNING activity_id
+                """,
+                (revision_id, activity.activity_id),
+            )
+        ).fetchone()
+        if updated is None:
+            raise SubjectCommitViolation("SUBJECT-ACTIVITY-HEAD-STALE")
 
 
 async def _insert_capability_requests(

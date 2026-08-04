@@ -357,20 +357,21 @@ class SubjectCommitPipeline:
             )
         ]
         if result.subject_commit_id is not None:
-            invalidations.extend(
-                (
+            if snapshot.scene_key is not None:
+                invalidations.append(
                     CreatorProjectionInvalidation(
                         CreatorEventResourceKind.SCENE_TIMELINE,
                         SceneKey(snapshot.scene_key).value,
                         now,
                         "scene-timeline.v3",
-                    ),
-                    CreatorProjectionInvalidation(
-                        CreatorEventResourceKind.SUBJECT_SUMMARY,
-                        str(snapshot.subject_id),
-                        now,
-                        "subject-summary.v1",
-                    ),
+                    )
+                )
+            invalidations.append(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.SUBJECT_SUMMARY,
+                    str(snapshot.subject_id),
+                    now,
+                    "subject-summary.v1",
                 )
             )
             try:

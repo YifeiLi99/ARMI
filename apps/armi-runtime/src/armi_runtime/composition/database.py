@@ -15,6 +15,7 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
+    LifeViolation,
     ModelViolation,
     ResponseViolation,
     RuntimeFence,
@@ -66,6 +67,10 @@ from .effect_pipeline import (
     build_effect_registration_pipeline,
 )
 from .environment import PreparedEnvironment
+from .life_opportunity import (
+    LifeOpportunityPipeline,
+    build_life_opportunity_pipeline,
+)
 from .model_pipeline import ModelPipeline, build_model_pipeline
 from .response_pipeline import (
     ResponseAdmissionPipeline,
@@ -428,6 +433,49 @@ def compose_creator_input(
             status="unavailable",
             exit_code=3,
         ) from None
+
+
+def compose_life_opportunity_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    wakeups: WorkWakeupBus | None = None,
+) -> LifeOpportunityPipeline:
+    """Resolve the Runtime credential for the P0-S001 source owner."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise LifeViolation("LIFE-DATABASE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> LifeOpportunityPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise LifeViolation("LIFE-DATABASE") from None
+                config = prepared.effective.config
+                return build_life_opportunity_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    wakeups=wakeups,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise LifeViolation("LIFE-DATABASE") from None
 
 
 def compose_context_pipeline(
@@ -1027,6 +1075,7 @@ __all__ = (
     "compose_context_pipeline",
     "compose_creator_input",
     "compose_effect_registration_pipeline",
+    "compose_life_opportunity_pipeline",
     "compose_model_pipeline",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",

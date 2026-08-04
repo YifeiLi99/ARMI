@@ -60,7 +60,7 @@ class SchemaArtifactTests(unittest.TestCase):
             Path("schema/manifests/schema-manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["postgresql"]["version"], "18.4")
-        self.assertEqual(manifest["target"], {"schema": "armi", "version": 27})
+        self.assertEqual(manifest["target"], {"schema": "armi", "version": 28})
         self.assertEqual(
             [item["version"] for item in manifest["migrations"]],
             [
@@ -91,6 +91,7 @@ class SchemaArtifactTests(unittest.TestCase):
                 25,
                 26,
                 27,
+                28,
             ],
         )
         self.assertEqual(
@@ -120,6 +121,8 @@ class SchemaArtifactTests(unittest.TestCase):
                 "armi.creator_input_interactions",
                 "armi.external_evidence",
                 "armi.opportunities",
+                "armi.activities",
+                "armi.activity_revisions",
                 "armi.cognitive_episodes",
                 "armi.cognitive_context_items",
                 "armi.cognitive_attempts",

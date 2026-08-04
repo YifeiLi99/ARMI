@@ -10,6 +10,8 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_kernel.application import (
+    ActivityStatus,
+    CandidateActivityDraft,
     CandidateBasis,
     CandidateComponentDraft,
     CandidateDisposition,
@@ -38,6 +40,11 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 
+from .autonomous_activity_candidate_contract import (
+    AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+    AutonomousTerminalDecision,
+    StartActivityDecision,
+)
 from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -65,12 +72,13 @@ from .model_contract import (
     parse_candidate,
 )
 
-CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v1"
+CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v2"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
 CHANGE_SET_VERSION = "armi.subject-change-set.v3"
 WEB_CHANGE_SET_VERSION = "armi.subject-change-set.v4"
 CODEX_CHANGE_SET_VERSION = "armi.subject-change-set.v5"
 RUNTIME_BOUND_CHANGE_SET_VERSION = "armi.subject-change-set.v6"
+ACTIVITY_CHANGE_SET_VERSION = "armi.subject-change-set.v7"
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,13 +91,14 @@ class CandidateValidationContext:
     base_state_epoch: int
     bundle_activation_id: UUID
     context_digest: Digest
-    scene_id: UUID
-    creator_party_id: UUID
+    scene_id: UUID | None
+    creator_party_id: UUID | None
     current_components: tuple[tuple[CandidateOwner, int, bytes], ...]
     purpose: str = "consider_creator_input"
     web_search_active: bool = False
     codex_active: bool = False
     codex_task_sources: tuple[tuple[UUID, Digest, str], ...] = ()
+    opportunity_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if any(
@@ -100,11 +109,12 @@ class CandidateValidationContext:
                 self.episode_id,
                 self.model_attempt_id,
                 self.bundle_activation_id,
-                self.scene_id,
-                self.creator_party_id,
             )
         ):
             raise CandidateViolation("CON-CANDIDATE-CONTEXT")
+        for value in (self.scene_id, self.creator_party_id, self.opportunity_id):
+            if value is not None and (type(value) is not UUID or value.version != 7):
+                raise CandidateViolation("CON-CANDIDATE-CONTEXT")
         if (
             type(self.base_subject_version) is not int
             or self.base_subject_version < 0
@@ -138,6 +148,11 @@ class DeterministicCandidateValidator:
             parsed_candidate = parse_candidate(
                 candidate_bytes,
                 allowed_context_refs=frozenset(basis_by_ref),
+                expected_version=(
+                    AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
+                    if self._context.purpose == "consider_autonomous_life"
+                    else None
+                ),
             )
         except ModelViolation:
             try:
@@ -159,6 +174,17 @@ class DeterministicCandidateValidator:
         candidate_digest = Digest.from_bytes(
             rfc8785.dumps(cast(Any, parsed_candidate.model_dump(mode="json")))
         )
+        if isinstance(
+            parsed_candidate,
+            (StartActivityDecision, AutonomousTerminalDecision),
+        ):
+            return self._validate_autonomous(
+                parsed_candidate,
+                bases=bases,
+                candidate_digest=candidate_digest,
+            )
+        if self._context.scene_id is None or self._context.creator_party_id is None:
+            return _rejected("CANDIDATE-SCENE-CONTEXT")
         source_version = parsed_candidate.schema_version
         if isinstance(parsed_candidate, CreatorDialogueCandidate):
             candidate, expansion_error = _expand_dialogue_candidate(
@@ -559,6 +585,106 @@ class DeterministicCandidateValidator:
             None,
         )
 
+    def _validate_autonomous(
+        self,
+        candidate: StartActivityDecision | AutonomousTerminalDecision,
+        *,
+        bases: tuple[CandidateBasis, ...],
+        candidate_digest: Digest,
+    ) -> CandidateValidationResult:
+        if (
+            self._context.purpose != "consider_autonomous_life"
+            or self._context.opportunity_id is None
+            or self._context.scene_id is not None
+            or self._context.creator_party_id is not None
+        ):
+            return _rejected("CANDIDATE-ACTIVITY-CONTEXT")
+        source = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_life_opportunity"
+                and item.trust_class == "runtime_authority"
+                and item.source_ref is not None
+            ),
+            None,
+        )
+        if source is None:
+            return _rejected("CANDIDATE-ACTIVITY-SOURCE")
+        disposition = {
+            "start_activity": CandidateDisposition.CHANGE,
+            "no_activity": CandidateDisposition.NO_CHANGE,
+            "defer": CandidateDisposition.DEFER,
+            "need_information": CandidateDisposition.NEED_INFORMATION,
+        }[candidate.kind]
+        activities: tuple[CandidateActivityDraft, ...] = ()
+        if isinstance(candidate, StartActivityDecision):
+            activities = (
+                CandidateActivityDraft(
+                    "proposal:1",
+                    "group:1",
+                    (source.ordinal,),
+                    CandidateFactClass.INFERENCE,
+                    uuid7(),
+                    candidate.goal,
+                    candidate.next_step,
+                    ActivityStatus.READY,
+                ),
+            )
+        value = {
+            "schema_version": ACTIVITY_CHANGE_SET_VERSION,
+            "subject_id": str(self._context.subject_id),
+            "generation_id": str(self._context.generation_id),
+            "episode_id": str(self._context.episode_id),
+            "model_attempt_id": str(self._context.model_attempt_id),
+            "base": {
+                "subject_version": self._context.base_subject_version,
+                "state_epoch": self._context.base_state_epoch,
+                "bundle_activation_id": str(self._context.bundle_activation_id),
+                "context_digest": self._context.context_digest.value,
+            },
+            "candidate_digest": candidate_digest.value,
+            "disposition": disposition.value,
+            "experiences": [],
+            "components": [],
+            "capability_requests": [],
+            "action_choices": [],
+            "codex_delegations": [],
+            "activities": [_activity_wire(item) for item in activities],
+            "rejections": [],
+        }
+        canonical = rfc8785.dumps(cast(Any, value))
+        change_set = SubjectChangeSet(
+            canonical,
+            Digest.from_bytes(canonical),
+            self._context.subject_id,
+            self._context.generation_id,
+            self._context.episode_id,
+            self._context.model_attempt_id,
+            self._context.base_subject_version,
+            self._context.base_state_epoch,
+            self._context.bundle_activation_id,
+            self._context.context_digest,
+            candidate_digest,
+            disposition,
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+            activities,
+        )
+        return CandidateValidationResult(
+            CandidateValidationId(uuid7()),
+            CandidateValidationStatus.ACCEPTED,
+            change_set,
+            len(activities),
+            0,
+            None,
+        )
+
     def _base_matches(
         self,
         candidate: (
@@ -582,10 +708,7 @@ def _expand_dialogue_candidate(
     *,
     bases: tuple[CandidateBasis, ...],
     context: CandidateValidationContext,
-) -> (
-    tuple[CognitionCandidateV5 | CognitionCandidateV7, None]
-    | tuple[None, str]
-):
+) -> tuple[CognitionCandidateV5 | CognitionCandidateV7, None] | tuple[None, str]:
     evidence = next(
         (
             item
@@ -733,8 +856,7 @@ def _expand_dialogue_candidate(
             (
                 item
                 for item in bases
-                if item.item_kind == "current_purpose"
-                and item.trust_class == "policy"
+                if item.item_kind == "current_purpose" and item.trust_class == "policy"
             ),
             None,
         )
@@ -1169,6 +1291,21 @@ def _experience_wire(value: CandidateExperienceDraft) -> dict[str, object]:
     }
 
 
+def _activity_wire(value: CandidateActivityDraft) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "fact_class": value.fact_class.value,
+        "activity_id": str(value.activity_id),
+        "activity_kind": value.activity_kind,
+        "goal": value.goal,
+        "next_safe_step": value.next_safe_step,
+        "status": value.status.value,
+        "privacy_scope": value.privacy_scope,
+    }
+
+
 def _web_research_wire(value: WebResearchRequestDraft) -> dict[str, object]:
     return {
         "proposal_ref": value.proposal_ref,
@@ -1282,6 +1419,7 @@ def _action_wire(value: CreatorReplyDraft | FormalNoActionDraft) -> dict[str, ob
 
 
 __all__ = (
+    "ACTIVITY_CHANGE_SET_VERSION",
     "CANDIDATE_POLICY_VERSION",
     "CANDIDATE_VALIDATOR_IDENTITY",
     "CHANGE_SET_VERSION",

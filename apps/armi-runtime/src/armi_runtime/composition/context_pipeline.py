@@ -169,7 +169,11 @@ class ContextPipeline(OpportunitySelector):
         assert lease is not None
         try:
             snapshot = await self._snapshot(lease)
-            evidence_bytes = await self._read_source(snapshot.evidence, snapshot)
+            evidence_bytes = (
+                None
+                if snapshot.evidence is None
+                else await self._read_source(snapshot.evidence, snapshot)
+            )
             prompt_bytes = await self._read_source(snapshot.fixed_prompt, snapshot)
             request = _context_request(
                 snapshot,
@@ -331,7 +335,7 @@ class ContextPipeline(OpportunitySelector):
 
 def _context_request(
     snapshot: ContextEpisodeSnapshot,
-    evidence_bytes: bytes,
+    evidence_bytes: bytes | None,
     prompt_bytes: bytes,
     *,
     web_search_active: bool,
@@ -384,8 +388,9 @@ def _context_request(
                 90,
             )
         )
-    items.extend(
-        (
+    if snapshot.scene_id is not None:
+        assert snapshot.scene_bytes is not None
+        items.append(
             _item(
                 ContextSection.SCENE,
                 "current_scene",
@@ -395,23 +400,40 @@ def _context_request(
                 ContextTrustClass.RUNTIME_AUTHORITY,
                 required=False,
                 relevance=80,
-            ),
+            )
+        )
+    items.extend(
+        (
             _unavailable(ContextSection.RELATIONSHIP, "relationship"),
             _unavailable(ContextSection.MEMORY, "memory"),
             _item(
-                ContextSection.EVIDENCE,
-                (
-                    "codex_task_source"
-                    if snapshot.evidence.source_kind == "codex_task_source"
-                    else "current_evidence"
+                ContextSection.ACTIVITY,
+                "current_life_opportunity",
+                snapshot.opportunity_source_ref,
+                snapshot.opportunity_source_version,
+                rfc8785.dumps(
+                    {
+                        "source_kind": snapshot.opportunity_source_kind,
+                        "source_ref": str(snapshot.opportunity_source_ref),
+                        "source_version": snapshot.opportunity_source_version,
+                        "source_digest": snapshot.opportunity_source_digest.value,
+                    }
                 ),
-                snapshot.evidence.source_id,
-                snapshot.evidence.source_version,
-                evidence_bytes,
-                ContextTrustClass.EXTERNAL_CLAIM,
-                required=True,
+                ContextTrustClass.RUNTIME_AUTHORITY,
+                required=snapshot.purpose == "consider_autonomous_life",
                 relevance=100,
-                source_kind=snapshot.evidence.source_kind,
+                source_kind=snapshot.opportunity_source_kind,
+            ),
+            _item(
+                ContextSection.ACTIVITY,
+                "current_activities",
+                snapshot.subject_id,
+                1,
+                snapshot.activity_summary_bytes,
+                ContextTrustClass.RUNTIME_AUTHORITY,
+                required=snapshot.purpose == "consider_autonomous_life",
+                relevance=95,
+                source_kind="activity_summary",
             ),
             _item(
                 ContextSection.CAPABILITY,
@@ -422,7 +444,9 @@ def _context_request(
                     {
                         "binding": "armi.model-tool.volcengine-ark-web-search-v1",
                         "implementation_status": "complete",
-                        "activation_status": "active" if web_search_active else "inactive",
+                        "activation_status": "active"
+                        if web_search_active
+                        else "inactive",
                         "operation_class": "search_read_public",
                     }
                 ),
@@ -454,6 +478,25 @@ def _context_request(
             _unavailable(ContextSection.PROMPT, "subject_prompt"),
         )
     )
+    if snapshot.evidence is not None:
+        assert evidence_bytes is not None
+        items.append(
+            _item(
+                ContextSection.EVIDENCE,
+                (
+                    "codex_task_source"
+                    if snapshot.evidence.source_kind == "codex_task_source"
+                    else "current_evidence"
+                ),
+                snapshot.evidence.source_id,
+                snapshot.evidence.source_version,
+                evidence_bytes,
+                ContextTrustClass.EXTERNAL_CLAIM,
+                required=True,
+                relevance=100,
+                source_kind=snapshot.evidence.source_kind,
+            )
+        )
     return ContextRequest(
         Purpose(snapshot.purpose),
         snapshot.subject_id,

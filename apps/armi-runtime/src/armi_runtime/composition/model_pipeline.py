@@ -56,6 +56,8 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .model_contract import (
+    AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+    AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     DIALOGUE_CANDIDATE_VERSION,
     DIALOGUE_INSTRUCTIONS,
     WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -123,6 +125,10 @@ class ModelPipeline:
             "consider_creator_input",
             expected_dialogue_version=dialogue_version,
         )
+        autonomous_binding = load_purpose_binding(
+            "consider_autonomous_life",
+            expected_dialogue_version=dialogue_version,
+        )
         self._dialogue_version = dialogue_version
 
         def parse_dialogue(
@@ -135,6 +141,18 @@ class ModelPipeline:
                 allowed_context_refs=allowed_context_refs,
                 expected_version=dialogue_version,
             )
+
+        def parse_autonomous(
+            value: bytes,
+            *,
+            allowed_context_refs: frozenset[str],
+        ):
+            return parse_candidate(
+                value,
+                allowed_context_refs=allowed_context_refs,
+                expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+            )
+
         self._factory = factory
         self._storage = storage
         self._adapters = {
@@ -165,6 +183,17 @@ class ModelPipeline:
                     if web_search_active
                     else "armi_creator_dialogue_candidate_v1"
                 ),
+            ),
+            "consider_autonomous_life": VolcengineArkModelAdapter(
+                binding=autonomous_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    autonomous_binding.response_contract_version
+                ),
+                candidate_parser=parse_autonomous,
+                instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
+                schema_name="armi_autonomous_activity_candidate_v1",
             ),
         }
         self._catalog = ArtifactCatalogRepository()

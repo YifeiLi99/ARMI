@@ -19,7 +19,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest
 
 CONTEXT_MANIFEST_VERSION = "armi.context-manifest.v1"
-CONTEXT_POLICY_VERSION = "armi.context-policy.v1"
+CONTEXT_POLICY_VERSION = "armi.context-policy.v2"
 CONTEXT_MECHANISM = "armi.context-compiler.deterministic-v1"
 
 _SECTION_ORDER = tuple(ContextSection)
@@ -128,7 +128,6 @@ class DeterministicContextCompiler(ContextCompiler):
             "snapshot": {
                 "purpose": request.purpose.value,
                 "subject_id": str(request.subject_id),
-                "scene_id": str(request.scene_id),
                 "subject_version": request.base_subject_version,
                 "state_epoch": request.base_state_epoch,
                 "bundle_activation_id": str(request.bundle_activation_id),
@@ -136,6 +135,10 @@ class DeterministicContextCompiler(ContextCompiler):
             "compiled_digest": compiled.digest.value,
             "items": [_manifest_item(result) for result in results],
         }
+        if request.scene_id is not None:
+            cast(dict[str, object], manifest["snapshot"])["scene_id"] = str(
+                request.scene_id
+            )
         manifest_bytes = rfc8785.dumps(cast(Any, manifest)) + b"\n"
         return ContextResult(
             manifest_bytes,

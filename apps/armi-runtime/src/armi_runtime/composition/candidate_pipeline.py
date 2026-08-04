@@ -161,6 +161,7 @@ class CandidateValidationPipeline:
                     self._web_search_active,
                     True,
                     snapshot.codex_task_sources,
+                    snapshot.opportunity_id,
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)

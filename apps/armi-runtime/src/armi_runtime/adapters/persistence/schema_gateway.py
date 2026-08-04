@@ -325,10 +325,10 @@ _EXPECTED_TABLE_COLUMNS: Final = {
     ),
     "opportunities": (
         ("opportunity_id", "uuid", True),
-        ("evidence_id", "uuid", True),
+        ("evidence_id", "uuid", False),
         ("subject_id", "uuid", True),
-        ("scene_id", "uuid", True),
-        ("creator_party_id", "uuid", True),
+        ("scene_id", "uuid", False),
+        ("creator_party_id", "uuid", False),
         ("purpose", "text", True),
         ("eligibility_status", "text", True),
         ("current_disposition", "text", True),
@@ -340,13 +340,48 @@ _EXPECTED_TABLE_COLUMNS: Final = {
         ("predecessor_opportunity_id", "uuid", False),
         ("reconsideration_no", "smallint", True),
         ("resolved_at", "timestamp(6) with time zone", False),
+        ("source_kind", "text", True),
+        ("source_ref", "uuid", True),
+        ("source_version", "bigint", True),
+        ("source_digest", "text", True),
+        ("activity_id", "uuid", False),
+    ),
+    "activities": (
+        ("activity_id", "uuid", True),
+        ("subject_id", "uuid", True),
+        ("activity_kind", "text", True),
+        ("origin_opportunity_id", "uuid", True),
+        ("current_revision_id", "uuid", False),
+        ("head_version", "bigint", True),
+        ("privacy_scope", "text", True),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
+    ),
+    "activity_revisions": (
+        ("activity_revision_id", "uuid", True),
+        ("activity_id", "uuid", True),
+        ("revision_no", "bigint", True),
+        ("previous_revision_id", "uuid", False),
+        ("subject_commit_id", "uuid", True),
+        ("candidate_validation_id", "uuid", True),
+        ("proposal_ref", "text", True),
+        ("goal", "text", True),
+        ("progress_summary", "text", False),
+        ("waiting_condition", "text", False),
+        ("resumption_cue", "text", False),
+        ("next_safe_step", "text", True),
+        ("status", "text", True),
+        ("terminal_reason", "text", False),
+        ("related_scene_id", "uuid", False),
+        ("created_at", "timestamp(6) with time zone", True),
+        ("schema_version", "smallint", True),
     ),
     "cognitive_episodes": (
         ("cognitive_episode_id", "uuid", True),
         ("opportunity_id", "uuid", True),
         ("subject_id", "uuid", True),
-        ("scene_id", "uuid", True),
-        ("creator_party_id", "uuid", True),
+        ("scene_id", "uuid", False),
+        ("creator_party_id", "uuid", False),
         ("purpose", "text", True),
         ("status", "text", True),
         ("base_subject_version", "bigint", True),
@@ -972,10 +1007,16 @@ _EXPECTED_CONSTRAINT_KINDS: Final = {
         sorted((*("c",) * 7, *("n",) * 11, *("f",) * 6, "p", *("u",) * 6))
     ),
     "opportunities": tuple(
-        sorted((*("c",) * 9, *("n",) * 12, *("f",) * 3, "p", *("u",) * 3))
+        sorted((*("c",) * 13, *("n",) * 13, *("f",) * 4, "p", *("u",) * 4))
+    ),
+    "activities": tuple(
+        sorted((*("c",) * 6, *("n",) * 8, *("f",) * 3, "p", *("u",) * 3))
+    ),
+    "activity_revisions": tuple(
+        sorted((*("c",) * 9, *("n",) * 11, *("f",) * 5, "p", *("u",) * 3))
     ),
     "cognitive_episodes": tuple(
-        sorted((*("c",) * 15, *("n",) * 16, *("f",) * 4, "p", "u"))
+        sorted((*("c",) * 16, *("n",) * 14, *("f",) * 4, "p", "u"))
     ),
     "cognitive_context_items": tuple(
         sorted((*("c",) * 16, *("n",) * 11, "f", "p", "u"))
@@ -1561,6 +1602,12 @@ class PostgreSQLSchemaGateway:
             expected_tables.extend(codex_tables)
             expected_objects.sort()
             expected_tables.sort()
+        if applied_version >= 28:
+            activity_tables = ("activities", "activity_revisions")
+            expected_objects.extend((name, "r") for name in activity_tables)
+            expected_tables.extend(activity_tables)
+            expected_objects.sort()
+            expected_tables.sort()
         if objects != expected_objects:
             raise DatabaseViolation(
                 "DB-SCHEMA-DIRTY",
@@ -1727,11 +1774,26 @@ class PostgreSQLSchemaGateway:
                     for name, type_name, not_null in expected[:-3]
                 )
             if table_name == "opportunities" and expected is not None:
+                if applied_version < 28:
+                    expected = expected[:-5]
+                    expected = tuple(
+                        (name, type_name, True)
+                        if name in {"evidence_id", "scene_id", "creator_party_id"}
+                        else (name, type_name, not_null)
+                        for name, type_name, not_null in expected
+                    )
                 if applied_version < 14:
                     expected = expected[:-4]
                 if applied_version < 11:
                     expected = expected[:-1]
             if table_name == "cognitive_episodes" and expected is not None:
+                if applied_version < 28:
+                    expected = tuple(
+                        (name, type_name, True)
+                        if name in {"scene_id", "creator_party_id"}
+                        else (name, type_name, not_null)
+                        for name, type_name, not_null in expected
+                    )
                 if applied_version < 12:
                     expected = expected[:-5]
                 elif applied_version < 13:
@@ -1894,20 +1956,27 @@ class PostgreSQLSchemaGateway:
                 expected = tuple(sorted((*expected, "n", "n", "n")))
             if table_name == "cognitive_episodes" and expected is not None:
                 prior_kinds = list(expected)
+                if applied_version < 28:
+                    prior_kinds.remove("c")
+                    prior_kinds.extend(("n", "n"))
                 if applied_version < 14:
                     prior_kinds.remove("c")
                 if applied_version < 13:
                     prior_kinds.remove("c")
-                expected = tuple(prior_kinds)
+                expected = tuple(sorted(prior_kinds))
             if table_name == "opportunities" and expected is not None:
                 prior_kinds = list(expected)
+                if applied_version < 28:
+                    for kind in ("c", "c", "c", "c", "n", "n", "n", "n", "f", "u"):
+                        prior_kinds.remove(kind)
+                    prior_kinds.extend(("n", "n", "n"))
                 if applied_version < 14:
                     for kind in ("c", "c", "f", "f", "n", "n", "u"):
                         prior_kinds.remove(kind)
                 if applied_version < 11:
                     prior_kinds.remove("c")
                     prior_kinds.remove("u")
-                expected = tuple(prior_kinds)
+                expected = tuple(sorted(prior_kinds))
             if (
                 table_name == "subject_component_revisions"
                 and applied_version < 14

@@ -19,6 +19,7 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CandidateActivityDraft,
     CandidateBasis,
     CandidateComponentDraft,
     CandidateExperienceDraft,
@@ -66,8 +67,8 @@ class CandidateEpisodeSnapshot:
     base_subject_version: int
     base_state_epoch: int
     context_digest: Digest
-    scene_id: UUID
-    creator_party_id: UUID
+    scene_id: UUID | None
+    creator_party_id: UUID | None
     response_artifact: ArtifactRef
     candidate_contract_version: str
     trace_id: TraceId
@@ -76,6 +77,7 @@ class CandidateEpisodeSnapshot:
     current_components: tuple[tuple[CandidateOwner, int, bytes], ...]
     purpose: str
     codex_task_sources: tuple[tuple[UUID, Digest, str], ...] = ()
+    opportunity_id: UUID | None = None
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -106,7 +108,8 @@ class PostgreSQLCandidateValidationRepository:
                     attempt.response_artifact_id,
                     attempt.candidate_schema_version,
                     episode.trace_id,
-                    episode.purpose
+                    episode.purpose,
+                    episode.opportunity_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -247,6 +250,7 @@ class PostgreSQLCandidateValidationRepository:
             components,
             str(row[13]),
             tuple((item[0], Digest(str(item[1])), str(item[2])) for item in codex_rows),
+            row[14],
         )
 
     async def settle(
@@ -470,6 +474,7 @@ def _validation_drafts(
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
+    | CandidateActivityDraft
     | CandidateRejection,
     ...,
 ]:
@@ -480,6 +485,7 @@ def _validation_drafts(
         *change_set.action_choices,
         *change_set.web_research_requests,
         *change_set.codex_delegations,
+        *change_set.activities,
         *change_set.rejections,
     )
 
@@ -492,6 +498,7 @@ def _item_semantic(
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
+    | CandidateActivityDraft
     | CandidateRejection,
 ) -> dict[str, object]:
     result: dict[str, object] = {
@@ -500,7 +507,19 @@ def _item_semantic(
         "basis_ordinals": list(value.basis_ordinals),
         "fact_class": _implicit_fact_class(value).value,
     }
-    if isinstance(value, CandidateExperienceDraft):
+    if isinstance(value, CandidateActivityDraft):
+        result.update(
+            {
+                "owner": "activity",
+                "activity_id": str(value.activity_id),
+                "activity_kind": value.activity_kind,
+                "goal": value.goal,
+                "next_safe_step": value.next_safe_step,
+                "status": value.status.value,
+                "privacy_scope": value.privacy_scope,
+            }
+        )
+    elif isinstance(value, CandidateExperienceDraft):
         result.update(
             {
                 "owner": "experience",
@@ -550,8 +569,11 @@ def _owner(
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
+    | CandidateActivityDraft
     | CandidateRejection,
 ) -> CandidateOwner:
+    if isinstance(value, CandidateActivityDraft):
+        return CandidateOwner.ACTIVITY
     if isinstance(value, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
     if isinstance(value, CapabilityRequestDraft):
@@ -573,11 +595,17 @@ def _implicit_fact_class(
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
+    | CandidateActivityDraft
     | CandidateRejection,
 ) -> CandidateFactClass:
     if isinstance(
         value,
-        (CandidateExperienceDraft, CandidateComponentDraft, CandidateRejection),
+        (
+            CandidateExperienceDraft,
+            CandidateComponentDraft,
+            CandidateActivityDraft,
+            CandidateRejection,
+        ),
     ):
         return value.fact_class
     return CandidateFactClass.INFERENCE

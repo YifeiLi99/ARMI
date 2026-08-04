@@ -198,7 +198,7 @@ def _invoke_elevated(
         if failure_path.is_file():
             try:
                 failure = json.loads(failure_path.read_bytes())
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 failure = None
             if isinstance(failure, dict):
                 code = failure.get("code")

@@ -22,6 +22,7 @@ from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
+    AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     build_request_bytes,
@@ -33,6 +34,32 @@ from armi_runtime.composition.model_contract import (
 )
 
 _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
+
+
+def test_autonomous_activity_contract_is_compact_strict_and_byte_bounded() -> None:
+    parsed = parse_candidate(
+        b'{"kind":"start_activity","goal":"learn","next_step":"read"}',
+        allowed_context_refs=frozenset(),
+        expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+    )
+    assert getattr(parsed, "kind", None) == "start_activity"
+    assert set(candidate_schema(AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION)) >= {
+        "$defs",
+        "discriminator",
+    }
+
+    for value in (
+        b'{"kind":"start_activity","goal":"learn","next_step":"read","status":"ready"}',
+        json.dumps(
+            {"kind": "start_activity", "goal": "界" * 683, "next_step": "read"}
+        ).encode(),
+    ):
+        with pytest.raises(ModelViolation):
+            parse_candidate(
+                value,
+                allowed_context_refs=frozenset(),
+                expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+            )
 
 
 def _candidate() -> dict[str, object]:

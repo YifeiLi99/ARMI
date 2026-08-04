@@ -170,10 +170,12 @@ class PostgreSQLCodexDelegationRepository:
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, eligibility_status,
+                creator_party_id, purpose, source_kind, source_ref,
+                source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_task','eligible','open',%s,NULL,0,1)
+            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
+                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0,1)
             """,
             (
                 opportunity_id,
@@ -181,6 +183,8 @@ class PostgreSQLCodexDelegationRepository:
                 draft.subject_id.value,
                 subject[0],
                 subject[1],
+                evidence_id,
+                draft.manifest_digest.value,
                 opportunity_id,
             ),
         )
@@ -327,10 +331,12 @@ class PostgreSQLCodexDelegationRepository:
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, eligibility_status,
+                creator_party_id, purpose, source_kind, source_ref,
+                source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_task','eligible','open',%s,NULL,0,1)
+            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
+                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0,1)
             """,
             (
                 opportunity_id,
@@ -338,6 +344,8 @@ class PostgreSQLCodexDelegationRepository:
                 context.subject_id,
                 context.scene_id,
                 context.creator_party_id,
+                evidence_id,
+                draft.manifest_digest.value,
                 opportunity_id,
             ),
         )
@@ -793,10 +801,12 @@ class PostgreSQLCodexDelegationRepository:
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, eligibility_status,
+                creator_party_id, purpose, source_kind, source_ref,
+                source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_result','eligible','open',%s,NULL,0,1)
+            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_result',
+                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0,1)
             """,
             (
                 opportunity_id,
@@ -804,6 +814,8 @@ class PostgreSQLCodexDelegationRepository:
                 snapshot.subject_id,
                 snapshot.scene_id,
                 snapshot.creator_party_id,
+                evidence_id,
+                evidence_ref.content_digest.value,
                 opportunity_id,
             ),
         )

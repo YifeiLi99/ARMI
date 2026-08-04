@@ -8,6 +8,8 @@ from uuid import UUID
 
 import rfc8785
 from armi_kernel.application import (
+    ActivityStatus,
+    CandidateActivityDraft,
     CandidateComponentDraft,
     CandidateDisposition,
     CandidateExperienceDraft,
@@ -50,6 +52,7 @@ _TOP_KEYS_V3 = {*_TOP_KEYS_V2, "action_choices"}
 _TOP_KEYS_V4 = {*_TOP_KEYS_V3, "web_research_requests"}
 _TOP_KEYS_V5 = {*_TOP_KEYS_V3, "codex_delegations"}
 _TOP_KEYS_V6 = _TOP_KEYS_V5
+_TOP_KEYS_V7 = {*_TOP_KEYS_V6, "activities"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -65,6 +68,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v4",
             "armi.subject-change-set.v5",
             "armi.subject-change-set.v6",
+            "armi.subject-change-set.v7",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -80,6 +84,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V5
             if version.endswith(".v5")
             else _TOP_KEYS_V6
+            if version.endswith(".v6")
+            else _TOP_KEYS_V7
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -116,6 +122,9 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             _codex_delegation(item)
             for item in _array(document.get("codex_delegations", []), 1)
         )
+        activities = tuple(
+            _activity(item) for item in _array(document.get("activities", []), 4)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -139,6 +148,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             web_research_requests,
             rejections,
             codex_delegations,
+            activities,
         )
         proposal_refs = [
             item.proposal_ref
@@ -149,6 +159,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *action_choices,
                 *web_research_requests,
                 *codex_delegations,
+                *activities,
                 *rejections,
             )
         ]
@@ -160,6 +171,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.capability_requests
             or result.web_research_requests
             or result.codex_delegations
+            or result.activities
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
@@ -215,6 +227,36 @@ def _experience(value: object) -> CandidateExperienceDraft:
         CandidateFactClass(_text(item["fact_class"])),
         _text(item["first_person_gist"]),
         None if uncertainty is None else _text(uncertainty),
+        _text(item["privacy_scope"]),
+    )
+
+
+def _activity(value: object) -> CandidateActivityDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "fact_class",
+            "activity_id",
+            "activity_kind",
+            "goal",
+            "next_safe_step",
+            "status",
+            "privacy_scope",
+        },
+    )
+    return CandidateActivityDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        CandidateFactClass(_text(item["fact_class"])),
+        _uuid7(item["activity_id"]),
+        _text(item["goal"]),
+        _text(item["next_safe_step"]),
+        ActivityStatus(_text(item["status"])),
+        _text(item["activity_kind"]),
         _text(item["privacy_scope"]),
     )
 

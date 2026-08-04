@@ -199,6 +199,14 @@
       ]
     },
     {
+      "id": "life-opportunity-source",
+      "module": "armi_runtime.adapters.persistence.life_opportunity",
+      "owner": "opportunity-custody",
+      "allowed_callers": [
+        "armi_runtime.composition.life_opportunity"
+      ]
+    },
+    {
       "id": "capability-policy",
       "module": "armi_runtime.adapters.persistence.capability_policy",
       "owner": "capability-policy",

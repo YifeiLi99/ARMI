@@ -45,6 +45,7 @@ class ContextSection(StrEnum):
     SCENE = "scene"
     RELATIONSHIP = "relationship"
     MEMORY = "memory"
+    ACTIVITY = "activity"
     EVIDENCE = "evidence"
     CAPABILITY = "capability"
     PROMPT = "prompt"
@@ -148,7 +149,7 @@ class ContextItemCandidate:
 class ContextRequest:
     purpose: Purpose
     subject_id: UUID
-    scene_id: UUID
+    scene_id: UUID | None
     base_subject_version: int
     base_state_epoch: int
     bundle_activation_id: UUID
@@ -163,8 +164,10 @@ class ContextRequest:
     def __post_init__(self) -> None:
         if type(self.purpose) is not Purpose:
             raise ContextViolation("CTX-REQUEST")
-        for value in (self.subject_id, self.scene_id, self.bundle_activation_id):
+        for value in (self.subject_id, self.bundle_activation_id):
             _require_uuid7(value)
+        if self.scene_id is not None:
+            _require_uuid7(self.scene_id)
         for value in (self.base_subject_version, self.base_state_epoch):
             if type(value) is not int or value < 0:
                 raise ContextViolation("CTX-REQUEST")

@@ -178,6 +178,59 @@ def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     }
 
 
+def test_autonomous_start_binds_activity_authority_without_scene() -> None:
+    context, bases = _fixture()
+    opportunity_id = uuid7()
+    source_ref = uuid7()
+    autonomous = replace(
+        context,
+        purpose="consider_autonomous_life",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=opportunity_id,
+    )
+    source = CandidateBasis(
+        4,
+        "activity",
+        "current_life_opportunity",
+        source_ref,
+        1,
+        Digest.from_bytes(b"life generation source"),
+        "runtime_authority",
+        "private",
+    )
+    result = DeterministicCandidateValidator(autonomous).validate(
+        b'{"kind":"start_activity","goal":"understand my interests",'
+        b'"next_step":"review my current self"}',
+        bases=(*bases, source),
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert len(result.change_set.activities) == 1
+    activity = result.change_set.activities[0]
+    assert activity.status.value == "ready"
+    assert activity.basis_ordinals == (4,)
+    assert b"armi.subject-change-set.v7" in result.change_set.canonical_bytes
+    assert str(opportunity_id).encode() not in result.change_set.canonical_bytes
+
+
+def test_autonomous_candidate_rejects_scene_or_missing_source() -> None:
+    context, bases = _fixture()
+    autonomous = replace(
+        context,
+        purpose="consider_autonomous_life",
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+    )
+    result = DeterministicCandidateValidator(autonomous).validate(
+        b'{"kind":"no_activity"}',
+        bases=bases,
+    )
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.error_code == "CANDIDATE-ACTIVITY-CONTEXT"
+
+
 def _bytes(value: Mapping[str, object]) -> bytes:
     return rfc8785.dumps(cast(Any, value))
 
@@ -339,9 +392,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
     assert rejected.error_code == "CANDIDATE-WEB-URL-FORBIDDEN"
 
 
-def test_compact_dialogue_v2_web_research_binds_authority_deterministically() -> (
-    None
-):
+def test_compact_dialogue_v2_web_research_binds_authority_deterministically() -> None:
     context, bases = _fixture()
     extended = (
         *bases,
@@ -375,9 +426,7 @@ def test_compact_dialogue_v2_web_research_binds_authority_deterministically() ->
     )
     assert inactive.error_code == "CANDIDATE-WEB-NOT-ACTIVE"
 
-    active = DeterministicCandidateValidator(
-        replace(context, web_search_active=True)
-    )
+    active = DeterministicCandidateValidator(replace(context, web_search_active=True))
     first = active.validate(_bytes(candidate), bases=extended)
     second = active.validate(_bytes(candidate), bases=extended)
     assert first.status is CandidateValidationStatus.ACCEPTED

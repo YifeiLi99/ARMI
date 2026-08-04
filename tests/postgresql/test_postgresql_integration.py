@@ -72,6 +72,8 @@ from armi_kernel.application import (
     LockTarget,
     LockTargetKind,
     ModelResultStatus,
+    OpportunityAdmissionOutcome,
+    OpportunityAdmissionStatus,
     PersonalityAnchor,
     PostCommitAction,
     RecoveryStatus,
@@ -181,6 +183,7 @@ from armi_runtime.composition.candidate_validator import (
 )
 from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
+from armi_runtime.composition.life_opportunity import LifeOpportunityPipeline
 from armi_runtime.composition.model_contract import (
     build_request_bytes,
     candidate_schema,
@@ -373,7 +376,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     range(2),
                 )
             )
-        self.assertEqual({result.applied_version for result in results}, {27})
+        self.assertEqual({result.applied_version for result in results}, {28})
         self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
         self.assertEqual(
             len({result.privilege_catalog_sha256 for result in results}), 1
@@ -415,6 +418,152 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
+
+    def test_life_generation_source_is_single_under_concurrency_and_restart(
+        self,
+    ) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().upgrade(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="约 16 岁少女口吻",
+            traits=("自主",),
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="p0-s001-life-source-birth",
+            personality_anchor=anchor,
+            personality_anchor_digest=Digest.from_bytes(
+                rfc8785.dumps(
+                    {
+                        "schema_version": anchor.schema_version,
+                        "voice_style": anchor.voice_style,
+                        "traits": list(anchor.traits),
+                    }
+                )
+            ),
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            schema_manifest_digest=packaged["schema_manifest_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"p0-s001-life-source-birth"),
+        )
+
+        async def reject_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("life source uses no dynamic business lock")
+
+        async def exercise(
+            root: Path,
+        ) -> tuple[
+            OpportunityAdmissionOutcome,
+            OpportunityAdmissionOutcome,
+            OpportunityAdmissionOutcome,
+        ]:
+            birth_factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_lock,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            await birth_factory.open()
+            try:
+                await BirthTransaction(
+                    ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                    ArtifactCatalogRepository(),
+                    BirthRepository(),
+                    birth_factory,
+                ).birth(manifest)
+            finally:
+                await birth_factory.close()
+
+            authority = PostgreSQLRuntimeAuthority(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                expected_bundle_digest=packaged["composition_digest"].to_wire(),
+                pool_timeout_seconds=2,
+            )
+            await authority.open()
+            record = await authority.acquire(
+                runtime_instance_id=RuntimeInstanceId(_uuid7()),
+                lease_seconds=30,
+            )
+            factories = tuple(
+                PostgreSQLUnitOfWorkFactory(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    lock_acquirer=reject_lock,
+                    pool_min=1,
+                    pool_max=1,
+                    acquire_timeout_seconds=2,
+                    statement_timeout_seconds=5,
+                    authority_admission=lambda: record.fence,
+                    require_runtime_fence=True,
+                )
+                for _ in range(2)
+            )
+            pipelines = tuple(
+                LifeOpportunityPipeline(factory=factory) for factory in factories
+            )
+            for pipeline in pipelines:
+                await pipeline.open()
+            try:
+                first, second = await asyncio.gather(
+                    pipelines[0].admit_once(),
+                    pipelines[1].admit_once(),
+                )
+                restarted = await pipelines[0].admit_once()
+            finally:
+                for pipeline in pipelines:
+                    await pipeline.close()
+                await authority.release(record.fence)
+                await authority.close()
+            return first, second, restarted
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            first, second, restarted = asyncio.run(
+                exercise(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+        self.assertEqual(
+            {first.status, second.status},
+            {
+                OpportunityAdmissionStatus.ADMITTED,
+                OpportunityAdmissionStatus.DUPLICATE,
+            },
+        )
+        self.assertEqual(first.opportunity_id, second.opportunity_id)
+        self.assertEqual(restarted.status, OpportunityAdmissionStatus.DUPLICATE)
+        self.assertEqual(restarted.opportunity_id, first.opportunity_id)
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            row = connection.execute(
+                """
+                SELECT count(*), count(DISTINCT root_opportunity_id),
+                       min(source_digest), max(source_digest)
+                FROM armi.opportunities
+                WHERE source_kind = 'life_generation_available'
+                """
+            ).fetchone()
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row[0:2], (1, 1))
+        self.assertEqual(row[2], row[3])
 
     def test_creator_codex_task_intake_is_atomic_and_idempotent(self) -> None:
         fixture = self.create_database()
@@ -602,7 +751,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 27)
+        self.assertEqual(status.result.applied_version, 28)
 
         for denied_dsn in (fixture.runtime_dsn, fixture.migrator_dsn):
             denied = service_for(denied_dsn).health(HealthRequest())
@@ -798,7 +947,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT max(version) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (27,),
+                    (28,),
                 )
             recovery = list(
                 (experiment_root / ".armi-admin-recovery").glob(
@@ -1211,9 +1360,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 provisioner.execute(
                     "INSERT INTO armi.opportunities (opportunity_id, evidence_id, "
                     "subject_id, scene_id, creator_party_id, purpose, eligibility_status, "
-                    "current_disposition, root_opportunity_id, reconsideration_no) VALUES "
+                    "current_disposition, root_opportunity_id, reconsideration_no, "
+                    "source_kind, source_ref, source_version, source_digest) VALUES "
                     "(%s, %s, %s, %s, %s, 'consider_creator_input', 'eligible', 'open', "
-                    "%s, 0)",
+                    "%s, 0, 'external_evidence', %s, 1, %s)",
                     (
                         opportunity_id,
                         evidence_id,
@@ -1221,6 +1371,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         scene_id,
                         creator_id,
                         opportunity_id,
+                        evidence_id,
+                        f"sha256:{content_digest}",
                     ),
                 )
                 provisioner.execute(
@@ -1665,7 +1817,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(result.applied_version, 27)
+        self.assertEqual(result.applied_version, 28)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             owners = connection.execute(
                 """
@@ -1727,7 +1879,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        self.assertEqual(result.applied_version, 27)
+        self.assertEqual(result.applied_version, 28)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             after = connection.execute(
                 """
@@ -1787,7 +1939,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "ahead",
                 "INSERT INTO armi.schema_migrations "
                 "(version,name,sha256,application_version) VALUES "
-                "(28,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "(29,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
                 "DB-SCHEMA-AHEAD",
             ),
@@ -1846,7 +1998,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         "SELECT count(*) FROM armi.schema_migrations"
                     ).fetchone(),
-                    (27,),
+                    (28,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
@@ -2336,6 +2488,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 DROP TABLE
+                    armi.activity_revisions,
+                    armi.activities,
                     armi.codex_result_sources,
                     armi.codex_verification_results,
                     armi.codex_task_sources,
@@ -2447,13 +2601,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)"
+                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28)"
             )
         backfilled = PostgreSQLSchemaGateway().upgrade(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(backfilled.applied_version, 27)
+        self.assertEqual(backfilled.applied_version, 28)
 
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
@@ -3335,9 +3489,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     opportunity_id, evidence_id, subject_id, scene_id,
                     creator_party_id, purpose, eligibility_status,
                     current_disposition, selected_at, root_opportunity_id,
-                    reconsideration_no, schema_version
+                    reconsideration_no, source_kind, source_ref,
+                    source_version, source_digest, schema_version
                 ) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
-                          'eligible', 'selected', statement_timestamp(), %s, 0, 1)
+                          'eligible', 'selected', statement_timestamp(), %s, 0,
+                          'external_evidence', %s, 1, %s, 1)
                 """,
                 (
                     ids["opportunity"],
@@ -3346,6 +3502,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     scene_id,
                     creator_party_id,
                     ids["opportunity"],
+                    ids["evidence"],
+                    digests["input"].value,
                 ),
             )
             connection.execute(
@@ -5140,7 +5298,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     SELECT
                         (SELECT count(*) FROM armi.creator_input_interactions),
                         (SELECT count(*) FROM armi.external_evidence),
-                        (SELECT count(*) FROM armi.opportunities),
+                        (
+                            SELECT count(*) FROM armi.opportunities
+                            WHERE evidence_id IS NOT NULL
+                        ),
                         (
                             SELECT count(*)
                             FROM armi.scene_timeline_items
@@ -5182,9 +5343,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                 ).fetchone()
                 assert context_facts is not None
-                self.assertEqual(context_facts[0], 1)
+                self.assertEqual(context_facts[0], 2)
                 self.assertGreaterEqual(context_facts[1], 10)
-                self.assertEqual(context_facts[2:], (2, 0))
+                self.assertEqual(context_facts[2:], (4, 0))
                 artifact_identity = database.execute(
                     """
                     SELECT artifact.content_digest, artifact.storage_locator
@@ -5297,7 +5458,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     LIMIT 1
                     """
                 ).fetchone()
-                self.assertEqual(recovery_count, (0, 1, 1, 0))
+                self.assertEqual(recovery_count, (0, 2, 2, 0))
                 self.assertEqual(
                     database.execute(
                         """
@@ -5308,8 +5469,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         """
                     ).fetchall(),
                     [
-                        ("cognition.context.prepare", 1),
-                        ("cognition.model.invoke", 1),
+                        ("cognition.context.prepare", 2),
+                        ("cognition.model.invoke", 2),
                         ("recovery_probe", 1),
                     ],
                 )

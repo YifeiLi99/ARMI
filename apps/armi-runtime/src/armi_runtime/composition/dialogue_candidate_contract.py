@@ -88,9 +88,7 @@ class DialogueWebResearchDecision(_CreatorDialogueCandidateV2):
 
 
 DialogueDecisionV2 = Annotated[
-    DialogueReplyDecisionV2
-    | DialogueTerminalDecisionV2
-    | DialogueWebResearchDecision,
+    DialogueReplyDecisionV2 | DialogueTerminalDecisionV2 | DialogueWebResearchDecision,
     Field(discriminator="kind"),
 ]
 

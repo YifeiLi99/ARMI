@@ -12,6 +12,7 @@ from armi_kernel.contracts import Digest
 
 from .capability import CapabilityRequestDraft
 from .codex_delegation import CodexDelegationDraft
+from .life import ActivityStatus
 from .response import ResponseChoiceDraft
 from .web_evidence import WebResearchRequestDraft
 
@@ -184,6 +185,38 @@ class CandidateComponentDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateActivityDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    fact_class: CandidateFactClass
+    activity_id: UUID
+    goal: str
+    next_safe_step: str
+    status: ActivityStatus = ActivityStatus.READY
+    activity_kind: str = "self_directed"
+    privacy_scope: str = "private"
+
+    def __post_init__(self) -> None:
+        _validate_proposal(
+            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
+        )
+        if (
+            type(self.fact_class) is not CandidateFactClass
+            or type(self.activity_id) is not UUID
+            or self.activity_id.version != 7
+            or type(self.goal) is not str
+            or not 1 <= len(self.goal) <= 2048
+            or type(self.next_safe_step) is not str
+            or not 1 <= len(self.next_safe_step) <= 1024
+            or self.status is not ActivityStatus.READY
+            or self.activity_kind != "self_directed"
+            or self.privacy_scope != "private"
+        ):
+            raise CandidateViolation("CON-CANDIDATE-ACTIVITY")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateRejection:
     proposal_ref: str
     atomic_group_ref: str
@@ -229,6 +262,7 @@ class SubjectChangeSet:
     web_research_requests: tuple[WebResearchRequestDraft, ...]
     rejections: tuple[CandidateRejection, ...]
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()
+    activities: tuple[CandidateActivityDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -322,6 +356,7 @@ def _validate_proposal(
 
 
 __all__ = (
+    "CandidateActivityDraft",
     "CandidateBasis",
     "CandidateComponentDraft",
     "CandidateDisposition",
