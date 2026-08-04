@@ -66,7 +66,6 @@ class BirthManifest:
     personality_anchor_digest: Digest
     composition_digest: Digest
     birth_contract_digest: Digest
-    schema_manifest_digest: Digest
     creator_asset_manifest_digest: Digest
     request_digest: Digest
 
@@ -87,7 +86,6 @@ class BirthManifest:
             self.personality_anchor_digest,
             self.composition_digest,
             self.birth_contract_digest,
-            self.schema_manifest_digest,
             self.creator_asset_manifest_digest,
             self.request_digest,
         ):

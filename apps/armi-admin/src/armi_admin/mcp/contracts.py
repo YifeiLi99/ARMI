@@ -28,10 +28,6 @@ def _digest(value: str) -> str:
     return value
 
 
-def _optional_digest(value: str | None) -> str | None:
-    return None if value is None else _digest(value)
-
-
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -335,15 +331,10 @@ class SettleCorrectionWorkRequest(MutationRequest):
 
 
 class AdminIdentity(_StrictModel):
-    package_digest: str
+    application_version: Literal["0.0.0"] = "0.0.0"
     config_digest: str
-    tool_catalog_digest: str
-    schema_manifest_digest: str
 
-    _package = field_validator("package_digest")(_digest)
     _config = field_validator("config_digest")(_digest)
-    _catalog = field_validator("tool_catalog_digest")(_digest)
-    _schema = field_validator("schema_manifest_digest")(_digest)
 
 
 class HealthPayload(_StrictModel):
@@ -359,18 +350,13 @@ class HealthPayload(_StrictModel):
 
 
 class SchemaStatusPayload(_StrictModel):
-    status: Literal["current", "behind", "ahead", "dirty", "unavailable"]
+    status: Literal["current", "dirty", "unavailable"]
     environment_id: str
-    target_version: int
-    applied_version: int | None
-    applied_migration_count: int
-    expected_migration_set_digest: str
-    observed_migration_set_digest: str | None
+    table_count: int
+    missing_tables: tuple[str, ...] = ()
     error_code: str | None = None
 
     _environment_id = field_validator("environment_id")(_uuid7)
-    _expected = field_validator("expected_migration_set_digest")(_digest)
-    _observed = field_validator("observed_migration_set_digest")(_optional_digest)
 
 
 class AdminToolResult[PayloadT](_StrictModel):

@@ -88,7 +88,7 @@ def create_admin_server(service: AdminToolService) -> MCPServer:
 
     @server.tool(
         name="schema_status",
-        description="Read and verify the packaged migration ledger.",
+        description="Read the current disposable database schema status.",
         annotations=READ_ONLY_ANNOTATIONS,
         structured_output=True,
     )

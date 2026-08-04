@@ -78,8 +78,6 @@ CREATE TABLE armi.runtime_bundle_activations (
     bundle_digest text NOT NULL
         CHECK (bundle_digest ~ '^sha256:[0-9a-f]{64}$'),
     manifest_artifact_id uuid NOT NULL REFERENCES armi.artifacts(artifact_id),
-    schema_baseline_digest text NOT NULL
-        CHECK (schema_baseline_digest ~ '^sha256:[0-9a-f]{64}$'),
     fixed_policy_digest text NOT NULL
         CHECK (fixed_policy_digest ~ '^sha256:[0-9a-f]{64}$'),
     fixed_prompt_set_digest text NOT NULL
@@ -246,7 +244,6 @@ GRANT INSERT (
     bundle_version,
     bundle_digest,
     manifest_artifact_id,
-    schema_baseline_digest,
     fixed_policy_digest,
     fixed_prompt_set_digest,
     creator_asset_digest,

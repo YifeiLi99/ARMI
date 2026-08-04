@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from importlib.resources import files
 from typing import Any, Literal
 from uuid import uuid7
 
@@ -56,22 +54,20 @@ from .contracts import (
 )
 
 _EXPECTED_POSTGRESQL = 180004
+_REQUIRED_SCHEMA_TABLES = frozenset(
+    {
+        "activities",
+        "creator_input_interactions",
+        "deployment_environments",
+        "maintenance_sessions",
+        "runtime_instances",
+        "subjects",
+    }
+)
 
 
 def _sha256(value: bytes) -> str:
     return f"sha256:{hashlib.sha256(value).hexdigest()}"
-
-
-def _resource_bytes(name: str) -> bytes:
-    return files("armi_admin.mcp.resources").joinpath(name).read_bytes()
-
-
-@dataclass(frozen=True, slots=True)
-class _ExpectedMigration:
-    version: int
-    name: str
-    path: str
-    sha256: str
 
 
 class AdminToolService:
@@ -81,8 +77,6 @@ class AdminToolService:
         "_corrections",
         "_credentials",
         "_identity",
-        "_manifest",
-        "_migrations",
         "_mutation_cache",
         "_requires_reload",
     )
@@ -99,28 +93,12 @@ class AdminToolService:
         self._corrections = AdminCorrectionCoordinator(
             config, credentials, self._control
         )
-        schema_bytes = _resource_bytes("schema-manifest.json")
-        self._manifest: dict[str, Any] = json.loads(schema_bytes)
-        self._migrations = tuple(
-            _ExpectedMigration(
-                version=int(item["version"]),
-                name=str(item["name"]),
-                path=str(item["path"]),
-                sha256=str(item["sha256"]),
-            )
-            for item in self._manifest["migrations"]
-        )
         self._mutation_cache: dict[
             tuple[str, str], tuple[str, AdminToolResult[dict[str, Any]]]
         ] = {}
         self._requires_reload = False
-        manifest_digest = _sha256(schema_bytes)
-        governance = json.loads(_resource_bytes("admin-mcp-manifest.json"))
         self._identity = AdminIdentity(
-            package_digest=str(governance["package_surface_digest"]),
             config_digest=config.safe_digest(),
-            tool_catalog_digest=str(governance["tool_catalog_digest"]),
-            schema_manifest_digest=manifest_digest,
         )
 
     @property
@@ -130,18 +108,6 @@ class AdminToolService:
     def health(self, request: HealthRequest) -> HealthResult:
         del request
         started = datetime.now(UTC)
-        if (
-            self._identity.schema_manifest_digest
-            != self._config.expected.schema_manifest_digest
-            or self._identity.package_digest != self._config.expected.package_digest
-        ):
-            return self._health_result(
-                started,
-                status="rejected",
-                payload_status="misconfigured",
-                role_status="rejected",
-                code="ADMIN-MANIFEST-DRIFT",
-            )
         try:
             snapshot = self._read_snapshot()
             self._validate_database_identity(snapshot)
@@ -182,18 +148,13 @@ class AdminToolService:
 
     def schema_status(self, request: SchemaStatusRequest) -> SchemaStatusResult:
         started = datetime.now(UTC)
-        target = int(self._manifest["target"]["version"])
-        expected_set = str(self._manifest["migration_set_sha256"])
         if request.environment_id != self._config.environment_id:
             return self._schema_result(
                 started,
                 outer_status="rejected",
                 status="unavailable",
-                target_version=target,
-                applied_version=None,
-                applied_migration_count=0,
-                expected_migration_set_digest=expected_set,
-                observed_migration_set_digest=None,
+                table_count=0,
+                missing_tables=(),
                 code="ADMIN-ENVIRONMENT-MISMATCH",
             )
         try:
@@ -214,11 +175,8 @@ class AdminToolService:
             started,
             outer_status="failed",
             status="unavailable",
-            target_version=target,
-            applied_version=None,
-            applied_migration_count=0,
-            expected_migration_set_digest=expected_set,
-            observed_migration_set_digest=None,
+            table_count=0,
+            missing_tables=(),
             code=code,
         )
 
@@ -541,7 +499,7 @@ class AdminToolService:
             result=result,
             observed_versions={
                 "environment_incarnation": self._config.environment_incarnation,
-                "schema": int(self._manifest["target"]["version"]),
+                "schema": "current",
             },
             started_at=started.isoformat().replace("+00:00", "Z"),
             ended_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -559,7 +517,7 @@ class AdminToolService:
             error_code=code,
             observed_versions={
                 "environment_incarnation": self._config.environment_incarnation,
-                "schema": int(self._manifest["target"]["version"]),
+                "schema": "current",
             },
             started_at=started.isoformat().replace("+00:00", "Z"),
             ended_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -573,51 +531,15 @@ class AdminToolService:
             raise ValueError("ADMIN-DB-IDENTITY")
 
     def _classify_schema(self, snapshot: AdminSchemaSnapshot) -> SchemaStatusPayload:
-        rows = snapshot.migrations
-        applied = rows[-1][0] if rows else None
-        observed = self._migration_digest(rows)
-        expected_set = str(self._manifest["migration_set_sha256"])
-        expected_by_version = {item.version: item for item in self._migrations}
-        status = "current"
-        error_code: str | None = None
-        if rows and applied is not None and applied > len(self._migrations):
-            status, error_code = "ahead", "ADMIN-SCHEMA-AHEAD"
-        elif [row[0] for row in rows] != list(range(1, len(rows) + 1)):
-            status, error_code = "dirty", "ADMIN-SCHEMA-GAP"
-        elif any(
-            row[0] not in expected_by_version
-            or row[1] != expected_by_version[row[0]].name
-            or row[2] != expected_by_version[row[0]].sha256
-            for row in rows
-        ):
-            status, error_code = "dirty", "ADMIN-SCHEMA-HASH"
-        elif len(rows) < len(self._migrations):
-            status, error_code = "behind", "ADMIN-SCHEMA-BEHIND"
-        elif observed != expected_set:
-            status, error_code = "dirty", "ADMIN-SCHEMA-DIGEST"
+        missing = tuple(sorted(_REQUIRED_SCHEMA_TABLES - set(snapshot.tables)))
+        status: Literal["current", "dirty"] = "dirty" if missing else "current"
         return SchemaStatusPayload(
             status=status,
             environment_id=self._config.environment_id,
-            target_version=len(self._migrations),
-            applied_version=applied,
-            applied_migration_count=len(rows),
-            expected_migration_set_digest=expected_set,
-            observed_migration_set_digest=observed,
-            error_code=error_code,
+            table_count=len(snapshot.tables),
+            missing_tables=missing,
+            error_code="ADMIN-SCHEMA-DIRTY" if missing else None,
         )
-
-    def _migration_digest(self, rows: tuple[tuple[int, str, str], ...]) -> str:
-        expected_by_version = {item.version: item for item in self._migrations}
-        lines: list[str] = []
-        for version, name, digest in rows:
-            path = expected_by_version.get(version)
-            safe_path = (
-                path.path
-                if path is not None and path.name == name
-                else f"schema/migrations/{version:04d}_{name}.sql"
-            )
-            lines.append(f"{version}\t{safe_path}\t{digest}\n")
-        return _sha256("".join(lines).encode("utf-8"))
 
     def _health_result(
         self,
@@ -643,7 +565,7 @@ class AdminToolService:
             error_code=code,
             observed_versions={
                 "environment_incarnation": self._config.environment_incarnation,
-                "schema": int(self._manifest["target"]["version"]),
+                "schema": "current",
             },
             started_at=started.isoformat().replace("+00:00", "Z"),
             ended_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -662,7 +584,7 @@ class AdminToolService:
             error_code=payload.error_code,
             observed_versions={
                 "environment_incarnation": self._config.environment_incarnation,
-                "schema": payload.applied_version,
+                "schema": payload.status,
             },
             started_at=started.isoformat().replace("+00:00", "Z"),
             ended_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -674,21 +596,15 @@ class AdminToolService:
         *,
         outer_status: Literal["rejected", "failed"],
         status: Literal["unavailable"],
-        target_version: int,
-        applied_version: int | None,
-        applied_migration_count: int,
-        expected_migration_set_digest: str,
-        observed_migration_set_digest: str | None,
+        table_count: int,
+        missing_tables: tuple[str, ...],
         code: str,
     ) -> SchemaStatusResult:
         payload = SchemaStatusPayload(
             status=status,
             environment_id=self._config.environment_id,
-            target_version=target_version,
-            applied_version=applied_version,
-            applied_migration_count=applied_migration_count,
-            expected_migration_set_digest=expected_migration_set_digest,
-            observed_migration_set_digest=observed_migration_set_digest,
+            table_count=table_count,
+            missing_tables=missing_tables,
             error_code=code,
         )
         return SchemaStatusResult(
@@ -698,7 +614,7 @@ class AdminToolService:
             error_code=code,
             observed_versions={
                 "environment_incarnation": self._config.environment_incarnation,
-                "schema": applied_version,
+                "schema": status,
             },
             started_at=started.isoformat().replace("+00:00", "Z"),
             ended_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),

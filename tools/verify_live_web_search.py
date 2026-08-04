@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import time
 from collections.abc import Mapping, Sequence
@@ -105,23 +104,17 @@ async def _run(root: Path, env_file: Path) -> dict[str, object]:
             extra_body={"thinking": {"type": "disabled"}},
         )
         raw = cast(dict[str, object], response.model_dump(mode="json"))
-        request_id = raw.get("id")
-        if not isinstance(request_id, str) or not request_id:
+        if not isinstance(raw.get("id"), str) or not raw["id"]:
             raise WebSearchViolation("WEB-SEARCH-LIVE-REQUEST-ID")
         normalized = normalize_provider_response(raw)
         evidence = validate_response(normalized)
         estimated_cost = _cost(evidence, _rates(root))
         return {
-            "schema_version": "armi.web-search-live-evidence.v1",
             "status": "pass",
             "provider": "volcengine_ark",
             "model": raw.get("model"),
             "binding_id": BINDING_ID,
             "store": False,
-            "request_id_sha256": "sha256:"
-            + hashlib.sha256(request_id.encode()).hexdigest(),
-            "response_structure_sha256": "sha256:"
-            + hashlib.sha256(normalized).hexdigest(),
             **evidence,
             "estimated_model_cost_microyuan": estimated_cost,
             "elapsed_ms": round((time.perf_counter() - started) * 1000),
@@ -140,9 +133,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         evidence = asyncio.run(_run(args.root.resolve(), args.env_file.resolve()))
     except WebSearchViolation as exc:
-        print(json.dumps({"status": "blocked", "code": exc.code}, sort_keys=True))
+        print(
+            json.dumps(
+                {"status": "blocked", "code": exc.code}, indent=2, sort_keys=True
+            )
+        )
         return 2
-    print(json.dumps(evidence, ensure_ascii=False, sort_keys=True))
+    print(json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 

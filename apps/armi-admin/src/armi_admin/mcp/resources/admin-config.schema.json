@@ -15,15 +15,10 @@
         "package_digest": {
           "title": "Package Digest",
           "type": "string"
-        },
-        "schema_manifest_digest": {
-          "title": "Schema Manifest Digest",
-          "type": "string"
         }
       },
       "required": [
-        "package_digest",
-        "schema_manifest_digest"
+        "package_digest"
       ],
       "title": "AdminExpectedIdentity",
       "type": "object"
@@ -113,7 +108,7 @@
       "type": "boolean"
     },
     "schema_version": {
-      "const": "armi.admin-config.v2",
+      "const": "armi.admin-config.v3",
       "title": "Schema Version",
       "type": "string"
     },

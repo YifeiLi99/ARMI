@@ -22,7 +22,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--tool-root", type=Path, default=Path(".armi-tools"))
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
-    parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     root = args.root.resolve()
     environment = dict(os.environ)
@@ -46,8 +45,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             str(args.tool_root),
             "--s026-live-env-file",
             str(args.env_file.resolve()),
-            "--s026-live-output",
-            str(args.output.resolve()),
         ],
         cwd=root,
         check=False,

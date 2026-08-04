@@ -103,20 +103,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--root", type=Path, default=Path(__file__).resolve().parents[1]
     )
     parser.add_argument("--tool-root", type=Path, default=Path(".armi-tools"))
-    parser.add_argument("--summary-file", type=Path)
-    parser.add_argument("--artifact-summary-file", type=Path)
-    parser.add_argument("--work-summary-file", type=Path)
-    parser.add_argument("--birth-summary-file", type=Path)
-    parser.add_argument("--authority-summary-file", type=Path)
-    parser.add_argument("--recovery-summary-file", type=Path)
     parser.add_argument("--s026-live-env-file", type=Path)
-    parser.add_argument("--s026-live-output", type=Path)
     parser.add_argument("--s027-live-env-file", type=Path)
-    parser.add_argument("--s027-live-output", type=Path)
     parser.add_argument("--s028-live-env-file", type=Path)
-    parser.add_argument("--s028-live-output", type=Path)
     parser.add_argument("--s033-live-env-file", type=Path)
-    parser.add_argument("--s033-live-output", type=Path)
     parser.add_argument("--test-expression")
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -175,52 +165,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             environment["S009_ADMIN_DSN"] = (
                 f"postgresql://s009_admin:{password}@127.0.0.1:{port}/postgres"
             )
-            if args.summary_file is not None:
-                environment["S009_SUMMARY_FILE"] = str(args.summary_file.resolve())
-            if args.artifact_summary_file is not None:
-                environment["S012_ARTIFACT_SUMMARY_FILE"] = str(
-                    args.artifact_summary_file.resolve()
-                )
-            if args.work_summary_file is not None:
-                environment["S014_WORK_SUMMARY_FILE"] = str(
-                    args.work_summary_file.resolve()
-                )
-            if args.birth_summary_file is not None:
-                environment["S015_BIRTH_SUMMARY_FILE"] = str(
-                    args.birth_summary_file.resolve()
-                )
-            if args.authority_summary_file is not None:
-                environment["S016_AUTHORITY_SUMMARY_FILE"] = str(
-                    args.authority_summary_file.resolve()
-                )
-            if args.recovery_summary_file is not None:
-                environment["S017_RECOVERY_SUMMARY_FILE"] = str(
-                    args.recovery_summary_file.resolve()
-                )
             if args.s026_live_env_file is not None:
                 environment["S026_LIVE_ENV_FILE"] = str(
                     args.s026_live_env_file.resolve()
                 )
-            if args.s026_live_output is not None:
-                environment["S026_LIVE_OUTPUT"] = str(args.s026_live_output.resolve())
             if args.s027_live_env_file is not None:
                 environment["S027_LIVE_ENV_FILE"] = str(
                     args.s027_live_env_file.resolve()
                 )
-            if args.s027_live_output is not None:
-                environment["S027_LIVE_OUTPUT"] = str(args.s027_live_output.resolve())
             if args.s028_live_env_file is not None:
                 environment["S028_LIVE_ENV_FILE"] = str(
                     args.s028_live_env_file.resolve()
                 )
-            if args.s028_live_output is not None:
-                environment["S028_LIVE_OUTPUT"] = str(args.s028_live_output.resolve())
             if args.s033_live_env_file is not None:
                 environment["S033_LIVE_ENV_FILE"] = str(
                     args.s033_live_env_file.resolve()
                 )
-            if args.s033_live_output is not None:
-                environment["S033_LIVE_OUTPUT"] = str(args.s033_live_output.resolve())
             pytest_command = [
                 sys.executable,
                 "-m",

@@ -1,9 +1,8 @@
-"""Read-only schema ledger gateway for the Admin MCP tools."""
+"""Read-only current-schema gateway for the Admin MCP tools."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from .role_session import AdminRoleBoundPool
 
@@ -13,7 +12,7 @@ class AdminSchemaSnapshot:
     server_version_num: int
     encoding: str
     timezone: str
-    migrations: tuple[tuple[int, str, str], ...]
+    tables: tuple[str, ...]
 
 
 class AdminSchemaGateway:
@@ -41,17 +40,22 @@ class AdminSchemaGateway:
                 server_version_num = int(version_row[0])
                 encoding = str(encoding_row[0])
                 timezone = str(timezone_row[0])
-                rows: list[tuple[Any, ...]] = connection.execute(
-                    "SELECT version, name, sha256 "
-                    "FROM armi.schema_migrations ORDER BY version"
+                rows = connection.execute(
+                    """
+                    SELECT relation.relname
+                    FROM pg_catalog.pg_class AS relation
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    WHERE namespace.nspname = 'armi'
+                      AND relation.relkind IN ('r', 'p')
+                    ORDER BY relation.relname
+                    """
                 ).fetchall()
             return AdminSchemaSnapshot(
                 server_version_num=server_version_num,
                 encoding=encoding,
                 timezone=timezone,
-                migrations=tuple(
-                    (int(row[0]), str(row[1]), str(row[2])) for row in rows
-                ),
+                tables=tuple(str(row[0]) for row in rows),
             )
         finally:
             pool.close()

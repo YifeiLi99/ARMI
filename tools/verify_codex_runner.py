@@ -512,16 +512,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--live", action="store_true")
     mode.add_argument("--preflight", action="store_true")
-    parser.add_argument("--evidence", type=Path)
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parents[1]
     evidence = _live(root) if args.live else _preflight(root)
-    encoded = rfc8785.dumps(cast(Any, evidence)) + b"\n"
-    if args.evidence is not None:
-        args.evidence.parent.mkdir(parents=True, exist_ok=True)
-        args.evidence.write_bytes(encoded)
-    sys.stdout.buffer.write(encoded)
-    sys.stdout.buffer.flush()
+    print(json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if evidence["result"] == "pass" else 1
 
 

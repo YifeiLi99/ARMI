@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import hashlib
 import http.client
 import io
@@ -17,11 +16,9 @@ import tempfile
 import time
 import unittest
 from collections.abc import AsyncIterator
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from importlib.resources import files
 from pathlib import Path
 from typing import Any, LiteralString, cast
 from uuid import UUID
@@ -165,7 +162,6 @@ from armi_runtime.adapters.persistence.scene_timeline import (
 from armi_runtime.adapters.persistence.schema_gateway import (
     DatabaseViolation,
     PostgreSQLSchemaGateway,
-    _PackagedSchema,
 )
 from armi_runtime.adapters.persistence.subject_commit import (
     PostgreSQLSubjectCommitRepository,
@@ -202,6 +198,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 _ADMIN_DSN = os.environ.get("S009_ADMIN_DSN")
 _SUMMARY_ENVIRONMENT_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
+_ADMIN_PACKAGE_DIGEST = "sha256:" + "1" * 64
 
 
 def _uuid7() -> UUID:
@@ -368,66 +365,32 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=environment_id or _uuid7(),
         )
 
-    def test_empty_install_repeat_and_concurrent_upgrade_are_stable(self) -> None:
+    def test_current_schema_installs_once_into_an_empty_database(self) -> None:
         fixture = self.create_database(environment_id=_SUMMARY_ENVIRONMENT_ID)
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            results = list(
-                executor.map(
-                    lambda _: PostgreSQLSchemaGateway().upgrade(
-                        fixture.migrator_dsn,
-                        environment_id=fixture.environment_id,
-                    ),
-                    range(2),
-                )
-            )
-        self.assertEqual({result.applied_version for result in results}, {31})
-        self.assertEqual(len({result.catalog_sha256 for result in results}), 1)
-        self.assertEqual(
-            len({result.privilege_catalog_sha256 for result in results}), 1
-        )
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            first_rows = connection.execute(
-                "SELECT version, applied_at FROM armi.schema_migrations ORDER BY version"
-            ).fetchall()
-        repeated = PostgreSQLSchemaGateway().upgrade(
+        installed = PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            second_rows = connection.execute(
-                "SELECT version, applied_at FROM armi.schema_migrations ORDER BY version"
-            ).fetchall()
-        self.assertEqual(first_rows, second_rows)
+        self.assertEqual(installed.status, "current")
+        self.assertGreater(installed.table_count, 0)
         status = PostgreSQLSchemaGateway().status(
             fixture.runtime_dsn,
             environment_id=fixture.environment_id,
         )
         self.assertEqual(status.status, "current")
-        self.assertEqual(status.catalog_sha256, repeated.catalog_sha256)
-        summary_file = os.environ.get("S009_SUMMARY_FILE")
-        if summary_file is not None:
-            Path(summary_file).write_text(
-                json.dumps(
-                    {
-                        "catalog_sha256": repeated.catalog_sha256,
-                        "migration_set_sha256": repeated.migration_set_sha256,
-                        "privilege_catalog_sha256": repeated.privilege_catalog_sha256,
-                        "role_policy_sha256": repeated.role_policy_sha256,
-                        "target_version": repeated.target_version,
-                    },
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                + "\n",
-                encoding="utf-8",
-                newline="\n",
+        self.assertEqual(status.table_count, installed.table_count)
+        with self.assertRaises(DatabaseViolation) as repeated:
+            PostgreSQLSchemaGateway().install(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
             )
+        self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
 
     def test_life_generation_source_is_single_under_concurrency_and_restart(
         self,
     ) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -455,7 +418,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            schema_manifest_digest=packaged["schema_manifest_digest"],
             creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"p0-s001-life-source-birth"),
         )
@@ -571,7 +533,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_creator_activity_query_is_scoped_on_born_database(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -600,7 +562,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            schema_manifest_digest=packaged["schema_manifest_digest"],
             creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"p0-s003-creator-activity-query"),
         )
@@ -663,7 +624,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_creator_codex_task_intake_is_atomic_and_idempotent(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -693,7 +654,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             personality_anchor_digest=anchor_digest,
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            schema_manifest_digest=packaged["schema_manifest_digest"],
             creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s039-creator-codex-intake-birth"),
         )
@@ -790,17 +750,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_admin_mcp_health_and_schema_status_use_only_admin_identity(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        resource_root = files("armi_admin.mcp.resources")
-        governance = json.loads(
-            resource_root.joinpath("admin-mcp-manifest.json").read_bytes()
-        )
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v2",
+                "schema_version": "armi.admin-config.v3",
                 "environment_kind": "acceptance",
                 "environment_id": str(fixture.environment_id),
                 "environment_incarnation": 1,
@@ -808,9 +764,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "test_controls_enabled": True,
                 "environment_root": Path.cwd(),
                 "experiment_root": Path.cwd(),
-                "template_manifest": Path.cwd()
-                / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-                "schema/manifests/schema-manifest.json",
+                "template_manifest": Path.cwd() / "README.md",
                 "postgresql_tool_root": Path(
                     os.environ.get("S003_TOOL_ROOT", Path.cwd() / ".armi-tools")
                 )
@@ -819,8 +773,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                 "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                 "expected": {
-                    "package_digest": governance["package_surface_digest"],
-                    "schema_manifest_digest": governance["schema_manifest_sha256"],
+                    "package_digest": _ADMIN_PACKAGE_DIGEST,
                 },
             }
         )
@@ -848,7 +801,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 31)
+        self.assertGreater(status.result.table_count, 0)
+        self.assertEqual(status.result.missing_tables, ())
 
         for denied_dsn in (fixture.runtime_dsn, fixture.migrator_dsn):
             denied = service_for(denied_dsn).health(HealthRequest())
@@ -890,14 +844,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_admin_reset_is_preview_bound_recoverable_and_re_registers(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
-        )
-        governance = json.loads(
-            files("armi_admin.mcp.resources")
-            .joinpath("admin-mcp-manifest.json")
-            .read_bytes()
         )
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             experiment_root = Path(temporary).resolve()
@@ -954,7 +903,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v2",
+                    "schema_version": "armi.admin-config.v3",
                     "environment_kind": "acceptance",
                     "environment_id": str(fixture.environment_id),
                     "environment_incarnation": 1,
@@ -971,8 +920,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                     "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                     "expected": {
-                        "package_digest": governance["package_surface_digest"],
-                        "schema_manifest_digest": governance["schema_manifest_sha256"],
+                        "package_digest": _ADMIN_PACKAGE_DIGEST,
                     },
                 }
             )
@@ -1040,11 +988,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ).fetchone(),
                     (2,),
                 )
-                self.assertEqual(
+                self.assertIsNotNone(
                     connection.execute(
-                        "SELECT max(version) FROM armi.schema_migrations"
-                    ).fetchone(),
-                    (29,),
+                        "SELECT to_regclass('armi.subjects')"
+                    ).fetchone()
                 )
             recovery = list(
                 (experiment_root / ".armi-admin-recovery").glob(
@@ -1055,7 +1002,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_t07_component_preview_apply_status_and_role_boundary(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -1084,7 +1031,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             personality_anchor_digest=anchor_digest,
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            schema_manifest_digest=packaged["schema_manifest_digest"],
             creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s037-admin-correction-birth"),
         )
@@ -1120,11 +1066,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 await factory.close()
 
-        governance = json.loads(
-            files("armi_admin.mcp.resources")
-            .joinpath("admin-mcp-manifest.json")
-            .read_bytes()
-        )
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             experiment_root = Path(temporary).resolve()
             environment_root = experiment_root / "environment"
@@ -1140,7 +1081,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v2",
+                    "schema_version": "armi.admin-config.v3",
                     "environment_kind": "system_test",
                     "environment_id": str(fixture.environment_id),
                     "environment_incarnation": 1,
@@ -1155,8 +1096,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                     "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                     "expected": {
-                        "package_digest": governance["package_surface_digest"],
-                        "schema_manifest_digest": governance["schema_manifest_sha256"],
+                        "package_digest": _ADMIN_PACKAGE_DIGEST,
                     },
                 }
             )
@@ -1561,7 +1501,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_web_observation_admission_attempt_and_result_are_atomic(self) -> None:
         live_env = os.environ.get("S033_LIVE_ENV_FILE")
-        live_output = os.environ.get("S033_LIVE_OUTPUT")
         live_secret: str | None = None
         if live_env is not None:
             raw = Path(live_env).resolve().read_bytes()
@@ -1579,7 +1518,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if not live_secret or live_secret != live_secret.strip():
                 self.fail("WEB-LIVE-CREDENTIAL")
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -1607,7 +1546,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            schema_manifest_digest=packaged["schema_manifest_digest"],
             creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s033-web-observation-birth"),
         )
@@ -1829,47 +1767,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     selectors.SelectSelector()
                 ),
             )
-        if live_secret is not None:
-            self.assertIsNotNone(live_output)
-            safe_evidence = {
-                "schema_version": "armi.web-search-custody-live-evidence.v1",
-                "status": "pass"
-                if evidence["request_status"] == "succeeded"
-                else "blocked",
-                "provider": "volcengine_ark",
-                "binding_id": "armi.model-tool.volcengine-ark-web-search-v1",
-                "store": False,
-                "request_status": evidence["request_status"],
-                "attempt_result": evidence["attempt_result"],
-                "request_error_code": evidence["request_error_code"],
-                "attempt_error_code": evidence["attempt_error_code"],
-                "provider_model": evidence["provider_model"],
-                "provider_request_digest": evidence["provider_request_digest"],
-                "request_digest": evidence["request_digest"],
-                "result_digest": evidence["result_digest"],
-                "request_count": evidence["request_count"],
-                "attempt_count": evidence["attempt_count"],
-                "tool_call_count": evidence["tool_call_count"],
-                "citation_count": evidence["citation_count"],
-                "input_tokens": evidence["input_tokens"],
-                "output_tokens": evidence["output_tokens"],
-                "web_search_calls": evidence["web_search_calls"],
-                "estimated_model_cost_microyuan": evidence[
-                    "estimated_model_cost_microyuan"
-                ],
-                "m0_seam_web": None,
-            }
-            Path(cast(str, live_output)).resolve().write_text(
-                json.dumps(
-                    safe_evidence,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
         self.assertEqual(evidence["request_status"], "succeeded")
         self.assertEqual(evidence["dispatch_state"], "settled")
         self.assertEqual(evidence["attempt_result"], "succeeded")
@@ -1890,188 +1787,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             assert row is not None
             self.assertEqual(row[0], 1)
 
-    def test_existing_version_one_transfers_owner_and_upgrades(self) -> None:
-        database, provisioner_dsn = self._raw_database()
-        gateway = PostgreSQLSchemaGateway()
-        version, name, digest, migration = gateway._packaged.migrations[0]
-        with psycopg.connect(provisioner_dsn) as connection:
-            connection.execute(sql.SQL(cast(LiteralString, migration.decode("utf-8"))))
-            connection.execute(
-                """
-                INSERT INTO armi.schema_migrations
-                    (version, name, sha256, application_version)
-                VALUES (%s, %s, %s, '0.0.0')
-                """,
-                (version, name, digest),
-            )
-            connection.commit()
-        fixture = self._bootstrap(
-            database=database,
-            provisioner_dsn=provisioner_dsn,
-            environment_id=_uuid7(),
-        )
-        result = gateway.upgrade(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        self.assertEqual(result.applied_version, 31)
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            owners = connection.execute(
-                """
-                SELECT namespace_owner.rolname, relation_owner.rolname
-                FROM pg_namespace AS namespace
-                JOIN pg_roles AS namespace_owner
-                  ON namespace_owner.oid = namespace.nspowner
-                JOIN pg_class AS relation ON relation.relnamespace = namespace.oid
-                JOIN pg_roles AS relation_owner ON relation_owner.oid = relation.relowner
-                WHERE namespace.nspname = 'armi'
-                  AND relation.relname = 'schema_migrations'
-                """
-            ).fetchone()
-        self.assertEqual(owners, ("armi_owner", "armi_owner"))
-
-    def test_existing_version_three_upgrades_only_normal_audit(self) -> None:
-        database, provisioner_dsn = self._raw_database()
-        fixture = self._bootstrap(
-            database=database,
-            provisioner_dsn=provisioner_dsn,
-            environment_id=_uuid7(),
-        )
-        gateway = PostgreSQLSchemaGateway()
-        with psycopg.connect(fixture.migrator_dsn, autocommit=True) as connection:
-            for version, name, digest, migration in gateway._packaged.migrations[:3]:
-                with connection.transaction():
-                    connection.execute("SET LOCAL ROLE armi_owner")
-                    connection.execute(
-                        sql.SQL(cast(LiteralString, migration.decode("utf-8")))
-                    )
-                    connection.execute(
-                        """
-                        INSERT INTO armi.schema_migrations
-                            (version, name, sha256, application_version)
-                        VALUES (%s, %s, %s, '0.0.0')
-                        """,
-                        (version, name, digest),
-                    )
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            before = connection.execute(
-                """
-                SELECT version, applied_at
-                FROM armi.schema_migrations
-                ORDER BY version
-                """
-            ).fetchall()
-            self.assertEqual([row[0] for row in before], [1, 2, 3])
-            self.assertEqual(
-                connection.execute(
-                    """
-                    SELECT to_regclass('armi.audit_events')
-                    """
-                ).fetchone(),
-                (None,),
-            )
-
-        result = gateway.upgrade(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-
-        self.assertEqual(result.applied_version, 31)
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            after = connection.execute(
-                """
-                SELECT version, applied_at
-                FROM armi.schema_migrations
-                ORDER BY version
-                """
-            ).fetchall()
-            audit_table = connection.execute(
-                "SELECT to_regclass('armi.audit_events')::text"
-            ).fetchone()
-        self.assertEqual(after[:3], before)
-        self.assertEqual(audit_table, ("armi.audit_events",))
-
-    def test_failed_migration_rolls_back_schema_and_ledger(self) -> None:
-        fixture = self.create_database()
-        gateway = PostgreSQLSchemaGateway()
-        packaged = gateway._packaged
-        version, name, digest, migration = packaged.migrations[0]
-        failing = migration + b"\nSELECT armi_missing_function();\n"
-        object.__setattr__(
-            gateway,
-            "_packaged",
-            _PackagedSchema(
-                packaged.manifest,
-                ((version, name, digest, failing),),
-                packaged.invariants,
-            ),
-        )
-        with self.assertRaises(DatabaseViolation) as raised:
-            gateway.upgrade(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            )
-        self.assertEqual(raised.exception.code, "DB-MIGRATION-FAILED")
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            exists = connection.execute(
-                "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'armi')"
-            ).fetchone()
-        self.assertEqual(exists, (False,))
-
-    def test_schema_and_role_policy_drift_are_rejected(self) -> None:
+    def test_current_schema_and_role_policy_drift_are_rejected(self) -> None:
         mutations = (
             (
-                "hash",
-                "UPDATE armi.schema_migrations SET sha256 = "
-                "'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                "aaaaaaaaaaaaaaaa' WHERE version = 1",
-                "DB-SCHEMA-HASH",
-            ),
-            (
-                "dirty",
-                "CREATE TABLE armi.unmanifested (id bigint)",
+                "extra-table",
+                "CREATE TABLE armi.unexpected_table (id bigint)",
                 "DB-SCHEMA-DIRTY",
             ),
             (
-                "ahead",
-                "INSERT INTO armi.schema_migrations "
-                "(version,name,sha256,application_version) VALUES "
-                "(30,'future','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','0.0.0')",
-                "DB-SCHEMA-AHEAD",
-            ),
-            (
-                "gap",
-                "DELETE FROM armi.schema_migrations WHERE version = 1",
-                "DB-SCHEMA-GAP",
-            ),
-            (
-                "catalog",
-                "ALTER TABLE armi.schema_migrations "
-                "DROP CONSTRAINT schema_migrations_name_check",
-                "DB-SCHEMA-DIRTY",
-            ),
-            (
-                "public",
+                "public-access",
                 "GRANT USAGE ON SCHEMA armi TO PUBLIC",
                 "DB-ROLE-PUBLIC-PRIVILEGE",
-            ),
-            (
-                "owner",
-                "ALTER TABLE armi.schema_migrations OWNER TO CURRENT_USER",
-                "DB-ROLE-OWNER",
             ),
         )
         for label, mutation, expected_code in mutations:
             with self.subTest(label=label):
                 fixture = self.create_database()
                 gateway = PostgreSQLSchemaGateway()
-                gateway.upgrade(
+                gateway.install(
                     fixture.migrator_dsn,
                     environment_id=fixture.environment_id,
                 )
                 with psycopg.connect(
-                    fixture.provisioner_dsn, autocommit=True
+                    fixture.provisioner_dsn,
+                    autocommit=True,
                 ) as connection:
                     connection.execute(sql.SQL(cast(LiteralString, mutation)))
                 with self.assertRaises(DatabaseViolation) as raised:
@@ -2085,21 +1824,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         fixture_a = self.create_database()
         fixture_b = self.create_database()
         for fixture in (fixture_a, fixture_b):
-            PostgreSQLSchemaGateway().upgrade(
+            PostgreSQLSchemaGateway().install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
             )
         for dsn in (fixture_a.runtime_dsn, fixture_a.admin_role_dsn):
             with psycopg.connect(dsn) as connection:
                 self.assertEqual(
-                    connection.execute(
-                        "SELECT count(*) FROM armi.schema_migrations"
-                    ).fetchone(),
-                    (29,),
+                    connection.execute("SELECT count(*) FROM armi.subjects").fetchone(),
+                    (0,),
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
-                    "UPDATE armi.schema_migrations SET application_version = 'x'",
+                    "UPDATE armi.subjects SET status = 'retired'",
                     "SET ROLE armi_owner",
                 ):
                     with self.assertRaises(psycopg.Error):
@@ -2164,7 +1901,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_identity_connection_and_runtime_authority_fail_safely(self) -> None:
         fixture = self.create_database()
         gateway = PostgreSQLSchemaGateway()
-        gateway.upgrade(
+        gateway.install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -2201,34 +1938,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
         wrong_locale = self.create_database(locale="C")
         with self.assertRaises(DatabaseViolation) as raised:
-            gateway.upgrade(
+            gateway.install(
                 wrong_locale.migrator_dsn,
                 environment_id=wrong_locale.environment_id,
             )
         self.assertEqual(raised.exception.code, "DB-DATABASE-IDENTITY")
 
-        altered = copy.deepcopy(gateway._packaged.manifest)
-        altered["postgresql"]["server_version_num"] = 180003
-        mismatched = PostgreSQLSchemaGateway()
-        object.__setattr__(
-            mismatched,
-            "_packaged",
-            _PackagedSchema(
-                altered,
-                mismatched._packaged.migrations,
-                mismatched._packaged.invariants,
-            ),
-        )
-        with self.assertRaises(DatabaseViolation) as raised:
-            mismatched.status(
-                fixture.runtime_dsn,
-                environment_id=fixture.environment_id,
-            )
-        self.assertEqual(raised.exception.code, "DB-PG-VERSION")
-
     def test_artifact_registration_reuse_verified_read_and_role_grants(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -2460,22 +2178,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
             ).fetchone()
         self.assertEqual(public_access, (0,))
-        artifact_summary_file = os.environ.get("S012_ARTIFACT_SUMMARY_FILE")
-        if artifact_summary_file is not None:
-            Path(artifact_summary_file).write_text(
-                json.dumps(
-                    artifact_summary,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
 
     def test_unique_birth_is_atomic_concurrent_and_idempotent(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -2504,7 +2210,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             personality_anchor_digest=anchor_digest,
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            schema_manifest_digest=packaged["schema_manifest_digest"],
             creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s015-birth-request"),
         )
@@ -2581,132 +2286,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
 
-        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
-            connection.execute(
-                """
-                DROP TABLE
-                    armi.activity_attention_decisions,
-                    armi.activity_revisions,
-                    armi.activities,
-                    armi.codex_result_sources,
-                    armi.codex_verification_results,
-                    armi.codex_task_sources,
-                    armi.deployment_environments,
-                    armi.web_evidence_sources,
-                    armi.web_research_intents,
-                    armi.observation_tool_calls,
-                    armi.observation_attempts,
-                    armi.web_observation_requests,
-                    armi.effect_observations,
-                    armi.effect_attempts,
-                    armi.creator_response_deliveries,
-                    armi.effect_outbox_items,
-                    armi.effects,
-                    armi.policy_decisions,
-                    armi.creator_response_operations,
-                    armi.formal_no_action_decisions,
-                    armi.action_intent_revisions,
-                    armi.action_intents,
-                    armi.permission_grants,
-                    armi.capability_request_decisions,
-                    armi.capability_request_basis_links,
-                    armi.capability_requests,
-                    armi.capabilities,
-                    armi.experience_evidence_links,
-                    armi.accepted_experiences,
-                    armi.cognitive_candidate_applications,
-                    armi.subject_commits
-                CASCADE
-                """
-            )
-            connection.execute(
-                """
-                ALTER TABLE armi.subject_component_revisions
-                DROP CONSTRAINT subject_component_revisions_origin_check,
-                DROP CONSTRAINT subject_component_revisions_previous_fk,
-                DROP CONSTRAINT subject_component_revisions_component_version_check,
-                DROP CONSTRAINT subject_component_revisions_origin_kind_check,
-                DROP COLUMN proposal_ref,
-                DROP COLUMN semantic_digest,
-                ADD CONSTRAINT subject_component_revisions_component_version_check
-                    CHECK (component_version = 1),
-                ADD CONSTRAINT subject_component_revisions_origin_kind_check
-                    CHECK (origin_kind = 'bootstrap'),
-                ADD CONSTRAINT subject_component_revisions_previous_revision_id_check
-                    CHECK (previous_revision_id IS NULL),
-                ADD CONSTRAINT subject_component_revisions_subject_commit_id_check
-                    CHECK (subject_commit_id IS NULL)
-                """
-            )
-            connection.execute(
-                """
-                ALTER TABLE armi.subject_component_heads
-                DROP CONSTRAINT subject_component_heads_component_version_check,
-                ADD CONSTRAINT subject_component_heads_component_version_check
-                    CHECK (component_version = 1)
-                """
-            )
-            connection.execute(
-                """
-                ALTER TABLE armi.subjects
-                DROP CONSTRAINT subjects_subject_version_check,
-                ADD CONSTRAINT subjects_subject_version_check
-                    CHECK (subject_version = 0)
-                """
-            )
-            connection.execute(
-                """
-                DROP TABLE
-                    armi.cognitive_candidate_basis_links,
-                    armi.cognitive_candidate_validation_items,
-                    armi.cognitive_candidate_validations,
-                    armi.cognitive_attempts,
-                    armi.cognitive_context_items,
-                    armi.cognitive_episodes,
-                    armi.opportunities,
-                    armi.external_evidence,
-                    armi.creator_input_interactions
-                """
-            )
-            connection.execute(
-                """
-                ALTER TABLE armi.runtime_recovery_runs
-                DROP COLUMN resumable_opportunity_count,
-                DROP COLUMN resumable_cognitive_episode_count,
-                DROP COLUMN resumable_model_attempt_count,
-                DROP COLUMN resumable_candidate_validation_count,
-                DROP COLUMN resumable_subject_commit_count,
-                DROP COLUMN resumable_capability_request_count,
-                DROP COLUMN resumable_response_operation_count,
-                    DROP COLUMN resumable_effect_count,
-                    DROP COLUMN resumable_effect_outbox_count,
-                    DROP COLUMN resumable_effect_attempt_count,
-                    DROP COLUMN reliable_effect_observation_count,
-                    DROP COLUMN creator_response_delivery_count
-                    , DROP COLUMN resumable_web_observation_count
-                    , DROP COLUMN unknown_web_observation_attempt_count
-                    , DROP COLUMN resumable_web_research_intent_count
-                    , DROP COLUMN pending_web_evidence_acceptance_count
-                    , DROP COLUMN resumable_web_cognition_count
-                    , DROP COLUMN resumable_admin_correction_work_count
-                    , DROP COLUMN resumable_codex_task_count
-                    , DROP COLUMN resumable_codex_effect_count
-                    , DROP COLUMN pending_codex_result_acceptance_count
-                """
-            )
-            connection.execute(
-                "DROP TABLE armi.scene_timeline_items, armi.interaction_scenes"
-            )
-            connection.execute(
-                "DELETE FROM armi.schema_migrations "
-                "WHERE version IN (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31)"
-            )
-        backfilled = PostgreSQLSchemaGateway().upgrade(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        self.assertEqual(backfilled.applied_version, 31)
-
         with psycopg.connect(fixture.runtime_dsn) as connection:
             counts = connection.execute(
                 """
@@ -2737,40 +2316,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertIsNone(self_payload[0]["name"])
             self.assertEqual(self_payload[0]["interests"], [])
             self.assertEqual(self_payload[0]["goals"], [])
-            identity_semantics = connection.execute(
-                """
-                SELECT
-                    subject.singleton_key,
-                    subject.subject_version,
-                    subject.state_epoch,
-                    subject.status,
-                    generation.generation_no,
-                    generation.status,
-                    activation.bundle_version,
-                    activation.status
-                FROM armi.subjects AS subject
-                JOIN armi.life_generations AS generation
-                  ON generation.life_generation_id =
-                     subject.current_generation_id
-                JOIN armi.runtime_bundle_activations AS activation
-                  ON activation.bundle_activation_id =
-                     subject.current_bundle_activation_id
-                """
-            ).fetchone()
-            component_semantics = connection.execute(
-                """
-                SELECT component_kind, component_version, semantic_payload
-                FROM armi.subject_component_revisions
-                ORDER BY component_kind
-                """
-            ).fetchall()
-            audit_operations = connection.execute(
-                """
-                SELECT operation
-                FROM armi.audit_events
-                ORDER BY operation
-                """
-            ).fetchall()
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("DELETE FROM armi.subjects")
             connection.rollback()
@@ -2779,7 +2324,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             probe_continuity(
                 fixture.runtime_dsn,
                 composition_digest=packaged["composition_digest"],
-                schema_manifest_digest=packaged["schema_manifest_digest"],
                 birth_contract_digest=packaged["birth_contract_digest"],
                 creator_asset_digest=packaged["creator_asset_manifest_digest"],
             ),
@@ -2967,35 +2511,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute("SELECT * FROM armi.scene_timeline_items")
             connection.rollback()
 
-        birth_summary_file = os.environ.get("S015_BIRTH_SUMMARY_FILE")
-        if birth_summary_file is not None:
-            assert identity_semantics is not None
-            Path(birth_summary_file).write_text(
-                json.dumps(
-                    {
-                        "schema_version": "armi.s015-birth-summary.v1",
-                        "counts": counts,
-                        "identity_semantics": identity_semantics,
-                        "component_semantics": component_semantics,
-                        "audit_operations": audit_operations,
-                        "anchor_digest": anchor_digest.value,
-                        "package_digests": {
-                            name: digest.value
-                            for name, digest in sorted(packaged.items())
-                        },
-                    },
-                    ensure_ascii=True,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
 
     def test_t03_subject_commit_is_atomic_and_private(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -3024,7 +2543,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             personality_anchor_digest=anchor_digest,
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            schema_manifest_digest=packaged["schema_manifest_digest"],
             creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s026-birth-request"),
         )
@@ -4460,61 +3978,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 1,
             ),
         )
-        live_output = (
-            os.environ.get("S028_LIVE_OUTPUT")
-            or os.environ.get("S027_LIVE_OUTPUT")
-            or os.environ.get("S026_LIVE_OUTPUT")
-        )
-        if live_evidence is not None and live_output is not None:
-            safe_evidence = {
-                key: value
-                for key, value in live_evidence.items()
-                if key != "provider_request_id"
-            }
-            safe_evidence.update(
-                {
-                    "schema_version": (
-                        "armi.response-admission-live-evidence.v1"
-                        if s028_live_env is not None
-                        else "armi.capability-grant-live-evidence.v1"
-                        if s027_live_env is not None
-                        else "armi.subject-commit-live-evidence.v1"
-                    ),
-                    "provider_request_id_sha256": "sha256:"
-                    + hashlib.sha256(provider_request_id.encode()).hexdigest(),
-                    "change_set_digest": change_set.digest.value,
-                    "candidate_application_status": status.value,
-                    "subject_version_before": 0,
-                    "subject_version_after": version,
-                    "subject_commit_count": 1,
-                    "accepted_experience_count": len(change_set.experiences),
-                    "component_change_count": len(change_set.components),
-                    "capability_request_count": len(change_set.capability_requests),
-                    "action_choice_count": len(change_set.action_choices),
-                    "response_admission_status": policy_result[2],
-                    "limited_status": policy_result[0],
-                    "limited_max_uses": policy_result[1],
-                    "revoked_status": policy_result[2],
-                    "tools_enabled": False,
-                    "store": False,
-                    "result": "pass",
-                }
-            )
-            Path(live_output).resolve().write_text(
-                json.dumps(
-                    safe_evidence,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
-
     def test_runtime_authority_heartbeat_takeover_and_fence(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -4542,7 +4008,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            schema_manifest_digest=packaged["schema_manifest_digest"],
             creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s016-authority-birth"),
         )
@@ -4751,29 +4216,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(operations.count("runtime.authority.acquired"), 3)
         self.assertEqual(operations.count("runtime.authority.released"), 2)
         self.assertNotIn("runtime.authority.heartbeat", operations)
-        authority_summary_file = os.environ.get("S016_AUTHORITY_SUMMARY_FILE")
-        if authority_summary_file is not None:
-            Path(authority_summary_file).write_text(
-                json.dumps(
-                    {
-                        "schema_version": "armi.s016-authority-summary.v1",
-                        "first_fence_token": first_token,
-                        "takeover_fence_token": second_token,
-                        "operations": operations,
-                        "real_heartbeat_seconds": 10,
-                        "stale_writer_rejected": True,
-                        "expired_commit_rolled_back": True,
-                        "audit_atomic": True,
-                    },
-                    ensure_ascii=True,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
-
         with psycopg.connect(fixture.runtime_dsn) as connection:
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("DELETE FROM armi.runtime_instances")
@@ -4790,7 +4232,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_runtime_recovery_reaches_safe_without_starting_workers(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -4818,7 +4260,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            schema_manifest_digest=packaged["schema_manifest_digest"],
             creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s017-recovery-birth"),
         )
@@ -5595,29 +5036,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             operations,
             ("runtime.recovery.started", "runtime.recovery.safe"),
         )
-        recovery_summary_file = os.environ.get("S017_RECOVERY_SUMMARY_FILE")
-        if recovery_summary_file is not None:
-            Path(recovery_summary_file).write_text(
-                json.dumps(
-                    {
-                        "schema_version": "armi.s017-recovery-summary.v1",
-                        "status": status,
-                        "critical_artifact_count": critical_count,
-                        "requeued_work_count": requeued_work,
-                        "requeued_outbox_count": requeued_outbox,
-                        "work_lease_token_preserved": 7,
-                        "outbox_claim_token_preserved": 9,
-                        "audit_operations": operations,
-                        "workers_started": False,
-                    },
-                    ensure_ascii=True,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
         with psycopg.connect(fixture.runtime_dsn) as connection:
             self.assertEqual(
                 connection.execute(
@@ -5654,7 +5072,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute("SELECT * FROM armi.runtime_recovery_runs")
 
     def _prepare_s011_schema(self, fixture: DatabaseFixture) -> None:
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -6117,23 +5535,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
-            upgrade_output = io.StringIO()
-            with redirect_stdout(upgrade_output):
-                upgrade_exit = main(
-                    ("db", "upgrade", "--environment-root", str(root.resolve()))
+            install_output = io.StringIO()
+            with redirect_stdout(install_output):
+                install_exit = main(
+                    ("db", "install", "--environment-root", str(root.resolve()))
                 )
             status_output = io.StringIO()
             with redirect_stdout(status_output):
                 status_exit = main(
                     ("db", "status", "--environment-root", str(root.resolve()))
                 )
-            self.assertEqual(upgrade_exit, 0)
+            self.assertEqual(install_exit, 0)
             self.assertEqual(status_exit, 0)
             output = json.loads(status_output.getvalue())
             self.assertEqual(output["status"], "current")
-            self.assertIsNotNone(output["role_policy_sha256"])
-            self.assertIsNotNone(output["privilege_catalog_sha256"])
-            combined = upgrade_output.getvalue() + status_output.getvalue()
+            self.assertGreater(output["table_count"], 0)
+            combined = install_output.getvalue() + status_output.getvalue()
             self.assertNotIn(fixture.database, combined)
             self.assertNotIn(str(root), combined)
             self.assertNotIn("127.0.0.1", combined)
@@ -6152,7 +5569,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_durable_work_attempt_expiry_idempotency_and_outbox(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().upgrade(
+        PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -6456,20 +5873,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             },
         )
-        work_summary_file = os.environ.get("S014_WORK_SUMMARY_FILE")
-        if work_summary_file is not None:
-            Path(work_summary_file).write_text(
-                json.dumps(
-                    result,
-                    ensure_ascii=True,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
-
         with psycopg.connect(fixture.runtime_dsn) as connection:
             for table in ("durable_work", "outbox_items"):
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):

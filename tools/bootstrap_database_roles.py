@@ -258,14 +258,6 @@ def apply_policy(
     if schema_exists:
         connection.execute("REVOKE ALL ON SCHEMA armi FROM PUBLIC")
         connection.execute("ALTER SCHEMA armi OWNER TO armi_owner")
-        if connection.execute(
-            "SELECT to_regclass('armi.schema_migrations') IS NOT NULL"
-        ).fetchone() == (True,):
-            connection.execute("ALTER TABLE armi.schema_migrations OWNER TO armi_owner")
-            connection.execute("GRANT USAGE ON SCHEMA armi TO armi_migrator")
-            connection.execute(
-                "GRANT SELECT ON armi.schema_migrations TO armi_migrator"
-            )
     connection.commit()
 
 
@@ -486,7 +478,7 @@ def main() -> int:
                 connection,
                 environment_id=args.environment_id,
             )
-        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     except (BootstrapFailure, psycopg.Error, OSError) as error:
         failure = (
@@ -504,8 +496,8 @@ def main() -> int:
                     "code": failure.code,
                     "message": failure.message,
                 },
+                indent=2,
                 sort_keys=True,
-                separators=(",", ":"),
             ),
             file=sys.stderr,
         )

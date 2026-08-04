@@ -50,12 +50,8 @@ class AdminExpectedIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     package_digest: str
-    schema_manifest_digest: str
 
     _package_digest = field_validator("package_digest")(_validate_digest)
-    _schema_manifest_digest = field_validator("schema_manifest_digest")(
-        _validate_digest
-    )
 
 
 class AdminLogSettings(BaseModel):
@@ -70,7 +66,7 @@ class AdminConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal["armi.admin-config.v2"]
+    schema_version: Literal["armi.admin-config.v3"]
     environment_kind: AdminEnvironmentKind
     environment_id: str
     environment_incarnation: int

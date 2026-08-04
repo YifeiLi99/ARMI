@@ -231,8 +231,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "stderr_lines": len(stderr.splitlines()),
                     },
                     ensure_ascii=False,
+                    indent=2,
                     sort_keys=True,
-                    separators=(",", ":"),
                 )
             )
             time.sleep(0.25)

@@ -1,4 +1,4 @@
-"""Explicit database composition for Runtime probing and operator migration."""
+"""Explicit database composition for Runtime probing and empty-database install."""
 
 from __future__ import annotations
 
@@ -103,13 +103,10 @@ _REASON_BY_CODE: Final = {
     "DB-DATABASE-IDENTITY": "RUNTIME_DATABASE_IDENTITY_MISMATCH",
     "DB-RUNTIME-ROLE-UNSAFE": "RUNTIME_DATABASE_ROLE_UNSAFE",
     "DB-SCHEMA-MISSING": "RUNTIME_SCHEMA_MISSING",
-    "DB-SCHEMA-AHEAD": "RUNTIME_SCHEMA_AHEAD",
-    "DB-SCHEMA-GAP": "RUNTIME_SCHEMA_INVALID",
-    "DB-SCHEMA-HASH": "RUNTIME_SCHEMA_INVALID",
+    "DB-SCHEMA-EXISTS": "RUNTIME_SCHEMA_INVALID",
     "DB-SCHEMA-DIRTY": "RUNTIME_SCHEMA_INVALID",
     "DB-SCHEMA-INVARIANT": "RUNTIME_SCHEMA_INVALID",
-    "DB-MANIFEST-DRIFT": "RUNTIME_SCHEMA_INVALID",
-    "DB-ROLE-MANIFEST-DRIFT": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
+    "DB-SCHEMA-RESOURCE": "RUNTIME_SCHEMA_INVALID",
     "DB-ROLE-IDENTITY": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
     "DB-ROLE-ATTRIBUTES": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
     "DB-ROLE-MEMBERSHIP": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
@@ -153,8 +150,8 @@ def _with_connection(
                         status="unavailable",
                         exit_code=3,
                     ) from None
-                if operation == "upgrade":
-                    return gateway.upgrade(
+                if operation == "install":
+                    return gateway.install(
                         conninfo,
                         environment_id=prepared.effective.config.environment.environment_id,
                     )
@@ -180,7 +177,7 @@ def _with_connection(
 
 
 def inspect_runtime_schema(prepared: PreparedEnvironment) -> SchemaStatus:
-    """Read-only Runtime probe; this path cannot invoke schema upgrade."""
+    """Read-only Runtime probe; this path cannot install the current schema."""
 
     return _with_connection(
         prepared,
@@ -199,12 +196,12 @@ def inspect_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
     )
 
 
-def upgrade_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
+def install_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
     return _with_connection(
         prepared,
         locator_name=MIGRATOR_LOCATOR_NAME,
         purpose="database.migrator",
-        operation="upgrade",
+        operation="install",
     )
 
 
@@ -235,7 +232,6 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
                 return probe_continuity(
                     conninfo,
                     composition_digest=digests["composition_digest"],
-                    schema_manifest_digest=digests["schema_manifest_digest"],
                     birth_contract_digest=digests["birth_contract_digest"],
                     creator_asset_digest=digests["creator_asset_manifest_digest"],
                 )
@@ -1126,6 +1122,6 @@ __all__ = (
     "inspect_operator_schema",
     "inspect_runtime_continuity",
     "inspect_runtime_schema",
+    "install_operator_schema",
     "runtime_database_reason",
-    "upgrade_operator_schema",
 )

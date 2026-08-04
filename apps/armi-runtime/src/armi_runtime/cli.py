@@ -21,7 +21,7 @@ from armi_runtime.composition.creator_session_cli import issue_browser_bootstrap
 from armi_runtime.composition.database import (
     DatabaseViolation,
     inspect_operator_schema,
-    upgrade_operator_schema,
+    install_operator_schema,
 )
 from armi_runtime.composition.environment import prepare_environment
 from armi_runtime.composition.runtime import run_runtime
@@ -50,8 +50,8 @@ def _parser() -> argparse.ArgumentParser:
     database_command = database.add_subparsers(dest="database_command", required=True)
     database_status = database_command.add_parser("status")
     database_status.add_argument("--environment-root", type=Path, required=True)
-    database_upgrade = database_command.add_parser("upgrade")
-    database_upgrade.add_argument("--environment-root", type=Path, required=True)
+    database_install = database_command.add_parser("install")
+    database_install.add_argument("--environment-root", type=Path, required=True)
     bootstrap = command.add_parser("bootstrap")
     bootstrap_command = bootstrap.add_subparsers(
         dest="bootstrap_command",
@@ -157,7 +157,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = (
                 inspect_operator_schema(prepared)
                 if args.database_command == "status"
-                else upgrade_operator_schema(prepared)
+                else install_operator_schema(prepared)
             )
         except DatabaseViolation as error:
             _safe_failure(error)

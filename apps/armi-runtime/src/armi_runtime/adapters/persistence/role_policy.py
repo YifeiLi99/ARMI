@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from contextlib import contextmanager
 from dataclasses import dataclass
-from importlib.resources import files
-from typing import Any, Final, cast
+from typing import Any, Final
 from uuid import UUID
 
 import psycopg
-import rfc8785
 from psycopg.pq import TransactionStatus
 from psycopg_pool import ConnectionPool
 
 from armi_runtime.adapters.database_errors import DatabaseViolation
 
-_RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
-_ROLE_MANIFEST_PATH = "schema/manifests/database-role-manifest.json"
-_SCHEMA_MANIFEST_PATH = "schema/manifests/schema-manifest.json"
 _ROLE_CLASSES: Final = frozenset({"runtime", "admin", "migrator"})
 _SEARCH_PATH: Final = "pg_catalog, armi"
 _CAPABILITY_ROLES: Final = (
@@ -28,10 +21,6 @@ _CAPABILITY_ROLES: Final = (
     "armi_runtime",
     "armi_admin",
 )
-
-
-def _digest(value: bytes) -> str:
-    return f"sha256:{hashlib.sha256(value).hexdigest()}"
 
 
 def physical_role_name(environment_id: UUID, role_class: str) -> str:
@@ -44,58 +33,13 @@ def physical_role_name(environment_id: UUID, role_class: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class RolePolicyStatus:
-    role_policy_sha256: str
-    privilege_catalog_sha256: str
-
-
-@dataclass(frozen=True, slots=True)
-class _LoadedRolePolicy:
-    manifest: dict[str, Any]
-    digest: str
-
-
-def _load_role_policy() -> _LoadedRolePolicy:
-    root = files(_RESOURCE_PACKAGE)
-    try:
-        role_bytes = root.joinpath(_ROLE_MANIFEST_PATH).read_bytes()
-        schema_bytes = root.joinpath(_SCHEMA_MANIFEST_PATH).read_bytes()
-        role_manifest = cast(dict[str, Any], json.loads(role_bytes))
-        schema_manifest = cast(dict[str, Any], json.loads(schema_bytes))
-        reference = cast(dict[str, Any], schema_manifest["database_role_manifest"])
-    except OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
-        raise DatabaseViolation(
-            "DB-ROLE-MANIFEST-DRIFT",
-            "the packaged database-role manifest is unavailable",
-        ) from None
-    digest = _digest(role_bytes)
-    if (
-        role_manifest.get("schema_version") != "armi.database-roles.v1"
-        or (
-            json.dumps(role_manifest, ensure_ascii=False, indent=2, sort_keys=True)
-            + "\n"
-        ).encode("utf-8")
-        != role_bytes
-        or reference.get("path") != _ROLE_MANIFEST_PATH
-        or reference.get("sha256") != digest
-    ):
-        raise DatabaseViolation(
-            "DB-ROLE-MANIFEST-DRIFT",
-            "the packaged database-role manifest has drifted",
-        )
-    return _LoadedRolePolicy(role_manifest, digest)
+    verified: bool = True
 
 
 class PostgreSQLRolePolicyGateway:
-    """Verify one environment's exact role topology and effective privileges."""
+    """Verify the fixed development roles without a generated policy manifest."""
 
-    __slots__ = ("_policy",)
-
-    def __init__(self) -> None:
-        self._policy = _load_role_policy()
-
-    @property
-    def role_policy_sha256(self) -> str:
-        return self._policy.digest
+    __slots__ = ()
 
     def verify(
         self,
@@ -111,216 +55,8 @@ class PostgreSQLRolePolicyGateway:
         self._verify_memberships(connection, environment_id)
         self._verify_database_grants(connection, environment_id)
         if require_objects:
-            self._verify_manifest_object_policy(connection)
-        digest = self._privilege_catalog_digest(
-            connection,
-            environment_id=environment_id,
-            include_objects=require_objects,
-        )
-        return RolePolicyStatus(self.role_policy_sha256, digest)
-
-    def _verify_manifest_object_policy(
-        self,
-        connection: psycopg.Connection[tuple[Any, ...]],
-    ) -> None:
-        manifest_objects = cast(
-            list[dict[str, Any]],
-            self._policy.manifest["objects"],
-        )
-        table_objects = [
-            entry for entry in manifest_objects if entry["kind"] == "table"
-        ]
-        expected_tables = sorted(
-            str(entry["name"]).removeprefix("armi.") for entry in table_objects
-        )
-        try:
-            owners = connection.execute(
-                """
-                SELECT
-                    bool_and(relation.relowner = owner_role.oid),
-                    array_agg(relation.relname ORDER BY relation.relname)
-                FROM pg_catalog.pg_class AS relation
-                JOIN pg_catalog.pg_namespace AS namespace
-                  ON namespace.oid = relation.relnamespace
-                JOIN pg_catalog.pg_roles AS owner_role
-                  ON owner_role.rolname = 'armi_owner'
-                WHERE namespace.nspname = 'armi'
-                  AND relation.relkind IN ('r', 'p')
-                """
-            ).fetchone()
-            table_grants = connection.execute(
-                """
-                SELECT relation.relname, acl.privilege_type, grantee.rolname
-                FROM pg_catalog.pg_class AS relation
-                JOIN pg_catalog.pg_namespace AS namespace
-                  ON namespace.oid = relation.relnamespace
-                CROSS JOIN LATERAL
-                    pg_catalog.aclexplode(relation.relacl) AS acl
-                JOIN pg_catalog.pg_roles AS grantee
-                  ON grantee.oid = acl.grantee
-                WHERE namespace.nspname = 'armi'
-                  AND relation.relkind IN ('r', 'p')
-                  AND grantee.rolname = ANY(%s)
-                ORDER BY relation.relname, acl.privilege_type, grantee.rolname
-                """,
-                (["armi_runtime", "armi_admin", "armi_migrator"],),
-            ).fetchall()
-            column_grants = connection.execute(
-                """
-                SELECT relation.relname, attribute.attname,
-                       acl.privilege_type, grantee.rolname
-                FROM pg_catalog.pg_attribute AS attribute
-                JOIN pg_catalog.pg_class AS relation
-                  ON relation.oid = attribute.attrelid
-                JOIN pg_catalog.pg_namespace AS namespace
-                  ON namespace.oid = relation.relnamespace
-                CROSS JOIN LATERAL
-                    pg_catalog.aclexplode(attribute.attacl) AS acl
-                JOIN pg_catalog.pg_roles AS grantee
-                  ON grantee.oid = acl.grantee
-                WHERE namespace.nspname = 'armi'
-                  AND relation.relkind IN ('r', 'p')
-                  AND attribute.attnum > 0
-                  AND NOT attribute.attisdropped
-                  AND grantee.rolname = ANY(%s)
-                ORDER BY relation.relname, attribute.attname,
-                         acl.privilege_type, grantee.rolname
-                """,
-                (["armi_runtime", "armi_admin", "armi_migrator"],),
-            ).fetchall()
-            public_count = connection.execute(
-                """
-                SELECT (
-                    SELECT count(*)
-                    FROM pg_catalog.pg_namespace AS namespace
-                    CROSS JOIN LATERAL
-                        pg_catalog.aclexplode(namespace.nspacl) AS acl
-                    WHERE namespace.nspname = 'armi'
-                      AND acl.grantee = 0
-                ) + (
-                    SELECT count(*)
-                    FROM pg_catalog.pg_class AS relation
-                    JOIN pg_catalog.pg_namespace AS namespace
-                      ON namespace.oid = relation.relnamespace
-                    CROSS JOIN LATERAL
-                        pg_catalog.aclexplode(relation.relacl) AS acl
-                    WHERE namespace.nspname = 'armi'
-                      AND relation.relkind IN ('r', 'p')
-                      AND acl.grantee = 0
-                ) + (
-                    SELECT count(*)
-                    FROM pg_catalog.pg_attribute AS attribute
-                    JOIN pg_catalog.pg_class AS relation
-                      ON relation.oid = attribute.attrelid
-                    JOIN pg_catalog.pg_namespace AS namespace
-                      ON namespace.oid = relation.relnamespace
-                    CROSS JOIN LATERAL
-                        pg_catalog.aclexplode(attribute.attacl) AS acl
-                    WHERE namespace.nspname = 'armi'
-                      AND relation.relkind IN ('r', 'p')
-                      AND attribute.attnum > 0
-                      AND NOT attribute.attisdropped
-                      AND acl.grantee = 0
-                )
-                """
-            ).fetchone()
-            definers = connection.execute(
-                """
-                SELECT count(*)
-                FROM pg_catalog.pg_proc AS procedure
-                JOIN pg_catalog.pg_namespace AS namespace
-                  ON namespace.oid = procedure.pronamespace
-                WHERE namespace.nspname = 'armi'
-                  AND procedure.prosecdef
-                """
-            ).fetchone()
-        except psycopg.Error:
-            raise DatabaseViolation(
-                "DB-ROLE-GRANT",
-                "database object grants are unavailable",
-            ) from None
-        if owners != (True, expected_tables):
-            raise DatabaseViolation(
-                "DB-ROLE-OWNER",
-                "database object ownership has drifted",
-            )
-        if public_count != (0,):
-            raise DatabaseViolation(
-                "DB-ROLE-PUBLIC-PRIVILEGE",
-                "PUBLIC object privileges are unsafe",
-            )
-        expected_table_grants = {
-            (
-                str(entry["name"]).removeprefix("armi."),
-                str(privilege),
-                str(role),
-            )
-            for entry in table_objects
-            for role, privileges in cast(
-                dict[str, list[str]],
-                entry["grants"],
-            ).items()
-            for privilege in privileges
-        }
-        actual_table_grants = {
-            (str(table), str(privilege), str(grantee))
-            for table, privilege, grantee in table_grants
-        }
-        if actual_table_grants != expected_table_grants:
-            raise DatabaseViolation(
-                "DB-ROLE-GRANT",
-                "database table grants have drifted",
-            )
-        expected_column_grants = {
-            (
-                str(entry["name"]).removeprefix("armi."),
-                str(column),
-                str(privilege),
-                str(role),
-            )
-            for entry in table_objects
-            for role, grants in cast(
-                dict[str, dict[str, list[str]]],
-                entry.get("column_grants", {}),
-            ).items()
-            for privilege, columns in grants.items()
-            for column in columns
-        }
-        actual_column_grants = {
-            (str(table), str(column), str(privilege), str(grantee))
-            for table, column, privilege, grantee in column_grants
-        }
-        if actual_column_grants != expected_column_grants:
-            raise DatabaseViolation(
-                "DB-ROLE-GRANT",
-                "database column grants have drifted",
-            )
-        schema_entry = next(
-            entry for entry in manifest_objects if entry["kind"] == "schema"
-        )
-        for role, expected in cast(
-            dict[str, list[str]],
-            schema_entry["grants"],
-        ).items():
-            actual = {
-                privilege
-                for privilege in ("USAGE", "CREATE")
-                if connection.execute(
-                    "SELECT has_schema_privilege(%s, 'armi', %s)",
-                    (role, privilege),
-                ).fetchone()
-                == (True,)
-            }
-            if actual != set(expected):
-                raise DatabaseViolation(
-                    "DB-ROLE-GRANT",
-                    "database schema grants have drifted",
-                )
-        if definers != (0,):
-            raise DatabaseViolation(
-                "DB-ROLE-SECURITY-DEFINER",
-                "an unregistered security-definer entry exists",
-            )
+            self._verify_object_policy(connection)
+        return RolePolicyStatus()
 
     def _verify_session(
         self,
@@ -522,30 +258,31 @@ class PostgreSQLRolePolicyGateway:
                 "DB-ROLE-GRANT", "database owner grants have drifted"
             )
 
+    @staticmethod
     def _verify_object_policy(
-        self, connection: psycopg.Connection[tuple[Any, ...]]
+        connection: psycopg.Connection[tuple[Any, ...]],
     ) -> None:
         try:
-            owners = connection.execute(
+            ownership = connection.execute(
                 """
                 SELECT
-                    bool_and(namespace.nspowner = owner_role.oid),
+                    namespace.nspowner = owner_role.oid,
                     bool_and(relation.relowner = owner_role.oid),
-                    array_agg(relation.relname ORDER BY relation.relname)
+                    count(relation.oid)
                 FROM pg_catalog.pg_namespace AS namespace
-                JOIN pg_catalog.pg_class AS relation
-                  ON relation.relnamespace = namespace.oid
                 JOIN pg_catalog.pg_roles AS owner_role
                   ON owner_role.rolname = 'armi_owner'
+                LEFT JOIN pg_catalog.pg_class AS relation
+                  ON relation.relnamespace = namespace.oid
+                 AND relation.relkind IN ('r', 'p')
                 WHERE namespace.nspname = 'armi'
-                  AND relation.relkind IN ('r', 'p')
+                GROUP BY namespace.nspowner, owner_role.oid
                 """
             ).fetchone()
-            public_grants = connection.execute(
+            public_count = connection.execute(
                 """
-                SELECT object_kind, array_agg(privilege_type ORDER BY privilege_type)
-                FROM (
-                    SELECT 'schema' AS object_kind, acl.privilege_type
+                SELECT (
+                    SELECT count(*)
                     FROM pg_catalog.pg_namespace AS namespace
                     CROSS JOIN LATERAL pg_catalog.aclexplode(
                         COALESCE(
@@ -554,8 +291,8 @@ class PostgreSQLRolePolicyGateway:
                         )
                     ) AS acl
                     WHERE namespace.nspname = 'armi' AND acl.grantee = 0
-                    UNION ALL
-                    SELECT 'table' AS object_kind, acl.privilege_type
+                ) + (
+                    SELECT count(*)
                     FROM pg_catalog.pg_class AS relation
                     JOIN pg_catalog.pg_namespace AS namespace
                       ON namespace.oid = relation.relnamespace
@@ -568,109 +305,22 @@ class PostgreSQLRolePolicyGateway:
                     WHERE namespace.nspname = 'armi'
                       AND relation.relkind IN ('r', 'p')
                       AND acl.grantee = 0
-                ) AS public_acl
-                GROUP BY object_kind
-                ORDER BY object_kind
-                """
-            ).fetchall()
-            grants = connection.execute(
-                """
-                SELECT
-                    has_schema_privilege('armi_runtime', 'armi', 'USAGE'),
-                    has_schema_privilege('armi_runtime', 'armi', 'CREATE'),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.schema_migrations', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.artifacts', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.artifacts', 'DELETE'
-                    ),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.audit_events', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.audit_events', 'UPDATE'
-                    ),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.audit_events', 'DELETE'
-                    ),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.durable_work', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.durable_work', 'DELETE'
-                    ),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.outbox_items', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_runtime', 'armi.outbox_items', 'DELETE'
-                    ),
-                    has_schema_privilege('armi_admin', 'armi', 'USAGE'),
-                    has_schema_privilege('armi_admin', 'armi', 'CREATE'),
-                    has_table_privilege(
-                        'armi_admin', 'armi.schema_migrations', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_admin', 'armi.artifacts', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_admin', 'armi.audit_events', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_admin', 'armi.durable_work', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_admin', 'armi.outbox_items', 'SELECT'
-                    ),
-                    has_schema_privilege('armi_migrator', 'armi', 'USAGE'),
-                    has_schema_privilege('armi_migrator', 'armi', 'CREATE'),
-                    has_table_privilege(
-                        'armi_migrator', 'armi.schema_migrations', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_migrator', 'armi.artifacts', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_migrator', 'armi.audit_events', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_migrator', 'armi.durable_work', 'SELECT'
-                    ),
-                    has_table_privilege(
-                        'armi_migrator', 'armi.outbox_items', 'SELECT'
-                    )
+                )
                 """
             ).fetchone()
-            column_grants = connection.execute(
+            schema_grants = connection.execute(
                 """
-                SELECT
-                    relation.relname,
-                    attribute.attname,
-                    acl.privilege_type,
-                    COALESCE(grantee_role.rolname, 'PUBLIC')
-                FROM pg_catalog.pg_attribute AS attribute
-                JOIN pg_catalog.pg_class AS relation
-                  ON relation.oid = attribute.attrelid
-                JOIN pg_catalog.pg_namespace AS namespace
-                  ON namespace.oid = relation.relnamespace
-                CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) AS acl
-                LEFT JOIN pg_catalog.pg_roles AS grantee_role
-                  ON grantee_role.oid = acl.grantee
-                WHERE namespace.nspname = 'armi'
-                  AND relation.relname IN (
-                      'artifacts',
-                      'audit_events',
-                      'durable_work',
-                      'outbox_items'
-                  )
-                  AND attribute.attnum > 0
-                  AND NOT attribute.attisdropped
-                ORDER BY relation.relname, attribute.attname, acl.privilege_type,
-                         COALESCE(grantee_role.rolname, 'PUBLIC')
-                """
+                SELECT role_name,
+                       pg_catalog.has_schema_privilege(
+                           role_name, 'armi', 'USAGE'
+                       ),
+                       pg_catalog.has_schema_privilege(
+                           role_name, 'armi', 'CREATE'
+                       )
+                FROM unnest(%s::text[]) AS role_name
+                ORDER BY role_name
+                """,
+                (["armi_admin", "armi_migrator", "armi_runtime"],),
             ).fetchall()
             definers = connection.execute(
                 """
@@ -684,392 +334,34 @@ class PostgreSQLRolePolicyGateway:
             ).fetchone()
         except psycopg.Error:
             raise DatabaseViolation(
-                "DB-ROLE-GRANT", "database object grants are unavailable"
+                "DB-ROLE-GRANT",
+                "database object grants are unavailable",
             ) from None
-        if owners != (
-            True,
-            True,
-            [
-                "artifacts",
-                "audit_events",
-                "durable_work",
-                "outbox_items",
-                "schema_migrations",
-            ],
+        if (
+            ownership is None
+            or ownership[0] is not True
+            or ownership[1] is not True
+            or int(ownership[2]) < 1
         ):
             raise DatabaseViolation(
-                "DB-ROLE-OWNER", "database object ownership has drifted"
+                "DB-ROLE-OWNER",
+                "database object ownership has drifted",
             )
-        if public_grants:
+        if public_count != (0,):
             raise DatabaseViolation(
                 "DB-ROLE-PUBLIC-PRIVILEGE",
                 "PUBLIC object privileges are unsafe",
             )
-        if grants is None or tuple(bool(value) for value in grants) != (
-            True,
-            False,
-            True,
-            True,
-            False,
-            True,
-            False,
-            False,
-            True,
-            False,
-            True,
-            False,
-            True,
-            False,
-            True,
-            False,
-            False,
-            False,
-            False,
-            True,
-            False,
-            True,
-            False,
-            False,
-            False,
-            False,
-        ):
+        if any(tuple(row[1:]) != (True, False) for row in schema_grants):
             raise DatabaseViolation(
-                "DB-ROLE-GRANT", "database object grants have drifted"
-            )
-        expected_column_grants = {
-            ("artifacts", column, "INSERT", "armi_runtime")
-            for column in (
-                "artifact_id",
-                "byte_size",
-                "content_digest",
-                "logical_kind",
-                "media_type",
-                "privacy_scope",
-                "producer_kind",
-                "producer_trace_id",
-                "schema_version",
-                "storage_locator",
-            )
-        }
-        expected_column_grants.add(
-            ("artifacts", "integrity_status", "UPDATE", "armi_runtime")
-        )
-        expected_column_grants.update(
-            {
-                ("audit_events", column, "INSERT", "armi_runtime")
-                for column in (
-                    "actor_kind",
-                    "actor_ref",
-                    "after_version",
-                    "artifact_digest",
-                    "audit_event_id",
-                    "before_version",
-                    "bundle_digest",
-                    "details_digest",
-                    "error_category",
-                    "grant_ref",
-                    "operation",
-                    "policy_ref",
-                    "purpose",
-                    "request_digest",
-                    "request_kind",
-                    "request_ref",
-                    "response_digest",
-                    "result_status",
-                    "schema_version",
-                    "sensitivity",
-                    "subject_id",
-                    "target_kind",
-                    "target_ref",
-                    "trace_id",
-                )
-            }
-        )
-        expected_column_grants.update(
-            {
-                ("durable_work", column, "INSERT", "armi_runtime")
-                for column in (
-                    "attempt_count",
-                    "deadline_at",
-                    "idempotency_key",
-                    "lease_token",
-                    "max_attempts",
-                    "not_before",
-                    "owner_kind",
-                    "owner_ref",
-                    "payload_digest",
-                    "payload_kind",
-                    "payload_ref",
-                    "priority",
-                    "schema_version",
-                    "status",
-                    "subject_id",
-                    "trace_id",
-                    "work_id",
-                    "work_kind",
-                )
-            }
-        )
-        expected_column_grants.update(
-            {
-                ("durable_work", column, "UPDATE", "armi_runtime")
-                for column in (
-                    "attempt_count",
-                    "current_attempt_id",
-                    "last_error_code",
-                    "lease_expires_at",
-                    "lease_owner",
-                    "lease_token",
-                    "not_before",
-                    "result_kind",
-                    "result_ref",
-                    "status",
-                    "updated_at",
-                )
-            }
-        )
-        expected_column_grants.update(
-            {
-                ("outbox_items", column, "INSERT", "armi_runtime")
-                for column in (
-                    "attempt_count",
-                    "available_at",
-                    "claim_token",
-                    "max_attempts",
-                    "message_kind",
-                    "outbox_item_id",
-                    "payload_digest",
-                    "schema_version",
-                    "status",
-                    "trace_id",
-                    "work_id",
-                )
-            }
-        )
-        expected_column_grants.update(
-            {
-                ("outbox_items", column, "UPDATE", "armi_runtime")
-                for column in (
-                    "attempt_count",
-                    "available_at",
-                    "claim_expires_at",
-                    "claim_token",
-                    "claimed_by",
-                    "delivered_at",
-                    "last_error_code",
-                    "status",
-                    "updated_at",
-                )
-            }
-        )
-        if {
-            (str(table), str(column), str(privilege), str(grantee))
-            for table, column, privilege, grantee in column_grants
-        } != expected_column_grants:
-            raise DatabaseViolation(
-                "DB-ROLE-GRANT", "artifact column grants have drifted"
+                "DB-ROLE-GRANT",
+                "database schema grants have drifted",
             )
         if definers != (0,):
             raise DatabaseViolation(
                 "DB-ROLE-SECURITY-DEFINER",
                 "an unregistered security-definer entry exists",
             )
-
-    def _privilege_catalog_digest(
-        self,
-        connection: psycopg.Connection[tuple[Any, ...]],
-        *,
-        environment_id: UUID,
-        include_objects: bool,
-    ) -> str:
-        roles = [
-            *_CAPABILITY_ROLES,
-            *(
-                physical_role_name(environment_id, role_class)
-                for role_class in ("runtime", "admin", "migrator")
-            ),
-        ]
-        try:
-            attributes = connection.execute(
-                """
-                SELECT rolname, rolcanlogin, rolinherit, rolsuper, rolcreatedb,
-                       rolcreaterole, rolreplication, rolbypassrls
-                FROM pg_catalog.pg_roles
-                WHERE rolname = ANY(%s)
-                ORDER BY rolname
-                """,
-                (roles,),
-            ).fetchall()
-            memberships = connection.execute(
-                """
-                SELECT member_role.rolname, granted_role.rolname,
-                       membership.admin_option,
-                       membership.inherit_option,
-                       membership.set_option
-                FROM pg_catalog.pg_auth_members AS membership
-                JOIN pg_catalog.pg_roles AS granted_role
-                  ON granted_role.oid = membership.roleid
-                JOIN pg_catalog.pg_roles AS member_role
-                  ON member_role.oid = membership.member
-                WHERE member_role.rolname = ANY(%s)
-                ORDER BY member_role.rolname, granted_role.rolname
-                """,
-                (roles,),
-            ).fetchall()
-            owners = (
-                connection.execute(
-                    """
-                    SELECT namespace.nspname, namespace_owner.rolname,
-                           relation.relname, relation_owner.rolname
-                    FROM pg_catalog.pg_namespace AS namespace
-                    JOIN pg_catalog.pg_roles AS namespace_owner
-                      ON namespace_owner.oid = namespace.nspowner
-                    JOIN pg_catalog.pg_class AS relation
-                      ON relation.relnamespace = namespace.oid
-                    JOIN pg_catalog.pg_roles AS relation_owner
-                      ON relation_owner.oid = relation.relowner
-                    WHERE namespace.nspname = 'armi'
-                      AND relation.relkind IN ('r', 'p')
-                    ORDER BY relation.relname
-                    """
-                ).fetchall()
-                if include_objects
-                else []
-            )
-            database_acl = connection.execute(
-                """
-                SELECT COALESCE(grantee_role.rolname, 'PUBLIC'),
-                       acl.privilege_type, acl.is_grantable
-                FROM pg_catalog.pg_database AS database_value
-                CROSS JOIN LATERAL pg_catalog.aclexplode(
-                    COALESCE(
-                        database_value.datacl,
-                        pg_catalog.acldefault('d', database_value.datdba)
-                    )
-                ) AS acl
-                LEFT JOIN pg_catalog.pg_roles AS grantee_role
-                  ON grantee_role.oid = acl.grantee
-                WHERE database_value.datname = current_database()
-                  AND (
-                      acl.grantee = 0
-                      OR grantee_role.rolname = ANY(%s)
-                  )
-                ORDER BY COALESCE(grantee_role.rolname, 'PUBLIC'),
-                         acl.privilege_type
-                """,
-                (roles,),
-            ).fetchall()
-            object_acl = (
-                connection.execute(
-                    """
-                    SELECT object_kind, object_name,
-                           COALESCE(grantee_role.rolname, 'PUBLIC'),
-                           privilege_type, is_grantable
-                    FROM (
-                        SELECT 'schema' AS object_kind, namespace.nspname AS object_name,
-                               acl.grantee, acl.privilege_type, acl.is_grantable
-                        FROM pg_catalog.pg_namespace AS namespace
-                        CROSS JOIN LATERAL pg_catalog.aclexplode(
-                            COALESCE(
-                                namespace.nspacl,
-                                pg_catalog.acldefault('n', namespace.nspowner)
-                            )
-                        ) AS acl
-                        WHERE namespace.nspname = 'armi'
-                        UNION ALL
-                        SELECT 'table', namespace.nspname || '.' || relation.relname,
-                               acl.grantee, acl.privilege_type, acl.is_grantable
-                        FROM pg_catalog.pg_class AS relation
-                        JOIN pg_catalog.pg_namespace AS namespace
-                          ON namespace.oid = relation.relnamespace
-                        CROSS JOIN LATERAL pg_catalog.aclexplode(
-                            COALESCE(
-                                relation.relacl,
-                                pg_catalog.acldefault('r', relation.relowner)
-                            )
-                        ) AS acl
-                        WHERE namespace.nspname = 'armi'
-                          AND relation.relkind IN ('r', 'p')
-                    ) AS object_privilege
-                    LEFT JOIN pg_catalog.pg_roles AS grantee_role
-                      ON grantee_role.oid = object_privilege.grantee
-                    WHERE object_privilege.grantee = 0
-                       OR grantee_role.rolname = ANY(%s)
-                    ORDER BY object_kind, object_name,
-                             COALESCE(grantee_role.rolname, 'PUBLIC'),
-                             privilege_type
-                    """,
-                    (roles,),
-                ).fetchall()
-                if include_objects
-                else []
-            )
-            column_acl = (
-                connection.execute(
-                    """
-                    SELECT namespace.nspname || '.' || relation.relname,
-                           attribute.attname,
-                           COALESCE(grantee_role.rolname, 'PUBLIC'),
-                           acl.privilege_type,
-                           acl.is_grantable
-                    FROM pg_catalog.pg_attribute AS attribute
-                    JOIN pg_catalog.pg_class AS relation
-                      ON relation.oid = attribute.attrelid
-                    JOIN pg_catalog.pg_namespace AS namespace
-                      ON namespace.oid = relation.relnamespace
-                    CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) AS acl
-                    LEFT JOIN pg_catalog.pg_roles AS grantee_role
-                      ON grantee_role.oid = acl.grantee
-                    WHERE namespace.nspname = 'armi'
-                      AND relation.relkind IN ('r', 'p')
-                      AND attribute.attnum > 0
-                      AND NOT attribute.attisdropped
-                      AND (
-                          acl.grantee = 0
-                          OR grantee_role.rolname = ANY(%s)
-                      )
-                    ORDER BY namespace.nspname, relation.relname,
-                             attribute.attname,
-                             COALESCE(grantee_role.rolname, 'PUBLIC'),
-                             acl.privilege_type
-                    """,
-                    (roles,),
-                ).fetchall()
-                if include_objects
-                else []
-            )
-            role_settings = connection.execute(
-                """
-                SELECT role_value.rolname, setting
-                FROM pg_catalog.pg_db_role_setting AS role_setting
-                JOIN pg_catalog.pg_roles AS role_value
-                  ON role_value.oid = role_setting.setrole
-                JOIN LATERAL unnest(role_setting.setconfig) AS setting ON true
-                WHERE role_setting.setdatabase = (
-                    SELECT oid FROM pg_catalog.pg_database
-                    WHERE datname = current_database()
-                )
-                  AND role_value.rolname = ANY(%s)
-                ORDER BY role_value.rolname, setting
-                """,
-                (roles,),
-            ).fetchall()
-        except psycopg.Error:
-            raise DatabaseViolation(
-                "DB-ROLE-GRANT", "the privilege catalog cannot be summarized"
-            ) from None
-        value = {
-            "schema_version": "armi.database-privilege-catalog.v1",
-            "roles": [list(row) for row in attributes],
-            "memberships": [list(row) for row in memberships],
-            "owners": [list(row) for row in owners],
-            "database_acl": [list(row) for row in database_acl],
-            "object_acl": [list(row) for row in object_acl],
-            "column_acl": [list(row) for row in column_acl],
-            "role_settings": [list(row) for row in role_settings],
-            "role_policy_sha256": self.role_policy_sha256,
-        }
-        return _digest(rfc8785.dumps(cast(Any, value)))
 
 
 class RoleBoundConnectionPool:

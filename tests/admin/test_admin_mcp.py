@@ -8,9 +8,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import AbstractAsyncContextManager
-from importlib.resources import files
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 from armi_admin.application import AdminConfig, AdminCredentialPort
@@ -30,21 +28,14 @@ from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 ENVIRONMENT_ID = "018f3f4a-7b8c-7def-8abc-1234567890ab"
-
-
-def _resources() -> tuple[dict[str, Any], dict[str, Any]]:
-    root = files("armi_admin.mcp.resources")
-    governance = json.loads(root.joinpath("admin-mcp-manifest.json").read_bytes())
-    schema = json.loads(root.joinpath("schema-manifest.json").read_bytes())
-    return governance, schema
+DIGEST = "sha256:" + "1" * 64
 
 
 def _config() -> AdminConfig:
-    governance, _ = _resources()
     root = Path.cwd().resolve()
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v2",
+            "schema_version": "armi.admin-config.v3",
             "environment_kind": "system_test",
             "environment_id": ENVIRONMENT_ID,
             "environment_incarnation": 1,
@@ -52,16 +43,13 @@ def _config() -> AdminConfig:
             "test_controls_enabled": True,
             "environment_root": root,
             "experiment_root": root,
-            "template_manifest": root
-            / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-            "schema/manifests/schema-manifest.json",
+            "template_manifest": root / "README.md",
             "postgresql_tool_root": root / ".armi-tools/installs/postgresql/18.4/pgsql",
             "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
             "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
             "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
             "expected": {
-                "package_digest": governance["package_surface_digest"],
-                "schema_manifest_digest": governance["schema_manifest_sha256"],
+                "package_digest": DIGEST,
             },
         }
     )
@@ -78,16 +66,18 @@ def _service() -> AdminToolService:
 
 
 def _current_snapshot() -> AdminSchemaSnapshot:
-    _, schema = _resources()
-    migrations = tuple(
-        (int(item["version"]), str(item["name"]), str(item["sha256"]))
-        for item in schema["migrations"]
-    )
     return AdminSchemaSnapshot(
         server_version_num=180004,
         encoding="UTF8",
         timezone="UTC",
-        migrations=migrations,
+        tables=(
+            "activities",
+            "creator_input_interactions",
+            "deployment_environments",
+            "maintenance_sessions",
+            "runtime_instances",
+            "subjects",
+        ),
     )
 
 
@@ -114,65 +104,19 @@ class AdminConfigurationTests(unittest.TestCase):
                 {**config.model_dump(mode="json"), "unknown": True}
             )
 
-    def test_generated_governance_has_exact_static_surface(self) -> None:
-        governance, _ = _resources()
-        self.assertEqual(governance["sdk"], {"name": "mcp", "version": "2.0.0"})
-        self.assertEqual(governance["protocol"]["target_revision"], "2026-07-28")
+    def test_only_public_config_schema_is_packaged(self) -> None:
+        resources = Path("apps/armi-admin/src/armi_admin/mcp/resources")
         self.assertEqual(
-            [tool["name"] for tool in governance["tools"]],
-            [
-                "advance_test_clock",
-                "apply_correction",
-                "arm_fault",
-                "clear_faults",
-                "correction_status",
-                "environment_initialize",
-                "environment_reset",
-                "environment_reset_preview",
-                "health",
-                "inject_creator_input",
-                "inspect_scope",
-                "preview_correction",
-                "run_test",
-                "runtime_drain",
-                "runtime_restart",
-                "runtime_start",
-                "runtime_status",
-                "runtime_stop",
-                "schema_status",
-                "settle_correction_work",
-                "subject_snapshot",
-                "tail_diagnostics",
-                "trace_flow",
-            ],
+            sorted(path.name for path in resources.glob("*.json")),
+            ["admin-config.schema.json"],
         )
-        read_only = {
-            "health",
-            "schema_status",
-            "runtime_status",
-            "subject_snapshot",
-            "trace_flow",
-            "inspect_scope",
-            "tail_diagnostics",
-            "environment_reset_preview",
-            "preview_correction",
-            "correction_status",
-        }
-        destructive = {
-            "environment_reset",
-            "apply_correction",
-            "settle_correction_work",
-        }
-        for tool in governance["tools"]:
-            self.assertEqual(
-                tool["annotations"],
-                {
-                    "destructiveHint": tool["name"] in destructive,
-                    "idempotentHint": True,
-                    "openWorldHint": False,
-                    "readOnlyHint": tool["name"] in read_only,
-                },
-            )
+        schema = json.loads(
+            (resources / "admin-config.schema.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            schema["properties"]["schema_version"]["const"],
+            "armi.admin-config.v3",
+        )
 
     def test_artifacts_have_no_drift(self) -> None:
         completed = subprocess.run(
@@ -247,7 +191,8 @@ class AdminToolServiceTests(unittest.TestCase):
         self.assertIsNotNone(status.result)
         assert status.result is not None
         self.assertEqual(status.result.status, "current")
-        self.assertEqual(status.result.applied_version, 31)
+        self.assertEqual(status.result.table_count, 6)
+        self.assertEqual(status.result.missing_tables, ())
         self.assertIsNone(status.error_code)
         serialized = health.model_dump_json() + status.model_dump_json()
         self.assertNotIn("postgresql://", serialized)
@@ -271,9 +216,8 @@ class AdminToolServiceTests(unittest.TestCase):
             server_version_num=current.server_version_num,
             encoding=current.encoding,
             timezone=current.timezone,
-            migrations=(
-                *current.migrations[:-1],
-                (31, "changed", current.migrations[-1][2]),
+            tables=tuple(
+                table for table in current.tables if table != "maintenance_sessions"
             ),
         )
         with patch.object(AdminToolService, "_read_snapshot", return_value=dirty):
@@ -284,7 +228,7 @@ class AdminToolServiceTests(unittest.TestCase):
         self.assertIsNotNone(result.result)
         assert result.result is not None
         self.assertEqual(result.result.status, "dirty")
-        self.assertEqual(result.error_code, "ADMIN-SCHEMA-HASH")
+        self.assertEqual(result.error_code, "ADMIN-SCHEMA-DIRTY")
 
 
 class AdminProtocolTests(unittest.TestCase):
@@ -307,14 +251,13 @@ class AdminProtocolTests(unittest.TestCase):
         self.assertIn("correction_status", names)
 
     def test_stdio_subprocess_has_clean_protocol_output(self) -> None:
-        governance, _ = _resources()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config_path = root / "admin.toml"
             config_path.write_text(
                 "\n".join(
                     (
-                        'schema_version = "armi.admin-config.v2"',
+                        'schema_version = "armi.admin-config.v3"',
                         'environment_kind = "system_test"',
                         f'environment_id = "{ENVIRONMENT_ID}"',
                         "environment_incarnation = 1",
@@ -322,14 +265,13 @@ class AdminProtocolTests(unittest.TestCase):
                         "test_controls_enabled = true",
                         f'environment_root = "{root.as_posix()}"',
                         f'experiment_root = "{root.as_posix()}"',
-                        f'template_manifest = "{(Path.cwd() / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema/manifests/schema-manifest.json").as_posix()}"',
+                        f'template_manifest = "{(Path.cwd() / "README.md").as_posix()}"',
                         f'postgresql_tool_root = "{(Path.cwd() / ".armi-tools/installs/postgresql/18.4").as_posix()}"',
                         'database_locator = "env:ARMI_SECRET_ADMIN_DATABASE"',
                         'migrator_database_locator = "env:ARMI_SECRET_MIGRATOR_DATABASE"',
                         'preview_key_locator = "env:ARMI_SECRET_ADMIN_PREVIEW_KEY"',
                         "[expected]",
-                        f'package_digest = "{governance["package_surface_digest"]}"',
-                        f'schema_manifest_digest = "{governance["schema_manifest_sha256"]}"',
+                        f'package_digest = "{DIGEST}"',
                         "",
                     )
                 ),

@@ -22,7 +22,7 @@ from armi_kernel.application import CredentialPurpose
 from psycopg.conninfo import conninfo_to_dict
 
 from armi_admin.persistence import (
-    AdminEnvironmentMigrationGateway,
+    AdminEnvironmentSchemaGateway,
     AdminObservationGateway,
 )
 
@@ -73,7 +73,6 @@ class AdminControlPlane:
             "environment_id": self._config.environment_id,
             "incarnation": self._config.environment_incarnation,
             "template_digest": self._file_digest(self._config.template_manifest),
-            "schema_manifest_digest": self._config.expected.schema_manifest_digest,
             "database_catalog_digest": self._database_catalog_digest(),
             "config_digest": self._config.safe_digest(),
             "data_root_digest": self._tree_digest(self._config.environment_root),
@@ -98,7 +97,6 @@ class AdminControlPlane:
             "expires_at": payload["expires_at"],
             "incarnation": payload["incarnation"],
             "template_digest": payload["template_digest"],
-            "schema_manifest_digest": payload["schema_manifest_digest"],
             "data_root_digest": payload["data_root_digest"],
         }
 
@@ -138,7 +136,6 @@ class AdminControlPlane:
             raise AdminControlError("ADMIN-RESET-PREVIEW-EXPIRED")
         current = {
             "template_digest": self._file_digest(self._config.template_manifest),
-            "schema_manifest_digest": self._config.expected.schema_manifest_digest,
             "database_catalog_digest": self._database_catalog_digest(),
             "config_digest": self._config.safe_digest(),
             "data_root_digest": self._tree_digest(self._config.environment_root),
@@ -207,7 +204,7 @@ class AdminControlPlane:
             or self._config.environment_root.is_symlink()
         ):
             raise AdminControlError("ADMIN-ENVIRONMENT-ROOT")
-        self._upgrade_database()
+        self._install_database()
         if birth_mode == "manifest":
             self._run_runtime_cli("bootstrap", "birth", timeout=180)
         return {
@@ -411,11 +408,11 @@ class AdminControlPlane:
             self._config.migrator_locator, CredentialPurpose("database.migrator")
         ) as handle:
             conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
-        AdminEnvironmentMigrationGateway.recreate_empty_schema(conninfo)
-        self._run_runtime_cli("db", "upgrade", timeout=180, with_migrator=True)
+        AdminEnvironmentSchemaGateway.recreate_empty_schema(conninfo)
+        self._run_runtime_cli("db", "install", timeout=180, with_migrator=True)
 
-    def _upgrade_database(self) -> None:
-        self._run_runtime_cli("db", "upgrade", timeout=180, with_migrator=True)
+    def _install_database(self) -> None:
+        self._run_runtime_cli("db", "install", timeout=180, with_migrator=True)
 
     def _run_runtime_cli(
         self,

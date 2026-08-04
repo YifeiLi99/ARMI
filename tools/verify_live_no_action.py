@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import time
 from collections.abc import Sequence
@@ -293,24 +292,13 @@ async def _verify(env_file: Path) -> dict[str, object]:
         or change_set.capability_requests
     )
     return {
-        "schema_version": "armi.creator-closure-no-action-live-evidence.v1",
-        "binding_digest": binding.digest.value,
-        "credential_fingerprint": adapter.credential_fingerprint(),
         "requested_model_id": binding.model_id,
         "provider_model_id": invocation.provider_model_id,
-        "provider_request_id_sha256": "sha256:"
-        + hashlib.sha256(invocation.provider_request_id.encode()).hexdigest(),
-        "request_digest": request.digest.value,
-        "response_digest": invocation.response_digest.value,
-        "candidate_digest": Digest.from_bytes(candidate_bytes).value,
         "candidate_disposition": response["candidate"].get("disposition"),
         "validation_status": validation.status.value,
         "validation_code": validation.error_code,
         "accepted_count": validation.accepted_count,
         "rejected_count": validation.rejected_count,
-        "change_set_digest": (
-            change_set.digest.value if change_set is not None else None
-        ),
         "disposition": (
             change_set.disposition.value if change_set is not None else None
         ),
@@ -342,9 +330,7 @@ async def _verify(env_file: Path) -> dict[str, object]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
-    parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
-    output = args.output.resolve()
     try:
         evidence = asyncio.run(_verify(args.env_file.resolve()))
     except Exception as error:
@@ -356,19 +342,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "result": "fail",
             "failure_code": code,
         }
-        encoded = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(encoded + "\n", encoding="utf-8", newline="\n")
+        encoded = json.dumps(evidence, indent=2, sort_keys=True)
         print(encoded)
         return 1
     encoded = json.dumps(
         evidence,
         ensure_ascii=False,
         sort_keys=True,
-        separators=(",", ":"),
+        indent=2,
     )
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(encoded + "\n", encoding="utf-8", newline="\n")
     print(encoded)
     return 0 if evidence["result"] == "pass" else 2
 

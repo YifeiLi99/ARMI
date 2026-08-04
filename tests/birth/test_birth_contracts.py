@@ -35,7 +35,6 @@ def manifest_value() -> dict[str, object]:
         "voice_style": "约 16 岁少女口吻",
         "traits": ["好奇", "坦率"],
     }
-    package = {name: digest.value for name, digest in packaged_birth_digests().items()}
     return {
         "schema_version": "armi.birth-manifest.v1",
         "environment_id": str(ENVIRONMENT_ID),
@@ -44,7 +43,6 @@ def manifest_value() -> dict[str, object]:
         "idempotency_key": "birth-request-001",
         "personality_anchor": anchor,
         "personality_anchor_digest": Digest.from_bytes(rfc8785.dumps(anchor)).value,
-        "expected_package": package,
     }
 
 
@@ -116,7 +114,7 @@ class BirthContractTests(unittest.TestCase):
         finally:
             loop.close()
 
-    def test_private_manifest_loads_and_binds_all_package_digests(self) -> None:
+    def test_private_manifest_loads_and_runtime_binds_package_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             write_manifest(root, manifest_value())
@@ -128,6 +126,10 @@ class BirthContractTests(unittest.TestCase):
         self.assertEqual(manifest.environment_id, ENVIRONMENT_ID)
         self.assertEqual(manifest.personality_anchor.traits, ("好奇", "坦率"))
         self.assertTrue(manifest.request_digest.value.startswith("sha256:"))
+        self.assertEqual(
+            manifest.composition_digest,
+            packaged_birth_digests()["composition_digest"],
+        )
 
     def test_forbidden_acquired_content_is_rejected_without_echo(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

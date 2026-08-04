@@ -53,7 +53,6 @@ def probe_continuity(
     conninfo: str,
     *,
     composition_digest: Digest,
-    schema_manifest_digest: Digest,
     birth_contract_digest: Digest,
     creator_asset_digest: Digest,
 ) -> ContinuityState:
@@ -64,7 +63,6 @@ def probe_continuity(
                 SELECT
                     subject.subject_id,
                     activation.bundle_digest,
-                    activation.schema_baseline_digest,
                     activation.fixed_policy_digest,
                     activation.creator_asset_digest,
                     (
@@ -139,13 +137,12 @@ def probe_continuity(
     row = rows[0]
     expected = (
         composition_digest.value,
-        schema_manifest_digest.value,
         birth_contract_digest.value,
         creator_asset_digest.value,
     )
-    if tuple(str(value) for value in row[1:5]) != expected:
+    if tuple(str(value) for value in row[1:4]) != expected:
         return ContinuityState.INVALID
-    if tuple(int(value) for value in row[5:]) != (1, 2, 3, 1, 3, 3, 1):
+    if tuple(int(value) for value in row[4:]) != (1, 2, 3, 1, 3, 3, 1):
         return ContinuityState.INVALID
     return ContinuityState.BORN
 
@@ -273,11 +270,10 @@ class BirthRepository:
             """
             INSERT INTO armi.runtime_bundle_activations (
                 bundle_activation_id, subject_id, bundle_version, bundle_digest,
-                manifest_artifact_id, schema_baseline_digest,
-                fixed_policy_digest, fixed_prompt_set_digest,
+                manifest_artifact_id, fixed_policy_digest, fixed_prompt_set_digest,
                 creator_asset_digest, status, activated_by_party_id
             ) VALUES (
-                %s, %s, '0.0.0', %s, %s, %s, %s, %s, %s, 'current', %s
+                %s, %s, '0.0.0', %s, %s, %s, %s, %s, 'current', %s
             )
             """,
             (
@@ -285,7 +281,6 @@ class BirthRepository:
                 subject_id,
                 manifest.composition_digest.value,
                 artifacts.activation_artifact_id,
-                manifest.schema_manifest_digest.value,
                 manifest.birth_contract_digest.value,
                 artifacts.fixed_prompt_set_digest.value,
                 manifest.creator_asset_manifest_digest.value,

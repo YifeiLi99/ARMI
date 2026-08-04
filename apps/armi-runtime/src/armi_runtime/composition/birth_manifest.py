@@ -29,15 +29,8 @@ _ROOT_FIELDS = {
     "idempotency_key",
     "personality_anchor",
     "personality_anchor_digest",
-    "expected_package",
 }
 _ANCHOR_FIELDS = {"schema_version", "voice_style", "traits"}
-_PACKAGE_FIELDS = {
-    "composition_digest",
-    "birth_contract_digest",
-    "schema_manifest_digest",
-    "creator_asset_manifest_digest",
-}
 _FORBIDDEN_FIELDS = {
     "experiences",
     "goals",
@@ -71,9 +64,6 @@ def packaged_birth_digests() -> dict[str, Digest]:
             ),
             "birth_contract_digest": _digest(
                 resources.joinpath("birth-contract.manifest.json").read_bytes()
-            ),
-            "schema_manifest_digest": _digest(
-                resources.joinpath("schema/manifests/schema-manifest.json").read_bytes()
             ),
             "creator_asset_manifest_digest": _digest(
                 creator.joinpath("manifest.json").read_bytes()
@@ -118,12 +108,10 @@ def load_birth_manifest(
     if set(value) != _ROOT_FIELDS:
         raise BirthViolation("BIRTH-MANIFEST")
     anchor_value = value["personality_anchor"]
-    package_value = value["expected_package"]
-    if type(anchor_value) is not dict or type(package_value) is not dict:
+    if type(anchor_value) is not dict:
         raise BirthViolation("BIRTH-MANIFEST")
     anchor_fields = cast(dict[str, object], anchor_value)
-    package_fields = cast(dict[str, object], package_value)
-    if set(anchor_fields) != _ANCHOR_FIELDS or set(package_fields) != _PACKAGE_FIELDS:
+    if set(anchor_fields) != _ANCHOR_FIELDS:
         raise BirthViolation("BIRTH-MANIFEST")
     traits_value = anchor_fields["traits"]
     if type(traits_value) is not list or any(
@@ -139,9 +127,7 @@ def load_birth_manifest(
         )
         declared_anchor_digest = Digest(cast(str, value["personality_anchor_digest"]))
         actual_anchor_digest = _digest(_canonical(anchor_fields))
-        expected_package = {
-            name: Digest(cast(str, package_fields[name])) for name in _PACKAGE_FIELDS
-        }
+        packaged = packaged_birth_digests()
         environment_id = UUID(cast(str, value["environment_id"]))
         manifest = BirthManifest(
             schema_version=cast(str, value["schema_version"]),
@@ -152,7 +138,7 @@ def load_birth_manifest(
             personality_anchor=anchor,
             personality_anchor_digest=declared_anchor_digest,
             request_digest=_digest(_canonical(value)),
-            **expected_package,
+            **packaged,
         )
     except BirthViolation:
         raise
@@ -162,8 +148,6 @@ def load_birth_manifest(
         raise BirthViolation("BIRTH-ENVIRONMENT")
     if declared_anchor_digest != actual_anchor_digest:
         raise BirthViolation("BIRTH-ANCHOR-DIGEST")
-    if expected_package != packaged_birth_digests():
-        raise BirthViolation("BIRTH-PACKAGE-DRIFT")
     return manifest
 
 

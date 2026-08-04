@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import time
 from collections.abc import Sequence
@@ -102,18 +101,9 @@ async def _verify(env_file: Path) -> dict[str, object]:
     assert result.response_digest is not None
     assert result.usage is not None
     return {
-        "schema_version": "armi.model-live-evidence.v1",
-        "binding_digest": binding.digest.value,
-        "credential_fingerprint": adapter.credential_fingerprint(),
         "provider": binding.provider,
         "requested_model_id": binding.model_id,
         "provider_model_id": result.provider_model_id,
-        "provider_request_id_sha256": (
-            "sha256:"
-            + hashlib.sha256(result.provider_request_id.encode("utf-8")).hexdigest()
-        ),
-        "request_digest": request.digest.value,
-        "response_digest": result.response_digest.value,
         "input_tokens": result.usage.input_tokens,
         "output_tokens": result.usage.output_tokens,
         "cached_input_tokens": result.usage.cached_input_tokens,
@@ -128,7 +118,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
-    parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     try:
         evidence = asyncio.run(_verify(args.env_file.resolve()))
@@ -136,18 +125,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         code = str(error)
         if not code.startswith("MODEL-"):
             code = "MODEL-LIVE-FAILED"
-        print(json.dumps({"result": "fail", "code": code}, separators=(",", ":")))
+        print(json.dumps({"result": "fail", "code": code}, indent=2, sort_keys=True))
         return 1
     encoded = json.dumps(
         evidence,
         ensure_ascii=False,
         sort_keys=True,
-        separators=(",", ":"),
+        indent=2,
     )
-    if args.output is not None:
-        output = args.output.resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(encoded + "\n", encoding="utf-8", newline="\n")
     print(encoded)
     return 0
 

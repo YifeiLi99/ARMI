@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import functools
-import hashlib
 import http.server
 import json
 import os
@@ -402,10 +401,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
 
-def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -676,11 +671,11 @@ def main() -> int:
         json.dumps(
             {
                 "status": "pass",
-                "chromium_sha256": sha256_file(executable),
                 "viewports": results,
             },
             ensure_ascii=False,
-            separators=(",", ":"),
+            indent=2,
+            sort_keys=True,
         )
     )
     return 0

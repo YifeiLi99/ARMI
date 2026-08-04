@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import time
 from collections.abc import Sequence
@@ -179,25 +178,11 @@ async def _verify(env_file: Path) -> dict[str, object]:
         ),
     )
     return {
-        "schema_version": "armi.candidate-live-evidence.v1",
-        "binding_digest": binding.digest.value,
         "candidate_contract": "armi.cognition-candidate.v2",
-        "validator_identity": "armi.candidate-validator.deterministic-v1",
-        "credential_fingerprint": adapter.credential_fingerprint(),
         "requested_model_id": binding.model_id,
         "provider_model_id": invocation.provider_model_id,
-        "provider_request_id_sha256": (
-            "sha256:"
-            + hashlib.sha256(invocation.provider_request_id.encode()).hexdigest()
-        ),
-        "request_digest": request.digest.value,
-        "response_digest": invocation.response_digest.value,
-        "candidate_digest": Digest.from_bytes(candidate_bytes).value,
         "validation_status": validation.status.value,
         "validation_error_code": validation.error_code,
-        "change_set_digest": (
-            validation.change_set.digest.value if validation.change_set else None
-        ),
         "input_tokens": invocation.usage.input_tokens,
         "output_tokens": invocation.usage.output_tokens,
         "cached_input_tokens": invocation.usage.cached_input_tokens,
@@ -213,7 +198,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
-    parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     try:
         evidence = asyncio.run(_verify(args.env_file.resolve()))
@@ -221,18 +205,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         code = str(error)
         if not code.startswith(("MODEL-", "CANDIDATE-")):
             code = "MODEL-LIVE-FAILED"
-        print(json.dumps({"result": "fail", "code": code}, separators=(",", ":")))
+        print(json.dumps({"result": "fail", "code": code}, indent=2, sort_keys=True))
         return 1
     encoded = json.dumps(
         evidence,
         ensure_ascii=False,
         sort_keys=True,
-        separators=(",", ":"),
+        indent=2,
     )
-    if args.output is not None:
-        output = args.output.resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(encoded + "\n", encoding="utf-8", newline="\n")
     print(encoded)
     return 0
 

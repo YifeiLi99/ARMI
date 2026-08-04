@@ -5,8 +5,8 @@ from __future__ import annotations
 import psycopg
 
 
-class AdminEnvironmentMigrationGateway:
-    """Remove only the packaged ARMI schema so migration 0001 recreates it."""
+class AdminEnvironmentSchemaGateway:
+    """Remove the disposable ARMI schema before installing the current DDL."""
 
     __slots__ = ()
 
@@ -18,4 +18,4 @@ class AdminEnvironmentMigrationGateway:
             connection.commit()
 
 
-__all__ = ("AdminEnvironmentMigrationGateway",)
+__all__ = ("AdminEnvironmentSchemaGateway",)

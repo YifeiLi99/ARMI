@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import time
 from collections.abc import Sequence
@@ -133,12 +132,6 @@ async def _candidate_call(
         raise RuntimeError(validation.error_code or "S039-LIVE-CANDIDATE")
     return validation.change_set, {
         "provider_model_id": invocation.provider_model_id,
-        "provider_request_id_digest": "sha256:"
-        + hashlib.sha256(invocation.provider_request_id.encode("utf-8")).hexdigest(),
-        "request_digest": request.digest.value,
-        "response_digest": invocation.response_digest.value,
-        "candidate_digest": Digest.from_bytes(candidate_bytes).value,
-        "change_set_digest": validation.change_set.digest.value,
         "input_tokens": invocation.usage.input_tokens,
         "cached_input_tokens": invocation.usage.cached_input_tokens,
         "output_tokens": invocation.usage.output_tokens,
@@ -436,11 +429,6 @@ async def _verify(root: Path, env_file: Path) -> dict[str, object]:
         raise RuntimeError("S039-LIVE-BUDGET")
     runner_summary_keys = (
         "model_id",
-        "sdk_identity_digest",
-        "source_tree_digest",
-        "final_tree_digest",
-        "patch_digest",
-        "output_digest",
         "modified_file_count",
         "validation_passed",
         "input_tokens",
@@ -452,13 +440,10 @@ async def _verify(root: Path, env_file: Path) -> dict[str, object]:
         "sandbox",
     )
     return {
-        "schema_version": "armi.s039-live-evidence.v1",
         "result": "pass",
         "ark_successful_invocation_count": 2,
         "ark_prior_failed_invocation_count": 3,
         "codex_invocation_count": 1,
-        "binding_digest": binding.digest.value,
-        "credential_fingerprint": adapter.credential_fingerprint(),
         "first_cognition": first_evidence,
         "runner": {key: runner_evidence[key] for key in runner_summary_keys},
         "second_cognition": second_evidence,
@@ -478,7 +463,6 @@ async def _verify(root: Path, env_file: Path) -> dict[str, object]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
-    parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parents[1]
     try:
@@ -494,17 +478,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             else "S039-LIVE-FAILED"
         )
         evidence = {
-            "schema_version": "armi.s039-live-evidence.v1",
             "result": "blocked",
             "error_code": code
             if code.startswith(("S039-", "MODEL-", "CODEX-", "CANDIDATE-"))
             else "S039-LIVE-FAILED",
         }
-    encoded = rfc8785.dumps(cast(Any, evidence)) + b"\n"
-    if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_bytes(encoded)
-    print(encoded.decode("utf-8"), end="")
+    print(json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if evidence["result"] == "pass" else 1
 
 
