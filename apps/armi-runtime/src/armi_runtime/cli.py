@@ -30,6 +30,7 @@ from armi_runtime.composition.operational_maintenance import (
     run_database_maintenance,
 )
 from armi_runtime.composition.runtime import run_runtime
+from armi_runtime.composition.runtime_capacity import run_runtime_capacity_baseline
 from armi_runtime.composition.runtime_errors import RuntimeViolation
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.interfaces.browser_sessions import BrowserSessionViolation
@@ -68,6 +69,31 @@ def _parser() -> argparse.ArgumentParser:
     artifacts_cleanup = artifacts_command.add_parser("cleanup")
     artifacts_cleanup.add_argument("--environment-root", type=Path, required=True)
     artifacts_cleanup.add_argument("--apply", action="store_true")
+    capacity = command.add_parser("capacity")
+    capacity_command = capacity.add_subparsers(
+        dest="capacity_command",
+        required=True,
+    )
+    capacity_baseline = capacity_command.add_parser("baseline")
+    capacity_baseline.add_argument("--environment-root", type=Path, required=True)
+    capacity_baseline.add_argument("--duration-seconds", type=int, default=60)
+    capacity_baseline.add_argument("--sample-interval-seconds", type=int, default=5)
+    capacity_baseline.add_argument(
+        "--max-rss-growth-bytes",
+        type=int,
+        default=67_108_864,
+    )
+    capacity_baseline.add_argument("--max-backlog-growth", type=int, default=0)
+    capacity_baseline.add_argument(
+        "--max-open-backlog-age-seconds",
+        type=int,
+        default=120,
+    )
+    capacity_baseline.add_argument(
+        "--max-log-growth-bytes",
+        type=int,
+        default=16_777_216,
+    )
     bootstrap = command.add_parser("bootstrap")
     bootstrap_command = bootstrap.add_subparsers(
         dest="bootstrap_command",
@@ -135,7 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {
             "creator.bootstrap.issue": CREATOR_BEARER_LOCATOR,
         }
-    elif args.command in {"status", "stop"}:
+    elif args.command in {"status", "stop", "capacity"}:
         credential_scope = {}
     else:
         credential_scope = {
@@ -211,6 +237,33 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "capacity":
+        manager = RuntimeProcessManager(
+            prepared.root,
+            str(prepared.effective.config.environment.environment_id),
+        )
+        try:
+            result = run_runtime_capacity_baseline(
+                manager.status,
+                duration_seconds=args.duration_seconds,
+                sample_interval_seconds=args.sample_interval_seconds,
+                max_rss_growth_bytes=args.max_rss_growth_bytes,
+                max_backlog_growth=args.max_backlog_growth,
+                max_open_backlog_age_seconds=args.max_open_backlog_age_seconds,
+                max_log_growth_bytes=args.max_log_growth_bytes,
+            )
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 3
+        print(
+            json.dumps(
+                result.safe_view(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0 if result.status == "pass" else 4
     if args.command == "bootstrap":
         try:
             result = execute_birth(prepared)

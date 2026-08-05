@@ -414,6 +414,30 @@ class PostgreSQLDurableWorkGateway:
                             "claimed",
                         )
                     )
+                    outbox = await (
+                        await connection.execute(
+                            """
+                            UPDATE armi.outbox_items
+                            SET status = 'delivered',
+                                delivered_at = clock_timestamp(),
+                                last_error_code = NULL,
+                                updated_at = clock_timestamp()
+                            WHERE work_id = %s
+                              AND message_kind = 'work.available'
+                              AND status = 'ready'
+                            RETURNING outbox_item_id
+                            """,
+                            (record.draft.work_id.value,),
+                        )
+                    ).fetchone()
+                    if outbox is not None:
+                        await unit_of_work.audit.append(
+                            _observed_outbox_audit(
+                                self._factory.environment_id,
+                                record,
+                                outbox[0],
+                            )
+                        )
                     records.append(record)
                 return tuple(records)
         except WorkViolation:
@@ -824,6 +848,26 @@ def _record_audit(
         sensitivity=AuditSensitivity.INTERNAL,
         subject_id=record.draft.subject_id,
         request=request,
+        request_digest=record.draft.payload_digest,
+    )
+
+
+def _observed_outbox_audit(
+    actor_ref: UUID,
+    record: WorkRecord,
+    outbox_item_id: UUID,
+) -> AuditDraft:
+    return AuditDraft(
+        audit_event_id=AuditEventId(uuid7()),
+        actor=AuditReference("runtime", actor_ref),
+        purpose=Purpose("work.custody"),
+        operation="outbox.delivered",
+        target=AuditReference("outbox_item", outbox_item_id),
+        result_status=AuditResultStatus.COMPLETED,
+        trace_id=record.draft.trace_id,
+        sensitivity=AuditSensitivity.INTERNAL,
+        subject_id=record.draft.subject_id,
+        request=AuditReference("durable_work", record.draft.work_id.value),
         request_digest=record.draft.payload_digest,
     )
 

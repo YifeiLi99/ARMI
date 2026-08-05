@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ConfigurationViolation(ValueError):
     """A failure safe to surface without raw values or filesystem details."""
 

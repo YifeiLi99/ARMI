@@ -56,6 +56,28 @@ def make_environment(
 
 
 class RuntimeCliTests(unittest.TestCase):
+    def test_unknown_armi_environment_returns_safe_configuration_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            error = io.StringIO()
+            with (
+                patch.dict(
+                    os.environ,
+                    {"ARMI_UNREGISTERED_OVERRIDE": "private-value"},
+                    clear=True,
+                ),
+                redirect_stderr(error),
+            ):
+                exit_code = main(
+                    ("config", "check", "--environment-root", str(root.resolve()))
+                )
+
+        self.assertEqual(exit_code, 2)
+        failure = json.loads(error.getvalue())
+        self.assertEqual(failure["code"], "CFG-UNKNOWN-ENV")
+        self.assertNotIn("private-value", error.getvalue())
+
     def test_environment_root_preflight_and_redacted_config_check(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -395,6 +417,54 @@ class RuntimeCliTests(unittest.TestCase):
             {"database.maintenance": "database.migrator"},
         )
         maintain.assert_called_once()
+
+    def test_capacity_baseline_is_read_only_and_returns_attention_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            report = SimpleNamespace(
+                status="attention",
+                safe_view=lambda: {
+                    "schema_version": "armi.runtime-capacity-baseline.v1",
+                    "status": "attention",
+                    "issue_codes": ["CAPACITY-RSS-GROWTH"],
+                },
+            )
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "armi_runtime.cli.prepare_environment",
+                    wraps=prepare_environment,
+                ) as prepare,
+                patch(
+                    "armi_runtime.cli.RuntimeProcessManager.status",
+                    return_value={"status": "running"},
+                ),
+                patch(
+                    "armi_runtime.cli.run_runtime_capacity_baseline",
+                    return_value=report,
+                ) as baseline,
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    (
+                        "capacity",
+                        "baseline",
+                        "--environment-root",
+                        str(root.resolve()),
+                        "--duration-seconds",
+                        "30",
+                        "--sample-interval-seconds",
+                        "3",
+                    )
+                )
+
+        self.assertEqual(exit_code, 4)
+        self.assertEqual(json.loads(output.getvalue())["status"], "attention")
+        self.assertEqual(prepare.call_args.kwargs["credential_scope"], {})
+        self.assertEqual(baseline.call_args.kwargs["duration_seconds"], 30)
+        self.assertEqual(baseline.call_args.kwargs["sample_interval_seconds"], 3)
 
 
 if __name__ == "__main__":

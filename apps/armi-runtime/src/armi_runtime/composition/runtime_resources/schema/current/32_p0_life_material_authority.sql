@@ -93,7 +93,9 @@ CREATE TABLE armi.life_material_revisions (
     title text NOT NULL CHECK (length(title) BETWEEN 1 AND 256),
     metadata jsonb NOT NULL CHECK (
         jsonb_typeof(metadata) = 'object'
-        AND jsonb_object_length(metadata) <= 32
+        AND jsonb_array_length(
+            jsonb_path_query_array(metadata, '$.keyvalue()')
+        ) <= 32
     ),
     revision_kind text NOT NULL CHECK (
         revision_kind IN ('created', 'updated', 'privacy_changed', 'deleted')

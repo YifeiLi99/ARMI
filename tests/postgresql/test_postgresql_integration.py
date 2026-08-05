@@ -195,6 +195,7 @@ from armi_runtime.composition.model_contract import (
     load_active_binding,
     parse_candidate,
 )
+from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
 from armi_runtime.composition.web_search_pipeline import build_web_search_pipeline
 from psycopg import sql
@@ -389,6 +390,190 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
+
+    def test_runtime_capacity_baseline_uses_private_current_observations(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().install(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="约 16 岁少女口吻",
+            traits=("连续",),
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="p0-s020-capacity-birth",
+            personality_anchor=anchor,
+            personality_anchor_digest=Digest.from_bytes(
+                rfc8785.dumps(
+                    {
+                        "schema_version": anchor.schema_version,
+                        "voice_style": anchor.voice_style,
+                        "traits": list(anchor.traits),
+                    }
+                )
+            ),
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"p0-s020-capacity-birth"),
+        )
+
+        async def reject_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("capacity baseline has no business lock target")
+
+        async def birth(artifact_root: Path) -> None:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_lock,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+            )
+            transaction = BirthTransaction(
+                ContentAddressedArtifactStore(
+                    artifact_root,
+                    max_object_bytes=1024 * 1024,
+                ),
+                ArtifactCatalogRepository(),
+                BirthRepository(),
+                factory,
+            )
+            await factory.open()
+            try:
+                await transaction.birth(manifest)
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            environment_root = Path(temporary).resolve()
+            data_root = environment_root / "data"
+            secrets_root = environment_root / "secrets"
+            data_root.mkdir()
+            secrets_root.mkdir()
+            asyncio.run(
+                birth(data_root / "artifacts"),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+            runtime_secret = secrets_root / "runtime"
+            runtime_secret.write_text(
+                fixture.runtime_dsn,
+                encoding="utf-8",
+                newline="\n",
+            )
+            creator_secret = secrets_root / "creator"
+            creator_secret.write_text(
+                "creator-v1." + secrets.token_urlsafe(32),
+                encoding="utf-8",
+                newline="\n",
+            )
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+                listener.bind(("127.0.0.1", 0))
+                runtime_port = int(listener.getsockname()[1])
+            (environment_root / "environment.toml").write_text(
+                "\n".join(
+                    (
+                        "[environment]",
+                        f'environment_id = "{fixture.environment_id}"',
+                        f'data_root = "{data_root.as_posix()}"',
+                        "",
+                        "[creator]",
+                        f"port = {runtime_port}",
+                        "",
+                        "[observability]",
+                        "sample_interval_seconds = 1",
+                        "",
+                        "[secret_locators]",
+                        f'"database.runtime" = "file:{runtime_secret.as_posix()}"',
+                        f'"creator.bearer" = "file:{creator_secret.as_posix()}"',
+                        "",
+                    )
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
+            duration = int(os.environ.get("P0_CAPACITY_BASELINE_SECONDS", "2"))
+            interval = min(5, duration)
+            manager = RuntimeProcessManager(
+                environment_root,
+                str(fixture.environment_id),
+            )
+            try:
+                started = manager.start()
+                self.assertEqual(started["status"], "started")
+                completed = subprocess.run(
+                    (
+                        str(Path(".venv/Scripts/armi.exe").resolve()),
+                        "capacity",
+                        "baseline",
+                        "--environment-root",
+                        str(environment_root),
+                        "--duration-seconds",
+                        str(duration),
+                        "--sample-interval-seconds",
+                        str(interval),
+                    ),
+                    cwd=Path.cwd(),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                report = json.loads(completed.stdout)
+                summary = {
+                    key: value
+                    for key, value in report.items()
+                    if key != "samples"
+                }
+                summary["first_sample"] = report["samples"][0]
+                summary["last_sample"] = report["samples"][-1]
+                print(
+                    json.dumps(
+                        summary,
+                        ensure_ascii=False,
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
+                self.assertEqual(report["status"], "pass")
+                self.assertGreaterEqual(report["sample_count"], 2)
+                self.assertEqual(report["unavailable_sample_count"], 0)
+                self.assertEqual(report["issue_codes"], [])
+                self.assertEqual(
+                    report["samples"][-1]["authority"]["active_runtime_count"],
+                    1,
+                )
+                with psycopg.connect(fixture.runtime_dsn) as connection:
+                    stale_notifications = connection.execute(
+                        """
+                        SELECT count(*)
+                        FROM armi.outbox_items AS outbox
+                        JOIN armi.durable_work AS work USING (work_id)
+                        WHERE outbox.message_kind = 'work.available'
+                          AND outbox.status = 'ready'
+                          AND work.status <> 'ready'
+                        """
+                    ).fetchone()
+                assert stale_notifications is not None
+                self.assertEqual(stale_notifications[0], 0)
+            finally:
+                stopped = manager.stop()
+                self.assertEqual(stopped["status"], "stopped")
 
     def test_life_generation_source_is_single_under_concurrency_and_restart(
         self,
@@ -5717,6 +5902,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "WORK-IDEMPOTENCY-CONFLICT",
                 )
 
+                deliveries: list[UUID] = []
+
+                async def conformance_handler(envelope: OutboxEnvelope) -> None:
+                    deliveries.append(envelope.work_id.value)
+
+                dispatcher = OutboxDispatcher(
+                    outbox_gateway,
+                    {"work.available": conformance_handler},
+                )
+                dispatched = await dispatcher.dispatch_once(
+                    claim_owner=_uuid7(),
+                    lease_seconds=2,
+                    limit=10,
+                )
+                self.assertEqual(dispatched, 1)
+                self.assertEqual(deliveries, [draft.work_id.value])
+
                 owner_a = _uuid7()
                 claims = await asyncio.gather(
                     gateway.claim(
@@ -5788,23 +5990,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     WorkResultRef("artifact", _uuid7()),
                 )
                 self.assertEqual(completed.status.value, "completed")
-
-                deliveries: list[UUID] = []
-
-                async def conformance_handler(envelope: OutboxEnvelope) -> None:
-                    deliveries.append(envelope.work_id.value)
-
-                dispatcher = OutboxDispatcher(
-                    outbox_gateway,
-                    {"work.available": conformance_handler},
-                )
-                dispatched = await dispatcher.dispatch_once(
-                    claim_owner=_uuid7(),
-                    lease_seconds=2,
-                    limit=10,
-                )
-                self.assertEqual(dispatched, 1)
-                self.assertEqual(deliveries, [draft.work_id.value])
 
                 unavailable = WorkDraft(
                     work_id=WorkId(_uuid7()),
@@ -5908,6 +6093,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         """,
                         (unavailable.work_id.value,),
                     ).fetchone()
+                    observed_outbox = connection.execute(
+                        """
+                        SELECT status, last_error_code
+                        FROM armi.outbox_items
+                        WHERE work_id = %s
+                        """,
+                        (exhausted.work_id.value,),
+                    ).fetchone()
                     failures = connection.execute(
                         """
                         SELECT work_id, status, last_error_code
@@ -5931,6 +6124,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "lease_token": second_lease.token,
                     "deliveries": len(deliveries),
                     "unavailable_outbox": unavailable_outbox,
+                    "observed_outbox": observed_outbox,
                     "failures": tuple((str(row[1]), str(row[2])) for row in failures),
                 }
             finally:
@@ -5953,6 +6147,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "dead",
                     "OUTBOX-HANDLER-UNAVAILABLE",
                 ),
+                "observed_outbox": ("delivered", None),
                 "failures": (
                     ("failed", "WORK-ATTEMPTS-EXHAUSTED"),
                     ("failed", "WORK-DEADLINE"),
