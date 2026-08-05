@@ -100,6 +100,33 @@ class RelationshipStatus(StrEnum):
     ENDED = "ended"
 
 
+class RelationshipCommitmentStatus(StrEnum):
+    ACTIVE = "active"
+    FULFILLED = "fulfilled"
+    WITHDRAWN = "withdrawn"
+    FORGOTTEN = "forgotten"
+    VIOLATED = "violated"
+
+
+class RelationshipCommitmentEventKind(StrEnum):
+    ESTABLISHED = "established"
+    MODIFIED = "modified"
+    FULFILLED = "fulfilled"
+    WITHDRAWN = "withdrawn"
+    FORGOTTEN = "forgotten"
+    VIOLATED = "violated"
+    CONFLICT_NOTED = "conflict_noted"
+
+
+class RelationshipIssueKind(StrEnum):
+    CONTRADICTORY_COMMITMENTS = "contradictory_commitments"
+    COMMITMENT_VIOLATION = "commitment_violation"
+
+
+class RelationshipIssueStatus(StrEnum):
+    OPEN = "open"
+
+
 class CandidateOwner(StrEnum):
     EXPERIENCE = "experience"
     SELF = "self"
@@ -356,6 +383,111 @@ class RelationshipBoundary:
 
 
 @dataclass(frozen=True, slots=True)
+class RelationshipCommitment:
+    commitment_id: UUID
+    party_role: RelationshipPartyRole
+    scope: str
+    content: str
+    status: RelationshipCommitmentStatus
+    last_event_kind: RelationshipCommitmentEventKind
+    last_event_summary: str
+
+    def __post_init__(self) -> None:
+        expected_status = {
+            RelationshipCommitmentEventKind.ESTABLISHED: (
+                RelationshipCommitmentStatus.ACTIVE
+            ),
+            RelationshipCommitmentEventKind.MODIFIED: RelationshipCommitmentStatus.ACTIVE,
+            RelationshipCommitmentEventKind.FULFILLED: (
+                RelationshipCommitmentStatus.FULFILLED
+            ),
+            RelationshipCommitmentEventKind.WITHDRAWN: (
+                RelationshipCommitmentStatus.WITHDRAWN
+            ),
+            RelationshipCommitmentEventKind.FORGOTTEN: (
+                RelationshipCommitmentStatus.FORGOTTEN
+            ),
+            RelationshipCommitmentEventKind.VIOLATED: (
+                RelationshipCommitmentStatus.VIOLATED
+            ),
+            RelationshipCommitmentEventKind.CONFLICT_NOTED: self.status,
+        }.get(self.last_event_kind)
+        if (
+            type(self.commitment_id) is not UUID
+            or self.commitment_id.version != 7
+            or type(self.party_role) is not RelationshipPartyRole
+            or not _optional_text(self.scope, 2048)
+            or len(self.scope) > 512
+            or not _optional_text(self.content, 4096)
+            or len(self.content) > 1024
+            or type(self.status) is not RelationshipCommitmentStatus
+            or type(self.last_event_kind) is not RelationshipCommitmentEventKind
+            or not _optional_text(self.last_event_summary, 2048)
+            or len(self.last_event_summary) > 512
+            or expected_status is not self.status
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-COMMITMENT")
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipIssue:
+    issue_id: UUID
+    kind: RelationshipIssueKind
+    commitment_ids: tuple[UUID, ...]
+    summary: str
+    status: RelationshipIssueStatus = RelationshipIssueStatus.OPEN
+
+    def __post_init__(self) -> None:
+        expected_count = (
+            2 if self.kind is RelationshipIssueKind.CONTRADICTORY_COMMITMENTS else 1
+        )
+        if (
+            type(self.issue_id) is not UUID
+            or self.issue_id.version != 7
+            or type(self.kind) is not RelationshipIssueKind
+            or type(self.commitment_ids) is not tuple
+            or len(self.commitment_ids) != expected_count
+            or len(set(self.commitment_ids)) != len(self.commitment_ids)
+            or any(
+                type(value) is not UUID or value.version != 7
+                for value in self.commitment_ids
+            )
+            or not _optional_text(self.summary, 2048)
+            or len(self.summary) > 512
+            or self.status is not RelationshipIssueStatus.OPEN
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-ISSUE")
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipCommitmentEvent:
+    commitment_id: UUID
+    kind: RelationshipCommitmentEventKind
+    summary: str
+    related_commitment_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.commitment_id) is not UUID
+            or self.commitment_id.version != 7
+            or type(self.kind) is not RelationshipCommitmentEventKind
+            or not _optional_text(self.summary, 2048)
+            or len(self.summary) > 512
+            or (
+                self.related_commitment_id is not None
+                and (
+                    type(self.related_commitment_id) is not UUID
+                    or self.related_commitment_id.version != 7
+                    or self.related_commitment_id == self.commitment_id
+                )
+            )
+            or (self.kind is RelationshipCommitmentEventKind.CONFLICT_NOTED)
+            != (self.related_commitment_id is not None)
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-EVENT")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateRelationshipDraft:
     proposal_ref: str
     atomic_group_ref: str
@@ -371,6 +503,9 @@ class CandidateRelationshipDraft:
     interpretation: str
     boundaries: tuple[RelationshipBoundary, ...]
     status: RelationshipStatus
+    commitments: tuple[RelationshipCommitment, ...] = ()
+    open_issues: tuple[RelationshipIssue, ...] = ()
+    commitment_event: RelationshipCommitmentEvent | None = None
     scope: str = "creator_social"
     mechanism_identity: str = "armi.relationship.contextual-v1"
     privacy_scope: str = "private"
@@ -420,6 +555,42 @@ class CandidateRelationshipDraft:
             != any(
                 value.action is RelationshipBoundaryAction.END_CONTACT
                 for value in self.boundaries
+            )
+            or type(self.commitments) is not tuple
+            or len(self.commitments) > 16
+            or any(
+                type(value) is not RelationshipCommitment for value in self.commitments
+            )
+            or len({value.commitment_id for value in self.commitments})
+            != len(self.commitments)
+            or type(self.open_issues) is not tuple
+            or len(self.open_issues) > 32
+            or any(type(value) is not RelationshipIssue for value in self.open_issues)
+            or len({value.issue_id for value in self.open_issues})
+            != len(self.open_issues)
+            or any(
+                commitment_id not in {value.commitment_id for value in self.commitments}
+                for issue in self.open_issues
+                for commitment_id in issue.commitment_ids
+            )
+            or (
+                self.commitment_event is not None
+                and (
+                    type(self.commitment_event) is not RelationshipCommitmentEvent
+                    or self.commitment_event.commitment_id
+                    not in {value.commitment_id for value in self.commitments}
+                    or not any(
+                        value.commitment_id == self.commitment_event.commitment_id
+                        and value.last_event_kind is self.commitment_event.kind
+                        and value.last_event_summary == self.commitment_event.summary
+                        for value in self.commitments
+                    )
+                    or (
+                        self.commitment_event.related_commitment_id is not None
+                        and self.commitment_event.related_commitment_id
+                        not in {value.commitment_id for value in self.commitments}
+                    )
+                )
             )
             or self.scope != "creator_social"
             or self.mechanism_identity != "armi.relationship.contextual-v1"
@@ -846,8 +1017,15 @@ __all__ = (
     "RelationshipBoundary",
     "RelationshipBoundaryAction",
     "RelationshipBoundaryKind",
+    "RelationshipCommitment",
+    "RelationshipCommitmentEvent",
+    "RelationshipCommitmentEventKind",
+    "RelationshipCommitmentStatus",
     "RelationshipFact",
     "RelationshipFactKind",
+    "RelationshipIssue",
+    "RelationshipIssueKind",
+    "RelationshipIssueStatus",
     "RelationshipPartyRole",
     "RelationshipStatus",
     "SubjectChangeSet",

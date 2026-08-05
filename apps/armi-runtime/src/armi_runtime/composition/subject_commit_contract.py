@@ -42,8 +42,15 @@ from armi_kernel.application import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
+    RelationshipCommitment,
+    RelationshipCommitmentEvent,
+    RelationshipCommitmentEventKind,
+    RelationshipCommitmentStatus,
     RelationshipFact,
     RelationshipFactKind,
+    RelationshipIssue,
+    RelationshipIssueKind,
+    RelationshipIssueStatus,
     RelationshipPartyRole,
     RelationshipStatus,
     SleepDecisionKind,
@@ -77,6 +84,7 @@ _TOP_KEYS_V9 = {*_TOP_KEYS_V8, "sleep_decisions"}
 _TOP_KEYS_V10 = {*_TOP_KEYS_V6, "web_research_requests", "memories"}
 _TOP_KEYS_V11 = {*_TOP_KEYS_V10, "memory_revisions"}
 _TOP_KEYS_V12 = {*_TOP_KEYS_V11, "relationships"}
+_TOP_KEYS_V13 = _TOP_KEYS_V12
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -98,6 +106,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v10",
             "armi.subject-change-set.v11",
             "armi.subject-change-set.v12",
+            "armi.subject-change-set.v13",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -125,6 +134,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V11
             if version.endswith(".v11")
             else _TOP_KEYS_V12
+            if version.endswith(".v12")
+            else _TOP_KEYS_V13
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -180,7 +191,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             for item in _array(document.get("memory_revisions", []), 1)
         )
         relationships = tuple(
-            _relationship(item) for item in _array(document.get("relationships", []), 1)
+            _relationship(item, include_commitments=version.endswith(".v13"))
+            for item in _array(document.get("relationships", []), 1)
         )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
@@ -442,28 +454,35 @@ def _memory_revision(value: object) -> CandidateMemoryRevisionDraft:
     )
 
 
-def _relationship(value: object) -> CandidateRelationshipDraft:
+def _relationship(
+    value: object,
+    *,
+    include_commitments: bool,
+) -> CandidateRelationshipDraft:
+    keys = {
+        "proposal_ref",
+        "atomic_group_ref",
+        "basis_ordinals",
+        "fact_class",
+        "relationship_id",
+        "subject_party_id",
+        "other_party_id",
+        "current_revision_id",
+        "expected_head_version",
+        "source_experience_ref",
+        "facts",
+        "interpretation",
+        "boundaries",
+        "status",
+        "scope",
+        "mechanism_identity",
+        "privacy_scope",
+    }
+    if include_commitments:
+        keys.update({"commitments", "open_issues", "commitment_event"})
     item = _object(
         value,
-        {
-            "proposal_ref",
-            "atomic_group_ref",
-            "basis_ordinals",
-            "fact_class",
-            "relationship_id",
-            "subject_party_id",
-            "other_party_id",
-            "current_revision_id",
-            "expected_head_version",
-            "source_experience_ref",
-            "facts",
-            "interpretation",
-            "boundaries",
-            "status",
-            "scope",
-            "mechanism_identity",
-            "privacy_scope",
-        },
+        keys,
     )
     current_revision_id = item["current_revision_id"]
     return CandidateRelationshipDraft(
@@ -500,9 +519,78 @@ def _relationship(value: object) -> CandidateRelationshipDraft:
             )
         ),
         RelationshipStatus(_text(item["status"])),
+        ()
+        if not include_commitments
+        else tuple(
+            RelationshipCommitment(
+                _uuid7(commitment["commitment_id"]),
+                RelationshipPartyRole(_text(commitment["party_role"])),
+                _text(commitment["scope"]),
+                _text(commitment["content"]),
+                RelationshipCommitmentStatus(_text(commitment["status"])),
+                RelationshipCommitmentEventKind(_text(commitment["last_event_kind"])),
+                _text(commitment["last_event_summary"]),
+            )
+            for commitment in (
+                _object(
+                    raw,
+                    {
+                        "commitment_id",
+                        "party_role",
+                        "scope",
+                        "content",
+                        "status",
+                        "last_event_kind",
+                        "last_event_summary",
+                    },
+                )
+                for raw in _array(item["commitments"], 16)
+            )
+        ),
+        ()
+        if not include_commitments
+        else tuple(
+            RelationshipIssue(
+                _uuid7(issue["issue_id"]),
+                RelationshipIssueKind(_text(issue["kind"])),
+                tuple(_uuid7(value) for value in _array(issue["commitment_ids"], 2)),
+                _text(issue["summary"]),
+                RelationshipIssueStatus(_text(issue["status"])),
+            )
+            for issue in (
+                _object(
+                    raw,
+                    {"issue_id", "kind", "commitment_ids", "summary", "status"},
+                )
+                for raw in _array(item["open_issues"], 32)
+            )
+        ),
+        (
+            _relationship_commitment_event(item["commitment_event"])
+            if include_commitments
+            else None
+        ),
         _text(item["scope"]),
         _text(item["mechanism_identity"]),
         _text(item["privacy_scope"]),
+    )
+
+
+def _relationship_commitment_event(
+    value: object,
+) -> RelationshipCommitmentEvent | None:
+    if value is None:
+        return None
+    item = _object(
+        value,
+        {"commitment_id", "kind", "summary", "related_commitment_id"},
+    )
+    related_commitment_id = item["related_commitment_id"]
+    return RelationshipCommitmentEvent(
+        _uuid7(item["commitment_id"]),
+        RelationshipCommitmentEventKind(_text(item["kind"])),
+        _text(item["summary"]),
+        (None if related_commitment_id is None else _uuid7(related_commitment_id)),
     )
 
 

@@ -6,8 +6,8 @@ ALTER TABLE armi.cognitive_attempts
             'armi.cognition-candidate.v3', 'armi.cognition-candidate.v4',
             'armi.cognition-candidate.v5', 'armi.cognition-candidate.v6',
             'armi.cognition-candidate.v7',
-            'armi.creator-dialogue-candidate.v3',
-            'armi.creator-dialogue-candidate.v4',
+            'armi.creator-dialogue-candidate.v5',
+            'armi.creator-dialogue-candidate.v6',
             'armi.autonomous-activity-candidate.v1',
             'armi.activity-attention-candidate.v1',
             'armi.sleep-decision-candidate.v1'
@@ -22,8 +22,8 @@ ALTER TABLE armi.cognitive_candidate_validations
             'armi.cognition-candidate.v3', 'armi.cognition-candidate.v4',
             'armi.cognition-candidate.v5', 'armi.cognition-candidate.v6',
             'armi.cognition-candidate.v7',
-            'armi.creator-dialogue-candidate.v3',
-            'armi.creator-dialogue-candidate.v4',
+            'armi.creator-dialogue-candidate.v5',
+            'armi.creator-dialogue-candidate.v6',
             'armi.autonomous-activity-candidate.v1',
             'armi.activity-attention-candidate.v1',
             'armi.sleep-decision-candidate.v1'
@@ -64,6 +64,17 @@ CREATE TABLE armi.relationship_revisions (
         jsonb_typeof(boundaries) = 'array'
         AND jsonb_array_length(boundaries) <= 16
     ),
+    commitments jsonb NOT NULL CHECK (
+        jsonb_typeof(commitments) = 'array'
+        AND jsonb_array_length(commitments) <= 16
+    ),
+    open_issues jsonb NOT NULL CHECK (
+        jsonb_typeof(open_issues) = 'array'
+        AND jsonb_array_length(open_issues) <= 32
+    ),
+    commitment_event jsonb CHECK (
+        commitment_event IS NULL OR jsonb_typeof(commitment_event) = 'object'
+    ),
     relationship_status text NOT NULL CHECK (
         relationship_status IN ('active', 'ended')
     ),
@@ -98,7 +109,9 @@ CREATE TABLE armi.relationship_experience_links (
     relationship_revision_id uuid NOT NULL
         REFERENCES armi.relationship_revisions(relationship_revision_id),
     experience_id uuid NOT NULL REFERENCES armi.accepted_experiences(experience_id),
-    link_kind text NOT NULL CHECK (link_kind = 'supports_relationship_change'),
+    link_kind text NOT NULL CHECK (
+        link_kind IN ('supports_relationship_change', 'supports_commitment_event')
+    ),
     ordinal smallint NOT NULL CHECK (ordinal > 0),
     PRIMARY KEY (relationship_revision_id, experience_id, link_kind),
     UNIQUE (relationship_revision_id, ordinal)

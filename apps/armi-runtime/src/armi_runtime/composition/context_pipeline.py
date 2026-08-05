@@ -464,7 +464,7 @@ def _context_request(
                     "private",
                     payload.decode("utf-8"),
                     False,
-                    88,
+                    96,
                 )
             )
     else:
@@ -473,6 +473,52 @@ def _context_request(
                 ContextSection.RELATIONSHIP,
                 "relationship",
                 reason="CTX-RELATIONSHIP-NONE",
+            )
+        )
+    recallable_commitments = tuple(
+        item
+        for item in snapshot.relationship_commitment_payloads
+        if item[4] != "forgotten"
+    )
+    if recallable_commitments:
+        for commitment_id, version, payload, digest, status in recallable_commitments:
+            items.append(
+                ContextItemCandidate(
+                    ContextSection.RELATIONSHIP,
+                    "current_relationship_commitment",
+                    ContextSourceIdentity(
+                        "relationship_commitment", commitment_id, version, digest
+                    ),
+                    ContextTrustClass.SUBJECTIVE_STATE,
+                    "private",
+                    payload.decode("utf-8"),
+                    False,
+                    92 if status == "active" else 80,
+                )
+            )
+    else:
+        items.append(
+            _unavailable(
+                ContextSection.RELATIONSHIP,
+                "relationship_commitment",
+                reason=(
+                    "CTX-COMMITMENT-NOT-RECALLABLE"
+                    if snapshot.relationship_commitment_payloads
+                    else "CTX-COMMITMENT-NONE"
+                ),
+            )
+        )
+    for issue_id, version, payload, digest in snapshot.relationship_issue_payloads:
+        items.append(
+            ContextItemCandidate(
+                ContextSection.RELATIONSHIP,
+                "current_relationship_issue",
+                ContextSourceIdentity("relationship_issue", issue_id, version, digest),
+                ContextTrustClass.SUBJECTIVE_STATE,
+                "private",
+                payload.decode("utf-8"),
+                False,
+                90,
             )
         )
     items.extend(

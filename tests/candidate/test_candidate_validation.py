@@ -26,8 +26,12 @@ from armi_kernel.application import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
+    RelationshipCommitment,
+    RelationshipCommitmentEventKind,
+    RelationshipCommitmentStatus,
     RelationshipFact,
     RelationshipFactKind,
+    RelationshipIssueKind,
     RelationshipPartyRole,
     RelationshipStatus,
     SubjectCommitViolation,
@@ -38,6 +42,7 @@ from armi_runtime.adapters.persistence.candidate_validation import (
 )
 from armi_runtime.composition.candidate_validator import (
     CandidateMemoryContext,
+    CandidateRelationshipCommitmentContext,
     CandidateRelationshipContext,
     CandidateValidationContext,
     DeterministicCandidateValidator,
@@ -1180,7 +1185,7 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None and repeated.change_set is not None
     assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v12" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v13" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
     assert len(result.change_set.relationships) == 1
     relationship = result.change_set.relationships[0]
@@ -1205,6 +1210,368 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert reparsed.relationships == result.change_set.relationships
     assert any(item is relationship for item in _validation_drafts(result.change_set))
+    historical_wire = json.loads(result.change_set.canonical_bytes)
+    historical_wire["schema_version"] = "armi.subject-change-set.v12"
+    for item in historical_wire["relationships"]:
+        item.pop("commitments")
+        item.pop("open_issues")
+        item.pop("commitment_event")
+    historical = parse_subject_change_set(rfc8785.dumps(cast(Any, historical_wire)))
+    assert historical.relationships[0].commitments == ()
+
+
+def test_dialogue_establishes_armi_commitment_without_granting_authority() -> None:
+    context, bases = _fixture()
+    context = replace(context, subject_party_id=uuid7())
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "我答应下次先问你是否方便。",
+                "experience": {"first_person_gist": "我作出了一个明确承担。"},
+                "relationship_change": {
+                    "interpretation": "我愿意在联系前尊重创造者当时的状态。",
+                    "commitment_change": {
+                        "action": "establish",
+                        "party": "armi",
+                        "scope": "主动联系",
+                        "content": "联系前先询问创造者当时是否方便。",
+                        "event_summary": "我明确作出了联系前先询问的承诺。",
+                    },
+                },
+            }
+        ),
+        bases=extended,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    relationship = result.change_set.relationships[0]
+    assert (
+        relationship.source_experience_ref
+        == result.change_set.experiences[0].proposal_ref
+    )
+    assert len(relationship.commitments) == 1
+    commitment = relationship.commitments[0]
+    assert commitment.party_role is RelationshipPartyRole.SUBJECT
+    assert commitment.status is RelationshipCommitmentStatus.ACTIVE
+    assert commitment.last_event_kind is RelationshipCommitmentEventKind.ESTABLISHED
+    assert relationship.commitment_event is not None
+    assert relationship.commitment_event.commitment_id == commitment.commitment_id
+    assert len(result.change_set.capability_requests) == 1
+    assert parse_subject_change_set(
+        result.change_set.canonical_bytes
+    ).relationships == (relationship,)
+
+
+@pytest.mark.parametrize(
+    ("action", "extra", "expected_status", "expected_event"),
+    (
+        (
+            "modify",
+            {"content": "只在工作日提醒一次。"},
+            RelationshipCommitmentStatus.ACTIVE,
+            RelationshipCommitmentEventKind.MODIFIED,
+        ),
+        (
+            "fulfill",
+            {},
+            RelationshipCommitmentStatus.FULFILLED,
+            RelationshipCommitmentEventKind.FULFILLED,
+        ),
+        (
+            "withdraw",
+            {},
+            RelationshipCommitmentStatus.WITHDRAWN,
+            RelationshipCommitmentEventKind.WITHDRAWN,
+        ),
+        (
+            "forget",
+            {},
+            RelationshipCommitmentStatus.FORGOTTEN,
+            RelationshipCommitmentEventKind.FORGOTTEN,
+        ),
+        (
+            "violate",
+            {},
+            RelationshipCommitmentStatus.VIOLATED,
+            RelationshipCommitmentEventKind.VIOLATED,
+        ),
+    ),
+)
+def test_dialogue_commitment_events_preserve_identity_and_history(
+    action: str,
+    extra: dict[str, str],
+    expected_status: RelationshipCommitmentStatus,
+    expected_event: RelationshipCommitmentEventKind,
+) -> None:
+    context, bases = _fixture()
+    relationship_id = uuid7()
+    revision_id = uuid7()
+    commitment_id = uuid7()
+    relationship_digest = Digest.from_bytes(b"current-relationship")
+    commitment_digest = Digest.from_bytes(b"current-commitment")
+    commitment = RelationshipCommitment(
+        commitment_id,
+        RelationshipPartyRole.SUBJECT,
+        "提醒",
+        "在约定时间提醒一次。",
+        RelationshipCommitmentStatus.ACTIVE,
+        RelationshipCommitmentEventKind.ESTABLISHED,
+        "我作出了提醒承诺。",
+    )
+    context = replace(
+        context,
+        subject_party_id=uuid7(),
+        current_relationship=CandidateRelationshipContext(
+            relationship_id,
+            revision_id,
+            2,
+            relationship_digest,
+            (
+                RelationshipFact(
+                    RelationshipFactKind.SHARED_EXPERIENCE,
+                    "我们进行过一次真实交流。",
+                ),
+            ),
+            "我正在从实际交往中了解创造者。",
+            (),
+            RelationshipStatus.ACTIVE,
+            (CandidateRelationshipCommitmentContext(commitment, commitment_digest),),
+        ),
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            6,
+            "relationship",
+            "current_relationship",
+            relationship_id,
+            2,
+            relationship_digest,
+            "subjective_state",
+            "private",
+        ),
+        CandidateBasis(
+            7,
+            "relationship",
+            "current_relationship_commitment",
+            commitment_id,
+            2,
+            commitment_digest,
+            "subjective_state",
+            "private",
+        ),
+    )
+    commitment_change: dict[str, object] = {
+        "action": action,
+        "commitment_ref": "ctx:7",
+        "event_summary": f"承诺发生了{action}事件。",
+        **extra,
+    }
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "我会正视这次承诺变化。",
+                "experience": {"first_person_gist": "承诺状态发生了真实变化。"},
+                "relationship_change": {
+                    "commitment_change": commitment_change,
+                },
+            }
+        ),
+        bases=extended,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    relationship = result.change_set.relationships[0]
+    changed = relationship.commitments[0]
+    assert changed.commitment_id == commitment_id
+    assert changed.status is expected_status
+    assert changed.last_event_kind is expected_event
+    assert relationship.commitment_event is not None
+    assert relationship.commitment_event.kind is expected_event
+    assert 7 in relationship.basis_ordinals
+    if action == "violate":
+        assert (
+            relationship.open_issues[0].kind
+            is RelationshipIssueKind.COMMITMENT_VIOLATION
+        )
+        assert relationship.open_issues[0].commitment_ids == (commitment_id,)
+    else:
+        assert relationship.open_issues == ()
+
+
+def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
+    context, bases = _fixture()
+    relationship_id, revision_id = uuid7(), uuid7()
+    commitment_ids = (uuid7(), uuid7())
+    relationship_digest = Digest.from_bytes(b"current-relationship")
+    commitment_digests = (
+        Digest.from_bytes(b"commitment-1"),
+        Digest.from_bytes(b"commitment-2"),
+    )
+    commitments = tuple(
+        RelationshipCommitment(
+            commitment_id,
+            RelationshipPartyRole.SUBJECT,
+            "同一时间段",
+            content,
+            RelationshipCommitmentStatus.ACTIVE,
+            RelationshipCommitmentEventKind.ESTABLISHED,
+            "我作出了明确承诺。",
+        )
+        for commitment_id, content in zip(
+            commitment_ids,
+            ("保持在线。", "保持离线。"),
+            strict=True,
+        )
+    )
+    context = replace(
+        context,
+        subject_party_id=uuid7(),
+        current_relationship=CandidateRelationshipContext(
+            relationship_id,
+            revision_id,
+            3,
+            relationship_digest,
+            (
+                RelationshipFact(
+                    RelationshipFactKind.SHARED_EXPERIENCE,
+                    "我们形成了两项彼此矛盾的承担。",
+                ),
+            ),
+            "我意识到两项承诺不能同时满足。",
+            (),
+            RelationshipStatus.ACTIVE,
+            tuple(
+                CandidateRelationshipCommitmentContext(commitment, digest)
+                for commitment, digest in zip(
+                    commitments, commitment_digests, strict=True
+                )
+            ),
+        ),
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            6,
+            "relationship",
+            "current_relationship",
+            relationship_id,
+            3,
+            relationship_digest,
+            "subjective_state",
+            "private",
+        ),
+        *(
+            CandidateBasis(
+                ordinal,
+                "relationship",
+                "current_relationship_commitment",
+                commitment_id,
+                3,
+                digest,
+                "subjective_state",
+                "private",
+            )
+            for ordinal, commitment_id, digest in zip(
+                (7, 8), commitment_ids, commitment_digests, strict=True
+            )
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "这两项承诺彼此冲突。我不会把它抹掉。",
+                "experience": {"first_person_gist": "我确认了两项承诺的冲突。"},
+                "relationship_change": {
+                    "commitment_change": {
+                        "action": "note_conflict",
+                        "commitment_ref": "ctx:7",
+                        "conflicts_with_ref": "ctx:8",
+                        "event_summary": "两项承诺在同一时段彼此冲突。",
+                    }
+                },
+            }
+        ),
+        bases=extended,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    relationship = result.change_set.relationships[0]
+    assert relationship.commitment_event is not None
+    assert (
+        relationship.commitment_event.kind
+        is RelationshipCommitmentEventKind.CONFLICT_NOTED
+    )
+    assert len(relationship.open_issues) == 1
+    issue = relationship.open_issues[0]
+    assert issue.kind is RelationshipIssueKind.CONTRADICTORY_COMMITMENTS
+    assert set(issue.commitment_ids) == set(commitment_ids)
 
 
 def test_ended_relationship_blocks_later_creator_reply() -> None:

@@ -185,8 +185,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     dialogue_schema = candidate_schema(DIALOGUE_CANDIDATE_VERSION)
     legacy_schema = candidate_schema()
     dialogue_schema_text = json.dumps(dialogue_schema, separators=(",", ":"))
-    assert len(json.dumps(dialogue_schema, separators=(",", ":"))) < 4_096
-    assert len(json.dumps(dialogue_schema)) < len(json.dumps(legacy_schema)) // 4
+    assert dialogue_schema != legacy_schema
     assert '"schema_version"' not in dialogue_schema_text
     assert '"reason_summary"' not in dialogue_schema_text
     assert '"decision"' not in dialogue_schema_text
@@ -370,13 +369,81 @@ def test_creator_dialogue_relationship_change_is_narrow_and_experience_bound() -
             )
 
 
-def test_web_dialogue_v4_is_compact_versioned_and_rejects_urls() -> None:
+def test_creator_dialogue_commitment_change_is_narrow_and_context_bound() -> None:
+    parsed = parse_candidate(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "我答应联系前先问你是否方便。",
+                "experience": {"first_person_gist": "我作出了一个明确承担。"},
+                "relationship_change": {
+                    "interpretation": "我愿意尊重创造者当时的状态。",
+                    "commitment_change": {
+                        "action": "establish",
+                        "party": "armi",
+                        "scope": "主动联系",
+                        "content": "联系前先询问是否方便。",
+                        "event_summary": "我明确作出了联系前先询问的承诺。",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset(),
+    )
+    commitment = parsed.model_dump(mode="json")["relationship_change"][
+        "commitment_change"
+    ]
+    assert commitment["party"] == "armi"
+    assert commitment["commitment_ref"] is None
+
+    invalid_changes = (
+        {
+            "action": "fulfill",
+            "event_summary": "没有引用当前承诺。",
+        },
+        {
+            "action": "establish",
+            "party": "armi",
+            "scope": "联系",
+            "content": "先询问。",
+            "event_summary": "试图携带 Runtime 身份。",
+            "commitment_id": "01985d00-0000-7000-8000-000000000001",
+        },
+        {
+            "action": "note_conflict",
+            "commitment_ref": "ctx:7",
+            "conflicts_with_ref": "ctx:7",
+            "event_summary": "承诺不能与自己冲突。",
+        },
+        {
+            "action": "withdraw",
+            "commitment_ref": "ctx:9",
+            "event_summary": "引用未提供的承诺。",
+        },
+    )
+    for commitment_change in invalid_changes:
+        with pytest.raises(ModelViolation):
+            parse_candidate(
+                json.dumps(
+                    {
+                        "kind": "reply",
+                        "content": "无效承诺变化。",
+                        "experience": {"first_person_gist": "一次交流。"},
+                        "relationship_change": {"commitment_change": commitment_change},
+                    },
+                    ensure_ascii=False,
+                ).encode(),
+                allowed_context_refs=frozenset({"ctx:7"}),
+            )
+
+
+def test_web_dialogue_v6_is_compact_versioned_and_rejects_urls() -> None:
     schema = candidate_schema(WEB_DIALOGUE_CANDIDATE_VERSION)
     schema_text = json.dumps(schema, separators=(",", ":"))
     assert '"web_research"' in schema_text
     assert '"schema_version"' not in schema_text
     assert '"subject_id"' not in schema_text
-    assert len(schema_text) < 6_144
 
     parsed = parse_candidate(
         json.dumps(

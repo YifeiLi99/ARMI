@@ -79,14 +79,53 @@ async def apply_relationships(
             }
             for item in relationship.boundaries
         ]
+        commitments = [
+            {
+                "commitment_id": str(item.commitment_id),
+                "party_role": item.party_role.value,
+                "scope": item.scope,
+                "content": item.content,
+                "status": item.status.value,
+                "last_event_kind": item.last_event_kind.value,
+                "last_event_summary": item.last_event_summary,
+            }
+            for item in relationship.commitments
+        ]
+        open_issues = [
+            {
+                "issue_id": str(item.issue_id),
+                "kind": item.kind.value,
+                "commitment_ids": [str(value) for value in item.commitment_ids],
+                "summary": item.summary,
+                "status": item.status.value,
+            }
+            for item in relationship.open_issues
+        ]
+        commitment_event = (
+            None
+            if relationship.commitment_event is None
+            else {
+                "commitment_id": str(relationship.commitment_event.commitment_id),
+                "kind": relationship.commitment_event.kind.value,
+                "summary": relationship.commitment_event.summary,
+                "related_commitment_id": (
+                    None
+                    if relationship.commitment_event.related_commitment_id is None
+                    else str(relationship.commitment_event.related_commitment_id)
+                ),
+            }
+        )
         semantic_bytes = rfc8785.dumps(
             cast(
                 Any,
                 {
-                    "schema_version": "armi.relationship-revision.v1",
+                    "schema_version": "armi.relationship-revision.v2",
                     "facts": facts,
                     "interpretation": relationship.interpretation,
                     "boundaries": boundaries,
+                    "commitments": commitments,
+                    "open_issues": open_issues,
+                    "commitment_event": commitment_event,
                     "status": relationship.status.value,
                 },
             )
@@ -170,11 +209,13 @@ async def apply_relationships(
                 relationship_revision_id, relationship_id, revision_no,
                 previous_revision_id, subject_commit_id,
                 candidate_validation_id, proposal_ref, facts,
-                interpretation, boundaries, relationship_status,
+                interpretation, boundaries, commitments, open_issues,
+                commitment_event, relationship_status,
                 semantic_digest, mechanism_identity, privacy_scope
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, 'private'
+                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, 'private'
             )
             """,
             (
@@ -188,6 +229,13 @@ async def apply_relationships(
                 json.dumps(facts, ensure_ascii=False),
                 relationship.interpretation,
                 json.dumps(boundaries, ensure_ascii=False),
+                json.dumps(commitments, ensure_ascii=False),
+                json.dumps(open_issues, ensure_ascii=False),
+                (
+                    None
+                    if commitment_event is None
+                    else json.dumps(commitment_event, ensure_ascii=False)
+                ),
                 relationship.status.value,
                 Digest.from_bytes(semantic_bytes).value,
                 relationship.mechanism_identity,
@@ -219,9 +267,17 @@ async def apply_relationships(
             """
             INSERT INTO armi.relationship_experience_links (
                 relationship_revision_id, experience_id, link_kind, ordinal
-            ) VALUES (%s, %s, 'supports_relationship_change', 1)
+            ) VALUES (%s, %s, %s, 1)
             """,
-            (revision_id, source_experience_id),
+            (
+                revision_id,
+                source_experience_id,
+                (
+                    "supports_commitment_event"
+                    if relationship.commitment_event is not None
+                    else "supports_relationship_change"
+                ),
+            ),
         )
 
 

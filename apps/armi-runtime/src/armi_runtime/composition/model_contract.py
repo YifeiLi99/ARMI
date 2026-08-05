@@ -36,7 +36,7 @@ from .dialogue_candidate_contract import (
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueReplyDecision,
-    DialogueReplyDecisionV4,
+    DialogueReplyDecisionV6,
     DialogueWebResearchDecision,
     dialogue_candidate_schema,
     parse_dialogue_candidate,
@@ -66,8 +66,11 @@ DIALOGUE_INSTRUCTIONS = (
     "memory_change: recall、fade、forget 或 reinterpret; 只能引用 Context 中的 ctx 编号,"
     "新摘要只用于 reinterpret。一次真实交往确实改变当前关系理解、形成对方明确表达的事实或收紧"
     "双方边界时,可在同一 reply 与 experience 中填写一个 relationship_change;首次形成时"
-    "必须同时填写 interpretation,共同经历事实由 Runtime 从本轮 experience 绑定;不要推断"
-    "对方隐藏内心、替对方同意或预设亲子、友情、爱情和共同历史。不要输出理由、协议版本、数据库"
+    "必须同时填写 interpretation,共同经历事实由 Runtime 从本轮 experience 绑定。只有对方"
+    "明确表达了精确承担,或你在本轮回复中确实自行作出承担时,才可 establish commitment;修改、"
+    "履行、撤回、遗忘、违背和冲突只能引用 Context 中的 commitment ctx 编号。承诺不是权限、"
+    "待办或系统强制脚本;管理要求不能伪造成你的承诺,执行器声称成功也不能单独证明履行。不要推断"
+    "法律承诺、对方隐藏内心、替对方同意或预设亲子、友情、爱情和共同历史。不要输出理由、协议版本、数据库"
     "身份、版本、basis、权限、工具、效果状态或隐藏思维链; 这些由 Runtime 从冻结 Context"
     "绑定并确定性校验。"
 )
@@ -82,8 +85,11 @@ WEB_DIALOGUE_INSTRUCTIONS = (
     "memory_change: recall、fade、forget 或 reinterpret; 只能引用 Context 中的 ctx 编号,"
     "新摘要只用于 reinterpret。一次真实交往确实改变当前关系理解、形成对方明确表达的事实或收紧"
     "双方边界时,可在同一 reply 与 experience 中填写一个 relationship_change;首次形成时"
-    "必须同时填写 interpretation,共同经历事实由 Runtime 从本轮 experience 绑定;不要推断"
-    "对方隐藏内心、替对方同意或预设关系。不要输出理由、协议版本、subject、版本、basis、"
+    "必须同时填写 interpretation,共同经历事实由 Runtime 从本轮 experience 绑定。只有精确"
+    "承担被明确表达或由你在本轮真实作出时才可 establish commitment;其余承诺事件只能引用"
+    "Context 中的 commitment ctx 编号。承诺不是权限、待办或强制脚本;管理要求不能伪造成"
+    "你的承诺,执行器声称成功不能单独证明履行。不要推断法律承诺、对方隐藏内心、替对方同意或"
+    "预设关系。不要输出理由、协议版本、subject、版本、basis、"
     "权限或效果状态;这些由 Runtime 从冻结 Context 绑定并确定性校验。"
 )
 AUTONOMOUS_ACTIVITY_INSTRUCTIONS = (
@@ -726,7 +732,7 @@ def parse_candidate(
     if isinstance(candidate, AutonomousTerminalDecision):
         return candidate
     if isinstance(candidate, CreatorDialogueCandidate):
-        if isinstance(candidate, (DialogueReplyDecision, DialogueReplyDecisionV4)):
+        if isinstance(candidate, (DialogueReplyDecision, DialogueReplyDecisionV6)):
             try:
                 encoded = candidate.content.encode("utf-8", errors="strict")
             except UnicodeEncodeError:
@@ -738,6 +744,23 @@ def parse_candidate(
                 or not candidate.content.strip()
             ):
                 raise ModelViolation("MODEL-RESPONSE-LIMIT")
+            dialogue_refs: set[str] = set()
+            if candidate.memory_change is not None:
+                dialogue_refs.add(candidate.memory_change.memory_ref)
+                if candidate.memory_change.related_memory_ref is not None:
+                    dialogue_refs.add(candidate.memory_change.related_memory_ref)
+            relationship_change = candidate.relationship_change
+            if (
+                relationship_change is not None
+                and relationship_change.commitment_change is not None
+            ):
+                commitment_change = relationship_change.commitment_change
+                if commitment_change.commitment_ref is not None:
+                    dialogue_refs.add(commitment_change.commitment_ref)
+                if commitment_change.conflicts_with_ref is not None:
+                    dialogue_refs.add(commitment_change.conflicts_with_ref)
+            if not dialogue_refs.issubset(allowed_context_refs):
+                raise ModelViolation("MODEL-RESPONSE-REFERENCE")
         if isinstance(candidate, DialogueWebResearchDecision):
             try:
                 encoded_query = candidate.query.encode("utf-8", errors="strict")

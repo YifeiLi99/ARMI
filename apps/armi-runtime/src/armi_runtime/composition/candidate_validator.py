@@ -50,8 +50,15 @@ from armi_kernel.application import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
+    RelationshipCommitment,
+    RelationshipCommitmentEvent,
+    RelationshipCommitmentEventKind,
+    RelationshipCommitmentStatus,
     RelationshipFact,
     RelationshipFactKind,
+    RelationshipIssue,
+    RelationshipIssueKind,
+    RelationshipIssueStatus,
     RelationshipPartyRole,
     RelationshipStatus,
     SleepDecisionKind,
@@ -78,12 +85,13 @@ from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
+    DialogueCommitmentChange,
     DialogueMemoryChange,
     DialogueRelationshipChange,
     DialogueReplyDecision,
-    DialogueReplyDecisionV4,
+    DialogueReplyDecisionV6,
     DialogueTerminalDecision,
-    DialogueTerminalDecisionV4,
+    DialogueTerminalDecisionV6,
     DialogueWebResearchDecision,
 )
 from .model_contract import (
@@ -119,7 +127,7 @@ ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 SLEEP_CHANGE_SET_VERSION = "armi.subject-change-set.v9"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
-RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v12"
+RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v13"
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +162,18 @@ class CandidateMemoryContext:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateRelationshipCommitmentContext:
+    commitment: RelationshipCommitment
+    context_digest: Digest | None
+
+    def __post_init__(self) -> None:
+        if type(self.commitment) is not RelationshipCommitment or (
+            self.context_digest is not None and type(self.context_digest) is not Digest
+        ):
+            raise CandidateViolation("CON-CANDIDATE-COMMITMENT-CONTEXT")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateRelationshipContext:
     relationship_id: UUID
     current_revision_id: UUID
@@ -163,6 +183,8 @@ class CandidateRelationshipContext:
     interpretation: str
     boundaries: tuple[RelationshipBoundary, ...]
     status: RelationshipStatus
+    commitments: tuple[CandidateRelationshipCommitmentContext, ...] = ()
+    open_issues: tuple[RelationshipIssue, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -180,6 +202,23 @@ class CandidateRelationshipContext:
             or type(self.boundaries) is not tuple
             or any(type(value) is not RelationshipBoundary for value in self.boundaries)
             or type(self.status) is not RelationshipStatus
+            or type(self.commitments) is not tuple
+            or len(self.commitments) > 16
+            or any(
+                type(value) is not CandidateRelationshipCommitmentContext
+                for value in self.commitments
+            )
+            or len({value.commitment.commitment_id for value in self.commitments})
+            != len(self.commitments)
+            or type(self.open_issues) is not tuple
+            or len(self.open_issues) > 32
+            or any(type(value) is not RelationshipIssue for value in self.open_issues)
+            or any(
+                commitment_id
+                not in {value.commitment.commitment_id for value in self.commitments}
+                for issue in self.open_issues
+                for commitment_id in issue.commitment_ids
+            )
         ):
             raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-CONTEXT")
 
@@ -1271,9 +1310,9 @@ def _expand_dialogue_candidate(
         source,
         (
             DialogueReplyDecision,
-            DialogueReplyDecisionV4,
+            DialogueReplyDecisionV6,
             DialogueTerminalDecision,
-            DialogueTerminalDecisionV4,
+            DialogueTerminalDecisionV6,
             DialogueWebResearchDecision,
         ),
     ):
@@ -1297,7 +1336,7 @@ def _expand_dialogue_candidate(
     relationship: CandidateRelationshipDraft | None = None
     experience_ref: str | None = None
     understanding_basis_refs = (evidence_ref,)
-    if isinstance(decision, (DialogueReplyDecision, DialogueReplyDecisionV4)):
+    if isinstance(decision, (DialogueReplyDecision, DialogueReplyDecisionV6)):
         catalog = next(
             (
                 item
@@ -1744,22 +1783,49 @@ def _bind_dialogue_relationship(
         )
         else RelationshipStatus.ACTIVE
     )
+    commitments = list(
+        () if current is None else (item.commitment for item in current.commitments)
+    )
+    open_issues = list(() if current is None else current.open_issues)
+    commitment_event: RelationshipCommitmentEvent | None = None
+    commitment_basis_ordinals: tuple[int, ...] = ()
+    if change.commitment_change is not None:
+        (
+            commitments,
+            open_issues,
+            commitment_event,
+            commitment_basis_ordinals,
+            commitment_error,
+        ) = _bind_dialogue_commitment(
+            change.commitment_change,
+            commitments=commitments,
+            open_issues=open_issues,
+            bases=bases,
+            context=context,
+        )
+        if commitment_error is not None:
+            return None, commitment_error
     next_facts = tuple(facts)
     if current is not None and (
         next_facts,
         interpretation,
         ordered_boundaries,
         status,
+        tuple(commitments),
+        tuple(open_issues),
     ) == (
         current.facts,
         current.interpretation,
         current.boundaries,
         current.status,
+        tuple(item.commitment for item in current.commitments),
+        current.open_issues,
     ):
         return None, "CANDIDATE-RELATIONSHIP-NO-OP"
     basis_ordinals = [evidence.ordinal]
     if current_basis is not None:
         basis_ordinals.append(current_basis.ordinal)
+    basis_ordinals.extend(commitment_basis_ordinals)
     return (
         CandidateRelationshipDraft(
             proposal_ref,
@@ -1780,15 +1846,209 @@ def _bind_dialogue_relationship(
             interpretation,
             ordered_boundaries,
             status,
+            tuple(commitments),
+            tuple(open_issues),
+            commitment_event,
         ),
         None,
     )
 
 
+def _bind_dialogue_commitment(
+    change: DialogueCommitmentChange,
+    *,
+    commitments: list[RelationshipCommitment],
+    open_issues: list[RelationshipIssue],
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[
+    list[RelationshipCommitment],
+    list[RelationshipIssue],
+    RelationshipCommitmentEvent | None,
+    tuple[int, ...],
+    str | None,
+]:
+    target, target_basis = _commitment_context(
+        change.commitment_ref,
+        bases=bases,
+        context=context,
+    )
+    if change.action != "establish" and (target is None or target_basis is None):
+        return commitments, open_issues, None, (), "CANDIDATE-COMMITMENT-CONTEXT"
+    related, related_basis = _commitment_context(
+        change.conflicts_with_ref,
+        bases=bases,
+        context=context,
+    )
+    if change.conflicts_with_ref is not None and (
+        related is None or related_basis is None
+    ):
+        return commitments, open_issues, None, (), "CANDIDATE-COMMITMENT-CONFLICT"
+
+    event_kind = RelationshipCommitmentEventKind(
+        {
+            "establish": "established",
+            "modify": "modified",
+            "fulfill": "fulfilled",
+            "withdraw": "withdrawn",
+            "forget": "forgotten",
+            "violate": "violated",
+            "note_conflict": "conflict_noted",
+        }[change.action]
+    )
+    status = RelationshipCommitmentStatus(
+        {
+            "establish": "active",
+            "modify": "active",
+            "fulfill": "fulfilled",
+            "withdraw": "withdrawn",
+            "forget": "forgotten",
+            "violate": "violated",
+            "note_conflict": target.commitment.status.value if target else "active",
+        }[change.action]
+    )
+    if change.action == "establish":
+        commitment_id = _derived_uuid7(
+            context.model_attempt_id,
+            b"creator-relationship-commitment",
+        )
+        assert change.party is not None
+        assert change.scope is not None
+        assert change.content is not None
+        next_commitment = RelationshipCommitment(
+            commitment_id,
+            RelationshipPartyRole("subject" if change.party == "armi" else "other"),
+            change.scope,
+            change.content,
+            status,
+            event_kind,
+            change.event_summary,
+        )
+        commitments.append(next_commitment)
+    else:
+        assert target is not None
+        commitment_id = target.commitment.commitment_id
+        if change.action not in {"note_conflict"} and (
+            target.commitment.status is not RelationshipCommitmentStatus.ACTIVE
+        ):
+            return (
+                commitments,
+                open_issues,
+                None,
+                (),
+                "CANDIDATE-COMMITMENT-TERMINAL",
+            )
+        next_commitment = RelationshipCommitment(
+            commitment_id,
+            target.commitment.party_role,
+            change.scope if change.scope is not None else target.commitment.scope,
+            change.content if change.content is not None else target.commitment.content,
+            status,
+            event_kind,
+            change.event_summary,
+        )
+        commitments[commitments.index(target.commitment)] = next_commitment
+
+    event = RelationshipCommitmentEvent(
+        commitment_id,
+        event_kind,
+        change.event_summary,
+        (
+            related.commitment.commitment_id
+            if change.action == "note_conflict" and related is not None
+            else None
+        ),
+    )
+    conflict_ids: tuple[UUID, ...] | None = None
+    issue_kind: RelationshipIssueKind | None = None
+    if change.action == "violate":
+        conflict_ids = (commitment_id,)
+        issue_kind = RelationshipIssueKind.COMMITMENT_VIOLATION
+    elif related is not None:
+        conflict_ids = tuple(
+            sorted(
+                (commitment_id, related.commitment.commitment_id),
+                key=str,
+            )
+        )
+        issue_kind = RelationshipIssueKind.CONTRADICTORY_COMMITMENTS
+    if (
+        conflict_ids is not None
+        and issue_kind is not None
+        and not any(
+            item.kind is issue_kind and item.commitment_ids == conflict_ids
+            for item in open_issues
+        )
+    ):
+        open_issues.append(
+            RelationshipIssue(
+                _derived_uuid7(
+                    context.model_attempt_id,
+                    b"creator-relationship-issue\0"
+                    + issue_kind.value.encode("ascii")
+                    + b"\0"
+                    + b"".join(value.bytes for value in conflict_ids),
+                ),
+                issue_kind,
+                conflict_ids,
+                change.event_summary,
+                RelationshipIssueStatus.OPEN,
+            )
+        )
+    if len(commitments) > 16 or len(open_issues) > 32:
+        return commitments, open_issues, None, (), "CANDIDATE-COMMITMENT-LIMIT"
+    ordinals = tuple(
+        dict.fromkeys(
+            item.ordinal for item in (target_basis, related_basis) if item is not None
+        )
+    )
+    return commitments, open_issues, event, ordinals, None
+
+
+def _commitment_context(
+    reference: str | None,
+    *,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[CandidateRelationshipCommitmentContext | None, CandidateBasis | None]:
+    if reference is None or context.current_relationship is None:
+        return None, None
+    basis = next(
+        (
+            item
+            for item in bases
+            if f"ctx:{item.ordinal}" == reference
+            and item.section == "relationship"
+            and item.item_kind == "current_relationship_commitment"
+            and item.trust_class == "subjective_state"
+            and item.source_ref is not None
+        ),
+        None,
+    )
+    if basis is None:
+        return None, None
+    commitment = next(
+        (
+            item
+            for item in context.current_relationship.commitments
+            if item.commitment.commitment_id == basis.source_ref
+            and basis.source_version == context.current_relationship.head_version
+            and item.context_digest is not None
+            and item.context_digest == basis.source_digest
+        ),
+        None,
+    )
+    return commitment, basis if commitment is not None else None
+
+
 def _derived_relationship_id(model_attempt_id: UUID) -> UUID:
     """Bind a stable UUIDv7 identity without giving the model identity authority."""
 
-    digest = sha256(model_attempt_id.bytes + b"\0creator-relationship").digest()
+    return _derived_uuid7(model_attempt_id, b"creator-relationship")
+
+
+def _derived_uuid7(model_attempt_id: UUID, label: bytes) -> UUID:
+    digest = sha256(model_attempt_id.bytes + b"\0" + label).digest()
     raw = bytearray(model_attempt_id.bytes[:6] + digest[:10])
     raw[6] = (raw[6] & 0x0F) | 0x70
     raw[8] = (raw[8] & 0x3F) | 0x80
@@ -2243,6 +2503,42 @@ def _relationship_wire(value: CandidateRelationshipDraft) -> dict[str, object]:
             }
             for item in value.boundaries
         ],
+        "commitments": [
+            {
+                "commitment_id": str(item.commitment_id),
+                "party_role": item.party_role.value,
+                "scope": item.scope,
+                "content": item.content,
+                "status": item.status.value,
+                "last_event_kind": item.last_event_kind.value,
+                "last_event_summary": item.last_event_summary,
+            }
+            for item in value.commitments
+        ],
+        "open_issues": [
+            {
+                "issue_id": str(item.issue_id),
+                "kind": item.kind.value,
+                "commitment_ids": [str(value) for value in item.commitment_ids],
+                "summary": item.summary,
+                "status": item.status.value,
+            }
+            for item in value.open_issues
+        ],
+        "commitment_event": (
+            None
+            if value.commitment_event is None
+            else {
+                "commitment_id": str(value.commitment_event.commitment_id),
+                "kind": value.commitment_event.kind.value,
+                "summary": value.commitment_event.summary,
+                "related_commitment_id": (
+                    None
+                    if value.commitment_event.related_commitment_id is None
+                    else str(value.commitment_event.related_commitment_id)
+                ),
+            }
+        ),
         "status": value.status.value,
         "scope": value.scope,
         "mechanism_identity": value.mechanism_identity,

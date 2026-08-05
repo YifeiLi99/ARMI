@@ -71,6 +71,8 @@ class ContextEpisodeSnapshot:
     memory_payloads: tuple[tuple[UUID, int, bytes, Digest, str], ...]
     has_memory_records: bool
     relationship_payloads: tuple[tuple[UUID, int, bytes, Digest], ...]
+    relationship_commitment_payloads: tuple[tuple[UUID, int, bytes, Digest, str], ...]
+    relationship_issue_payloads: tuple[tuple[UUID, int, bytes, Digest], ...]
     activity_summary_bytes: bytes
     scene_bytes: bytes | None
     scene_digest: Digest | None
@@ -440,7 +442,9 @@ class PostgreSQLContextRepository:
                        revision.facts,
                        revision.interpretation,
                        revision.boundaries,
-                       revision.relationship_status
+                       revision.relationship_status,
+                       revision.commitments,
+                       revision.open_issues
                 FROM armi.relationships AS relationship
                 JOIN armi.relationship_revisions AS revision
                   ON revision.relationship_revision_id =
@@ -472,6 +476,46 @@ class PostgreSQLContextRepository:
                 Digest.from_bytes(payload),
             )
             for item in relationship_rows
+        )
+        relationship_commitment_payloads = tuple(
+            (
+                UUID(str(commitment["commitment_id"])),
+                int(item[1]),
+                (
+                    payload := rfc8785.dumps(
+                        {
+                            "party_role": commitment["party_role"],
+                            "scope": commitment["scope"],
+                            "content": commitment["content"],
+                            "status": commitment["status"],
+                            "last_event_kind": commitment["last_event_kind"],
+                            "last_event_summary": commitment["last_event_summary"],
+                        }
+                    )
+                ),
+                Digest.from_bytes(payload),
+                str(commitment["status"]),
+            )
+            for item in relationship_rows
+            for commitment in item[7]
+        )
+        relationship_issue_payloads = tuple(
+            (
+                UUID(str(issue["issue_id"])),
+                int(item[1]),
+                (
+                    payload := rfc8785.dumps(
+                        {
+                            "kind": issue["kind"],
+                            "summary": issue["summary"],
+                            "status": issue["status"],
+                        }
+                    )
+                ),
+                Digest.from_bytes(payload),
+            )
+            for item in relationship_rows
+            for issue in item[8]
         )
         activity_rows = await (
             await connection.execute(
@@ -550,6 +594,8 @@ class PostgreSQLContextRepository:
             memory_payloads,
             bool(memory_exists and memory_exists[0]),
             relationship_payloads,
+            relationship_commitment_payloads,
+            relationship_issue_payloads,
             activity_summary_bytes,
             scene_bytes,
             None if scene_bytes is None else Digest.from_bytes(scene_bytes),

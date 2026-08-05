@@ -102,6 +102,20 @@ class CandidateEpisodeSnapshot:
             str,
             tuple[tuple[str, str, str, str], ...],
             str,
+            tuple[
+                tuple[
+                    UUID,
+                    str,
+                    str,
+                    str,
+                    str,
+                    str,
+                    str,
+                    Digest | None,
+                ],
+                ...,
+            ],
+            tuple[tuple[UUID, str, tuple[UUID, ...], str, str], ...],
         ]
         | None
     ) = None
@@ -339,7 +353,9 @@ class PostgreSQLCandidateValidationRepository:
                        revision.facts,
                        revision.interpretation,
                        revision.boundaries,
-                       revision.relationship_status
+                       revision.relationship_status,
+                       revision.commitments,
+                       revision.open_issues
                 FROM armi.cognitive_context_items AS item
                 JOIN armi.relationships AS relationship
                   ON relationship.relationship_id = item.source_ref
@@ -359,6 +375,23 @@ class PostgreSQLCandidateValidationRepository:
                 (row[2], row[3], row[9], row[0]),
             )
         ).fetchone()
+        commitment_context_rows = await (
+            await connection.execute(
+                """
+                SELECT item.source_ref, item.source_digest
+                FROM armi.cognitive_context_items AS item
+                WHERE item.cognitive_episode_id = %s
+                  AND item.disposition = 'included'
+                  AND item.section = 'relationship'
+                  AND item.item_kind = 'current_relationship_commitment'
+                  AND item.source_kind = 'relationship_commitment'
+                """,
+                (row[0],),
+            )
+        ).fetchall()
+        commitment_context_digests = {
+            item[0]: Digest(str(item[1])) for item in commitment_context_rows
+        }
         return CandidateEpisodeSnapshot(
             row[0],
             row[1],
@@ -410,6 +443,10 @@ class PostgreSQLCandidateValidationRepository:
                 str(relationship_row[5]),
                 _relationship_boundaries(relationship_row[6]),
                 str(relationship_row[7]),
+                _relationship_commitments(
+                    relationship_row[8], commitment_context_digests
+                ),
+                _relationship_issues(relationship_row[9]),
             ),
         )
 
@@ -774,6 +811,19 @@ def _item_semantic(
                 "source_experience_ref": value.source_experience_ref,
                 "status": value.status.value,
                 "scope": value.scope,
+                "commitment_event": (
+                    None
+                    if value.commitment_event is None
+                    else {
+                        "commitment_id": str(value.commitment_event.commitment_id),
+                        "kind": value.commitment_event.kind.value,
+                        "related_commitment_id": (
+                            None
+                            if value.commitment_event.related_commitment_id is None
+                            else str(value.commitment_event.related_commitment_id)
+                        ),
+                    }
+                ),
             }
         )
     elif isinstance(value, CandidateComponentDraft):
@@ -975,6 +1025,95 @@ def _relationship_boundaries(
         if any(type(item_value) is not str for item_value in values):
             raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
         result.append(cast(tuple[str, str, str, str], values))
+    return tuple(result)
+
+
+def _relationship_commitments(
+    value: object,
+    context_digests: dict[UUID, Digest],
+) -> tuple[tuple[UUID, str, str, str, str, str, str, Digest | None], ...]:
+    if type(value) is not list:
+        raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
+    result: list[tuple[UUID, str, str, str, str, str, str, Digest | None]] = []
+    keys = {
+        "commitment_id",
+        "party_role",
+        "scope",
+        "content",
+        "status",
+        "last_event_kind",
+        "last_event_summary",
+    }
+    for raw in cast(list[object], value):
+        if type(raw) is not dict:
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
+        item = cast(dict[object, object], raw)
+        if set(item) != keys or any(type(item[key]) is not str for key in keys):
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
+        try:
+            commitment_id = UUID(cast(str, item["commitment_id"]))
+        except ValueError:
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT") from None
+        if commitment_id.version != 7:
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
+        result.append(
+            (
+                commitment_id,
+                cast(str, item["party_role"]),
+                cast(str, item["scope"]),
+                cast(str, item["content"]),
+                cast(str, item["status"]),
+                cast(str, item["last_event_kind"]),
+                cast(str, item["last_event_summary"]),
+                context_digests.get(commitment_id),
+            )
+        )
+    return tuple(result)
+
+
+def _relationship_issues(
+    value: object,
+) -> tuple[tuple[UUID, str, tuple[UUID, ...], str, str], ...]:
+    if type(value) is not list:
+        raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
+    result: list[tuple[UUID, str, tuple[UUID, ...], str, str]] = []
+    keys = {"issue_id", "kind", "commitment_ids", "summary", "status"}
+    for raw in cast(list[object], value):
+        if type(raw) is not dict:
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
+        item = cast(dict[object, object], raw)
+        if set(item) != keys or any(
+            type(item[key]) is not str
+            for key in ("issue_id", "kind", "summary", "status")
+        ):
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
+        commitment_ids = item["commitment_ids"]
+        if type(commitment_ids) is not list or any(
+            type(commitment_id) is not str
+            for commitment_id in cast(list[object], commitment_ids)
+        ):
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
+        try:
+            issue_id = UUID(cast(str, item["issue_id"]))
+            parsed_commitment_ids = tuple(
+                UUID(cast(str, commitment_id))
+                for commitment_id in cast(list[object], commitment_ids)
+            )
+        except ValueError:
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT") from None
+        if issue_id.version != 7 or any(
+            commitment_id.version != 7 for commitment_id in parsed_commitment_ids
+        ):
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
+        result.append(
+            (
+                issue_id,
+                cast(str, item["kind"]),
+                parsed_commitment_ids,
+                cast(str, item["summary"]),
+                cast(str, item["status"]),
+            )
+        )
     return tuple(result)
 
 

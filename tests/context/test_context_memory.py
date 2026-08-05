@@ -18,6 +18,10 @@ def _snapshot(
     *,
     has_memory_records: bool = True,
     relationship_payloads: tuple[tuple[object, ...], ...] = (),
+    relationship_commitment_payloads: tuple[tuple[object, ...], ...] = (),
+    relationship_issue_payloads: tuple[tuple[object, ...], ...] = (),
+    scene_id: object | None = None,
+    scene_bytes: bytes | None = None,
 ) -> ContextEpisodeSnapshot:
     source_ref = uuid7()
     return cast(
@@ -30,11 +34,13 @@ def _snapshot(
             opportunity_id=uuid7(),
             purpose="consider_creator_input",
             component_payloads=(),
-            scene_id=None,
-            scene_bytes=None,
+            scene_id=scene_id,
+            scene_bytes=scene_bytes,
             memory_payloads=memory_payloads,
             has_memory_records=has_memory_records,
             relationship_payloads=relationship_payloads,
+            relationship_commitment_payloads=relationship_commitment_payloads,
+            relationship_issue_payloads=relationship_issue_payloads,
             activity_summary_bytes=b'{"activities":[]}',
             opportunity_source_ref=source_ref,
             opportunity_source_version=1,
@@ -150,3 +156,109 @@ def test_context_includes_current_relationship_or_explicitly_reports_none() -> N
         item for item in empty_request.items if item.item_kind == "relationship"
     )
     assert empty.unavailable_reason == "CTX-RELATIONSHIP-NONE"
+
+
+def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -> None:
+    commitment_id = uuid7()
+    commitment_payload = rfc8785.dumps(
+        {
+            "party_role": "subject",
+            "scope": "主动联系",
+            "content": "联系前先询问是否方便。",
+            "status": "active",
+            "last_event_kind": "established",
+            "last_event_summary": "我明确作出了联系前先询问的承诺。",
+        }
+    )
+    commitment = (
+        commitment_id,
+        3,
+        commitment_payload,
+        Digest.from_bytes(commitment_payload),
+        "active",
+    )
+    first_scene = rfc8785.dumps({"scene_key": "private-alpha"})
+    second_scene = rfc8785.dumps({"scene_key": "private-beta"})
+    requests = tuple(
+        _context_request(
+            _snapshot(
+                (),
+                relationship_commitment_payloads=(commitment,),
+                scene_id=uuid7(),
+                scene_bytes=scene,
+            ),
+            None,
+            b"fixed prompt",
+            web_search_active=False,
+        )
+        for scene in (first_scene, second_scene)
+    )
+    commitment_contents = tuple(
+        next(
+            item.content
+            for item in request.items
+            if item.item_kind == "current_relationship_commitment"
+        )
+        for request in requests
+    )
+    scene_contents = tuple(
+        next(
+            item.content for item in request.items if item.item_kind == "current_scene"
+        )
+        for request in requests
+    )
+    assert commitment_contents[0] == commitment_contents[1]
+    assert "private-alpha" not in cast(str, commitment_contents[0])
+    assert "private-beta" not in cast(str, commitment_contents[0])
+    assert scene_contents[0] != scene_contents[1]
+
+
+def test_context_hides_forgotten_commitment_but_keeps_open_issue() -> None:
+    forgotten_payload = rfc8785.dumps(
+        {
+            "party_role": "subject",
+            "scope": "提醒",
+            "content": "提醒一次。",
+            "status": "forgotten",
+            "last_event_kind": "forgotten",
+            "last_event_summary": "这项承诺已不再能被自然想起。",
+        }
+    )
+    issue_payload = rfc8785.dumps(
+        {
+            "kind": "commitment_violation",
+            "summary": "这项承诺曾被违背。问题仍未解决。",
+            "status": "open",
+        }
+    )
+    request = _context_request(
+        _snapshot(
+            (),
+            relationship_commitment_payloads=(
+                (
+                    uuid7(),
+                    4,
+                    forgotten_payload,
+                    Digest.from_bytes(forgotten_payload),
+                    "forgotten",
+                ),
+            ),
+            relationship_issue_payloads=(
+                (uuid7(), 4, issue_payload, Digest.from_bytes(issue_payload)),
+            ),
+        ),
+        None,
+        b"fixed prompt",
+        web_search_active=False,
+    )
+    unavailable = next(
+        item for item in request.items if item.item_kind == "relationship_commitment"
+    )
+    assert unavailable.unavailable_reason == "CTX-COMMITMENT-NOT-RECALLABLE"
+    assert not any(
+        item.item_kind == "current_relationship_commitment" for item in request.items
+    )
+    issue = next(
+        item for item in request.items if item.item_kind == "current_relationship_issue"
+    )
+    assert "问题仍未解决" in cast(str, issue.content)

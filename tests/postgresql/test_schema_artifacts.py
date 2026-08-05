@@ -38,6 +38,9 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "CREATE TABLE armi.relationships" in sql
     assert "CREATE TABLE armi.relationship_revisions" in sql
     assert "CREATE TABLE armi.relationship_experience_links" in sql
+    assert "commitments jsonb NOT NULL" in sql
+    assert "open_issues jsonb NOT NULL" in sql
+    assert "supports_commitment_event" in sql
     assert "accessibility IN ('available', 'faded', 'forgotten')" in sql
     assert "wake_request_id" in sql
     assert "schema_migrations" not in sql

@@ -32,8 +32,14 @@ from armi_kernel.application import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
+    RelationshipCommitment,
+    RelationshipCommitmentEventKind,
+    RelationshipCommitmentStatus,
     RelationshipFact,
     RelationshipFactKind,
+    RelationshipIssue,
+    RelationshipIssueKind,
+    RelationshipIssueStatus,
     RelationshipPartyRole,
     RelationshipStatus,
     RuntimeFence,
@@ -64,6 +70,7 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 from .candidate_validator import (
     CANDIDATE_VALIDATOR_IDENTITY,
     CandidateMemoryContext,
+    CandidateRelationshipCommitmentContext,
     CandidateRelationshipContext,
     CandidateValidationContext,
     DeterministicCandidateValidator,
@@ -220,6 +227,31 @@ class CandidateValidationPipeline:
                                 for item in snapshot.current_relationship[6]
                             ),
                             RelationshipStatus(snapshot.current_relationship[7]),
+                            tuple(
+                                CandidateRelationshipCommitmentContext(
+                                    RelationshipCommitment(
+                                        item[0],
+                                        RelationshipPartyRole(item[1]),
+                                        item[2],
+                                        item[3],
+                                        RelationshipCommitmentStatus(item[4]),
+                                        RelationshipCommitmentEventKind(item[5]),
+                                        item[6],
+                                    ),
+                                    item[7],
+                                )
+                                for item in snapshot.current_relationship[8]
+                            ),
+                            tuple(
+                                RelationshipIssue(
+                                    item[0],
+                                    RelationshipIssueKind(item[1]),
+                                    item[2],
+                                    item[3],
+                                    RelationshipIssueStatus(item[4]),
+                                )
+                                for item in snapshot.current_relationship[9]
+                            ),
                         )
                     ),
                 )
