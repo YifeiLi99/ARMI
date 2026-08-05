@@ -7,9 +7,11 @@ from typing import Any, cast
 from uuid import UUID
 
 import rfc8785
+from armi_kernel.application import ContextViolation
 from armi_kernel.contracts import Digest
 
 type CapabilityStatePayload = tuple[UUID, int, bytes, Digest, str]
+_MAX_JSON_SAFE_INTEGER = (1 << 53) - 1
 
 
 async def load_capability_state_payloads(
@@ -147,7 +149,9 @@ def _capability_state_payload(row: tuple[object, ...]) -> CapabilityStatePayload
         created_microseconds = (
             elapsed.days * 86_400 + elapsed.seconds
         ) * 1_000_000 + elapsed.microseconds
-        source_version = created_microseconds * 100 + int(cast(int, row[6]))
+        source_version = created_microseconds + int(cast(int, row[6]))
+        if source_version > _MAX_JSON_SAFE_INTEGER:
+            raise ContextViolation("CTX-SOURCE-INVALID")
     return (
         cast(UUID, row[0]),
         source_version,

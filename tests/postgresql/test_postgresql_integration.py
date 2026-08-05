@@ -67,6 +67,10 @@ from armi_kernel.application import (
     CreatorSceneReplyScope,
     CredentialLocator,
     EffectStatus,
+    LifeRecordActor,
+    LifeRecordKind,
+    LifeRecordQuery,
+    LifeRecordRetrievalKind,
     LockPlan,
     LockTarget,
     LockTargetKind,
@@ -142,6 +146,7 @@ from armi_runtime.adapters.persistence.effect_dispatch import (
 from armi_runtime.adapters.persistence.effect_ledger import (
     PostgreSQLEffectLedgerRepository,
 )
+from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.outbox import (
     OutboxDispatcher,
     OutboxEnvelope,
@@ -870,6 +875,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             OpportunityAdmissionOutcome,
             OpportunityAdmissionOutcome,
             OpportunityAdmissionOutcome,
+            OpportunityAdmissionOutcome,
+            OpportunityAdmissionOutcome,
         ]:
             birth_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
@@ -918,7 +925,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 for _ in range(2)
             )
             pipelines = tuple(
-                LifeOpportunityPipeline(factory=factory) for factory in factories
+                LifeOpportunityPipeline(
+                    factory=factory,
+                    maintenance_consideration_seconds=1,
+                    maintenance_deadline_seconds=120,
+                )
+                for factory in factories
             )
             for pipeline in pipelines:
                 await pipeline.open()
@@ -928,15 +940,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     pipelines[1].admit_once(),
                 )
                 restarted = await pipelines[0].admit_once()
+                attention = await pipelines[0].admit_attention_once()
+                await asyncio.sleep(1)
+                sleep_window = await pipelines[0].maintain_sleep_once()
             finally:
                 for pipeline in pipelines:
                     await pipeline.close()
                 await authority.release(record.fence)
                 await authority.close()
-            return first, second, restarted
+            return first, second, restarted, attention, sleep_window
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            first, second, restarted = asyncio.run(
+            first, second, restarted, attention, sleep_window = asyncio.run(
                 exercise(Path(temporary).resolve()),
                 loop_factory=lambda: asyncio.SelectorEventLoop(
                     selectors.SelectSelector()
@@ -952,6 +967,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(first.opportunity_id, second.opportunity_id)
         self.assertEqual(restarted.status, OpportunityAdmissionStatus.DUPLICATE)
         self.assertEqual(restarted.opportunity_id, first.opportunity_id)
+        self.assertEqual(attention.status, OpportunityAdmissionStatus.REJECTED)
+        self.assertEqual(attention.reason_code, "LIFE-SCHEDULER-IDLE")
+        self.assertEqual(sleep_window.status, OpportunityAdmissionStatus.ADMITTED)
+        self.assertIsNotNone(sleep_window.opportunity_id)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             row = connection.execute(
                 """
@@ -966,7 +985,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(row[0:2], (1, 1))
         self.assertEqual(row[2], row[3])
 
-    def test_creator_activity_query_is_scoped_on_born_database(self) -> None:
+    def test_creator_read_queries_and_maintenance_share_runtime_state(
+        self,
+    ) -> None:
         fixture = self.create_database()
         PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
@@ -976,7 +997,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
             schema_version="armi.personality-anchor.v1",
-            voice_style="简洁自然",
+            voice_style="约 16 岁少女口吻",
             traits=("自主",),
         )
         manifest = BirthManifest(
@@ -1029,6 +1050,33 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).birth(manifest)
             finally:
                 await factory.close()
+
+            life_records = PostgreSQLLifeRecordQuery(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                creator_party_id=creator_party_id,
+                cursor_key=hashlib.sha256(b"p0-s022-life-record-cursor-key").digest(),
+                data_root=root,
+                max_object_bytes=1024 * 1024,
+                pool_timeout_seconds=2,
+            )
+            await life_records.open()
+            try:
+                page = await life_records.query(
+                    LifeRecordQuery(
+                        actor=LifeRecordActor.CREATOR,
+                        retrieval_kind=LifeRecordRetrievalKind.CREATOR_VIEW,
+                        limit=50,
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        item.record_kind is LifeRecordKind.SELF_CHANGE
+                        for item in page.items
+                    )
+                )
+            finally:
+                await life_records.close()
 
             query = PostgreSQLCreatorActivityQuery(
                 fixture.runtime_dsn,
@@ -1105,6 +1153,38 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (revision_id, session_id),
                 )
 
+            authority = PostgreSQLRuntimeAuthority(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                expected_bundle_digest=packaged["composition_digest"].to_wire(),
+                pool_timeout_seconds=2,
+            )
+            await authority.open()
+            record = await authority.acquire(
+                runtime_instance_id=RuntimeInstanceId(_uuid7()),
+                lease_seconds=30,
+            )
+            maintenance_factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_lock,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                authority_admission=lambda: record.fence,
+                require_runtime_fence=True,
+            )
+            pipeline = LifeOpportunityPipeline(factory=maintenance_factory)
+            await pipeline.open()
+            try:
+                outcome = await pipeline.maintain_sleep_once()
+            finally:
+                await pipeline.close()
+                await authority.release(record.fence)
+                await authority.close()
+            self.assertEqual(outcome.reason_code, "LIFE-MAINTENANCE-ADVANCED")
+
             maintenance = PostgreSQLCreatorMaintenanceQuery(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -1116,11 +1196,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 status = await maintenance.status()
                 assert status.session is not None
                 self.assertEqual(status.session.session_id, session_id)
-                self.assertEqual(status.session.phase.value, "preparing")
+                self.assertEqual(status.session.phase.value, "memory_maintenance")
                 self.assertEqual(status.waiting_input_count, 0)
                 timeline = await maintenance.timeline(session_id)
-                self.assertEqual(len(timeline.items), 1)
-                self.assertEqual(timeline.items[0].transition_kind, "started")
+                self.assertEqual(len(timeline.items), 2)
+                self.assertEqual(timeline.items[0].transition_kind, "advanced")
+                self.assertEqual(timeline.items[1].transition_kind, "started")
                 with self.assertRaisesRegex(
                     CreatorMaintenanceViolation,
                     "MAINTENANCE-QUERY-NOT-FOUND",

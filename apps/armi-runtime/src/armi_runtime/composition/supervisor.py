@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 from armi_kernel.application import RuntimeAuthorityViolation
@@ -15,11 +15,17 @@ from .authority import LocalAuthorityState, RuntimeAuthorityController
 class RuntimeSupervisor:
     """Retain every controlled task and keep heartbeat until authority release."""
 
-    __slots__ = ("_authority", "_heartbeat", "_tasks")
+    __slots__ = ("_authority", "_heartbeat", "_on_task_failure", "_tasks")
 
-    def __init__(self, authority: RuntimeAuthorityController | None) -> None:
+    def __init__(
+        self,
+        authority: RuntimeAuthorityController | None,
+        *,
+        on_task_failure: Callable[[str, BaseException], None] | None = None,
+    ) -> None:
         self._authority = authority
         self._heartbeat: asyncio.Task[None] | None = None
+        self._on_task_failure = on_task_failure
         self._tasks: set[asyncio.Task[None]] = set()
 
     def start(
@@ -37,8 +43,16 @@ class RuntimeSupervisor:
             self._heartbeat = task
         else:
             self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
+            task.add_done_callback(self._task_done)
         return task
+
+    def _task_done(self, task: asyncio.Task[None]) -> None:
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None and self._on_task_failure is not None:
+            self._on_task_failure(task.get_name(), error)
 
     async def drain(self, *, deadline_seconds: int) -> bool:
         """Stop admission, finish owned work, release authority, then heartbeat."""

@@ -11,6 +11,28 @@ from tests.runtime.test_runtime_authority import _AuthorityPort
 
 
 class RuntimeSupervisorTests(unittest.TestCase):
+    def test_unexpected_owned_task_failure_is_reported(self) -> None:
+        failures: list[tuple[str, BaseException]] = []
+
+        async def exercise() -> None:
+            supervisor = RuntimeSupervisor(
+                None,
+                on_task_failure=lambda name, error: failures.append((name, error)),
+            )
+
+            async def fail() -> None:
+                raise RuntimeError("worker failed")
+
+            task = supervisor.start(fail(), name="failed-worker")
+            with self.assertRaisesRegex(RuntimeError, "worker failed"):
+                await task
+            await asyncio.sleep(0)
+
+        asyncio.run(exercise())
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0][0], "failed-worker")
+        self.assertIsInstance(failures[0][1], RuntimeError)
+
     def test_drain_waits_owned_task_then_releases_and_stops_heartbeat(self) -> None:
         async def exercise() -> None:
             port = _AuthorityPort()

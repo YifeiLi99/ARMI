@@ -176,6 +176,12 @@ def test_capability_state_separates_availability_authorization_and_desire() -> N
         "creator_denied"
     )
     assert "desire" not in denied_document
+    denied_item = next(
+        item for item in states if item.item_kind == "capability_state_denied"
+    )
+    assert denied_item.source.version is not None
+    assert denied_item.source.version <= (1 << 53) - 1
+    DeterministicContextCompiler().compile(request)
 
 
 def test_context_includes_only_naturally_accessible_memory_heads() -> None:

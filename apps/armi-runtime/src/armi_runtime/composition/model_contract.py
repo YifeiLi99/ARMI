@@ -236,7 +236,7 @@ class ExperiencePayload(_StrictModel):
     fact_class: FactClass
     first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
     source_perspective: Literal["creator_claim"]
-    uncertainty: Summary | None
+    uncertainty: Summary | None = None
     privacy_scope: Literal["private"]
 
 
@@ -403,7 +403,7 @@ class WebAwareExperiencePayload(_StrictModel):
     fact_class: FactClass
     first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
     source_perspective: Literal["creator_claim", "web_claim"]
-    uncertainty: Summary | None
+    uncertainty: Summary | None = None
     privacy_scope: Literal["private"]
 
 
@@ -419,7 +419,7 @@ class CodexAwareExperiencePayload(_StrictModel):
     fact_class: FactClass
     first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
     source_perspective: Literal["creator_claim", "codex_observation"]
-    uncertainty: Summary | None
+    uncertainty: Summary | None = None
     privacy_scope: Literal["private"]
 
 

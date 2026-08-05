@@ -93,6 +93,36 @@ async def repair_work(
         await writer.append(
             audit_factory(fence, f"work.recovered.{decision.value}", work_id)
         )
+    failed_episodes = await (
+        await connection.execute(
+            """
+            UPDATE armi.cognitive_episodes AS episode
+            SET status = 'failed',
+                failure_code = work.last_error_code
+            FROM armi.durable_work AS work
+            WHERE work.owner_kind = 'cognitive_episode'
+              AND work.owner_ref = episode.cognitive_episode_id
+              AND work.status = 'failed'
+              AND work.last_error_code IS NOT NULL
+              AND episode.status NOT IN (
+                  'completed', 'stale', 'failed', 'cancelled'
+              )
+            RETURNING episode.cognitive_episode_id, work.work_id
+            """
+        )
+    ).fetchall()
+    for episode_id, _work_id in failed_episodes:
+        findings.append(
+            RecoveryFinding(
+                "cognitive_episode",
+                RecoveryDecision.TERMINAL,
+                "REC-EPISODE-WORK-FAILED",
+                episode_id,
+            )
+        )
+        await writer.append(
+            audit_factory(fence, "cognition.episode.recovered.failed", episode_id)
+        )
     return tuple(findings), requeued, terminal
 
 

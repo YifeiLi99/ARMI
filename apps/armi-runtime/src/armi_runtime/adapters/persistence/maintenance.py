@@ -69,7 +69,7 @@ class PostgreSQLMaintenanceRepository:
                 WHERE session.subject_id = %s
                   AND session.life_generation_id = %s
                   AND session.finished_at IS NULL
-                FOR UPDATE OF session, revision
+                FOR UPDATE OF session
                 """,
                 (fence.subject_id, fence.life_generation_id),
             )

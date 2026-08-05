@@ -186,5 +186,7 @@ GRANT SELECT ON TABLE armi.sleep_decisions, armi.maintenance_sessions,
     armi.maintenance_session_revisions TO armi_runtime, armi_admin;
 GRANT INSERT ON TABLE armi.sleep_decisions, armi.maintenance_session_revisions TO armi_runtime;
 GRANT INSERT ON TABLE armi.maintenance_sessions TO armi_runtime;
+GRANT INSERT (available_after, expires_at)
+    ON armi.opportunities TO armi_runtime;
 GRANT UPDATE (current_revision_id, head_version, finished_at)
     ON armi.maintenance_sessions TO armi_runtime;

@@ -295,7 +295,7 @@ class PostgreSQLLifeRecordQuery:
                                    'conversation'::text,
                                    experience.first_person_gist,
                                    experience.source_perspective,
-                                   experience.created_at,
+                                   experience.accepted_at,
                                    NULL::boolean
                             FROM armi.accepted_experiences AS experience
                             JOIN armi.subject_commits AS commit

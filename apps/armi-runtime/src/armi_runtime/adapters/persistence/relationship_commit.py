@@ -215,7 +215,7 @@ async def apply_relationships(
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, 'private'
+                'private'
             )
             """,
             (

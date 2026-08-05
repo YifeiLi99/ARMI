@@ -26,6 +26,7 @@ from armi_runtime.composition.model_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
+    CognitionCandidateV7,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
@@ -714,6 +715,33 @@ def test_candidate_rejects_unknown_or_unavailable_context_reference() -> None:
             json.dumps(value).encode(),
             allowed_context_refs=frozenset({"ctx:1"}),
         )
+
+
+def test_codex_observation_may_omit_nullable_uncertainty() -> None:
+    value = _candidate()
+    value["disposition"] = "change"
+    value["experiences"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:1"],
+            "payload": {
+                "proposal_kind": "experiences",
+                "fact_class": "external_claim",
+                "first_person_gist": "I observed the verified Codex result.",
+                "source_perspective": "codex_observation",
+                "privacy_scope": "private",
+            },
+        }
+    ]
+
+    parsed = parse_candidate(
+        json.dumps(value).encode(),
+        allowed_context_refs=frozenset({"ctx:1"}),
+    )
+
+    assert isinstance(parsed, CognitionCandidateV7)
+    assert parsed.experiences[0].payload.uncertainty is None
 
 
 class _Transport(ArkTransport):

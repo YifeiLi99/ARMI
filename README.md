@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目当前已达到 M0-Core 单机个人内测可用；P0-S001—S021 已完成，当前进入 P0-S022 核心旅程验收。Activity、注意、Creator 只读闭环、睡眠维护、主观记忆演进、精确生活查询、关系连续、私人生活资料、能力治理、运行观测、分钟级容量基线和空环境可运行整合已经落地。普通 `consider_creator_input` 仍只调用一次主模型：除既有 Experience、Memory 和 Relationship 变化外，ARMI 可创建、完整改写、标记私人、恢复 Creator 可见或删除自己的一项日记、作品、收藏或草稿。Runtime 绑定唯一 subject party owner、资料 identity、current revision/head、来源和当前 visibility；正文保存为不可变内容寻址制品，T-03 原子追加 `created/updated/privacy_changed/deleted` revision 并 CAS 推进 current。删除以 tombstone 使资料退出日常 Context 和 Creator 投影，但保留旧 revision、制品引用及私人操作审计。Creator UI 现在只能显式打开 current `creator_visible` 正文，private、删除和未知资料统一不可见；正文只进入内存 Query cache，并在资料失效、断线核验、401 或注销时清除。ARMI Context 仍可读取未删除的自有 private 资料，Admin `subject_snapshot(detail=private)` 可只读核验含 restricted/tombstone 的 current 正文；普通 Runtime 日志和 Creator 错误响应都不含正文。Creator 不能直接改写资料，可见性也不构成公开、共享或代发许可。能力 Context 现在直接读取 PostgreSQL 权威目录、最新正式申请及有效 grant，明确分开能力存在、技术可用与授权状态；普通对话 `v11/v12` 只允许通过 `ctx:N` 选择固定能力，Runtime 绑定正式 scope，聊天文本不能授予权限，未决或有效 Codex 申请会被去重。grant 当前还显式绑定 subject、scene、Creator 与精确 capability；Creator inbox 和 Codex runner 在外部调用前重新协调撤回/过期，确认未送达的 Creator reply 也只有在原授权仍当前时才会重试。Creator 工作台现已分开展示申请 scope、实际 grant、状态时间与失效边界，effect 详情显式关联原 request/grant，Creator response timeline 可直接打开 effect；界面明确授权不等于 ARMI 意愿，撤回也不改写已派发或未知效果。Runtime 私有状态现按固定间隔给出 authority、work/outbox/effect 积压、进程/数据库/制品/磁盘与日志保留快照；`armi capacity baseline` 可在不制造业务负载的前提下输出有界时间序列和阈值判断，公开 Creator 状态合同不扩张。日志按日期或大小轮转并按保留期清理，制品孤儿清理和数据库 `VACUUM (ANALYZE)` 只经显式运维命令执行。精确查询明确标记为本次取得的记录证据，不会把已经遗忘的内容伪装成自然回忆。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
+项目当前已达到 M0-Core 单机个人内测可用；P0-S001—S021 已完成，P0-S022 核心旅程已经执行但未通过，P0 尚未放行。Activity、注意、Creator 只读闭环、睡眠维护、主观记忆演进、精确生活查询、关系连续、私人生活资料、能力治理、运行观测、分钟级容量基线和空环境可运行整合已经落地。普通 `consider_creator_input` 仍只调用一次主模型：除既有 Experience、Memory 和 Relationship 变化外，ARMI 可创建、完整改写、标记私人、恢复 Creator 可见或删除自己的一项日记、作品、收藏或草稿。Runtime 绑定唯一 subject party owner、资料 identity、current revision/head、来源和当前 visibility；正文保存为不可变内容寻址制品，T-03 原子追加 `created/updated/privacy_changed/deleted` revision 并 CAS 推进 current。删除以 tombstone 使资料退出日常 Context 和 Creator 投影，但保留旧 revision、制品引用及私人操作审计。Creator UI 现在只能显式打开 current `creator_visible` 正文，private、删除和未知资料统一不可见；正文只进入内存 Query cache，并在资料失效、断线核验、401 或注销时清除。ARMI Context 仍可读取未删除的自有 private 资料，Admin `subject_snapshot(detail=private)` 可只读核验含 restricted/tombstone 的 current 正文；普通 Runtime 日志和 Creator 错误响应都不含正文。Creator 不能直接改写资料，可见性也不构成公开、共享或代发许可。能力 Context 现在直接读取 PostgreSQL 权威目录、最新正式申请及有效 grant，明确分开能力存在、技术可用与授权状态；普通对话 `v11/v12` 只允许通过 `ctx:N` 选择固定能力，Runtime 绑定正式 scope，聊天文本不能授予权限，未决或有效 Codex 申请会被去重。grant 当前还显式绑定 subject、scene、Creator 与精确 capability；Creator inbox 和 Codex runner 在外部调用前重新协调撤回/过期，确认未送达的 Creator reply 也只有在原授权仍当前时才会重试。Creator 工作台现已分开展示申请 scope、实际 grant、状态时间与失效边界，effect 详情显式关联原 request/grant，Creator response timeline 可直接打开 effect；界面明确授权不等于 ARMI 意愿，撤回也不改写已派发或未知效果。Runtime 私有状态现按固定间隔给出 authority、work/outbox/effect 积压、进程/数据库/制品/磁盘与日志保留快照；`armi capacity baseline` 可在不制造业务负载的前提下输出有界时间序列和阈值判断，公开 Creator 状态合同不扩张。日志按日期或大小轮转并按保留期清理，制品孤儿清理和数据库 `VACUUM (ANALYZE)` 只经显式运维命令执行。精确查询明确标记为本次取得的记录证据，不会把已经遗忘的内容伪装成自然回忆。
 
 S039 的 Creator→Codex 产品纵向 gate 已通过：正式 `codex-tasks` 输入经 ARMI 认知、Creator grant、Codex effect、官方 `openai-codex==0.144.4` SDK runner、独立 validator、result evidence 和第二次 T-03 收敛为唯一 private Experience。新任务可逐项选择 `gpt-5.6-sol/terra/luna`、思考级别和内置 Web Search；一次性 workspace 默认可操作，明确 forbidden paths 和禁止逃逸构成安全边界。纯内容任务由结构化 deliverable 落为 `result.md`，代码与文件任务按 task manifest 和独立 validator 核验。正式 Creator 链已经用 Luna、`max` 和 Web Search 完成实机验收，不再把组件级成功冒充产品闭环。
 
@@ -26,8 +26,10 @@ Admin MCP、S033/S034 ARMI 网页观察、Windows 服务身份/DACL、跨候选�
 移入 P0 稳定化，不再阻塞个人内测。当前仍不是生产发布版本；Relationship owner 已能
 从同轮正式 Experience 形成带来源的 current/revision，保存双方边界、结束联系、承诺事件和未解决冲突，并以独立 Context 项跨场景延续而不复制近期现场原文；Memory owner 已能从正式 Experience 形成带来源的 current/revision；Activity owner
 已进入正式组合根，但首次真实自主认知没有创建 `ready`
-Activity。相关 Context 串线已经修复；历史联合验收结果保留到 P0-S022 集中复验，
-不再阻塞后续功能开发。P0-S001—P0-S021 已完成，当前施工入口为 P0-S022。
+Activity。相关 Context 串线已经修复。P0-S022 已在同一隔离环境证明普通对话、回应效果、
+记忆、关系、私人资料、睡眠、Creator→Codex、浏览器读取和重启连续性；自主机会仍结算为
+`no_change` 且 Activity 数为 0，一次修复前的 Codex 结果 operation 也仍待收敛。当前施工入口
+继续为 P0-S022 失败项修复与复验，不自动进入 P1。
 
 ## 本地 Runtime 生命周期
 
@@ -97,7 +99,7 @@ Remove-Item Env:PYTEST_ADDOPTS
 uv run python tools/verify_codex_runner.py --preflight
 ```
 
-真实模型对话、真实 Creator→Codex 委托、完整浏览器旅程和长时间观察属于 P0-S022。
+真实模型对话、真实 Creator→Codex 委托和完整浏览器旅程已在 P0-S022 执行；结果与剩余失败见私有实施记录。24 小时 soak 和正式发布决定仍未执行。
 
 ## 开发验证
 

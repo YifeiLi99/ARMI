@@ -93,6 +93,11 @@ class PostgreSQLOutboxGateway:
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+                effective_claim_owner = (
+                    unit_of_work.runtime_fence.runtime_instance_id.value
+                    if unit_of_work.runtime_fence is not None
+                    else claim_owner
+                )
                 candidates = await (
                     await connection.execute(
                         """
@@ -138,7 +143,7 @@ class PostgreSQLOutboxGateway:
                                 max_attempts,
                                 trace_id
                             """,
-                            (claim_owner, lease_seconds, item_id),
+                            (effective_claim_owner, lease_seconds, item_id),
                         )
                     ).fetchone()
                     assert row is not None

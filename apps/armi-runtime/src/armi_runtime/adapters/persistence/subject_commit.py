@@ -97,6 +97,71 @@ class PostgreSQLSubjectCommitRepository:
 
     __slots__ = ()
 
+    async def fail(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        lease: WorkLease,
+        code: str,
+    ) -> None:
+        """Terminally settle a current subject-commit attempt and its episode."""
+
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                SELECT episode.cognitive_episode_id,
+                       episode.subject_id,
+                       episode.trace_id
+                FROM armi.durable_work AS work
+                JOIN armi.cognitive_episodes AS episode
+                  ON episode.cognitive_episode_id = work.owner_ref
+                WHERE work.work_id = %s
+                  AND work.work_kind = 'cognition.subject.commit'
+                  AND work.owner_kind = 'cognitive_episode'
+                  AND work.status = 'leased'
+                  AND work.current_attempt_id = %s
+                  AND work.lease_owner = %s
+                  AND work.lease_token = %s
+                  AND work.lease_expires_at >= statement_timestamp()
+                  AND episode.status = 'candidate_validated'
+                FOR UPDATE OF work, episode
+                """,
+                (
+                    lease.work_id.value,
+                    lease.attempt_id.value,
+                    lease.owner,
+                    lease.token,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise SubjectCommitViolation("SUBJECT-WORK-STALE")
+        await connection.execute(
+            """
+            UPDATE armi.cognitive_episodes
+            SET status = 'failed', failure_code = %s
+            WHERE cognitive_episode_id = %s
+              AND status = 'candidate_validated'
+            """,
+            (code, row[0]),
+        )
+        await unit_of_work.work.fail(lease, error_code=code)
+        await unit_of_work.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", unit_of_work.environment_id),
+                Purpose("cognition.subject.commit"),
+                "cognition.subject.failed",
+                AuditReference("cognitive_episode", row[0]),
+                AuditResultStatus.FAILED,
+                TraceId(str(row[2])),
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(row[1]),
+                request=AuditReference("durable_work", lease.work_id.value),
+            )
+        )
+
     async def capability_request_ids(
         self,
         unit_of_work: PostgreSQLUnitOfWork,

@@ -541,7 +541,26 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     elif continuity is ContinuityState.UNBORN:
         lifecycle.mark_unborn()
 
-    supervisor = RuntimeSupervisor(authority)
+    def background_task_failed(name: str, error: BaseException) -> None:
+        error_code = getattr(error, "code", type(error).__name__)
+        safe_error_code = "".join(
+            character if character.isalnum() else "_"
+            for character in str(error_code).lower()
+        ).strip("_")
+        if not safe_error_code:
+            safe_error_code = "unknown"
+        diagnostic.emit(
+            f"runtime.background_worker.{name}.failed.{safe_error_code}",
+            level=logging.ERROR,
+            result_code="BACKGROUND_WORKER_FAILED",
+            reason_codes=("RUNTIME_BACKGROUND_WORKER_FAILED",),
+        )
+        server.should_exit = True
+
+    supervisor = RuntimeSupervisor(
+        authority,
+        on_task_failure=background_task_failed,
+    )
     drain_timed_out = False
 
     async def started() -> None:

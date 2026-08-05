@@ -138,8 +138,10 @@ class SubjectCommitPipeline:
             raise SubjectCommitViolation("SUBJECT-DATABASE") from None
         if not records:
             return False
-        lease = records[0].lease
+        record = records[0]
+        lease = record.lease
         assert lease is not None
+        final_attempt = record.attempt_count >= record.draft.max_attempts
         try:
             snapshot = await self._snapshot(lease)
             change_set = parse_subject_change_set(await self._read(snapshot))
@@ -248,10 +250,14 @@ class SubjectCommitPipeline:
             }:
                 self._diagnostic("subject_commit.work.stale")
                 return True
-            await self._release(lease, error.code)
+            await self._release_or_fail(lease, error.code, final_attempt=final_attempt)
             return True
         except ArtifactViolation:
-            await self._release(lease, "SUBJECT-RESPONSE-ARTIFACT")
+            await self._release_or_fail(
+                lease,
+                "SUBJECT-RESPONSE-ARTIFACT",
+                final_attempt=final_attempt,
+            )
             return True
         except DatabaseTransactionError as error:
             if error.code == "DB-TX-COMMIT-UNKNOWN" and snapshot is not None:
@@ -262,10 +268,24 @@ class SubjectCommitPipeline:
                     return True
                 self._diagnostic("subject_commit.commit.outcome_unknown")
                 return True
-            self._diagnostic("subject_commit.worker.transient_failure")
+            self._diagnostic(
+                f"subject_commit.worker.transient_failure.{error.code.lower()}"
+            )
+            await self._release_or_fail(
+                lease,
+                error.code,
+                final_attempt=final_attempt,
+            )
             return True
-        except WorkViolation:
-            self._diagnostic("subject_commit.worker.transient_failure")
+        except WorkViolation as error:
+            self._diagnostic(
+                f"subject_commit.worker.transient_failure.{error.code.lower()}"
+            )
+            await self._release_or_fail(
+                lease,
+                error.code,
+                final_attempt=final_attempt,
+            )
             return True
 
     async def run_worker(self) -> None:
@@ -315,9 +335,23 @@ class SubjectCommitPipeline:
             raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT")
         return value
 
-    async def _release(self, lease: WorkLease, code: str) -> None:
+    async def _release_or_fail(
+        self,
+        lease: WorkLease,
+        code: str,
+        *,
+        final_attempt: bool,
+    ) -> None:
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+                if final_attempt:
+                    await self._repository.fail(
+                        unit_of_work,
+                        lease=lease,
+                        code=code,
+                    )
+                    self._wake_downstream()
+                    return
                 row = await (
                     await unit_of_work._connection_for_repository().execute(  # pyright: ignore[reportPrivateUsage]
                         "SELECT statement_timestamp()"
@@ -330,7 +364,7 @@ class SubjectCommitPipeline:
                     not_before=Instant(row[0]),
                     error_code=code,
                 )
-        except DatabaseTransactionError, WorkViolation:
+        except DatabaseTransactionError, SubjectCommitViolation, WorkViolation:
             self._diagnostic("subject_commit.settlement.deferred")
 
     async def _publish_response(

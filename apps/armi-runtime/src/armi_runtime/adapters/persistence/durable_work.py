@@ -353,6 +353,11 @@ class PostgreSQLDurableWorkGateway:
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+                effective_lease_owner = (
+                    unit_of_work.runtime_fence.runtime_instance_id.value
+                    if unit_of_work.runtime_fence is not None
+                    else lease_owner
+                )
                 await _expire_unclaimable(connection, unit_of_work)
                 candidates = await (
                     await connection.execute(
@@ -399,7 +404,7 @@ class PostgreSQLDurableWorkGateway:
                             """,
                             (
                                 attempt_id,
-                                lease_owner,
+                                effective_lease_owner,
                                 lease_seconds,
                                 candidate[0],
                             ),
