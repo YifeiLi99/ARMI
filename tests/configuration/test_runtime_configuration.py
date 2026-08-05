@@ -98,6 +98,39 @@ class RuntimeConfigurationTests(unittest.TestCase):
                 },
             )
 
+    def test_observability_retention_defaults_overrides_and_watermarks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            effective = self.load(
+                root,
+                environment={
+                    "ARMI_DB_MAINTENANCE_TIMEOUT_SECONDS": "600",
+                    "ARMI_DIAGNOSTIC_ROTATION_MAX_BYTES": "1048576",
+                    "ARMI_DIAGNOSTIC_RETENTION_SECONDS": "172800",
+                    "ARMI_OBSERVABILITY_SAMPLE_INTERVAL_SECONDS": "5",
+                    "ARMI_DISK_WARNING_FREE_BYTES": "2147483648",
+                    "ARMI_DISK_CRITICAL_FREE_BYTES": "1073741824",
+                },
+            )
+        self.assertEqual(
+            effective.config.database.maintenance_statement_timeout_seconds,
+            600,
+        )
+        self.assertEqual(effective.config.diagnostics.rotation_max_bytes, 1_048_576)
+        self.assertEqual(effective.config.diagnostics.retention_seconds, 172_800)
+        self.assertEqual(effective.config.observability.sample_interval_seconds, 5)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            self.assertRaises(ConfigurationViolation),
+        ):
+            self.load(
+                Path(directory),
+                environment={
+                    "ARMI_DISK_WARNING_FREE_BYTES": "1073741824",
+                    "ARMI_DISK_CRITICAL_FREE_BYTES": "1073741824",
+                },
+            )
+
     def test_environment_overrides_all_required_deployment_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -150,6 +183,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         schema = json.loads(schema_bytes())
         self.assertEqual(schema["title"], "RuntimeConfig")
         self.assertIn("maintenance", schema["properties"])
+        self.assertIn("diagnostics", schema["properties"])
+        self.assertIn("observability", schema["properties"])
 
     def test_model_is_frozen_and_forbids_extra_fields(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

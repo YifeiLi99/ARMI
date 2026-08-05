@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,6 +68,31 @@ class DiagnosticTests(unittest.TestCase):
         snapshot = lifecycle.complete_startup(("RUNTIME_RECOVERY_NOT_IMPLEMENTED",))
         self.assertEqual(snapshot.runtime_state, RuntimeState.BLOCKED)
         self.assertIn(_REASON, snapshot.reason_codes)
+
+    def test_size_rotation_and_age_retention_are_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            logs = root / "logs"
+            logs.mkdir()
+            expired = logs / "runtime-expired.jsonl"
+            expired.write_text("old\n", encoding="utf-8", newline="\n")
+            os.utime(expired, (1, 1))
+            diagnostic = StructuredDiagnosticLog(
+                data_root=root,
+                environment_id=_ENVIRONMENT,
+                instance_id="rotation",
+                rotation_max_bytes=64,
+                retention_seconds=1,
+            )
+            diagnostic.emit("runtime.lifecycle.starting")
+            diagnostic.emit("runtime.lifecycle.ready")
+            status = diagnostic.status
+            diagnostic.close()
+
+        self.assertEqual(status.mode, "file")
+        self.assertGreaterEqual(status.rotations, 1)
+        self.assertEqual(status.retention_deleted, 1)
+        self.assertFalse(expired.exists())
 
 
 if __name__ == "__main__":

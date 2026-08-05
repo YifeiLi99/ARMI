@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import stat
 import sys
 from collections.abc import Callable
 from contextlib import suppress
@@ -20,12 +21,21 @@ from .runtime_errors import RuntimeViolation
 _EVENT = re.compile(r"^[a-z][a-z0-9_.-]{0,127}$", re.ASCII)
 _RESULT = re.compile(r"^[A-Z][A-Z0-9_-]{2,127}$", re.ASCII)
 _DEGRADED_REASON = "RUNTIME_DIAGNOSTIC_FILE_LOG_UNAVAILABLE"
+_LOG_NAME = re.compile(
+    r"^runtime-[A-Za-z0-9-]{1,128}(?:\.[0-9]{8}T[0-9]{12}Z\.[0-9]+)?\.jsonl$",
+    re.ASCII,
+)
 
 
 @dataclass(frozen=True, slots=True)
 class DiagnosticSinkStatus:
     mode: str
     reason_code: str | None
+    current_bytes: int
+    retained_bytes: int
+    rotations: int
+    retention_deleted: int
+    retention_failures: int
 
 
 class _JsonLineFormatter(logging.Formatter):
@@ -45,42 +55,72 @@ class _JsonLineFormatter(logging.Formatter):
 
 
 class _FailoverHandler(logging.Handler):
-    __slots__ = ("_fallback", "_file", "_on_degraded", "_reason_code")
+    __slots__ = (
+        "_active_date",
+        "_active_path",
+        "_current_bytes",
+        "_fallback",
+        "_file",
+        "_logs_root",
+        "_on_degraded",
+        "_reason_code",
+        "_retention_deleted",
+        "_retention_failures",
+        "_retention_seconds",
+        "_rotation_max_bytes",
+        "_rotations",
+    )
 
     def __init__(
         self,
         *,
         file: TextIO | None,
+        active_path: Path,
+        logs_root: Path,
+        rotation_max_bytes: int,
+        retention_seconds: int,
         fallback: TextIO,
         on_degraded: Callable[[str], object] | None,
     ) -> None:
         super().__init__()
         self._file = file
+        self._active_path = active_path
+        self._logs_root = logs_root
+        self._rotation_max_bytes = rotation_max_bytes
+        self._retention_seconds = retention_seconds
         self._fallback = fallback
         self._on_degraded = on_degraded
         self._reason_code = _DEGRADED_REASON if file is None else None
+        self._active_date = datetime.now(UTC).date()
+        self._current_bytes = _safe_size(active_path) if file is not None else 0
+        self._rotations = 0
+        self._retention_deleted = 0
+        self._retention_failures = 0
+        self._apply_retention()
 
     @property
     def status(self) -> DiagnosticSinkStatus:
         return DiagnosticSinkStatus(
             mode="stderr" if self._file is None else "file",
             reason_code=self._reason_code,
+            current_bytes=self._current_bytes,
+            retained_bytes=self._retained_bytes(),
+            rotations=self._rotations,
+            retention_deleted=self._retention_deleted,
+            retention_failures=self._retention_failures,
         )
 
     def emit(self, record: logging.LogRecord) -> None:
         line = f"{self.format(record)}\n"
         if self._file is not None:
             try:
-                self._file.write(line)
-                self._file.flush()
+                file = self._rotate_if_needed(len(line.encode("utf-8")))
+                file.write(line)
+                file.flush()
+                self._current_bytes += len(line.encode("utf-8"))
                 return
             except OSError:
-                with suppress(OSError):
-                    self._file.close()
-                self._file = None
-                self._reason_code = _DEGRADED_REASON
-                if self._on_degraded is not None:
-                    self._on_degraded(_DEGRADED_REASON)
+                self._degrade()
         try:
             self._fallback.write(line)
             self._fallback.flush()
@@ -89,6 +129,85 @@ class _FailoverHandler(logging.Handler):
                 "LOG-SINK",
                 "diagnostic output is unavailable",
             ) from None
+
+    def _rotate_if_needed(self, incoming_bytes: int) -> TextIO:
+        file = self._file
+        if file is None:
+            raise OSError
+        now = datetime.now(UTC)
+        if self._current_bytes == 0 or (
+            now.date() == self._active_date
+            and self._current_bytes + incoming_bytes <= self._rotation_max_bytes
+        ):
+            return file
+        file.flush()
+        file.close()
+        self._file = None
+        self._rotations += 1
+        timestamp = now.strftime("%Y%m%dT%H%M%S%fZ")
+        rotated = self._active_path.with_name(
+            f"{self._active_path.stem}.{timestamp}.{self._rotations}.jsonl"
+        )
+        self._active_path.replace(rotated)
+        file = self._active_path.open("a", encoding="utf-8", newline="\n")
+        self._file = file
+        self._active_date = now.date()
+        self._current_bytes = 0
+        self._apply_retention(now=now)
+        return file
+
+    def _degrade(self) -> None:
+        if self._file is not None:
+            with suppress(OSError):
+                self._file.close()
+        self._file = None
+        self._reason_code = _DEGRADED_REASON
+        if self._on_degraded is not None:
+            self._on_degraded(_DEGRADED_REASON)
+
+    def _apply_retention(self, *, now: datetime | None = None) -> None:
+        cutoff = (now or datetime.now(UTC)).timestamp() - self._retention_seconds
+        try:
+            candidates = tuple(self._logs_root.iterdir())
+        except OSError:
+            self._retention_failures += 1
+            return
+        for path in candidates:
+            if path == self._active_path or _LOG_NAME.fullmatch(path.name) is None:
+                continue
+            try:
+                metadata = path.lstat()
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or path.is_symlink()
+                    or metadata.st_nlink != 1
+                    or getattr(metadata, "st_file_attributes", 0) & 0x400
+                    or metadata.st_mtime > cutoff
+                ):
+                    continue
+                path.unlink()
+                self._retention_deleted += 1
+            except OSError:
+                self._retention_failures += 1
+
+    def _retained_bytes(self) -> int:
+        total = 0
+        try:
+            candidates = self._logs_root.iterdir()
+            for path in candidates:
+                if _LOG_NAME.fullmatch(path.name) is None:
+                    continue
+                metadata = path.lstat()
+                if (
+                    stat.S_ISREG(metadata.st_mode)
+                    and not path.is_symlink()
+                    and metadata.st_nlink == 1
+                    and not getattr(metadata, "st_file_attributes", 0) & 0x400
+                ):
+                    total += metadata.st_size
+        except OSError:
+            return self._current_bytes
+        return total
 
     def close(self) -> None:
         if self._file is not None:
@@ -114,14 +233,31 @@ class StructuredDiagnosticLog:
         instance_id: str,
         fallback: TextIO | None = None,
         on_degraded: Callable[[str], object] | None = None,
+        rotation_max_bytes: int = 16_777_216,
+        retention_seconds: int = 604_800,
     ) -> None:
+        if (
+            type(rotation_max_bytes) is not int
+            or rotation_max_bytes <= 0
+            or type(retention_seconds) is not int
+            or retention_seconds <= 0
+        ):
+            raise RuntimeViolation("LOG-CONFIG", "diagnostic retention is invalid")
         logger = logging.Logger(f"armi-runtime.{instance_id}", level=logging.INFO)
         logger.propagate = False
         logs_root = data_root / "logs"
         stream: TextIO | None = None
+        active_path = logs_root / f"runtime-{instance_id}.jsonl"
         try:
             logs_root.mkdir(parents=True, exist_ok=True)
-            stream = (logs_root / f"runtime-{instance_id}.jsonl").open(
+            root_metadata = logs_root.lstat()
+            if (
+                not stat.S_ISDIR(root_metadata.st_mode)
+                or logs_root.is_symlink()
+                or getattr(root_metadata, "st_file_attributes", 0) & 0x400
+            ):
+                raise OSError
+            stream = active_path.open(
                 "a",
                 encoding="utf-8",
                 newline="\n",
@@ -130,6 +266,10 @@ class StructuredDiagnosticLog:
             stream = None
         handler = _FailoverHandler(
             file=stream,
+            active_path=active_path,
+            logs_root=logs_root,
+            rotation_max_bytes=rotation_max_bytes,
+            retention_seconds=retention_seconds,
             fallback=fallback or sys.stderr,
             on_degraded=on_degraded,
         )
@@ -182,6 +322,14 @@ class StructuredDiagnosticLog:
     def close(self) -> None:
         self._handler.close()
         self._logger.removeHandler(self._handler)
+
+
+def _safe_size(path: Path) -> int:
+    try:
+        metadata = path.stat()
+    except OSError:
+        return 0
+    return metadata.st_size
 
 
 __all__ = (

@@ -53,6 +53,9 @@ from armi_runtime.adapters.persistence.recovery import (
 from armi_runtime.adapters.persistence.runtime_authority import (
     PostgreSQLRuntimeAuthority,
 )
+from armi_runtime.adapters.persistence.runtime_observability import (
+    PostgreSQLRuntimeObservation,
+)
 from armi_runtime.adapters.persistence.scene_timeline import (
     PostgreSQLSceneTimelineQuery,
 )
@@ -249,6 +252,57 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
             return handle.consume(invoke)
     except ConfigurationViolation:
         return ContinuityState.INVALID
+
+
+def compose_runtime_observation(
+    prepared: PreparedEnvironment,
+) -> PostgreSQLRuntimeObservation:
+    """Resolve the Runtime credential for the private read-only sampler."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the required database credential locator is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLRuntimeObservation:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-CONNECTION-UNAVAILABLE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
+                    ) from None
+                config = prepared.effective.config
+                return PostgreSQLRuntimeObservation(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.diagnostic_statement_timeout_seconds
+                    ),
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise DatabaseViolation(
+            "DB-ROLE-CREDENTIAL-SCOPE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
 
 
 def inspect_creator_context(prepared: PreparedEnvironment) -> CreatorContext | None:
@@ -1243,6 +1297,7 @@ __all__ = (
     "compose_model_pipeline",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",
+    "compose_runtime_observation",
     "compose_runtime_recovery",
     "compose_scene_timeline_query",
     "compose_subject_commit_pipeline",

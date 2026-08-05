@@ -110,6 +110,7 @@ class DatabaseConfig(_FrozenModel):
     pool_acquire_timeout_seconds: PositiveInt = 5
     statement_timeout_seconds: PositiveInt = 5
     diagnostic_statement_timeout_seconds: PositiveInt = 30
+    maintenance_statement_timeout_seconds: PositiveInt = 300
 
     @model_validator(mode="after")
     def validate_pool(self) -> Self:
@@ -176,6 +177,23 @@ class ArtifactsConfig(_FrozenModel):
     orphan_grace_seconds: PositiveInt = 86_400
 
 
+class DiagnosticsConfig(_FrozenModel):
+    rotation_max_bytes: PositiveInt = 16_777_216
+    retention_seconds: PositiveInt = 604_800
+
+
+class ObservabilityConfig(_FrozenModel):
+    sample_interval_seconds: PositiveInt = 10
+    disk_warning_free_bytes: PositiveInt = 2_147_483_648
+    disk_critical_free_bytes: PositiveInt = 1_073_741_824
+
+    @model_validator(mode="after")
+    def validate_disk_watermarks(self) -> Self:
+        if self.disk_critical_free_bytes >= self.disk_warning_free_bytes:
+            raise ValueError("critical disk watermark must be below warning")
+        return self
+
+
 class LifecycleConfig(_FrozenModel):
     graceful_shutdown_seconds: PositiveInt = 30
 
@@ -215,6 +233,8 @@ class RuntimeConfig(_FrozenModel):
     codex: CodexConfig = CodexConfig()
     creator: CreatorConfig
     artifacts: ArtifactsConfig = ArtifactsConfig()
+    diagnostics: DiagnosticsConfig = DiagnosticsConfig()
+    observability: ObservabilityConfig = ObservabilityConfig()
     lifecycle: LifecycleConfig = LifecycleConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     maintenance: MaintenanceConfig = MaintenanceConfig()
@@ -257,11 +277,13 @@ __all__ = (
     "CodexConfig",
     "CreatorConfig",
     "DatabaseConfig",
+    "DiagnosticsConfig",
     "EnvironmentConfig",
     "LifecycleConfig",
     "LocatorValue",
     "MaintenanceConfig",
     "ModelConfig",
+    "ObservabilityConfig",
     "RuntimeConfig",
     "RuntimeLeaseConfig",
     "SchedulerConfig",

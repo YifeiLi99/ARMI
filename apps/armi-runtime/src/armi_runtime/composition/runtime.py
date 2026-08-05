@@ -39,6 +39,9 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
 
+from armi_runtime.adapters.persistence.runtime_observability import (
+    RuntimeObservationError,
+)
 from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionStore,
     BrowserSessionViolation,
@@ -74,6 +77,7 @@ from .database import (
     compose_model_pipeline,
     compose_response_admission_pipeline,
     compose_runtime_authority,
+    compose_runtime_observation,
     compose_runtime_recovery,
     compose_scene_timeline_query,
     compose_subject_commit_pipeline,
@@ -87,6 +91,7 @@ from .diagnostics import StructuredDiagnosticLog
 from .environment import PreparedEnvironment
 from .lifecycle import RUNTIME_BLOCKING_REASONS, LifecycleController
 from .runtime_errors import RuntimeViolation
+from .runtime_observability import RuntimeObservationDriver
 from .supervisor import RuntimeSupervisor
 from .work_wakeup import WorkWakeupBus
 
@@ -128,6 +133,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         environment_id=str(config.environment.environment_id),
         instance_id=instance_id,
         on_degraded=lifecycle.add_degradation,
+        rotation_max_bytes=config.diagnostics.rotation_max_bytes,
+        retention_seconds=config.diagnostics.retention_seconds,
     )
     assets = StaticAssetStore.load_packaged()
     lifecycle.start()
@@ -141,6 +148,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     authority_port = None
     authority: RuntimeAuthorityController | None = None
     recovery_port = None
+    observation_port = None
+    observation_driver: RuntimeObservationDriver | None = None
     recovery_reasons: tuple[str, ...] = ()
     browser_sessions: BrowserSessionStore | None = None
     scene_timeline_query = None
@@ -207,6 +216,39 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 diagnostic.emit(
                     "runtime.recovery.safe",
                     result_code="REC_SAFE",
+                )
+            try:
+                observation_port = compose_runtime_observation(prepared)
+                await observation_port.open()
+                observation_driver = RuntimeObservationDriver(
+                    observation_port,
+                    data_root=prepared.data_root,
+                    sample_interval_seconds=(
+                        config.observability.sample_interval_seconds
+                    ),
+                    disk_warning_free_bytes=(
+                        config.observability.disk_warning_free_bytes
+                    ),
+                    disk_critical_free_bytes=(
+                        config.observability.disk_critical_free_bytes
+                    ),
+                    diagnostic_status=lambda: diagnostic.status,
+                    diagnostic=lambda event: diagnostic.emit(
+                        event,
+                        level=logging.WARNING,
+                        result_code="RUNTIME_OBSERVABILITY",
+                    ),
+                )
+            except DatabaseViolation, RuntimeObservationError:
+                if observation_port is not None:
+                    await observation_port.close()
+                observation_port = None
+                observation_driver = None
+                lifecycle.add_degradation("RUNTIME_OBSERVABILITY_UNAVAILABLE")
+                diagnostic.emit(
+                    "runtime.observability.unavailable",
+                    level=logging.WARNING,
+                    result_code="OBSERVABILITY_UNAVAILABLE",
                 )
             creator_context = inspect_creator_context(prepared)
             if creator_context is None:
@@ -417,6 +459,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             )
             if authority_port is not None:
                 await authority_port.close()
+            if observation_port is not None:
+                await observation_port.close()
             diagnostic.close()
             return EXIT_LISTENER_FAILURE
         except RecoveryViolation:
@@ -487,6 +531,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await authority.release()
             if authority_port is not None:
                 await authority_port.close()
+            if observation_port is not None:
+                await observation_port.close()
             diagnostic.close()
             return EXIT_LISTENER_FAILURE
         finally:
@@ -543,6 +589,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 heartbeat_loop(),
                 name="runtime-authority-heartbeat",
                 heartbeat=True,
+            )
+        if observation_driver is not None:
+            supervisor.start(
+                observation_driver.run(),
+                name="runtime-observability",
             )
         if context_pipeline is not None:
             supervisor.start(
@@ -612,6 +663,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         nonlocal drain_timed_out
         if admin_control is not None:
             await admin_control.close()
+        if observation_driver is not None:
+            observation_driver.stop()
         lifecycle.drain()
         diagnostic.emit("runtime.lifecycle.draining", result_code="LIFE_DRAINING")
         if creator_events is not None:
@@ -740,11 +793,14 @@ async def _serve(prepared: PreparedEnvironment) -> int:
 
     def admin_status() -> dict[str, object]:
         snapshot = lifecycle.snapshot()
-        return {
+        result: dict[str, object] = {
             "runtime_state": snapshot.runtime_state.value,
             "readiness": snapshot.readiness.value,
             "reason_codes": list(snapshot.reason_codes),
         }
+        if observation_driver is not None:
+            result["observability"] = observation_driver.snapshot()
+        return result
 
     def admin_drain() -> None:
         lifecycle.drain()
@@ -896,6 +952,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await web_search_pipeline.close()
         if authority_port is not None:
             await authority_port.close()
+        if observation_port is not None:
+            await observation_port.close()
     if server.force_exit:
         return EXIT_GRACEFUL_TIMEOUT
     if drain_timed_out:

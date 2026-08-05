@@ -48,6 +48,7 @@ class ArtifactOrphanReport:
     def safe_view(self) -> dict[str, object]:
         return {
             "schema_version": self.schema_version,
+            "status": "dry_run",
             "counts": dict(self.counts),
             "findings": [
                 {
@@ -57,6 +58,23 @@ class ArtifactOrphanReport:
                 }
                 for finding in self.findings
             ],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactCleanupReport:
+    schema_version: str
+    removed_counts: tuple[tuple[str, int], ...]
+    removed_bytes: int
+    remaining_counts: tuple[tuple[str, int], ...]
+
+    def safe_view(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "status": "applied",
+            "removed_counts": dict(self.removed_counts),
+            "removed_bytes": self.removed_bytes,
+            "remaining_counts": dict(self.remaining_counts),
         }
 
 
@@ -200,6 +218,39 @@ class ContentAddressedArtifactCoordinator:
             counts=tuple(sorted(counts.items())),
         )
 
+    async def cleanup_orphans(
+        self,
+        *,
+        observed_at: datetime | None = None,
+    ) -> ArtifactCleanupReport:
+        now = observed_at or datetime.now(UTC)
+        if (
+            type(now) is not datetime
+            or now.tzinfo is None
+            or now.utcoffset() != UTC.utcoffset(now)
+        ):
+            raise ArtifactViolation("ART-ORPHAN-CLEANUP")
+        try:
+            async with self._uow_factory.unit_of_work(
+                LockPlan(),
+                read_only=True,
+            ) as unit_of_work:
+                refs = await self._catalog.all_refs(unit_of_work)
+        except DatabaseTransactionError:
+            raise ArtifactViolation("ART-DATABASE") from None
+        registered = {ref.content_digest.value: ref for ref in refs}
+        result = await self._storage.cleanup(
+            cutoff=now - timedelta(seconds=self._orphan_grace_seconds),
+            registered=registered,
+        )
+        remaining = Counter(finding.category for finding in result.remaining)
+        return ArtifactCleanupReport(
+            schema_version="armi.artifact-cleanup.v1",
+            removed_counts=result.removed_counts,
+            removed_bytes=result.removed_bytes,
+            remaining_counts=tuple(sorted(remaining.items())),
+        )
+
     async def _get(self, artifact_id: ArtifactId) -> ArtifactRef:
         if type(artifact_id) is not ArtifactId:
             raise ArtifactViolation("ART-DECLARATION")
@@ -239,6 +290,7 @@ class ContentAddressedArtifactCoordinator:
 
 
 __all__ = (
+    "ArtifactCleanupReport",
     "ArtifactOrphanReport",
     "ContentAddressedArtifactCoordinator",
 )

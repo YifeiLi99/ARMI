@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -24,6 +25,10 @@ from armi_runtime.composition.database import (
     install_operator_schema,
 )
 from armi_runtime.composition.environment import prepare_environment
+from armi_runtime.composition.operational_maintenance import (
+    run_artifact_retention,
+    run_database_maintenance,
+)
 from armi_runtime.composition.runtime import run_runtime
 from armi_runtime.composition.runtime_errors import RuntimeViolation
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
@@ -52,6 +57,17 @@ def _parser() -> argparse.ArgumentParser:
     database_status.add_argument("--environment-root", type=Path, required=True)
     database_install = database_command.add_parser("install")
     database_install.add_argument("--environment-root", type=Path, required=True)
+    database_maintain = database_command.add_parser("maintain")
+    database_maintain.add_argument("--environment-root", type=Path, required=True)
+    database_maintain.add_argument("--apply", action="store_true", required=True)
+    artifacts = command.add_parser("artifacts")
+    artifacts_command = artifacts.add_subparsers(
+        dest="artifacts_command",
+        required=True,
+    )
+    artifacts_cleanup = artifacts_command.add_parser("cleanup")
+    artifacts_cleanup.add_argument("--environment-root", type=Path, required=True)
+    artifacts_cleanup.add_argument("--apply", action="store_true")
     bootstrap = command.add_parser("bootstrap")
     bootstrap_command = bootstrap.add_subparsers(
         dest="bootstrap_command",
@@ -105,8 +121,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {}
     elif args.command == "db" and args.database_command == "status":
         credential_scope = {"database.status": "database.runtime"}
+    elif args.command == "db" and args.database_command == "maintain":
+        credential_scope = {"database.maintenance": "database.migrator"}
     elif args.command == "db":
         credential_scope = {"database.migrator": "database.migrator"}
+    elif args.command == "artifacts":
+        credential_scope = {
+            "database.artifact-maintenance": "database.runtime",
+        }
     elif args.command == "bootstrap":
         credential_scope = {"database.birth": "database.runtime"}
     elif args.command == "creator-session":
@@ -154,14 +176,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "db":
         try:
-            result = (
-                inspect_operator_schema(prepared)
-                if args.database_command == "status"
-                else install_operator_schema(prepared)
-            )
-        except DatabaseViolation as error:
+            if args.database_command == "status":
+                result = inspect_operator_schema(prepared)
+            elif args.database_command == "install":
+                result = install_operator_schema(prepared)
+            else:
+                result = run_database_maintenance(prepared)
+        except (DatabaseViolation, RuntimeViolation) as error:
             _safe_failure(error)
-            return error.exit_code
+            return error.exit_code if isinstance(error, DatabaseViolation) else 4
+        print(
+            json.dumps(
+                result.safe_view(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    if args.command == "artifacts":
+        try:
+            result = asyncio.run(
+                run_artifact_retention(prepared, apply=bool(args.apply))
+            )
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 4 if args.apply else 3
         print(
             json.dumps(
                 result.safe_view(),

@@ -46,6 +46,13 @@ class StorageFinding:
     content_digest: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class StorageCleanupResult:
+    removed_counts: tuple[tuple[str, int], ...]
+    removed_bytes: int
+    remaining: tuple[StorageFinding, ...]
+
+
 class _ByHandleFileInformation(ctypes.Structure):
     _fields_ = (
         ("file_attributes", ctypes.c_uint32),
@@ -298,6 +305,31 @@ class ContentAddressedArtifactStore:
         except OSError:
             raise ArtifactViolation("ART-ORPHAN-SCAN") from None
 
+    async def cleanup(
+        self,
+        *,
+        cutoff: datetime,
+        registered: dict[str, ArtifactRef],
+    ) -> StorageCleanupResult:
+        """Delete only revalidated stale staging and unregistered objects."""
+
+        if (
+            type(cutoff) is not datetime
+            or cutoff.tzinfo is None
+            or cutoff.utcoffset() != UTC.utcoffset(cutoff)
+        ):
+            raise ArtifactViolation("ART-ORPHAN-CLEANUP")
+        try:
+            return await asyncio.to_thread(
+                self._cleanup_sync,
+                cutoff,
+                registered,
+            )
+        except ArtifactViolation:
+            raise
+        except OSError:
+            raise ArtifactViolation("ART-ORPHAN-CLEANUP") from None
+
     def _prepare_sync(self) -> None:
         try:
             self._root.mkdir(parents=True, exist_ok=True)
@@ -428,6 +460,49 @@ class ContentAddressedArtifactStore:
                     )
                 )
         return tuple(sorted(findings))
+
+    def _cleanup_sync(
+        self,
+        cutoff: datetime,
+        registered: dict[str, ArtifactRef],
+    ) -> StorageCleanupResult:
+        findings = self._scan_sync(cutoff, registered)
+        removed: dict[str, int] = {}
+        removed_bytes = 0
+        cutoff_timestamp = cutoff.timestamp()
+        for finding in findings:
+            path: Path | None = None
+            if finding.category == "stale_staging" and finding.artifact_id is not None:
+                stage_id = UUID(finding.artifact_id)
+                path = self._staging / f"stage-{stage_id.hex}.tmp"
+            elif (
+                finding.category == "unregistered_object"
+                and finding.content_digest is not None
+                and finding.content_digest not in registered
+            ):
+                path = self._object_path(finding.content_digest.removeprefix("sha256:"))
+            if path is None:
+                continue
+            metadata = path.lstat()
+            if metadata.st_mtime > cutoff_timestamp or not _safe_regular(path):
+                raise ArtifactViolation("ART-ORPHAN-CLEANUP")
+            allowed_root = (
+                self._staging if finding.category == "stale_staging" else self._objects
+            )
+            try:
+                path.resolve(strict=True).relative_to(allowed_root.resolve(strict=True))
+            except ValueError, OSError:
+                raise ArtifactViolation("ART-ORPHAN-CLEANUP") from None
+            byte_size = metadata.st_size
+            path.unlink()
+            removed[finding.category] = removed.get(finding.category, 0) + 1
+            removed_bytes += byte_size
+        remaining = self._scan_sync(cutoff, registered)
+        return StorageCleanupResult(
+            removed_counts=tuple(sorted(removed.items())),
+            removed_bytes=removed_bytes,
+            remaining=remaining,
+        )
 
     def _scan_object_tree(
         self,
@@ -591,4 +666,8 @@ def _open_windows_verified_handle(path: Path, root: Path) -> BinaryIO:
             kernel32.CloseHandle(ctypes.c_void_p(handle))
 
 
-__all__ = ("ContentAddressedArtifactStore", "StorageFinding")
+__all__ = (
+    "ContentAddressedArtifactStore",
+    "StorageCleanupResult",
+    "StorageFinding",
+)

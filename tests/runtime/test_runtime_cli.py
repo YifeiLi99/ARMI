@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
 
@@ -291,6 +292,109 @@ class RuntimeCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertEqual(json.loads(errors.getvalue())["code"], "CLI-CREATOR-TTY")
         self.assertEqual(output.getvalue(), "")
+
+    def test_artifact_cleanup_defaults_to_read_only_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            report = SimpleNamespace(
+                safe_view=lambda: {
+                    "schema_version": "armi.artifact-report.v1",
+                    "status": "dry_run",
+                    "counts": {},
+                    "findings": [],
+                }
+            )
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "armi_runtime.cli.prepare_environment",
+                    wraps=prepare_environment,
+                ) as prepare,
+                patch(
+                    "armi_runtime.cli.run_artifact_retention",
+                    return_value=report,
+                ) as cleanup,
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    (
+                        "artifacts",
+                        "cleanup",
+                        "--environment-root",
+                        str(root.resolve()),
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "dry_run")
+        self.assertEqual(
+            prepare.call_args.kwargs["credential_scope"],
+            {"database.artifact-maintenance": "database.runtime"},
+        )
+        cleanup.assert_awaited_once()
+        await_args = cleanup.await_args
+        if await_args is None:
+            self.fail("artifact cleanup was not awaited")
+        self.assertFalse(await_args.kwargs["apply"])
+
+    def test_database_maintenance_requires_explicit_apply_and_scoped_migrator(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            with (
+                redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit) as missing_apply,
+            ):
+                main(
+                    (
+                        "db",
+                        "maintain",
+                        "--environment-root",
+                        str(root.resolve()),
+                    )
+                )
+            self.assertEqual(missing_apply.exception.code, 2)
+            output = io.StringIO()
+            report = SimpleNamespace(
+                safe_view=lambda: {
+                    "schema_version": "armi.database-maintenance.v1",
+                    "status": "applied",
+                    "table_count": 42,
+                }
+            )
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "armi_runtime.cli.prepare_environment",
+                    wraps=prepare_environment,
+                ) as prepare,
+                patch(
+                    "armi_runtime.cli.run_database_maintenance",
+                    return_value=report,
+                ) as maintain,
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    (
+                        "db",
+                        "maintain",
+                        "--environment-root",
+                        str(root.resolve()),
+                        "--apply",
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "applied")
+        self.assertEqual(
+            prepare.call_args.kwargs["credential_scope"],
+            {"database.maintenance": "database.migrator"},
+        )
+        maintain.assert_called_once()
 
 
 if __name__ == "__main__":

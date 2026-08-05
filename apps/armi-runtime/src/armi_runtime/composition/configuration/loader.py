@@ -46,6 +46,10 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
         ("database", "diagnostic_statement_timeout_seconds"),
         "integer",
     ),
+    "ARMI_DB_MAINTENANCE_TIMEOUT_SECONDS": (
+        ("database", "maintenance_statement_timeout_seconds"),
+        "integer",
+    ),
     "ARMI_RUNTIME_LEASE_SECONDS": (("runtime", "lease_seconds"), "integer"),
     "ARMI_RUNTIME_HEARTBEAT_SECONDS": (
         ("runtime", "heartbeat_seconds"),
@@ -99,6 +103,26 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
     ),
     "ARMI_ARTIFACT_ORPHAN_GRACE_SECONDS": (
         ("artifacts", "orphan_grace_seconds"),
+        "integer",
+    ),
+    "ARMI_DIAGNOSTIC_ROTATION_MAX_BYTES": (
+        ("diagnostics", "rotation_max_bytes"),
+        "integer",
+    ),
+    "ARMI_DIAGNOSTIC_RETENTION_SECONDS": (
+        ("diagnostics", "retention_seconds"),
+        "integer",
+    ),
+    "ARMI_OBSERVABILITY_SAMPLE_INTERVAL_SECONDS": (
+        ("observability", "sample_interval_seconds"),
+        "integer",
+    ),
+    "ARMI_DISK_WARNING_FREE_BYTES": (
+        ("observability", "disk_warning_free_bytes"),
+        "integer",
+    ),
+    "ARMI_DISK_CRITICAL_FREE_BYTES": (
+        ("observability", "disk_critical_free_bytes"),
         "integer",
     ),
     "ARMI_GRACEFUL_SHUTDOWN_SECONDS": (

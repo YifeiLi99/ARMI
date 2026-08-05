@@ -186,6 +186,55 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first[0].content_digest, digest)
         self.assertTrue(object_path.exists())
 
+    async def test_cleanup_removes_only_revalidated_unregistered_objects(self) -> None:
+        content = b"cleanup-orphan"
+        staged = await self.store.stage(_chunks(content), _policy())
+        published = await self.store.publish(staged)
+        digest = published.content_digest.value
+        digest_hex = digest.removeprefix("sha256:")
+        object_path = (
+            self.root
+            / "objects"
+            / "sha256"
+            / digest_hex[:2]
+            / digest_hex[2:4]
+            / digest_hex
+        )
+        old = (datetime.now(UTC) - timedelta(days=2)).timestamp()
+        os.utime(object_path, (old, old))
+        cutoff = datetime.now(UTC) - timedelta(days=1)
+
+        retained = await self.store.cleanup(
+            cutoff=cutoff,
+            registered={digest: _reference(content)},
+        )
+        self.assertEqual(retained.removed_counts, ())
+        self.assertTrue(object_path.exists())
+
+        removed = await self.store.cleanup(cutoff=cutoff, registered={})
+        self.assertEqual(removed.removed_counts, (("unregistered_object", 1),))
+        self.assertEqual(removed.removed_bytes, len(content))
+        self.assertFalse(object_path.exists())
+
+    async def test_cleanup_removes_only_staging_older_than_cutoff(self) -> None:
+        old_stage = await self.store.stage(_chunks(b"old-stage"), _policy())
+        current_stage = await self.store.stage(_chunks(b"current"), _policy())
+        staging = self.root / "staging"
+        old_path = staging / f"stage-{old_stage.stage_id.value.hex}.tmp"
+        current_path = staging / f"stage-{current_stage.stage_id.value.hex}.tmp"
+        old = (datetime.now(UTC) - timedelta(days=2)).timestamp()
+        os.utime(old_path, (old, old))
+
+        result = await self.store.cleanup(
+            cutoff=datetime.now(UTC) - timedelta(days=1),
+            registered={},
+        )
+
+        self.assertEqual(result.removed_counts, (("stale_staging", 1),))
+        self.assertEqual(result.removed_bytes, len(b"old-stage"))
+        self.assertFalse(old_path.exists())
+        self.assertTrue(current_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
