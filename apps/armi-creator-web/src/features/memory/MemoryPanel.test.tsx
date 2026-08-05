@@ -44,7 +44,7 @@ describe("Creator memory panel", () => {
       if (url === "/v1/life-records?limit=20") {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "life-record-query.v1",
+          projection_version: "life-record-query.v2",
           retrieval_kind: "creator_view",
           next_cursor: null,
           items: [
@@ -116,6 +116,9 @@ describe("Creator memory panel", () => {
     expect(screen.getByRole("option", { name: "关系理解" })).toHaveValue(
       "relationship",
     );
+    expect(screen.getByRole("option", { name: "生活资料" })).toHaveValue(
+      "material",
+    );
     expect(
       await screen.findByText("本次从权威生活记录取得的证据", {
         exact: false,
@@ -136,7 +139,7 @@ describe("Creator memory panel", () => {
       if (url === "/v1/life-records?limit=20") {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "life-record-query.v1",
+          projection_version: "life-record-query.v2",
           retrieval_kind: "creator_view",
           next_cursor: null,
           items: [],
@@ -150,7 +153,7 @@ describe("Creator memory panel", () => {
       ) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "life-record-query.v1",
+          projection_version: "life-record-query.v2",
           retrieval_kind: "creator_view",
           next_cursor: null,
           items: [],

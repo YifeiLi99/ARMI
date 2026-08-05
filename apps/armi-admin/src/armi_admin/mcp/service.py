@@ -408,7 +408,9 @@ class AdminToolService:
         ) as handle:
             conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
         return AdminObservationGateway(
-            conninfo, expected_role=self._config.expected_role
+            conninfo,
+            expected_role=self._config.expected_role,
+            artifact_root=self._config.environment_root / "data" / "artifacts",
         )
 
     def _initialize_environment(self, birth_mode: str) -> dict[str, Any]:

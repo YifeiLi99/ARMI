@@ -54,6 +54,12 @@ describe("authenticated Creator event stream parser", () => {
       "creator-maintenance.v1",
     ],
     [
+      "material.invalidated",
+      "material",
+      "018f47a6-7b2d-7c35-8b18-684e38ab6ef3",
+      "life-record-query.v2",
+    ],
+    [
       "relationship.invalidated",
       "relationship",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef4",

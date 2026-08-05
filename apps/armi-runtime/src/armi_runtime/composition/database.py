@@ -397,6 +397,8 @@ def compose_life_record_query(
                     environment_id=config.environment.environment_id,
                     creator_party_id=creator_party_id,
                     cursor_key=cursor_key,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                 )
 

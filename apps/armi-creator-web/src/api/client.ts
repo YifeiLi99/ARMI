@@ -12,6 +12,8 @@ export type CreatorActivityPage =
 export type CreatorActivityTimeline =
   components["schemas"]["CreatorActivityTimelineResponse"];
 export type LifeRecordPage = components["schemas"]["LifeRecordPageResponse"];
+export type CreatorLifeMaterial =
+  components["schemas"]["CreatorLifeMaterialResponse"];
 export type CreatorMemoryPage =
   components["schemas"]["CreatorMemoryPageResponse"];
 export type CreatorMemoryTimeline =
@@ -184,7 +186,12 @@ export async function getCreatorActivityTimeline(
 }
 
 export type LifeRecordKind =
-  "activity" | "conversation" | "memory" | "relationship" | "self_change";
+  | "activity"
+  | "conversation"
+  | "material"
+  | "memory"
+  | "relationship"
+  | "self_change";
 
 export async function queryCreatorLifeRecords(
   token: string,
@@ -209,6 +216,22 @@ export async function queryCreatorLifeRecords(
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
   });
+  return requireJson(response);
+}
+
+export async function getCreatorLifeMaterial(
+  token: string,
+  materialId: string,
+  signal?: AbortSignal,
+): Promise<CreatorLifeMaterial> {
+  const response = await fetch(
+    `/v1/materials/${encodeURIComponent(materialId)}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
   return requireJson(response);
 }
 

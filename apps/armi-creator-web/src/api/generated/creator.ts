@@ -260,6 +260,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/materials/{material_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Creator Life Material */
+    get: operations["getCreatorLifeMaterial"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/memories": {
     parameters: {
       query?: never;
@@ -874,6 +891,50 @@ export interface components {
       /** Message */
       message: string;
     };
+    /** CreatorLifeMaterialResponse */
+    CreatorLifeMaterialResponse: {
+      /** Body */
+      body: string;
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Created At */
+      created_at: string;
+      /** Material Id */
+      material_id: string;
+      /**
+       * Material Kind
+       * @enum {string}
+       */
+      material_kind: "diary" | "work" | "collection" | "draft";
+      /**
+       * Material Status
+       * @enum {string}
+       */
+      material_status: "active" | "archived";
+      /** Metadata */
+      metadata: {
+        [key: string]: string;
+      };
+      /**
+       * Privacy Status
+       * @constant
+       */
+      privacy_status: "creator_visible";
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-life-material.v1";
+      /** Revision No */
+      revision_no: number;
+      /** Title */
+      title: string;
+      /** Updated At */
+      updated_at: string;
+    };
     /** CreatorMaintenanceSessionResponse */
     CreatorMaintenanceSessionResponse: {
       /** Finished At */
@@ -1091,6 +1152,7 @@ export interface components {
         | "activity.invalidated"
         | "memory.invalidated"
         | "maintenance.invalidated"
+        | "material.invalidated"
         | "relationship.invalidated"
         | "scene.timeline.invalidated"
         | "capability.request.invalidated"
@@ -1107,6 +1169,7 @@ export interface components {
         | "creator-activity.v1"
         | "creator-memory.v1"
         | "creator-maintenance.v1"
+        | "life-record-query.v2"
         | "creator-relationship.v1"
         | "scene-timeline.v3"
         | "capability-request.v3"
@@ -1121,6 +1184,7 @@ export interface components {
         | "activity"
         | "memory"
         | "maintenance"
+        | "material"
         | "relationship"
         | "scene_timeline"
         | "capability_request"
@@ -1445,7 +1509,12 @@ export interface components {
     };
     /** @enum {string} */
     LifeRecordKindValue:
-      "activity" | "conversation" | "memory" | "relationship" | "self_change";
+      | "activity"
+      | "conversation"
+      | "material"
+      | "memory"
+      | "relationship"
+      | "self_change";
     /** LifeRecordPageResponse */
     LifeRecordPageResponse: {
       /**
@@ -1461,7 +1530,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "life-record-query.v1";
+      projection_version: "life-record-query.v2";
       /**
        * Retrieval Kind
        * @enum {string}
@@ -2829,6 +2898,73 @@ export interface operations {
       };
       /** @description Conflict */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getCreatorLifeMaterial: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        material_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatorLifeMaterialResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

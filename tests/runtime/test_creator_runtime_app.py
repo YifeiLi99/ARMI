@@ -20,6 +20,8 @@ from armi_kernel.application import (
     CreatorInputAcceptance,
     CreatorInputCommand,
     CreatorInteractionId,
+    CreatorLifeMaterialItem,
+    CreatorLifeMaterialQueryViolation,
     CreatorMaintenanceSession,
     CreatorMaintenanceStatus,
     CreatorMaintenanceTimeline,
@@ -37,6 +39,9 @@ from armi_kernel.application import (
     CreatorRelationshipViolation,
     EffectArtifactKind,
     EvidenceId,
+    LifeMaterialKind,
+    LifeMaterialPrivacyStatus,
+    LifeMaterialStatus,
     LifeRecordActor,
     LifeRecordItem,
     LifeRecordKind,
@@ -189,6 +194,7 @@ class _CreatorRelationshipQuery:
             False,
         )
 
+
 class _CreatorMaintenanceQuery:
     def __init__(self) -> None:
         self.session_id = uuid7()
@@ -235,9 +241,36 @@ class _CreatorMaintenanceQuery:
 class _LifeRecordQuery:
     def __init__(self) -> None:
         self.memory_id = uuid7()
+        self.material_id = uuid7()
+        self.material_unavailable = False
         self.revision_id = uuid7()
         self.occurred_at = datetime(2026, 8, 4, 10, 30, tzinfo=UTC)
         self.requests: list[LifeRecordQuery] = []
+
+    async def get_creator_visible(
+        self,
+        material_id: UUID,
+    ) -> CreatorLifeMaterialItem | None:
+        if self.material_unavailable:
+            raise CreatorLifeMaterialQueryViolation("LIFE-MATERIAL-QUERY-UNAVAILABLE")
+        if material_id != self.material_id:
+            return None
+        body = "这段正文经过服务端可见性授权。"
+        return CreatorLifeMaterialItem(
+            material_id=self.material_id,
+            current_revision_id=self.revision_id,
+            material_kind=LifeMaterialKind.DIARY,
+            revision_no=2,
+            head_version=2,
+            title="雨天随记",
+            body=body,
+            body_digest=Digest.from_bytes(body.encode("utf-8")),
+            metadata=(("mood", "quiet"),),
+            material_status=LifeMaterialStatus.ACTIVE,
+            privacy_status=LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
+            created_at=Instant(self.occurred_at),
+            updated_at=Instant(self.occurred_at),
+        )
 
     async def query(self, request: LifeRecordQuery) -> LifeRecordPage:
         self.requests.append(request)
@@ -326,6 +359,7 @@ class _EmergencyWake:
         self.requests.append((session_id, request_id))
         self.query.wake_requested = True
         return session_id
+
 
 class _CreatorInput:
     def __init__(self) -> None:
@@ -507,6 +541,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             scene_timeline_query=_SceneTimelineQuery(),
             creator_activity_query=self.activity_query,
             life_record_query=self.life_record_query,
+            creator_life_material_query=self.life_record_query,
             creator_memory_query=self.life_record_query,
             creator_maintenance_query=self.maintenance_query,
             creator_relationship_query=self.relationship_query,
@@ -761,6 +796,60 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(timeline.json()["items"][0]["revision_kind"], "forgotten")
         self.assertEqual(invalid.status_code, 400)
         self.assertEqual(missing.status_code, 404)
+
+    def test_life_material_detail_is_server_filtered_and_never_leaks_on_failure(
+        self,
+    ) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            visible = client.get(
+                f"/v1/materials/{self.life_record_query.material_id}",
+                headers=self._browser_headers(token),
+            )
+            hidden = client.get(
+                f"/v1/materials/{uuid7()}",
+                headers=self._browser_headers(token),
+            )
+            invalid = client.get(
+                "/v1/materials/not-a-uuid",
+                headers=self._browser_headers(token),
+            )
+            unauthenticated = client.get(
+                f"/v1/materials/{self.life_record_query.material_id}",
+                headers=self._browser_headers(),
+            )
+            self.life_record_query.material_unavailable = True
+            unavailable = client.get(
+                f"/v1/materials/{self.life_record_query.material_id}",
+                headers=self._browser_headers(token),
+            )
+
+        self.assertEqual(visible.status_code, 200)
+        self.assertEqual(
+            visible.json()["projection_version"], "creator-life-material.v1"
+        )
+        self.assertEqual(visible.json()["privacy_status"], "creator_visible")
+        self.assertEqual(visible.json()["body"], "这段正文经过服务端可见性授权。")
+        self.assertEqual(visible.headers["cache-control"], "no-store")
+        for forbidden in ("owner_party_id", "artifact_id", "body_digest"):
+            self.assertNotIn(forbidden, visible.text)
+        self.assertEqual(hidden.status_code, 404)
+        self.assertEqual(invalid.status_code, 404)
+        self.assertEqual(
+            hidden.json()["error"]["code"], invalid.json()["error"]["code"]
+        )
+        self.assertEqual(unauthenticated.status_code, 401)
+        self.assertEqual(unavailable.status_code, 503)
+        self.assertNotIn("这段正文经过服务端可见性授权。", unavailable.text)
 
     def test_relationship_projection_and_boundary_expression_are_session_bound(
         self,

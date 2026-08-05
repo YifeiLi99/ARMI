@@ -8,32 +8,46 @@ import hmac
 import json
 from collections.abc import Mapping
 from datetime import datetime
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
 import psycopg
 import rfc8785
 from armi_kernel.application import (
+    ArtifactId,
+    ArtifactIntegrityStatus,
+    ArtifactPrivacyScope,
+    ArtifactRef,
+    ArtifactViolation,
+    CreatorLifeMaterialItem,
+    CreatorLifeMaterialQueryViolation,
     CreatorMemoryItem,
     CreatorMemoryPage,
     CreatorMemoryTimeline,
     CreatorMemoryTimelineItem,
+    LifeMaterialKind,
+    LifeMaterialPrivacyStatus,
+    LifeMaterialStatus,
     LifeRecordActor,
     LifeRecordItem,
     LifeRecordKind,
+    LifeRecordMemoryAccessibility,
+    LifeRecordMemoryRelationKind,
+    LifeRecordMemoryRevisionKind,
     LifeRecordPage,
     LifeRecordQuery,
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
 )
-from armi_kernel.application.life_records import (
-    MemoryAccessibility,
-    MemoryRelationKind,
-    MemoryRevisionKind,
-)
-from armi_kernel.contracts import Instant, OpaqueCursor
+from armi_kernel.contracts import Digest, Instant, OpaqueCursor
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
+
+from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
+from armi_runtime.adapters.artifacts.life_material_codec import (
+    parse_life_material_artifact,
+)
 
 from .role_policy import physical_role_name
 
@@ -155,6 +169,7 @@ class PostgreSQLLifeRecordQuery:
         "_expected_role",
         "_pool",
         "_pool_timeout_seconds",
+        "_storage",
     )
 
     def __init__(
@@ -164,11 +179,17 @@ class PostgreSQLLifeRecordQuery:
         environment_id: UUID,
         creator_party_id: UUID,
         cursor_key: bytes,
+        data_root: Path,
+        max_object_bytes: int,
         pool_timeout_seconds: int,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
+        self._storage = ContentAddressedArtifactStore(
+            data_root / "artifacts",
+            max_object_bytes=max_object_bytes,
+        )
         self._codec = LifeRecordCursorCodec(
             key=cursor_key,
             environment_id=environment_id,
@@ -404,6 +425,117 @@ class PostgreSQLLifeRecordQuery:
             next_cursor=next_cursor,
         )
 
+    async def get_creator_visible(
+        self,
+        material_id: UUID,
+    ) -> CreatorLifeMaterialItem | None:
+        if type(material_id) is not UUID or material_id.version != 7:
+            raise CreatorLifeMaterialQueryViolation("LIFE-MATERIAL-QUERY-INVALID")
+        try:
+            async with (
+                self._pool.connection(
+                    timeout=float(self._pool_timeout_seconds)
+                ) as connection,
+                connection.transaction(),
+            ):
+                await connection.execute("SET TRANSACTION READ ONLY")
+                try:
+                    subject_id = await self._scope(connection, LifeRecordActor.CREATOR)
+                except LifeRecordQueryViolation:
+                    raise CreatorLifeMaterialQueryViolation(
+                        "LIFE-MATERIAL-QUERY-NOT-AUTHORIZED"
+                    ) from None
+                row = await (
+                    await connection.execute(
+                        """
+                        SELECT material.life_material_id,
+                               material.current_revision_id,
+                               material.material_kind,
+                               material.head_version,
+                               material.created_at,
+                               material.updated_at,
+                               revision.revision_no,
+                               revision.title,
+                               revision.body_digest,
+                               revision.metadata,
+                               revision.material_status,
+                               revision.privacy_status,
+                               artifact.artifact_id,
+                               artifact.content_digest,
+                               artifact.byte_size,
+                               artifact.media_type,
+                               artifact.logical_kind,
+                               artifact.privacy_scope,
+                               artifact.integrity_status,
+                               artifact.schema_version
+                        FROM armi.life_materials AS material
+                        JOIN armi.life_material_revisions AS revision
+                          ON revision.life_material_revision_id =
+                             material.current_revision_id
+                        JOIN armi.artifacts AS artifact
+                          ON artifact.artifact_id = revision.artifact_id
+                        WHERE material.life_material_id = %s
+                          AND material.subject_id = %s
+                          AND material.deleted_at IS NULL
+                          AND revision.privacy_status = 'creator_visible'
+                        """,
+                        (material_id, subject_id),
+                    )
+                ).fetchone()
+        except CreatorLifeMaterialQueryViolation:
+            raise
+        except psycopg.Error, PoolTimeout:
+            raise CreatorLifeMaterialQueryViolation(
+                "LIFE-MATERIAL-QUERY-UNAVAILABLE"
+            ) from None
+        if row is None:
+            return None
+        try:
+            ref = ArtifactRef(
+                ArtifactId(cast(UUID, row[12])),
+                Digest(str(row[13])),
+                int(row[14]),
+                str(row[15]),
+                str(row[16]),
+                ArtifactPrivacyScope(str(row[17])),
+                ArtifactIntegrityStatus(str(row[18])),
+                int(row[19]),
+            )
+            if (
+                ref.media_type != "application/json"
+                or ref.logical_kind != "life.material.content"
+                or ref.privacy_scope is not ArtifactPrivacyScope.PRIVATE
+                or ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
+            ):
+                raise ValueError
+            artifact_bytes = b""
+            async with await self._storage.open_verified(ref) as stream:
+                artifact_bytes = await stream.read()
+            body_digest = Digest(str(row[8]))
+            body = parse_life_material_artifact(
+                artifact_bytes,
+                expected_body_digest=body_digest,
+            ).decode("utf-8", errors="strict")
+            return CreatorLifeMaterialItem(
+                material_id=cast(UUID, row[0]),
+                current_revision_id=cast(UUID, row[1]),
+                material_kind=LifeMaterialKind(str(row[2])),
+                revision_no=int(row[6]),
+                head_version=int(row[3]),
+                title=str(row[7]),
+                body=body,
+                body_digest=body_digest,
+                metadata=_material_metadata(row[9]),
+                material_status=LifeMaterialStatus(str(row[10])),
+                privacy_status=LifeMaterialPrivacyStatus(str(row[11])),
+                created_at=Instant(cast(datetime, row[4])),
+                updated_at=Instant(cast(datetime, row[5])),
+            )
+        except ArtifactViolation, TypeError, ValueError, UnicodeError:
+            raise CreatorLifeMaterialQueryViolation(
+                "LIFE-MATERIAL-QUERY-UNAVAILABLE"
+            ) from None
+
     async def list_current(
         self,
         *,
@@ -632,8 +764,8 @@ class PostgreSQLLifeRecordQuery:
             uncertainty=None if row[2] is None else str(row[2]),
             source_kind=str(row[3]),
             source_fact_class=str(row[4]),
-            accessibility=MemoryAccessibility(str(row[5])),
-            revision_kind=MemoryRevisionKind(str(row[6])),
+            accessibility=LifeRecordMemoryAccessibility(str(row[5])),
+            revision_kind=LifeRecordMemoryRevisionKind(str(row[6])),
             revision_no=int(row[7]),
             head_version=int(row[8]),
             created_at=Instant(cast(datetime, row[9])),
@@ -645,16 +777,28 @@ class PostgreSQLLifeRecordQuery:
         return CreatorMemoryTimelineItem(
             revision_id=row[0],
             revision_no=int(row[1]),
-            revision_kind=MemoryRevisionKind(str(row[2])),
-            accessibility=MemoryAccessibility(str(row[3])),
+            revision_kind=LifeRecordMemoryRevisionKind(str(row[2])),
+            accessibility=LifeRecordMemoryAccessibility(str(row[3])),
             summary=str(row[4]),
             uncertainty=None if row[5] is None else str(row[5]),
             source_kind=str(row[6]),
             source_fact_class=str(row[7]),
-            relation_kind=(None if row[8] is None else MemoryRelationKind(str(row[8]))),
+            relation_kind=(
+                None if row[8] is None else LifeRecordMemoryRelationKind(str(row[8]))
+            ),
             related_memory_id=cast(UUID | None, row[9]),
             occurred_at=Instant(cast(datetime, row[10])),
         )
+
+
+def _material_metadata(value: object) -> tuple[tuple[str, str], ...]:
+    if type(value) is not dict:
+        raise ValueError("life material metadata is invalid")
+    raw = cast(dict[object, object], value)
+    if any(type(key) is not str or type(item) is not str for key, item in raw.items()):
+        raise ValueError("life material metadata is invalid")
+    metadata = cast(dict[str, str], value)
+    return tuple(sorted(metadata.items()))
 
 
 __all__ = ("LifeRecordCursorCodec", "PostgreSQLLifeRecordQuery")

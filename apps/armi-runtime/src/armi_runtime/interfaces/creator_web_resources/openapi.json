@@ -1081,6 +1081,103 @@
         "title": "CreatorInputRequest",
         "type": "object"
       },
+      "CreatorLifeMaterialResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "created_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Created At",
+            "type": "string"
+          },
+          "material_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Material Id",
+            "type": "string"
+          },
+          "material_kind": {
+            "enum": [
+              "diary",
+              "work",
+              "collection",
+              "draft"
+            ],
+            "title": "Material Kind",
+            "type": "string"
+          },
+          "material_status": {
+            "enum": [
+              "active",
+              "archived"
+            ],
+            "title": "Material Status",
+            "type": "string"
+          },
+          "metadata": {
+            "maxProperties": 32,
+            "patternProperties": {
+              "[a-z][a-z0-9._-]{0,63}": {
+                "maxLength": 512,
+                "type": "string"
+              }
+            },
+            "title": "Metadata",
+            "type": "object"
+          },
+          "privacy_status": {
+            "const": "creator_visible",
+            "title": "Privacy Status",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "creator-life-material.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "revision_no": {
+            "minimum": 1.0,
+            "title": "Revision No",
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "material_id",
+          "material_kind",
+          "revision_no",
+          "title",
+          "body",
+          "metadata",
+          "material_status",
+          "privacy_status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CreatorLifeMaterialResponse",
+        "type": "object"
+      },
       "CreatorMaintenanceSessionResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1647,6 +1744,7 @@
               "activity.invalidated",
               "memory.invalidated",
               "maintenance.invalidated",
+              "material.invalidated",
               "relationship.invalidated",
               "scene.timeline.invalidated",
               "capability.request.invalidated",
@@ -1667,6 +1765,7 @@
               "creator-activity.v1",
               "creator-memory.v1",
               "creator-maintenance.v1",
+              "life-record-query.v2",
               "creator-relationship.v1",
               "scene-timeline.v3",
               "capability-request.v3",
@@ -1682,6 +1781,7 @@
               "activity",
               "memory",
               "maintenance",
+              "material",
               "relationship",
               "scene_timeline",
               "capability_request",
@@ -2641,6 +2741,7 @@
         "enum": [
           "activity",
           "conversation",
+          "material",
           "memory",
           "relationship",
           "self_change"
@@ -2677,7 +2778,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "life-record-query.v1",
+            "const": "life-record-query.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -4970,6 +5071,91 @@
           }
         ],
         "summary": "Request Creator Emergency Wake"
+      }
+    },
+    "/v1/materials/{material_id}": {
+      "get": {
+        "operationId": "getCreatorLifeMaterial",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "material_id",
+            "required": true,
+            "schema": {
+              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+              "title": "Material Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorLifeMaterialResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Get Creator Life Material"
       }
     },
     "/v1/memories": {

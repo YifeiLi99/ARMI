@@ -41,6 +41,9 @@ from armi_kernel.contracts import Digest, Purpose, SubjectId
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_runtime.adapters.artifacts.life_material_codec import (
+    parse_life_material_artifact,
+)
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )
@@ -63,7 +66,6 @@ from .context_compiler import (
     CONTEXT_MECHANISM,
     DeterministicContextCompiler,
 )
-from .life_material_artifact import parse_life_material_artifact
 from .work_wakeup import (
     CONTEXT_PREPARE,
     MODEL_INVOKE,

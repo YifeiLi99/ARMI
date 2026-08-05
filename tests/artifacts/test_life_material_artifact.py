@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from armi_kernel.contracts import Digest
-from armi_runtime.composition.life_material_artifact import (
+from armi_runtime.adapters.artifacts.life_material_codec import (
     build_life_material_artifact,
     parse_life_material_artifact,
 )

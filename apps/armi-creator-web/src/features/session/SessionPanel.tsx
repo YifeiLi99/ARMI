@@ -19,6 +19,7 @@ import type { StoredBrowserSession } from "./storage";
 import { MessageComposer } from "../scene/MessageComposer";
 import { ActivityPanel } from "../activity/ActivityPanel";
 import { MaintenancePanel } from "../maintenance/MaintenancePanel";
+import { MaterialPanel } from "../material/MaterialPanel";
 import { MemoryPanel } from "../memory/MemoryPanel";
 import { RelationshipPanel } from "../relationship/RelationshipPanel";
 import { CapabilityInbox } from "../capability/CapabilityInbox";
@@ -322,6 +323,12 @@ export function SessionPanel() {
             onUnauthorized={unauthorized}
           />
           <MemoryPanel
+            token={view.stored.token}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
+            onUnauthorized={unauthorized}
+          />
+          <MaterialPanel
             token={view.stored.token}
             environmentId={view.session.environment_id}
             creatorPartyId={view.session.creator_party_id}

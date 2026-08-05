@@ -33,6 +33,7 @@ describe("generated Creator OpenAPI types", () => {
       | "activity.invalidated"
       | "memory.invalidated"
       | "maintenance.invalidated"
+      | "material.invalidated"
       | "relationship.invalidated"
       | "scene.timeline.invalidated"
       | "capability.request.invalidated"

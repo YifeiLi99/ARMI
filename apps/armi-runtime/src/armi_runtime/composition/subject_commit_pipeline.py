@@ -39,6 +39,9 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
+from armi_runtime.adapters.artifacts.life_material_codec import (
+    build_life_material_artifact,
+)
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.subject_commit import (
@@ -51,7 +54,6 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
-from .life_material_artifact import build_life_material_artifact
 from .subject_commit_contract import parse_subject_change_set
 from .work_wakeup import (
     OPPORTUNITY_AVAILABLE,

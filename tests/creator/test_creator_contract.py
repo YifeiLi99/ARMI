@@ -10,6 +10,7 @@ from typing import Any, cast
 from armi_runtime.interfaces.creator_contract import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
+    CreatorLifeMaterialResponse,
     CreatorMaintenanceStatusResponse,
     CreatorMemoryItemResponse,
     CreatorProjectionEventResponse,
@@ -72,6 +73,7 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/activities",
                 "/v1/activities/{activity_id}/timeline",
                 "/v1/life-records",
+                "/v1/materials/{material_id}",
                 "/v1/memories",
                 "/v1/memories/{memory_id}/timeline",
                 "/v1/maintenance/status",
@@ -161,6 +163,13 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(
             set(life_records["responses"]),
             {"200", "400", "401", "403", "409", "503"},
+        )
+        material = paths["/v1/materials/{material_id}"]["get"]
+        self.assertEqual(material["operationId"], "getCreatorLifeMaterial")
+        self.assertEqual(material["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(
+            set(material["responses"]),
+            {"200", "400", "401", "403", "404", "503"},
         )
         memories = paths["/v1/memories"]["get"]
         self.assertEqual(memories["operationId"], "listCreatorMemories")
@@ -545,6 +554,37 @@ class CreatorContractTests(unittest.TestCase):
                     **record.model_dump(),
                     "record_kind": "activity",
                     "naturally_recallable": False,
+                }
+            )
+
+    def test_life_material_projection_exposes_only_daily_creator_fields(self) -> None:
+        material = CreatorLifeMaterialResponse.model_validate(
+            {
+                "contract_version": "1.0",
+                "projection_version": "creator-life-material.v1",
+                "material_id": ENVIRONMENT_ID,
+                "material_kind": "diary",
+                "revision_no": 2,
+                "title": "雨天随记",
+                "body": "只读正文",
+                "metadata": {"mood": "quiet"},
+                "material_status": "active",
+                "privacy_status": "creator_visible",
+                "created_at": INSTANT,
+                "updated_at": INSTANT,
+            }
+        )
+        self.assertEqual(material.body, "只读正文")
+        for field in ("owner_party_id", "artifact_id", "body_digest", "source_kind"):
+            with self.subTest(field=field), self.assertRaises(ValidationError):
+                CreatorLifeMaterialResponse.model_validate(
+                    {**material.model_dump(mode="json"), field: "hidden"}
+                )
+        with self.assertRaises(ValidationError):
+            CreatorLifeMaterialResponse.model_validate(
+                {
+                    **material.model_dump(mode="json"),
+                    "privacy_status": "private",
                 }
             )
 

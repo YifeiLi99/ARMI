@@ -801,6 +801,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         scene_timeline_query=scene_timeline_query,
         creator_activity_query=creator_activity_query,
         life_record_query=life_record_query,
+        creator_life_material_query=life_record_query,
         creator_memory_query=life_record_query,
         creator_maintenance_query=creator_maintenance_query,
         creator_relationship_query=creator_relationship_query,

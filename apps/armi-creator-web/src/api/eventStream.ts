@@ -13,6 +13,7 @@ const RESOURCES = {
   activity: ["activity.invalidated", "creator-activity.v1", UUID_V7],
   memory: ["memory.invalidated", "creator-memory.v1", UUID_V7],
   maintenance: ["maintenance.invalidated", "creator-maintenance.v1", UUID_V7],
+  material: ["material.invalidated", "life-record-query.v2", UUID_V7],
   relationship: [
     "relationship.invalidated",
     "creator-relationship.v1",

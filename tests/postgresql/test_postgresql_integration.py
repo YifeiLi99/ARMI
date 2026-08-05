@@ -894,7 +894,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(denied.error_code, "ADMIN-DB-ROLE")
 
         observation = AdminObservationGateway(
-            fixture.admin_role_dsn, expected_role=fixture.admin_role
+            fixture.admin_role_dsn,
+            expected_role=fixture.admin_role,
+            artifact_root=Path.cwd() / "data" / "artifacts",
         )
         identity = "sha256:" + "1" * 64
         observation.register_environment(

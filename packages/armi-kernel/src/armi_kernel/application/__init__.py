@@ -247,7 +247,11 @@ from .life import (
     OpportunityAdmissionStatus,
 )
 from .life_materials import (
+    CREATOR_LIFE_MATERIAL_PROJECTION_VERSION,
     CandidateLifeMaterialDraft,
+    CreatorLifeMaterialItem,
+    CreatorLifeMaterialQueryPort,
+    CreatorLifeMaterialQueryViolation,
     LifeMaterialKind,
     LifeMaterialPrivacyStatus,
     LifeMaterialRevisionKind,
@@ -269,6 +273,15 @@ from .life_records import (
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
+)
+from .life_records import (
+    MemoryAccessibility as LifeRecordMemoryAccessibility,
+)
+from .life_records import (
+    MemoryRelationKind as LifeRecordMemoryRelationKind,
+)
+from .life_records import (
+    MemoryRevisionKind as LifeRecordMemoryRevisionKind,
 )
 from .life_scheduler import PostgreSqlFairLifeScheduler
 from .maintenance import (
@@ -389,6 +402,7 @@ from .web_observation import (
 
 __all__: tuple[str, ...] = (
     "ACTIVITY_PROJECTION_VERSION",
+    "CREATOR_LIFE_MATERIAL_PROJECTION_VERSION",
     "CREATOR_MEMORY_PROJECTION_VERSION",
     "LIFE_RECORD_PROJECTION_VERSION",
     "MAINTENANCE_PROJECTION_VERSION",
@@ -513,6 +527,9 @@ __all__: tuple[str, ...] = (
     "CreatorInputCommand",
     "CreatorInputViolation",
     "CreatorInteractionId",
+    "CreatorLifeMaterialItem",
+    "CreatorLifeMaterialQueryPort",
+    "CreatorLifeMaterialQueryViolation",
     "CreatorMaintenanceQueryPort",
     "CreatorMaintenanceSession",
     "CreatorMaintenanceStatus",
@@ -580,6 +597,9 @@ __all__: tuple[str, ...] = (
     "LifeRecordActor",
     "LifeRecordItem",
     "LifeRecordKind",
+    "LifeRecordMemoryAccessibility",
+    "LifeRecordMemoryRelationKind",
+    "LifeRecordMemoryRevisionKind",
     "LifeRecordPage",
     "LifeRecordQuery",
     "LifeRecordQueryPort",

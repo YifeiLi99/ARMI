@@ -19,6 +19,7 @@ type MemoryPanelProps = {
 const RECORD_LABELS: Record<string, string> = {
   activity: "Activity",
   conversation: "对话经历",
+  material: "生活资料",
   memory: "主观记忆",
   self_change: "自我变化",
 };
@@ -176,6 +177,7 @@ export function MemoryPanel({
             <option value="">全部已接入记录</option>
             <option value="activity">Activity</option>
             <option value="conversation">对话经历</option>
+            <option value="material">生活资料</option>
             <option value="memory">主观记忆</option>
             <option value="relationship">关系理解</option>
             <option value="self_change">自我变化</option>

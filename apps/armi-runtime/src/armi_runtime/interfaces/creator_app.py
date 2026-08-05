@@ -31,6 +31,8 @@ from armi_kernel.application import (
     CreatorInputAcceptancePort,
     CreatorInputCommand,
     CreatorInputViolation,
+    CreatorLifeMaterialQueryPort,
+    CreatorLifeMaterialQueryViolation,
     CreatorMaintenanceQueryPort,
     CreatorMaintenanceViolation,
     CreatorMemoryQueryPort,
@@ -105,6 +107,7 @@ from .creator_contract import (
     CreatorActivityTimelineResponse,
     CreatorCodexTaskRequest,
     CreatorInputRequest,
+    CreatorLifeMaterialResponse,
     CreatorMaintenanceSessionResponse,
     CreatorMaintenanceStatusResponse,
     CreatorMaintenanceTimelineItemResponse,
@@ -983,6 +986,7 @@ def create_runtime_app(
     scene_timeline_query: SceneTimelineQueryPort | None = None,
     creator_activity_query: CreatorActivityQueryPort | None = None,
     life_record_query: LifeRecordQueryPort | None = None,
+    creator_life_material_query: CreatorLifeMaterialQueryPort | None = None,
     creator_memory_query: CreatorMemoryQueryPort | None = None,
     creator_maintenance_query: CreatorMaintenanceQueryPort | None = None,
     creator_relationship_query: CreatorRelationshipQueryPort | None = None,
@@ -1943,6 +1947,77 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
+    @app.get("/v1/materials/{material_id}")
+    async def get_creator_life_material(
+        material_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_life_material_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None
+                and creator_life_material_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_LIFE_MATERIAL_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            parsed = UUID(material_id)
+            if parsed.version != 7 or str(parsed) != material_id:
+                raise ValueError
+        except ValueError:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_LIFE_MATERIAL_NOT_VISIBLE"),
+            )
+        try:
+            item = await creator_life_material_query.get_creator_visible(parsed)
+        except CreatorLifeMaterialQueryViolation:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_LIFE_MATERIAL_QUERY_UNAVAILABLE"),
+            )
+        if item is None:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_LIFE_MATERIAL_NOT_VISIBLE"),
+            )
+        response = CreatorLifeMaterialResponse(
+            contract_version="1.0",
+            projection_version="creator-life-material.v1",
+            material_id=str(item.material_id),
+            material_kind=item.material_kind.value,
+            revision_no=item.revision_no,
+            title=item.title,
+            body=item.body,
+            metadata=dict(item.metadata),
+            material_status=item.material_status.value,
+            privacy_status="creator_visible",
+            created_at=item.created_at.to_wire(),
+            updated_at=item.updated_at.to_wire(),
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
     @app.get("/v1/memories")
     async def list_creator_memories(request: Request) -> JSONResponse:
         if (
@@ -2145,7 +2220,7 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    del query_creator_life_records, list_creator_memories
+    del get_creator_life_material, query_creator_life_records, list_creator_memories
     del get_creator_memory_timeline
 
     @app.get("/v1/maintenance/status")

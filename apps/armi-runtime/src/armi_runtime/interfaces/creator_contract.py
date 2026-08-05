@@ -604,6 +604,64 @@ class LifeRecordPageResponse(_StrictWireModel):
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
+class CreatorLifeMaterialResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-life-material.v1"]
+    material_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    material_kind: Literal["diary", "work", "collection", "draft"]
+    revision_no: Annotated[int, Field(ge=1)]
+    title: Annotated[str, Field(min_length=1, max_length=256)]
+    body: Annotated[str, Field(min_length=1, max_length=65536)]
+    metadata: dict[
+        Annotated[str, Field(pattern=r"[a-z][a-z0-9._-]{0,63}")],
+        Annotated[str, Field(max_length=512)],
+    ] = Field(max_length=32)
+    material_status: Literal["active", "archived"]
+    privacy_status: Literal["creator_visible"]
+    created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    updated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("material_id")
+    @classmethod
+    def validate_material_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-LIFE-MATERIAL-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("title", "body")
+    @classmethod
+    def validate_material_text(cls, value: str) -> str:
+        if not value.strip() or "\x00" in value:
+            raise ValueError("CON-LIFE-MATERIAL-TEXT: text is invalid")
+        if len(value.encode("utf-8", errors="strict")) > 65_536:
+            raise ValueError("CON-LIFE-MATERIAL-TEXT: text is too large")
+        return value
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_material_metadata(cls, value: dict[str, str]) -> dict[str, str]:
+        if any("\x00" in item for item in value.values()):
+            raise ValueError("CON-LIFE-MATERIAL-METADATA: metadata is invalid")
+        return value
+
+    @field_validator("created_at", "updated_at")
+    @classmethod
+    def validate_material_time(cls, value: str) -> str:
+        if Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-LIFE-MATERIAL-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_material_time_order(self) -> CreatorLifeMaterialResponse:
+        if (
+            Instant.from_wire(self.updated_at).value
+            < Instant.from_wire(self.created_at).value
+        ):
+            raise ValueError("CON-LIFE-MATERIAL-TIME: time order is invalid")
+        return self
+
+
 class CreatorMemoryItemResponse(_StrictWireModel):
     memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     summary: Annotated[str, Field(min_length=1, max_length=4096)]
@@ -1850,6 +1908,25 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/materials/{material_id}",
+        operation_id="getCreatorLifeMaterial",
+        response_model=CreatorLifeMaterialResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_life_material(
+        material_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+    ) -> CreatorLifeMaterialResponse:
+        del material_id
+        raise NotImplementedError
+
+    @app.get(
         "/v1/memories",
         operation_id="listCreatorMemories",
         response_model=CreatorMemoryPageResponse,
@@ -2155,6 +2232,7 @@ def build_creator_openapi() -> dict[str, object]:
         get_creator_relationship_timeline,
         express_creator_relationship_boundary,
         query_creator_life_records,
+        get_creator_life_material,
         list_creator_memories,
         get_creator_memory_timeline,
         get_creator_maintenance_status,
@@ -2186,6 +2264,7 @@ def build_creator_openapi() -> dict[str, object]:
         "responses"
     ].pop("422", None)
     schema["paths"]["/v1/life-records"]["get"]["responses"].pop("422", None)
+    schema["paths"]["/v1/materials/{material_id}"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/memories"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/memories/{memory_id}/timeline"]["get"]["responses"].pop(
         "422", None
@@ -2240,6 +2319,7 @@ __all__ = (
     "CreatorActivityTimelineResponse",
     "CreatorCodexTaskRequest",
     "CreatorInputRequest",
+    "CreatorLifeMaterialResponse",
     "CreatorMaintenanceSessionResponse",
     "CreatorMaintenanceStatusResponse",
     "CreatorMaintenanceTimelineItemResponse",

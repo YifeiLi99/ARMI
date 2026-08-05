@@ -337,7 +337,9 @@ class AdminControlPlane:
         ) as handle:
             conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
         return AdminObservationGateway(
-            conninfo, expected_role=self._config.expected_role
+            conninfo,
+            expected_role=self._config.expected_role,
+            artifact_root=self._config.environment_root / "data" / "artifacts",
         ).database_catalog_digest()
 
     def _pg_dump(self, output: Path) -> None:

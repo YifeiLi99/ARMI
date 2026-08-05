@@ -61,6 +61,7 @@ export function useSceneEventStream({
 
     async function fullRefetch(): Promise<void> {
       lastEventId.current = undefined;
+      queryClient.removeQueries({ queryKey: ["life-material"] });
       await queryClient.resetQueries({
         predicate: (query) =>
           [
@@ -109,6 +110,17 @@ export function useSceneEventStream({
             query.queryKey[0] === "memories" ||
             (query.queryKey[0] === "memory-timeline" &&
               query.queryKey.includes(resourceRef)),
+        });
+        return;
+      }
+      if (resourceKind === "material") {
+        queryClient.removeQueries({
+          predicate: (query) =>
+            query.queryKey[0] === "life-material" &&
+            query.queryKey.includes(resourceRef),
+        });
+        await queryClient.resetQueries({
+          predicate: (query) => query.queryKey[0] === "life-records",
         });
         return;
       }
@@ -231,29 +243,28 @@ export function useSceneEventStream({
     if (!enabled || state !== "disconnected") {
       return;
     }
-    const interval = window.setInterval(
-      () =>
-        void queryClient.resetQueries({
-          predicate: (query) =>
-            [
-              "scene-timeline",
-              "activities",
-              "activity-timeline",
-              "life-records",
-              "memories",
-              "memory-timeline",
-              "maintenance-status",
-              "maintenance-timeline",
-              "relationship-current",
-              "relationship-timeline",
-              "capability-requests",
-              "creator-operation",
-              "creator-effect",
-              "subject-summary",
-            ].includes(String(query.queryKey[0])),
-        }),
-      POLLING_MILLISECONDS,
-    );
+    const interval = window.setInterval(() => {
+      queryClient.removeQueries({ queryKey: ["life-material"] });
+      void queryClient.resetQueries({
+        predicate: (query) =>
+          [
+            "scene-timeline",
+            "activities",
+            "activity-timeline",
+            "life-records",
+            "memories",
+            "memory-timeline",
+            "maintenance-status",
+            "maintenance-timeline",
+            "relationship-current",
+            "relationship-timeline",
+            "capability-requests",
+            "creator-operation",
+            "creator-effect",
+            "subject-summary",
+          ].includes(String(query.queryKey[0])),
+      });
+    }, POLLING_MILLISECONDS);
     return () => window.clearInterval(interval);
   }, [enabled, queryClient, queryKey, state]);
 
