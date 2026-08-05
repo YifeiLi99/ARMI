@@ -246,6 +246,12 @@ from .life import (
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
 )
+from .life_materials import (
+    CandidateLifeMaterialDraft,
+    LifeMaterialKind,
+    LifeMaterialRevisionKind,
+    LifeMaterialStatus,
+)
 from .life_records import (
     CREATOR_MEMORY_PROJECTION_VERSION,
     LIFE_RECORD_PROJECTION_VERSION,
@@ -426,6 +432,7 @@ __all__: tuple[str, ...] = (
     "CandidateDisposition",
     "CandidateExperienceDraft",
     "CandidateFactClass",
+    "CandidateLifeMaterialDraft",
     "CandidateMemoryDraft",
     "CandidateMemoryRevisionDraft",
     "CandidateOwner",
@@ -562,6 +569,9 @@ __all__: tuple[str, ...] = (
     "FrozenEffectRequest",
     "GrantMatcher",
     "GrantStatus",
+    "LifeMaterialKind",
+    "LifeMaterialRevisionKind",
+    "LifeMaterialStatus",
     "LifeOpportunitySourceKind",
     "LifeOpportunitySourcePort",
     "LifeOpportunitySourceSnapshot",

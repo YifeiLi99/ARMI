@@ -205,7 +205,93 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         "experience": None,
         "memory_change": None,
         "relationship_change": None,
+        "material_change": None,
     }
+
+
+def test_creator_dialogue_material_contract_is_runtime_owned_and_context_bound() -> (
+    None
+):
+    created = parse_candidate(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "我把它写成了一篇日记。",
+                "material_change": {
+                    "action": "create",
+                    "material_kind": "diary",
+                    "title": "今天",
+                    "body": "我今天第一次认真记录这件事。",
+                    "metadata": {"mood": "calm"},
+                },
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset(),
+    )
+    assert created.schema_version == DIALOGUE_CANDIDATE_VERSION
+    assert created.model_dump(mode="json")["material_change"]["action"] == "create"
+
+    updated = parse_candidate(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "我更新了这篇日记。",
+                "material_change": {
+                    "action": "update",
+                    "material_ref": "ctx:4",
+                    "title": "今天-补记",
+                    "body": "这是完整替换后的正文。",
+                },
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset({"ctx:4"}),
+    )
+    assert updated.model_dump(mode="json")["material_change"]["material_ref"] == (
+        "ctx:4"
+    )
+
+    for invalid in (
+        {
+            "kind": "reply",
+            "content": "越权",
+            "material_change": {
+                "action": "create",
+                "material_kind": "diary",
+                "title": "标题",
+                "body": "正文",
+                "owner_party_id": str(uuid7()),
+            },
+        },
+        {
+            "kind": "reply",
+            "content": "越权",
+            "material_change": {
+                "action": "update",
+                "material_ref": "ctx:4",
+                "material_kind": "diary",
+                "title": "标题",
+                "body": "正文",
+            },
+        },
+        {
+            "kind": "reply",
+            "content": "无效内容",
+            "material_change": {
+                "action": "create",
+                "material_kind": "diary",
+                "title": "标题",
+                "body": "正文",
+                "metadata": {"note": "含有\u0000空字符"},
+            },
+        },
+    ):
+        with pytest.raises(ModelViolation):
+            parse_candidate(
+                json.dumps(invalid, ensure_ascii=False).encode(),
+                allowed_context_refs=frozenset({"ctx:4"}),
+            )
 
 
 def test_creator_dialogue_memory_is_optional_and_cannot_claim_authority() -> None:

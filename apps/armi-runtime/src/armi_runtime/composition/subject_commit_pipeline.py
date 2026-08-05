@@ -27,6 +27,7 @@ from armi_kernel.application import (
     CreatorReplyDraft,
     LockPlan,
     LockTarget,
+    PublishedArtifact,
     RuntimeFence,
     SceneKey,
     SubjectCommitResult,
@@ -50,6 +51,7 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
+from .life_material_artifact import build_life_material_artifact
 from .subject_commit_contract import parse_subject_change_set
 from .work_wakeup import (
     OPPORTUNITY_AVAILABLE,
@@ -157,9 +159,18 @@ class SubjectCommitPipeline:
                 if research_requests
                 else None
             )
+            published_materials: list[tuple[str, PublishedArtifact]] = []
+            for material in change_set.materials:
+                published_materials.append(
+                    (
+                        material.proposal_ref,
+                        await self._publish_material(material.body_bytes, snapshot),
+                    )
+                )
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 response_artifact_id = None
                 research_artifact_id = None
+                material_artifact_ids: dict[str, ArtifactId] = {}
                 if published_reply is not None:
                     registration = await self._catalog.register(
                         unit_of_work,
@@ -190,6 +201,28 @@ class SubjectCommitPipeline:
                                 snapshot,
                             )
                         )
+                for proposal_ref, published_material in published_materials:
+                    try:
+                        material_registration = await self._catalog.register(
+                            unit_of_work,
+                            ArtifactId(uuid7()),
+                            published_material,
+                        )
+                    except ArtifactViolation:
+                        raise SubjectCommitViolation(
+                            "SUBJECT-MATERIAL-ARTIFACT"
+                        ) from None
+                    material_artifact_ids[proposal_ref] = (
+                        material_registration.ref.artifact_id
+                    )
+                    if material_registration.inserted:
+                        await unit_of_work.audit.append(
+                            _material_artifact_audit(
+                                unit_of_work,
+                                material_registration.ref,
+                                snapshot,
+                            )
+                        )
                 self._fault_injector("subject_before_cas")
                 result = await self._repository.settle(
                     unit_of_work,
@@ -198,6 +231,7 @@ class SubjectCommitPipeline:
                     change_set=change_set,
                     response_artifact_id=response_artifact_id,
                     research_artifact_id=research_artifact_id,
+                    material_artifact_ids=material_artifact_ids,
                 )
             self._wake_downstream()
             await self._notify(snapshot, result)
@@ -329,6 +363,25 @@ class SubjectCommitPipeline:
         )
         return await self._storage.publish(staged)
 
+    async def _publish_material(
+        self, body_bytes: bytes, snapshot: SubjectCommitSnapshot
+    ) -> PublishedArtifact:
+        try:
+            content = build_life_material_artifact(body_bytes)
+            staged = await self._storage.stage(
+                _one_chunk(content),
+                ArtifactPolicy(
+                    "application/json",
+                    "life.material.content",
+                    "subject.commit",
+                    snapshot.trace_id,
+                    ArtifactPrivacyScope.PRIVATE,
+                ),
+            )
+            return await self._storage.publish(staged)
+        except ValueError, ArtifactViolation:
+            raise SubjectCommitViolation("SUBJECT-MATERIAL-ARTIFACT") from None
+
     async def _recover_committed(
         self, snapshot: SubjectCommitSnapshot
     ) -> SubjectCommitResult | None:
@@ -447,9 +500,7 @@ class SubjectCommitPipeline:
                 for relationship_id in relationship_ids
             )
         except DatabaseTransactionError:
-            self._diagnostic(
-                "subject_commit.relationship_notification.lookup_failed"
-            )
+            self._diagnostic("subject_commit.relationship_notification.lookup_failed")
         try:
             async with self._factory.unit_of_work(
                 LockPlan(), read_only=True
@@ -552,6 +603,26 @@ def _research_artifact_audit(
         AuditEventId(uuid7()),
         AuditReference("runtime", unit_of_work.environment_id),
         Purpose("public_web_research"),
+        "artifact.catalog.registered",
+        AuditReference("artifact", ref.artifact_id.value),
+        AuditResultStatus.APPLIED,
+        snapshot.trace_id,
+        AuditSensitivity.RESTRICTED,
+        subject_id=SubjectId(snapshot.subject_id),
+        request=AuditReference("cognitive_episode", snapshot.episode_id),
+        artifact_digest=ref.content_digest,
+    )
+
+
+def _material_artifact_audit(
+    unit_of_work: PostgreSQLUnitOfWork,
+    ref: ArtifactRef,
+    snapshot: SubjectCommitSnapshot,
+) -> AuditDraft:
+    return AuditDraft(
+        AuditEventId(uuid7()),
+        AuditReference("runtime", unit_of_work.environment_id),
+        Purpose("life.material.write"),
         "artifact.catalog.registered",
         AuditReference("artifact", ref.artifact_id.value),
         AuditResultStatus.APPLIED,

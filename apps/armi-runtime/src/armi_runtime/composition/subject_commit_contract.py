@@ -17,6 +17,7 @@ from armi_kernel.application import (
     CandidateDisposition,
     CandidateExperienceDraft,
     CandidateFactClass,
+    CandidateLifeMaterialDraft,
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
@@ -35,6 +36,8 @@ from armi_kernel.application import (
     FormalNoActionDraft,
     FormalNoActionKind,
     FormalNoActionReason,
+    LifeMaterialKind,
+    LifeMaterialStatus,
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
@@ -85,6 +88,7 @@ _TOP_KEYS_V10 = {*_TOP_KEYS_V6, "web_research_requests", "memories"}
 _TOP_KEYS_V11 = {*_TOP_KEYS_V10, "memory_revisions"}
 _TOP_KEYS_V12 = {*_TOP_KEYS_V11, "relationships"}
 _TOP_KEYS_V13 = _TOP_KEYS_V12
+_TOP_KEYS_V14 = {*_TOP_KEYS_V13, "materials"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -107,6 +111,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v11",
             "armi.subject-change-set.v12",
             "armi.subject-change-set.v13",
+            "armi.subject-change-set.v14",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -136,6 +141,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V12
             if version.endswith(".v12")
             else _TOP_KEYS_V13
+            if version.endswith(".v13")
+            else _TOP_KEYS_V14
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -191,8 +198,14 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             for item in _array(document.get("memory_revisions", []), 1)
         )
         relationships = tuple(
-            _relationship(item, include_commitments=version.endswith(".v13"))
+            _relationship(
+                item,
+                include_commitments=version.endswith((".v13", ".v14")),
+            )
             for item in _array(document.get("relationships", []), 1)
+        )
+        materials = tuple(
+            _material(item) for item in _array(document.get("materials", []), 1)
         )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
@@ -223,6 +236,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             memories,
             memory_revisions,
             relationships,
+            materials,
         )
         proposal_refs = [
             item.proposal_ref
@@ -239,6 +253,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *memories,
                 *memory_revisions,
                 *relationships,
+                *materials,
                 *rejections,
             )
         ]
@@ -273,6 +288,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.memories
             or result.memory_revisions
             or result.relationships
+            or result.materials
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
@@ -405,6 +421,55 @@ def _memory(value: object) -> CandidateMemoryDraft:
         _text(item["summary"]),
         _text(item["mechanism_identity"]),
         _text(item["privacy_scope"]),
+    )
+
+
+def _material(value: object) -> CandidateLifeMaterialDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "material_id",
+            "owner_party_id",
+            "material_kind",
+            "current_revision_id",
+            "expected_head_version",
+            "title",
+            "body",
+            "body_digest",
+            "metadata",
+            "material_status",
+            "privacy_status",
+            "source_kind",
+        },
+    )
+    current_revision_id = item["current_revision_id"]
+    body = _text(item["body"]).encode("utf-8", errors="strict")
+    metadata_value = item["metadata"]
+    if type(metadata_value) is not dict or any(
+        type(key) is not str or type(metadata_item) is not str
+        for key, metadata_item in cast(dict[object, object], metadata_value).items()
+    ):
+        raise ValueError
+    metadata = cast(dict[str, str], metadata_value)
+    return CandidateLifeMaterialDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        _uuid7(item["material_id"]),
+        _uuid7(item["owner_party_id"]),
+        LifeMaterialKind(_text(item["material_kind"])),
+        None if current_revision_id is None else _uuid7(current_revision_id),
+        _nonnegative(item["expected_head_version"]),
+        _text(item["title"]),
+        body,
+        Digest(_text(item["body_digest"])),
+        tuple(sorted(metadata.items())),
+        LifeMaterialStatus(_text(item["material_status"])),
+        _text(item["privacy_status"]),
+        _text(item["source_kind"]),
     )
 
 

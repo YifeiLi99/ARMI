@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目当前已达到 M0-Core 单机个人内测可用；P0-S001—S012 的 Activity、注意、Creator 只读闭环、睡眠维护、主观记忆演进、精确生活查询、关系边界、承诺/冲突连续以及关系 Creator 闭环已经落地，当前按功能优先模式推进 P0-S013。普通 `consider_creator_input` 仍只调用一次主模型：模型返回本轮决定、必要正文、可选 Experience，以及最多一项当前记忆变化和一项由同轮 Experience 支持的关系变化。Runtime 绑定 memory/relationship/commitment head、参与方、来源、版本和权限；承诺不是权限或强制执行脚本，违背和矛盾不会被新的 current state 抹除，跨 scene 延续当前承诺时也不复制近期现场原文。Creator 现可读取不含 scene/Experience 原文的结构化 Relationship current/timeline，并把自己的拒绝、限制或结束联系作为正式输入接纳；该操作不直接改写 ARMI 的主观 Relationship。关系不会由单一分数、隐藏阈值或预设亲子/友情/爱情产生，结束联系的当前边界会阻止后续 Creator 回复。精确查询明确标记为本次取得的记录证据，不会把已经遗忘的内容伪装成自然回忆。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
+项目当前已达到 M0-Core 单机个人内测可用；P0-S001—S013 的 Activity、注意、Creator 只读闭环、睡眠维护、主观记忆演进、精确生活查询、关系连续以及生活资料所有权已经落地，当前按功能优先模式推进 P0-S014。普通 `consider_creator_input` 仍只调用一次主模型：除既有 Experience、Memory 和 Relationship 变化外，ARMI 可选择创建或完整改写一项日记、作品、收藏或草稿。Runtime 绑定唯一 subject party owner、资料 identity、current revision/head 和来源；正文保存为不可变内容寻址制品，T-03 原子追加 revision 并 CAS 推进 current。Creator 输入只能作为本轮依据，不能取得资料所有权；私人标记、删除、Creator 修改入口和对外发布仍属于 P0-S014 以后。精确查询明确标记为本次取得的记录证据，不会把已经遗忘的内容伪装成自然回忆。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
 
 S039 的 Creator→Codex 产品纵向 gate 已通过：正式 `codex-tasks` 输入经 ARMI 认知、Creator grant、Codex effect、官方 `openai-codex==0.144.4` SDK runner、独立 validator、result evidence 和第二次 T-03 收敛为唯一 private Experience。新任务可逐项选择 `gpt-5.6-sol/terra/luna`、思考级别和内置 Web Search；一次性 workspace 默认可操作，明确 forbidden paths 和禁止逃逸构成安全边界。纯内容任务由结构化 deliverable 落为 `result.md`，代码与文件任务按 task manifest 和独立 validator 核验。正式 Creator 链已经用 Luna、`max` 和 Web Search 完成实机验收，不再把组件级成功冒充产品闭环。
 
@@ -27,7 +27,7 @@ Admin MCP、S033/S034 ARMI 网页观察、Windows 服务身份/DACL、跨候选�
 从同轮正式 Experience 形成带来源的 current/revision，保存双方边界、结束联系、承诺事件和未解决冲突，并以独立 Context 项跨场景延续而不复制近期现场原文；Memory owner 已能从正式 Experience 形成带来源的 current/revision；Activity owner
 已进入正式组合根，但首次真实自主认知没有创建 `ready`
 Activity。相关 Context 串线已经修复；历史联合验收结果保留到 P0-S021/S022 集中复验，
-不再阻塞后续功能开发。P0-S001—P0-S012 按功能实现完成，当前施工入口为 P0-S013。
+不再阻塞后续功能开发。P0-S001—P0-S013 按功能实现完成，当前施工入口为 P0-S014。
 
 ## 本地 Runtime 生命周期
 

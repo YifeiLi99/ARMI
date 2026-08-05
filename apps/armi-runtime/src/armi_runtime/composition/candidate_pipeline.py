@@ -25,6 +25,8 @@ from armi_kernel.application import (
     AuditSensitivity,
     CandidateFactClass,
     CandidateViolation,
+    LifeMaterialKind,
+    LifeMaterialStatus,
     LockPlan,
     LockTarget,
     MemoryAccessibility,
@@ -69,6 +71,7 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .candidate_validator import (
     CANDIDATE_VALIDATOR_IDENTITY,
+    CandidateLifeMaterialContext,
     CandidateMemoryContext,
     CandidateRelationshipCommitmentContext,
     CandidateRelationshipContext,
@@ -254,6 +257,7 @@ class CandidateValidationPipeline:
                             ),
                         )
                     ),
+                    current_materials=_material_contexts(snapshot.current_materials),
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)
@@ -395,6 +399,43 @@ def _candidate_bytes(response_bytes: bytes) -> bytes:
         return rfc8785.dumps(response["candidate"])
     except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         raise CandidateViolation("CANDIDATE-CONTRACT") from None
+
+
+def _material_contexts(
+    values: tuple[
+        tuple[
+            UUID,
+            UUID,
+            int,
+            Digest,
+            Digest,
+            UUID,
+            str,
+            str,
+            tuple[tuple[str, str], ...],
+            str,
+        ],
+        ...,
+    ],
+) -> tuple[CandidateLifeMaterialContext, ...]:
+    try:
+        return tuple(
+            CandidateLifeMaterialContext(
+                item[0],
+                item[1],
+                item[2],
+                item[3],
+                item[4],
+                item[5],
+                LifeMaterialKind(item[6]),
+                item[7],
+                item[8],
+                LifeMaterialStatus(item[9]),
+            )
+            for item in values
+        )
+    except ValueError:
+        raise CandidateViolation("CANDIDATE-MATERIAL-CONTEXT") from None
 
 
 def _artifact_audit(

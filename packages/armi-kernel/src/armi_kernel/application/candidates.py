@@ -17,6 +17,7 @@ from .life import (
     ActivityStatus,
     ActivityWaitingKind,
 )
+from .life_materials import CandidateLifeMaterialDraft
 from .maintenance import SleepDecisionKind
 from .response import ResponseChoiceDraft
 from .web_evidence import WebResearchRequestDraft
@@ -140,6 +141,7 @@ class CandidateOwner(StrEnum):
     WEB_RESEARCH = "web_research"
     CODEX_DELEGATION = "codex_delegation"
     SLEEP = "sleep"
+    MATERIAL = "material"
 
 
 class CandidateValidationStatus(StrEnum):
@@ -865,6 +867,7 @@ class SubjectChangeSet:
     memories: tuple[CandidateMemoryDraft, ...] = ()
     memory_revisions: tuple[CandidateMemoryRevisionDraft, ...] = ()
     relationships: tuple[CandidateRelationshipDraft, ...] = ()
+    materials: tuple[CandidateLifeMaterialDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -999,6 +1002,7 @@ __all__ = (
     "CandidateDisposition",
     "CandidateExperienceDraft",
     "CandidateFactClass",
+    "CandidateLifeMaterialDraft",
     "CandidateMemoryDraft",
     "CandidateMemoryRevisionDraft",
     "CandidateOwner",

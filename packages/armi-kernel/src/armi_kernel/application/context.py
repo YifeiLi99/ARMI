@@ -46,6 +46,7 @@ class ContextSection(StrEnum):
     RELATIONSHIP = "relationship"
     MEMORY = "memory"
     ACTIVITY = "activity"
+    MATERIAL = "material"
     EVIDENCE = "evidence"
     CAPABILITY = "capability"
     PROMPT = "prompt"

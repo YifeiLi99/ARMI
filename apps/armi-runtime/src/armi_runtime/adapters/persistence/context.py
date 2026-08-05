@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -54,6 +54,55 @@ class ContextArtifactSource:
 
 
 @dataclass(frozen=True, slots=True)
+class ContextMaterialSource:
+    ref: ArtifactRef
+    material_id: UUID
+    current_revision_id: UUID
+    head_version: int
+    semantic_digest: Digest
+    body_digest: Digest
+    owner_party_id: UUID
+    material_kind: str
+    title: str
+    metadata: tuple[tuple[str, str], ...]
+    material_status: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.ref) is not ArtifactRef
+            or any(
+                type(value) is not UUID or value.version != 7
+                for value in (
+                    self.material_id,
+                    self.current_revision_id,
+                    self.owner_party_id,
+                )
+            )
+            or type(self.head_version) is not int
+            or self.head_version <= 0
+            or type(self.semantic_digest) is not Digest
+            or type(self.body_digest) is not Digest
+            or self.material_kind not in {"diary", "work", "collection", "draft"}
+            or type(self.title) is not str
+            or not 1 <= len(self.title) <= 256
+            or not self.title.strip()
+            or "\x00" in self.title
+            or type(self.metadata) is not tuple
+            or len(self.metadata) > 32
+            or any(
+                type(key) is not str
+                or type(value) is not str
+                or "\x00" in key
+                or "\x00" in value
+                for key, value in self.metadata
+            )
+            or tuple(sorted(self.metadata)) != self.metadata
+            or self.material_status not in {"active", "archived"}
+        ):
+            raise ContextViolation("CTX-SOURCE-INVALID")
+
+
+@dataclass(frozen=True, slots=True)
 class ContextEpisodeSnapshot:
     episode_id: UUID
     opportunity_id: UUID
@@ -73,6 +122,7 @@ class ContextEpisodeSnapshot:
     relationship_payloads: tuple[tuple[UUID, int, bytes, Digest], ...]
     relationship_commitment_payloads: tuple[tuple[UUID, int, bytes, Digest, str], ...]
     relationship_issue_payloads: tuple[tuple[UUID, int, bytes, Digest], ...]
+    material_sources: tuple[ContextMaterialSource, ...]
     activity_summary_bytes: bytes
     scene_bytes: bytes | None
     scene_digest: Digest | None
@@ -517,6 +567,51 @@ class PostgreSQLContextRepository:
             for item in relationship_rows
             for issue in item[8]
         )
+        material_rows = await (
+            await connection.execute(
+                """
+                SELECT material.life_material_id,
+                       material.current_revision_id,
+                       material.head_version,
+                       revision.semantic_digest,
+                       revision.body_digest,
+                       material.owner_party_id,
+                       material.material_kind,
+                       revision.title,
+                       revision.metadata,
+                       revision.material_status,
+                       revision.artifact_id
+                FROM armi.life_materials AS material
+                JOIN armi.life_material_revisions AS revision
+                  ON revision.life_material_revision_id =
+                     material.current_revision_id
+                WHERE material.subject_id = %s
+                  AND material.life_generation_id = %s
+                  AND material.deleted_at IS NULL
+                ORDER BY material.updated_at DESC, material.life_material_id
+                LIMIT 4
+                """,
+                (row[2], row[28]),
+            )
+        ).fetchall()
+        material_source_values: list[ContextMaterialSource] = []
+        for item in material_rows:
+            material_source_values.append(
+                ContextMaterialSource(
+                    await self._artifact_ref(connection, item[10]),
+                    item[0],
+                    item[1],
+                    int(item[2]),
+                    Digest(str(item[3])),
+                    Digest(str(item[4])),
+                    item[5],
+                    str(item[6]),
+                    str(item[7]),
+                    _material_metadata(item[8]),
+                    str(item[9]),
+                )
+            )
+        material_sources = tuple(material_source_values)
         activity_rows = await (
             await connection.execute(
                 """
@@ -596,6 +691,7 @@ class PostgreSQLContextRepository:
             relationship_payloads,
             relationship_commitment_payloads,
             relationship_issue_payloads,
+            material_sources,
             activity_summary_bytes,
             scene_bytes,
             None if scene_bytes is None else Digest.from_bytes(scene_bytes),
@@ -845,8 +941,23 @@ class PostgreSQLContextRepository:
             raise ContextViolation("CTX-SOURCE-INVALID") from None
 
 
+def _material_metadata(value: object) -> tuple[tuple[str, str], ...]:
+    if type(value) is not dict:
+        raise ContextViolation("CTX-SOURCE-INVALID")
+    metadata = cast(dict[object, object], value)
+    if len(metadata) > 32 or any(
+        type(key) is not str or type(item) is not str or "\x00" in key or "\x00" in item
+        for key, item in metadata.items()
+    ):
+        raise ContextViolation("CTX-SOURCE-INVALID")
+    return tuple(
+        sorted((cast(str, key), cast(str, item)) for key, item in metadata.items())
+    )
+
+
 __all__ = (
     "ContextArtifactSource",
     "ContextEpisodeSnapshot",
+    "ContextMaterialSource",
     "PostgreSQLContextRepository",
 )

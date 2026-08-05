@@ -14,11 +14,14 @@ from armi_kernel.application import (
     ActivityStatus,
     CandidateBasis,
     CandidateFactClass,
+    CandidateLifeMaterialDraft,
     CandidateOwner,
     CandidateValidationStatus,
     CodexDelegationDraft,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
+    LifeMaterialKind,
+    LifeMaterialStatus,
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
@@ -41,6 +44,7 @@ from armi_runtime.adapters.persistence.candidate_validation import (
     _validation_drafts,
 )
 from armi_runtime.composition.candidate_validator import (
+    CandidateLifeMaterialContext,
     CandidateMemoryContext,
     CandidateRelationshipCommitmentContext,
     CandidateRelationshipContext,
@@ -1127,6 +1131,176 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert parse_subject_change_set(first.change_set.canonical_bytes).digest == (
         first.change_set.digest
     )
+
+
+def test_compact_dialogue_creates_runtime_owned_life_material_deterministically() -> (
+    None
+):
+    context, bases = _fixture()
+    subject_party_id = uuid7()
+    context = replace(context, subject_party_id=subject_party_id)
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = _bytes(
+        {
+            "kind": "reply",
+            "content": "我把这件事写进了今天的日记。",
+            "material_change": {
+                "action": "create",
+                "material_kind": "diary",
+                "title": "今天的记录",
+                "body": "我决定把今天真正触动我的事情记下来。",
+                "metadata": {"mood": "calm", "topic": "reflection"},
+            },
+        }
+    )
+    validator = DeterministicCandidateValidator(context)
+    first = validator.validate(candidate, bases=extended)
+    repeated = validator.validate(candidate, bases=extended)
+
+    assert first.status is CandidateValidationStatus.ACCEPTED
+    assert first.change_set is not None and repeated.change_set is not None
+    assert first.change_set.canonical_bytes == repeated.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v14" in first.change_set.canonical_bytes
+    assert len(first.change_set.materials) == 1
+    material = first.change_set.materials[0]
+    assert isinstance(material, CandidateLifeMaterialDraft)
+    assert material.owner_party_id == subject_party_id
+    assert material.material_kind is LifeMaterialKind.DIARY
+    assert material.current_revision_id is None
+    assert material.expected_head_version == 0
+    assert material.body_digest == Digest.from_bytes(material.body_bytes)
+    assert any(item is material for item in _validation_drafts(first.change_set))
+    reparsed = parse_subject_change_set(first.change_set.canonical_bytes)
+    assert reparsed.materials == first.change_set.materials
+
+
+def test_compact_dialogue_material_update_requires_frozen_current_head() -> None:
+    context, bases = _fixture()
+    subject_party_id = uuid7()
+    material_id = uuid7()
+    revision_id = uuid7()
+    material_context_digest = Digest.from_bytes(b"material-context")
+    old_body_digest = Digest.from_bytes("旧正文".encode())
+    current = CandidateLifeMaterialContext(
+        material_id,
+        revision_id,
+        3,
+        material_context_digest,
+        old_body_digest,
+        subject_party_id,
+        LifeMaterialKind.DRAFT,
+        "旧标题",
+        (("topic", "notes"),),
+        LifeMaterialStatus.ACTIVE,
+    )
+    context = replace(
+        context,
+        subject_party_id=subject_party_id,
+        current_materials=(current,),
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            6,
+            "material",
+            "current_material",
+            material_id,
+            3,
+            material_context_digest,
+            "subjective_state",
+            "private",
+        ),
+    )
+    candidate = {
+        "kind": "reply",
+        "content": "我把这份草稿完整改写了。",
+        "material_change": {
+            "action": "update",
+            "material_ref": "ctx:6",
+            "title": "新标题",
+            "body": "这是完整替换后的新正文。",
+            "metadata": {"topic": "notes"},
+            "material_status": "archived",
+        },
+    }
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    material = result.change_set.materials[0]
+    assert material.material_id == material_id
+    assert material.current_revision_id == revision_id
+    assert material.expected_head_version == 3
+    assert material.owner_party_id == subject_party_id
+    assert material.material_kind is LifeMaterialKind.DRAFT
+    assert material.material_status is LifeMaterialStatus.ARCHIVED
+
+    no_op = cast(dict[str, Any], json.loads(json.dumps(candidate, ensure_ascii=False)))
+    no_op_change = cast(dict[str, Any], no_op["material_change"])
+    no_op_change.update(
+        {
+            "title": current.title,
+            "body": "旧正文",
+            "metadata": {"topic": "notes"},
+            "material_status": "active",
+        }
+    )
+    rejected = DeterministicCandidateValidator(context).validate(
+        _bytes(no_op), bases=extended
+    )
+    assert rejected.error_code == "CANDIDATE-MATERIAL-NO-OP"
+
+    stale_context = replace(
+        context,
+        current_materials=(replace(current, head_version=4),),
+    )
+    stale = DeterministicCandidateValidator(stale_context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert stale.error_code == "CANDIDATE-MATERIAL-STALE"
 
 
 def test_compact_dialogue_establishes_relationship_from_same_experience() -> None:

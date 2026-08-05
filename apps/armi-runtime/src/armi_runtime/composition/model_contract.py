@@ -33,11 +33,16 @@ from .autonomous_activity_candidate_contract import (
 )
 from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueReplyDecision,
+    DialogueReplyDecisionV5,
     DialogueReplyDecisionV6,
+    DialogueReplyDecisionV8,
     DialogueWebResearchDecision,
+    DialogueWebResearchDecisionV8,
     dialogue_candidate_schema,
     parse_dialogue_candidate,
 )
@@ -69,8 +74,11 @@ DIALOGUE_INSTRUCTIONS = (
     "必须同时填写 interpretation,共同经历事实由 Runtime 从本轮 experience 绑定。只有对方"
     "明确表达了精确承担,或你在本轮回复中确实自行作出承担时,才可 establish commitment;修改、"
     "履行、撤回、遗忘、违背和冲突只能引用 Context 中的 commitment ctx 编号。承诺不是权限、"
-    "待办或系统强制脚本;管理要求不能伪造成你的承诺,执行器声称成功也不能单独证明履行。不要推断"
-    "法律承诺、对方隐藏内心、替对方同意或预设亲子、友情、爱情和共同历史。不要输出理由、协议版本、数据库"
+    "待办或系统强制脚本;管理要求不能伪造成你的承诺,执行器声称成功也不能单独证明履行。"
+    "确实要写下日记、作品、收藏或草稿时,可填写一个 material_change。create 必须选择资料类型;"
+    "update 只能引用 Context 中的 material ctx 编号并提交完整替换正文。Creator 的要求只是当前"
+    "依据,不能取得资料所有权。不要推断法律承诺、对方隐藏内心、替对方同意或预设亲子、友情、"
+    "爱情和共同历史。不要输出理由、协议版本、数据库"
     "身份、版本、basis、权限、工具、效果状态或隐藏思维链; 这些由 Runtime 从冻结 Context"
     "绑定并确定性校验。"
 )
@@ -88,8 +96,10 @@ WEB_DIALOGUE_INSTRUCTIONS = (
     "必须同时填写 interpretation,共同经历事实由 Runtime 从本轮 experience 绑定。只有精确"
     "承担被明确表达或由你在本轮真实作出时才可 establish commitment;其余承诺事件只能引用"
     "Context 中的 commitment ctx 编号。承诺不是权限、待办或强制脚本;管理要求不能伪造成"
-    "你的承诺,执行器声称成功不能单独证明履行。不要推断法律承诺、对方隐藏内心、替对方同意或"
-    "预设关系。不要输出理由、协议版本、subject、版本、basis、"
+    "你的承诺,执行器声称成功不能单独证明履行。"
+    "确实要写下日记、作品、收藏或草稿时,可填写一个 material_change;update 只能引用 Context"
+    "中的 material ctx 编号并提交完整替换正文。Creator 不能取得资料所有权。不要推断法律承诺、"
+    "对方隐藏内心、替对方同意或预设关系。不要输出理由、协议版本、subject、版本、basis、"
     "权限或效果状态;这些由 Runtime 从冻结 Context 绑定并确定性校验。"
 )
 AUTONOMOUS_ACTIVITY_INSTRUCTIONS = (
@@ -599,7 +609,12 @@ def candidate_schema(
         return sleep_decision_candidate_schema()
     if version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION:
         return autonomous_activity_candidate_schema()
-    if version in {DIALOGUE_CANDIDATE_VERSION, WEB_DIALOGUE_CANDIDATE_VERSION}:
+    if version in {
+        HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
+        HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+        DIALOGUE_CANDIDATE_VERSION,
+        WEB_DIALOGUE_CANDIDATE_VERSION,
+    }:
         return dialogue_candidate_schema(version)
     if version == CANDIDATE_VERSION:
         return _RUNTIME_BOUND_CANDIDATE_ADAPTER.json_schema()
@@ -675,12 +690,23 @@ def parse_candidate(
             candidate = parse_autonomous_activity_candidate(autonomous_value)
         elif candidate_object is not None and (
             (version is None and "kind" in candidate_object)
-            or version in {DIALOGUE_CANDIDATE_VERSION, WEB_DIALOGUE_CANDIDATE_VERSION}
+            or version
+            in {
+                HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                DIALOGUE_CANDIDATE_VERSION,
+                WEB_DIALOGUE_CANDIDATE_VERSION,
+            }
         ):
             dialogue_version = (
                 expected_version
                 if expected_version
-                in {DIALOGUE_CANDIDATE_VERSION, WEB_DIALOGUE_CANDIDATE_VERSION}
+                in {
+                    HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    DIALOGUE_CANDIDATE_VERSION,
+                    WEB_DIALOGUE_CANDIDATE_VERSION,
+                }
                 else WEB_DIALOGUE_CANDIDATE_VERSION
                 if candidate_object.get("kind") == "web_research"
                 else DIALOGUE_CANDIDATE_VERSION
@@ -732,7 +758,15 @@ def parse_candidate(
     if isinstance(candidate, AutonomousTerminalDecision):
         return candidate
     if isinstance(candidate, CreatorDialogueCandidate):
-        if isinstance(candidate, (DialogueReplyDecision, DialogueReplyDecisionV6)):
+        if isinstance(
+            candidate,
+            (
+                DialogueReplyDecisionV5,
+                DialogueReplyDecisionV6,
+                DialogueReplyDecision,
+                DialogueReplyDecisionV8,
+            ),
+        ):
             try:
                 encoded = candidate.content.encode("utf-8", errors="strict")
             except UnicodeEncodeError:
@@ -759,9 +793,28 @@ def parse_candidate(
                     dialogue_refs.add(commitment_change.commitment_ref)
                 if commitment_change.conflicts_with_ref is not None:
                     dialogue_refs.add(commitment_change.conflicts_with_ref)
+            material_change = getattr(candidate, "material_change", None)
+            if material_change is not None:
+                try:
+                    material_body = material_change.body.encode(
+                        "utf-8", errors="strict"
+                    )
+                except UnicodeEncodeError:
+                    raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
+                if (
+                    not material_body
+                    or len(material_body) > 65_536
+                    or b"\x00" in material_body
+                    or not material_change.body.strip()
+                ):
+                    raise ModelViolation("MODEL-RESPONSE-LIMIT")
+                if material_change.material_ref is not None:
+                    dialogue_refs.add(material_change.material_ref)
             if not dialogue_refs.issubset(allowed_context_refs):
                 raise ModelViolation("MODEL-RESPONSE-REFERENCE")
-        if isinstance(candidate, DialogueWebResearchDecision):
+        if isinstance(
+            candidate, (DialogueWebResearchDecision, DialogueWebResearchDecisionV8)
+        ):
             try:
                 encoded_query = candidate.query.encode("utf-8", errors="strict")
             except UnicodeEncodeError:

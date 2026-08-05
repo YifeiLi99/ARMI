@@ -56,6 +56,7 @@ from armi_kernel.contracts import (
     TraceId,
 )
 
+from .life_material_commit import apply_life_materials
 from .relationship_commit import apply_relationships
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -335,6 +336,7 @@ class PostgreSQLSubjectCommitRepository:
         change_set: SubjectChangeSet,
         response_artifact_id: ArtifactId | None = None,
         research_artifact_id: ArtifactId | None = None,
+        material_artifact_ids: dict[str, ArtifactId] | None = None,
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await _assert_lease(connection, lease, snapshot.episode_id)
@@ -371,6 +373,7 @@ class PostgreSQLSubjectCommitRepository:
         memory_heads = await _lock_memory_heads(
             connection, snapshot.subject_id, change_set
         )
+        material_heads = await _lock_material_heads(connection, change_set)
         stale = (
             int(subject[0]) != change_set.base_subject_version
             or int(subject[1]) != change_set.base_state_epoch
@@ -384,6 +387,23 @@ class PostgreSQLSubjectCommitRepository:
                 memory_heads.get(memory.memory_id)
                 != (memory.current_revision_id, memory.expected_head_version)
                 for memory in change_set.memory_revisions
+            )
+            or any(
+                material_heads.get(material.material_id)
+                != (
+                    (None, 0, None, None, None, None, None)
+                    if material.current_revision_id is None
+                    else (
+                        material.current_revision_id,
+                        material.expected_head_version,
+                        snapshot.subject_id,
+                        snapshot.generation_id,
+                        material.owner_party_id,
+                        material.material_kind.value,
+                        None,
+                    )
+                )
+                for material in change_set.materials
             )
             or await _sleep_decision_is_stale(connection, snapshot, change_set)
         )
@@ -401,6 +421,7 @@ class PostgreSQLSubjectCommitRepository:
             change_set=change_set,
             response_artifact_id=response_artifact_id,
             research_artifact_id=research_artifact_id,
+            material_artifact_ids=material_artifact_ids or {},
         )
 
     async def _settle_current(
@@ -412,6 +433,7 @@ class PostgreSQLSubjectCommitRepository:
         change_set: SubjectChangeSet,
         response_artifact_id: ArtifactId | None,
         research_artifact_id: ArtifactId | None,
+        material_artifact_ids: dict[str, ArtifactId],
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         disposition_map = {
@@ -444,6 +466,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.memories
             and not change_set.memory_revisions
             and not change_set.relationships
+            and not change_set.materials
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -610,6 +633,16 @@ class PostgreSQLSubjectCommitRepository:
             commit_id=commit_id.value,
             relationships=change_set.relationships,
             experience_ids={key: value.value for key, value in experience_ids.items()},
+        )
+
+        await apply_life_materials(
+            connection,
+            validation_id=snapshot.validation_id,
+            subject_id=snapshot.subject_id,
+            generation_id=snapshot.generation_id,
+            commit_id=commit_id.value,
+            materials=change_set.materials,
+            artifact_ids=material_artifact_ids,
         )
 
         for component in sorted(
@@ -1163,6 +1196,66 @@ async def _lock_memory_heads(
         if row is None:
             raise SubjectCommitViolation("SUBJECT-MEMORY-HEAD-MISSING")
         result[memory_id] = (row[0], int(row[1]))
+    return result
+
+
+async def _lock_material_heads(
+    connection: Any,
+    change_set: SubjectChangeSet,
+) -> dict[
+    UUID,
+    tuple[
+        UUID | None,
+        int,
+        UUID | None,
+        UUID | None,
+        UUID | None,
+        str | None,
+        datetime | None,
+    ],
+]:
+    result: dict[
+        UUID,
+        tuple[
+            UUID | None,
+            int,
+            UUID | None,
+            UUID | None,
+            UUID | None,
+            str | None,
+            datetime | None,
+        ],
+    ] = {}
+    for material_id in sorted(
+        {item.material_id for item in change_set.materials},
+        key=str,
+    ):
+        row = await (
+            await connection.execute(
+                """
+                SELECT current_revision_id, head_version, subject_id,
+                       life_generation_id, owner_party_id, material_kind,
+                       deleted_at
+                FROM armi.life_materials
+                WHERE life_material_id = %s
+                FOR UPDATE
+                """,
+                (material_id,),
+            )
+        ).fetchone()
+        result[material_id] = (
+            (None, 0, None, None, None, None, None)
+            if row is None
+            else (
+                row[0],
+                int(row[1]),
+                row[2],
+                row[3],
+                row[4],
+                str(row[5]),
+                row[6],
+            )
+        )
     return result
 
 

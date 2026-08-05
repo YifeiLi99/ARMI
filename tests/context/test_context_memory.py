@@ -8,7 +8,10 @@ from uuid import uuid7
 import rfc8785
 from armi_kernel.application import ContextItemDisposition
 from armi_kernel.contracts import Digest, TraceId
-from armi_runtime.adapters.persistence.context import ContextEpisodeSnapshot
+from armi_runtime.adapters.persistence.context import (
+    ContextEpisodeSnapshot,
+    ContextMaterialSource,
+)
 from armi_runtime.composition.context_compiler import DeterministicContextCompiler
 from armi_runtime.composition.context_pipeline import _context_request
 
@@ -156,6 +159,42 @@ def test_context_includes_current_relationship_or_explicitly_reports_none() -> N
         item for item in empty_request.items if item.item_kind == "relationship"
     )
     assert empty.unavailable_reason == "CTX-RELATIONSHIP-NONE"
+
+
+def test_context_includes_current_life_material_with_revision_identity() -> None:
+    material_id = uuid7()
+    semantic_digest = Digest.from_bytes(b"material-revision")
+    source = cast(
+        ContextMaterialSource,
+        SimpleNamespace(
+            material_id=material_id,
+            head_version=4,
+            semantic_digest=semantic_digest,
+        ),
+    )
+    payload = rfc8785.dumps(
+        {
+            "material_kind": "diary",
+            "title": "今天",
+            "body": "这是当前完整正文。",
+            "metadata": {"mood": "calm"},
+            "material_status": "active",
+        }
+    )
+    request = _context_request(
+        _snapshot(()),
+        None,
+        b"fixed prompt",
+        ((source, payload),),
+        web_search_active=False,
+    )
+    item = next(item for item in request.items if item.item_kind == "current_material")
+    assert item.section.value == "material"
+    assert item.source.reference == material_id
+    assert item.source.version == 4
+    assert item.source.digest == semantic_digest
+    assert item.trust_class.value == "subjective_state"
+    assert "当前完整正文" in cast(str, item.content)
 
 
 def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -> None:

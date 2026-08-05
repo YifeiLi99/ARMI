@@ -25,6 +25,7 @@ from armi_kernel.application import (
     CandidateComponentDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
+    CandidateLifeMaterialDraft,
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
@@ -119,6 +120,21 @@ class CandidateEpisodeSnapshot:
         ]
         | None
     ) = None
+    current_materials: tuple[
+        tuple[
+            UUID,
+            UUID,
+            int,
+            Digest,
+            Digest,
+            UUID,
+            str,
+            str,
+            tuple[tuple[str, str], ...],
+            str,
+        ],
+        ...,
+    ] = ()
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -392,6 +408,40 @@ class PostgreSQLCandidateValidationRepository:
         commitment_context_digests = {
             item[0]: Digest(str(item[1])) for item in commitment_context_rows
         }
+        material_rows = await (
+            await connection.execute(
+                """
+                SELECT material.life_material_id,
+                       material.current_revision_id,
+                       material.head_version,
+                       item.source_digest,
+                       revision.body_digest,
+                       material.owner_party_id,
+                       material.material_kind,
+                       revision.title,
+                       revision.metadata,
+                       revision.material_status
+                FROM armi.cognitive_context_items AS item
+                JOIN armi.life_materials AS material
+                  ON material.life_material_id = item.source_ref
+                 AND material.subject_id = %s
+                 AND material.life_generation_id = %s
+                 AND material.head_version = item.source_version
+                 AND material.deleted_at IS NULL
+                JOIN armi.life_material_revisions AS revision
+                  ON revision.life_material_revision_id =
+                     material.current_revision_id
+                 AND revision.semantic_digest = item.source_digest
+                WHERE item.cognitive_episode_id = %s
+                  AND item.disposition = 'included'
+                  AND item.section = 'material'
+                  AND item.item_kind = 'current_material'
+                  AND item.source_kind = 'life_material'
+                ORDER BY item.ordinal
+                """,
+                (row[2], row[3], row[0]),
+            )
+        ).fetchall()
         return CandidateEpisodeSnapshot(
             row[0],
             row[1],
@@ -447,6 +497,21 @@ class PostgreSQLCandidateValidationRepository:
                     relationship_row[8], commitment_context_digests
                 ),
                 _relationship_issues(relationship_row[9]),
+            ),
+            tuple(
+                (
+                    item[0],
+                    item[1],
+                    int(item[2]),
+                    Digest(str(item[3])),
+                    Digest(str(item[4])),
+                    item[5],
+                    str(item[6]),
+                    str(item[7]),
+                    _material_metadata(item[8]),
+                    str(item[9]),
+                )
+                for item in material_rows
             ),
         )
 
@@ -675,6 +740,7 @@ def _validation_drafts(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
+    | CandidateLifeMaterialDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -692,6 +758,7 @@ def _validation_drafts(
         *change_set.memories,
         *change_set.memory_revisions,
         *change_set.relationships,
+        *change_set.materials,
         *change_set.components,
         *change_set.capability_requests,
         *change_set.action_choices,
@@ -709,6 +776,7 @@ def _item_semantic(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
+    | CandidateLifeMaterialDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -826,6 +894,24 @@ def _item_semantic(
                 ),
             }
         )
+    elif isinstance(value, CandidateLifeMaterialDraft):
+        result.update(
+            {
+                "owner": "material",
+                "material_id": str(value.material_id),
+                "owner_party_id": str(value.owner_party_id),
+                "material_kind": value.material_kind.value,
+                "current_revision_id": (
+                    None
+                    if value.current_revision_id is None
+                    else str(value.current_revision_id)
+                ),
+                "expected_head_version": value.expected_head_version,
+                "body_digest": value.body_digest.value,
+                "material_status": value.material_status.value,
+                "privacy_status": value.privacy_status,
+            }
+        )
     elif isinstance(value, CandidateComponentDraft):
         result.update(
             {
@@ -864,6 +950,7 @@ def _owner(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
+    | CandidateLifeMaterialDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -885,6 +972,8 @@ def _owner(
         return CandidateOwner.MEMORY
     if isinstance(value, CandidateRelationshipDraft):
         return CandidateOwner.RELATIONSHIP
+    if isinstance(value, CandidateLifeMaterialDraft):
+        return CandidateOwner.MATERIAL
     if isinstance(value, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
     if isinstance(value, (CreatorReplyDraft, FormalNoActionDraft)):
@@ -901,6 +990,7 @@ def _implicit_fact_class(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
+    | CandidateLifeMaterialDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -925,6 +1015,8 @@ def _implicit_fact_class(
         ),
     ):
         return value.fact_class
+    if isinstance(value, CandidateLifeMaterialDraft):
+        return CandidateFactClass.SUBJECTIVE_UNDERSTANDING
     if isinstance(value, CandidateActivityDecisionDraft):
         return CandidateFactClass.INFERENCE
     if isinstance(value, CandidateSleepDecisionDraft):
@@ -1115,6 +1207,20 @@ def _relationship_issues(
             )
         )
     return tuple(result)
+
+
+def _material_metadata(value: object) -> tuple[tuple[str, str], ...]:
+    if type(value) is not dict:
+        raise CandidateViolation("CANDIDATE-MATERIAL-CONTEXT")
+    metadata = cast(dict[object, object], value)
+    if len(metadata) > 32 or any(
+        type(key) is not str or type(item) is not str or "\x00" in key or "\x00" in item
+        for key, item in metadata.items()
+    ):
+        raise CandidateViolation("CANDIDATE-MATERIAL-CONTEXT")
+    return tuple(
+        sorted((cast(str, key), cast(str, item)) for key, item in metadata.items())
+    )
 
 
 __all__ = (

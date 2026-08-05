@@ -12,6 +12,7 @@ from uuid import UUID, uuid7
 import rfc8785
 from armi_kernel.application import (
     ArtifactId,
+    ArtifactIntegrityStatus,
     ArtifactPolicy,
     ArtifactPrivacyScope,
     ArtifactRef,
@@ -46,6 +47,7 @@ from armi_runtime.adapters.persistence.artifact_catalog import (
 from armi_runtime.adapters.persistence.context import (
     ContextArtifactSource,
     ContextEpisodeSnapshot,
+    ContextMaterialSource,
     PostgreSQLContextRepository,
 )
 from armi_runtime.adapters.persistence.durable_work import (
@@ -61,6 +63,7 @@ from .context_compiler import (
     CONTEXT_MECHANISM,
     DeterministicContextCompiler,
 )
+from .life_material_artifact import parse_life_material_artifact
 from .work_wakeup import (
     CONTEXT_PREPARE,
     MODEL_INVOKE,
@@ -175,10 +178,16 @@ class ContextPipeline(OpportunitySelector):
                 else await self._read_source(snapshot.evidence, snapshot)
             )
             prompt_bytes = await self._read_source(snapshot.fixed_prompt, snapshot)
+            material_payloads: list[tuple[ContextMaterialSource, bytes]] = []
+            for source in snapshot.material_sources:
+                material_payloads.append(
+                    (source, await self._read_material_source(source, snapshot))
+                )
             request = _context_request(
                 snapshot,
                 evidence_bytes,
                 prompt_bytes,
+                tuple(material_payloads),
                 web_search_active=self._web_search_active,
             )
             result = self._compiler.compile(request)
@@ -300,6 +309,44 @@ class ContextPipeline(OpportunitySelector):
         del snapshot
         return value
 
+    async def _read_material_source(
+        self,
+        source: ContextMaterialSource,
+        snapshot: ContextEpisodeSnapshot,
+    ) -> bytes:
+        if (
+            source.ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
+            or source.ref.media_type != "application/json"
+            or source.ref.logical_kind != "life.material.content"
+            or source.ref.privacy_scope is not ArtifactPrivacyScope.PRIVATE
+        ):
+            raise ContextViolation("CTX-SOURCE-READ-FAILED")
+        artifact_bytes = await self._read_source(
+            ContextArtifactSource(
+                source.ref,
+                source.material_id,
+                source.head_version,
+                "life_material",
+            ),
+            snapshot,
+        )
+        try:
+            body = parse_life_material_artifact(
+                artifact_bytes,
+                expected_body_digest=source.body_digest,
+            ).decode("utf-8", errors="strict")
+        except ValueError, UnicodeError:
+            raise ContextViolation("CTX-SOURCE-INVALID") from None
+        return rfc8785.dumps(
+            {
+                "material_kind": source.material_kind,
+                "title": source.title,
+                "body": body,
+                "metadata": dict(source.metadata),
+                "material_status": source.material_status,
+            }
+        )
+
     async def _publish(
         self,
         value: bytes,
@@ -337,6 +384,7 @@ def _context_request(
     snapshot: ContextEpisodeSnapshot,
     evidence_bytes: bytes | None,
     prompt_bytes: bytes,
+    material_payloads: tuple[tuple[ContextMaterialSource, bytes], ...] = (),
     *,
     web_search_active: bool,
 ) -> ContextRequest:
@@ -449,6 +497,33 @@ def _context_request(
                     if snapshot.has_memory_records
                     else "CTX-MEMORY-NONE"
                 ),
+            )
+        )
+    if material_payloads:
+        for source, payload in material_payloads:
+            items.append(
+                ContextItemCandidate(
+                    ContextSection.MATERIAL,
+                    "current_material",
+                    ContextSourceIdentity(
+                        "life_material",
+                        source.material_id,
+                        source.head_version,
+                        source.semantic_digest,
+                    ),
+                    ContextTrustClass.SUBJECTIVE_STATE,
+                    "private",
+                    payload.decode("utf-8", errors="strict"),
+                    False,
+                    82,
+                )
+            )
+    else:
+        items.append(
+            _unavailable(
+                ContextSection.MATERIAL,
+                "material",
+                reason="CTX-MATERIAL-NONE",
             )
         )
     if snapshot.relationship_payloads:
