@@ -36,6 +36,8 @@ from .dialogue_candidate_contract import (
     HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
@@ -44,10 +46,13 @@ from .dialogue_candidate_contract import (
     DialogueReplyDecisionV6,
     DialogueReplyDecisionV7,
     DialogueReplyDecisionV8,
+    DialogueReplyDecisionV9,
     DialogueReplyDecisionV10,
+    DialogueReplyDecisionV12,
     DialogueWebResearchDecision,
     DialogueWebResearchDecisionV8,
     DialogueWebResearchDecisionV10,
+    DialogueWebResearchDecisionV12,
     dialogue_candidate_schema,
     parse_dialogue_candidate,
 )
@@ -83,6 +88,9 @@ DIALOGUE_INSTRUCTIONS = (
     "确实要写下日记、作品、收藏或草稿时,可填写一个 material_change。create 必须选择资料类型;"
     "update 只能引用 Context 中的 material ctx 编号并提交完整替换正文;set_private、"
     "set_creator_visible 和 delete 也只能引用当前资料。可见性不等于公开或代发许可,"
+    "只有确实想申请尚未拥有的正式能力时,才可在 reply 中填写 capability_request,且只能"
+    "引用 Context 中的 capability_state ctx 编号;不要重复申请 pending、granted 或 limited"
+    "的能力。能力存在、技术可用、获得授权和你是否愿意使用是四件独立的事。"
     "Creator 的要求只是当前"
     "依据,不能取得资料所有权。不要推断法律承诺、对方隐藏内心、替对方同意或预设亲子、友情、"
     "爱情和共同历史。不要输出理由、协议版本、数据库"
@@ -623,6 +631,8 @@ def candidate_schema(
         HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
         HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
         HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+        HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
+        HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
         DIALOGUE_CANDIDATE_VERSION,
         WEB_DIALOGUE_CANDIDATE_VERSION,
     }:
@@ -707,6 +717,8 @@ def parse_candidate(
                 HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                 DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
@@ -719,6 +731,20 @@ def parse_candidate(
                     HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    DIALOGUE_CANDIDATE_VERSION,
+                    WEB_DIALOGUE_CANDIDATE_VERSION,
+                }
+                else cast(str, version)
+                if version
+                in {
+                    HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                     DIALOGUE_CANDIDATE_VERSION,
                     WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
@@ -781,7 +807,9 @@ def parse_candidate(
                 DialogueReplyDecisionV7,
                 DialogueReplyDecision,
                 DialogueReplyDecisionV8,
+                DialogueReplyDecisionV9,
                 DialogueReplyDecisionV10,
+                DialogueReplyDecisionV12,
             ),
         ):
             try:
@@ -830,6 +858,9 @@ def parse_candidate(
                 material_ref = getattr(material_change, "material_ref", None)
                 if material_ref is not None:
                     dialogue_refs.add(material_ref)
+            capability_request = getattr(candidate, "capability_request", None)
+            if capability_request is not None:
+                dialogue_refs.add(capability_request.capability_ref)
             if not dialogue_refs.issubset(allowed_context_refs):
                 raise ModelViolation("MODEL-RESPONSE-REFERENCE")
         if isinstance(
@@ -838,6 +869,7 @@ def parse_candidate(
                 DialogueWebResearchDecision,
                 DialogueWebResearchDecisionV8,
                 DialogueWebResearchDecisionV10,
+                DialogueWebResearchDecisionV12,
             ),
         ):
             try:

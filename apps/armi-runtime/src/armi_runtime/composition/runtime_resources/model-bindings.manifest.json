@@ -38,7 +38,7 @@
     "consider_creator_input": {
       "output_token_limit": 1024,
       "profile": "creator_dialogue",
-      "response_contract_version": "armi.creator-dialogue-candidate.v9"
+      "response_contract_version": "armi.creator-dialogue-candidate.v11"
     },
     "consider_sleep": {
       "output_token_limit": 256,

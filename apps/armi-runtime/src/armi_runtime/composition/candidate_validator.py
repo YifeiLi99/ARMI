@@ -91,6 +91,8 @@ from .dialogue_candidate_contract import (
     HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
@@ -106,16 +108,21 @@ from .dialogue_candidate_contract import (
     DialogueReplyDecisionV6,
     DialogueReplyDecisionV7,
     DialogueReplyDecisionV8,
+    DialogueReplyDecisionV9,
     DialogueReplyDecisionV10,
+    DialogueReplyDecisionV12,
     DialogueTerminalDecision,
     DialogueTerminalDecisionV5,
     DialogueTerminalDecisionV6,
     DialogueTerminalDecisionV7,
     DialogueTerminalDecisionV8,
+    DialogueTerminalDecisionV9,
     DialogueTerminalDecisionV10,
+    DialogueTerminalDecisionV12,
     DialogueWebResearchDecision,
     DialogueWebResearchDecisionV8,
     DialogueWebResearchDecisionV10,
+    DialogueWebResearchDecisionV12,
 )
 from .model_contract import (
     ActionChoiceProposal,
@@ -152,6 +159,7 @@ MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v13"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
+_CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
 @dataclass(frozen=True, slots=True)
@@ -892,6 +900,7 @@ class DeterministicCandidateValidator:
             in {
                 HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
             and web_research_requests
@@ -903,6 +912,8 @@ class DeterministicCandidateValidator:
                 HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                 DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
@@ -967,6 +978,7 @@ class DeterministicCandidateValidator:
             "armi.cognition-candidate.v5",
             HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+            HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
             WEB_DIALOGUE_CANDIDATE_VERSION,
         }:
             change_set_value["web_research_requests"] = [
@@ -985,6 +997,7 @@ class DeterministicCandidateValidator:
                 DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
                 "armi.cognition-candidate.v6",
                 "armi.cognition-candidate.v7",
             }
@@ -993,6 +1006,7 @@ class DeterministicCandidateValidator:
                 in {
                     HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                     WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
                 and not web_research_requests
@@ -1442,16 +1456,21 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV6,
             DialogueReplyDecisionV7,
             DialogueReplyDecisionV8,
+            DialogueReplyDecisionV9,
             DialogueReplyDecisionV10,
+            DialogueReplyDecisionV12,
             DialogueTerminalDecision,
             DialogueTerminalDecisionV5,
             DialogueTerminalDecisionV6,
             DialogueTerminalDecisionV7,
             DialogueTerminalDecisionV8,
+            DialogueTerminalDecisionV9,
             DialogueTerminalDecisionV10,
+            DialogueTerminalDecisionV12,
             DialogueWebResearchDecision,
             DialogueWebResearchDecisionV8,
             DialogueWebResearchDecisionV10,
+            DialogueWebResearchDecisionV12,
         ),
     ):
         return None, None, "CANDIDATE-CONTRACT"
@@ -1483,7 +1502,9 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV7,
             DialogueReplyDecision,
             DialogueReplyDecisionV8,
+            DialogueReplyDecisionV9,
             DialogueReplyDecisionV10,
+            DialogueReplyDecisionV12,
         ),
     ):
         catalog = next(
@@ -1596,6 +1617,43 @@ def _expand_dialogue_candidate(
             }
         )
         proposal_no += 1
+        capability_request = getattr(decision, "capability_request", None)
+        if capability_request is not None:
+            capability_state = next(
+                (
+                    item
+                    for item in bases
+                    if f"ctx:{item.ordinal}" == capability_request.capability_ref
+                ),
+                None,
+            )
+            if (
+                capability_state is None
+                or capability_state.section != "capability"
+                or not capability_state.item_kind.startswith("capability_state_")
+                or capability_state.trust_class != "runtime_authority"
+                or capability_state.source_ref != _CODEX_CAPABILITY_ID
+            ):
+                return None, None, "CANDIDATE-CAPABILITY-STATE-BASIS"
+            capability_requests.append(
+                {
+                    "proposal_ref": f"proposal:{proposal_no}",
+                    "atomic_group_ref": "group:2",
+                    "basis_refs": (*shared_bases, capability_request.capability_ref),
+                    "payload": {
+                        "proposal_kind": "capability_requests",
+                        "fact_class": "inference",
+                        "capability_kind": "codex.delegated-work",
+                        "operation": "execute",
+                        "workspace_scope": "isolated_ephemeral",
+                        "artifact_scope": "explicit_only",
+                        "network_access": False,
+                        "valid_for_seconds": 3600,
+                        "max_uses": 1,
+                    },
+                }
+            )
+            proposal_no += 1
         action_choices.append(
             {
                 "proposal_ref": f"proposal:{proposal_no}",
@@ -1643,6 +1701,7 @@ def _expand_dialogue_candidate(
             DialogueWebResearchDecision,
             DialogueWebResearchDecisionV8,
             DialogueWebResearchDecisionV10,
+            DialogueWebResearchDecisionV12,
         ),
     ):
         purpose = next(
@@ -2498,6 +2557,22 @@ def _capability_failure(
             return "CANDIDATE-CAPABILITY-SCOPE"
         return None
     if payload.capability_kind == "codex.delegated-work":
+        capability_states = tuple(
+            basis for basis in bases if basis.item_kind.startswith("capability_state_")
+        )
+        if capability_states:
+            if (
+                len(capability_states) != 1
+                or capability_states[0].section != "capability"
+                or capability_states[0].trust_class != "runtime_authority"
+                or capability_states[0].source_ref != _CODEX_CAPABILITY_ID
+            ):
+                return "CANDIDATE-CAPABILITY-STATE-BASIS"
+            status = capability_states[0].item_kind.removeprefix("capability_state_")
+            if status in {"pending", "granted", "limited"}:
+                return "CANDIDATE-CAPABILITY-DUPLICATE"
+            if status not in {"unauthorized", "denied", "revoked", "expired"}:
+                return "CANDIDATE-CAPABILITY-STATE"
         return None
     return "CANDIDATE-CAPABILITY-UNKNOWN"
 

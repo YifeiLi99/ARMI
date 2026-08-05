@@ -2122,8 +2122,9 @@ async def _insert_capability_requests(
             "scope": json.loads(rfc8785.dumps(cast(Any, _scope_wire(scope)))),
         }
         request_digest = Digest.from_bytes(rfc8785.dumps(cast(Any, request_value)))
-        await connection.execute(
-            """
+        inserted = await (
+            await connection.execute(
+                """
             INSERT INTO armi.capability_requests (
                 capability_request_id, subject_commit_id, proposal_ref,
                 subject_id, interaction_scene_id, creator_party_id,
@@ -2136,21 +2137,29 @@ async def _insert_capability_requests(
                 %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1
             )
-            """,
-            (
-                request_id,
-                commit_id.value,
-                draft.proposal_ref,
-                snapshot.subject_id,
-                snapshot.scene_id,
-                snapshot.creator_party_id,
-                catalog[0],
-                draft.capability.value,
-                draft.operation.value,
-                *columns,
-                request_digest.value,
-            ),
-        )
+            ON CONFLICT (subject_id, capability_kind, operation_class)
+            WHERE capability_kind = 'codex.delegated-work'
+              AND current_status IN ('pending', 'granted', 'limited')
+            DO NOTHING
+            RETURNING capability_request_id
+                """,
+                (
+                    request_id,
+                    commit_id.value,
+                    draft.proposal_ref,
+                    snapshot.subject_id,
+                    snapshot.scene_id,
+                    snapshot.creator_party_id,
+                    catalog[0],
+                    draft.capability.value,
+                    draft.operation.value,
+                    *columns,
+                    request_digest.value,
+                ),
+            )
+        ).fetchone()
+        if inserted is None:
+            continue
         rows = await (
             await connection.execute(
                 """

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
@@ -8,6 +9,9 @@ from uuid import uuid7
 import rfc8785
 from armi_kernel.application import ContextItemDisposition
 from armi_kernel.contracts import Digest, TraceId
+from armi_runtime.adapters.persistence.capability_context import (
+    _capability_state_payload,
+)
 from armi_runtime.adapters.persistence.context import (
     ContextEpisodeSnapshot,
     ContextMaterialSource,
@@ -23,6 +27,7 @@ def _snapshot(
     relationship_payloads: tuple[tuple[object, ...], ...] = (),
     relationship_commitment_payloads: tuple[tuple[object, ...], ...] = (),
     relationship_issue_payloads: tuple[tuple[object, ...], ...] = (),
+    capability_state_payloads: tuple[tuple[object, ...], ...] = (),
     scene_id: object | None = None,
     scene_bytes: bytes | None = None,
 ) -> ContextEpisodeSnapshot:
@@ -45,6 +50,7 @@ def _snapshot(
             relationship_commitment_payloads=relationship_commitment_payloads,
             relationship_issue_payloads=relationship_issue_payloads,
             activity_summary_bytes=b'{"activities":[]}',
+            capability_state_payloads=capability_state_payloads,
             opportunity_source_ref=source_ref,
             opportunity_source_version=1,
             opportunity_source_digest=Digest.from_bytes(b"opportunity"),
@@ -71,6 +77,105 @@ def _memory(accessibility: str) -> tuple[object, ...]:
         }
     )
     return uuid7(), 2, payload, Digest.from_bytes(payload), accessibility
+
+
+def test_capability_state_separates_availability_authorization_and_desire() -> None:
+    unavailable_id = uuid7()
+    unavailable = _capability_state_payload(
+        (
+            unavailable_id,
+            "codex.delegated-work",
+            "execute",
+            "unavailable",
+            2,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    )
+    request_id = uuid7()
+    denied = _capability_state_payload(
+        (
+            uuid7(),
+            "codex.delegated-work",
+            "execute",
+            "available",
+            2,
+            request_id,
+            2,
+            "denied",
+            "creator_denied",
+            None,
+            None,
+            "delegate_codex_work",
+            "isolated_ephemeral",
+            "explicit_only",
+            False,
+            3600,
+            1,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            datetime(2026, 1, 2, tzinfo=UTC),
+        )
+    )
+    request = _context_request(
+        _snapshot((), capability_state_payloads=(unavailable, denied)),
+        None,
+        b"fixed prompt",
+        web_search_active=False,
+    )
+    states = tuple(
+        item for item in request.items if item.item_kind.startswith("capability_state_")
+    )
+    assert {item.item_kind for item in states} == {
+        "capability_state_unauthorized",
+        "capability_state_denied",
+    }
+    documents = [json.loads(item.content or "{}") for item in states]
+    unavailable_document = next(
+        item for item in documents if item["capability_ref"] == str(unavailable_id)
+    )
+    denied_document = next(
+        item for item in documents if item["authorization_status"] == "denied"
+    )
+    assert unavailable_document["availability_status"] == "unavailable"
+    assert unavailable_document["authorization_status"] == "unauthorized"
+    assert denied_document["availability_status"] == "available"
+    assert denied_document["current_request"]["request_ref"] == str(request_id)
+    assert denied_document["current_request"]["resolution_reason_class"] == (
+        "creator_denied"
+    )
+    assert "desire" not in denied_document
 
 
 def test_context_includes_only_naturally_accessible_memory_heads() -> None:

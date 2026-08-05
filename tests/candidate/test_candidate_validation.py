@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import pytest
 import rfc8785
@@ -17,6 +17,7 @@ from armi_kernel.application import (
     CandidateLifeMaterialDraft,
     CandidateOwner,
     CandidateValidationStatus,
+    CodexDelegatedWorkScope,
     CodexDelegationDraft,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
@@ -1133,6 +1134,83 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert parse_subject_change_set(first.change_set.canonical_bytes).digest == (
         first.change_set.digest
     )
+
+
+def test_compact_dialogue_capability_request_is_bound_and_deduplicated() -> None:
+    context, bases = _fixture()
+    codex_capability_id = UUID("01985d00-0000-7000-8000-000000000038")
+    common = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            2,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    available = CandidateBasis(
+        6,
+        "capability",
+        "capability_state_unauthorized",
+        codex_capability_id,
+        2,
+        Digest.from_bytes(b"codex unauthorized"),
+        "runtime_authority",
+        "private",
+    )
+    candidate = {
+        "kind": "reply",
+        "content": "我想申请使用受限执行能力来完成这件事。",
+        "capability_request": {"capability_ref": "ctx:6"},
+    }
+    accepted = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=(*common, available)
+    )
+    assert accepted.status is CandidateValidationStatus.ACCEPTED
+    assert accepted.change_set is not None
+    assert len(accepted.change_set.capability_requests) == 2
+    codex_request = next(
+        item
+        for item in accepted.change_set.capability_requests
+        if item.capability.value == "codex.delegated-work"
+    )
+    assert codex_request.operation.value == "execute"
+    assert isinstance(codex_request.scope, CodexDelegatedWorkScope)
+    assert codex_request.scope.workspace_scope == "isolated_ephemeral"
+    assert codex_request.atomic_group_ref == "group:2"
+
+    pending = replace(available, item_kind="capability_state_pending")
+    duplicate = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=(*common, pending)
+    )
+    assert duplicate.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert duplicate.change_set is not None
+    assert len(duplicate.change_set.capability_requests) == 1
+    assert len(duplicate.change_set.action_choices) == 1
+    assert any(
+        item.code == "CANDIDATE-CAPABILITY-DUPLICATE"
+        for item in duplicate.change_set.rejections
+    )
+
+    wrong_capability = replace(available, source_ref=uuid7())
+    wrong = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=(*common, wrong_capability)
+    )
+    assert wrong.error_code == "CANDIDATE-CAPABILITY-STATE-BASIS"
 
 
 def test_compact_dialogue_creates_runtime_owned_life_material_deterministically() -> (

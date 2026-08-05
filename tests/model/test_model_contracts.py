@@ -206,7 +206,62 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         "memory_change": None,
         "relationship_change": None,
         "material_change": None,
+        "capability_request": None,
     }
+
+
+def test_creator_dialogue_capability_request_is_context_bound() -> None:
+    parsed = parse_candidate(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "我想申请使用受限执行能力。",
+                "capability_request": {"capability_ref": "ctx:6"},
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset({"ctx:6"}),
+    )
+    assert parsed.model_dump(mode="json")["capability_request"] == {
+        "capability_ref": "ctx:6"
+    }
+
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-REFERENCE"):
+        parse_candidate(
+            json.dumps(
+                {
+                    "kind": "reply",
+                    "content": "这条申请引用了不存在的能力。",
+                    "capability_request": {"capability_ref": "ctx:7"},
+                },
+                ensure_ascii=False,
+            ).encode(),
+            allowed_context_refs=frozenset({"ctx:6"}),
+        )
+
+    historical = parse_candidate(
+        b'{"schema_version":"armi.creator-dialogue-candidate.v9",'
+        b'"kind":"reply","content":"historical"}',
+        allowed_context_refs=frozenset(),
+    )
+    assert historical.schema_version == "armi.creator-dialogue-candidate.v9"
+    assert "capability_request" not in historical.model_dump(mode="json")
+
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
+        parse_candidate(
+            json.dumps(
+                {
+                    "kind": "reply",
+                    "content": "聊天内容不能直接授予能力。",
+                    "capability_request": {
+                        "capability_ref": "ctx:6",
+                        "authorization_status": "granted",
+                    },
+                },
+                ensure_ascii=False,
+            ).encode(),
+            allowed_context_refs=frozenset({"ctx:6"}),
+        )
 
 
 def test_creator_dialogue_material_contract_is_runtime_owned_and_context_bound() -> (

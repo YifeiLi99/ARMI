@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Callable
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
@@ -529,6 +529,28 @@ def _context_request(
                 reason="CTX-MATERIAL-NONE",
             )
         )
+    capability_states = snapshot.capability_state_payloads
+    for (
+        capability_id,
+        version,
+        payload,
+        digest,
+        authorization_status,
+    ) in capability_states:
+        items.append(
+            ContextItemCandidate(
+                ContextSection.CAPABILITY,
+                f"capability_state_{authorization_status}",
+                ContextSourceIdentity(
+                    "capability_state", capability_id, version, digest
+                ),
+                ContextTrustClass.RUNTIME_AUTHORITY,
+                "private",
+                payload.decode("utf-8", errors="strict"),
+                snapshot.purpose == "consider_creator_input",
+                100 if authorization_status == "pending" else 96,
+            )
+        )
     if snapshot.relationship_payloads:
         for relationship_id, version, payload, digest in snapshot.relationship_payloads:
             items.append(
@@ -695,8 +717,8 @@ def _context_request(
                 ContextSection.CAPABILITY,
                 "capability_catalog",
                 UUID("01985d00-0000-7000-8000-000000000027"),
-                1,
-                _capability_catalog_bytes(),
+                2,
+                _capability_catalog_bytes(capability_states),
                 ContextTrustClass.POLICY,
                 required=True,
                 relevance=70,
@@ -803,14 +825,19 @@ def _unavailable(
     )
 
 
-def _capability_catalog_bytes() -> bytes:
+def _capability_catalog_bytes(
+    capability_states: tuple[tuple[UUID, int, bytes, Digest, str], ...],
+) -> bytes:
     try:
-        return (
-            files("armi_runtime.composition.runtime_resources")
-            .joinpath("capability-catalog.manifest.json")
-            .read_bytes()
+        capabilities = [json.loads(item[2]) for item in capability_states]
+        return rfc8785.dumps(
+            {
+                "schema_version": "armi.capability-catalog.v2",
+                "runtime_discovery_allowed": False,
+                "capabilities": capabilities,
+            }
         )
-    except OSError:
+    except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         raise ContextViolation("CTX-CAPABILITY-CATALOG") from None
 
 

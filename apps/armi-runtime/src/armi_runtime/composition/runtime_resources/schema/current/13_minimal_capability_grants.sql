@@ -120,6 +120,11 @@ CREATE INDEX capability_requests_creator_page_idx
 CREATE INDEX capability_requests_pending_idx
     ON armi.capability_requests (current_status, created_at, capability_request_id);
 
+CREATE UNIQUE INDEX capability_requests_open_codex_idx
+    ON armi.capability_requests (subject_id, capability_kind, operation_class)
+    WHERE capability_kind = 'codex.delegated-work'
+      AND current_status IN ('pending', 'granted', 'limited');
+
 CREATE TABLE armi.capability_request_basis_links (
     capability_request_id uuid NOT NULL REFERENCES armi.capability_requests(capability_request_id),
     context_item_id uuid NOT NULL REFERENCES armi.cognitive_context_items(context_item_id),

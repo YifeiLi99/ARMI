@@ -38,6 +38,7 @@ from armi_kernel.contracts import (
 )
 
 from .artifact_catalog import ArtifactCatalogRepository
+from .capability_context import CapabilityStatePayload, load_capability_state_payloads
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.context.prepare"
@@ -126,6 +127,7 @@ class ContextEpisodeSnapshot:
     relationship_issue_payloads: tuple[tuple[UUID, int, bytes, Digest], ...]
     material_sources: tuple[ContextMaterialSource, ...]
     activity_summary_bytes: bytes
+    capability_state_payloads: tuple[CapabilityStatePayload, ...]
     scene_bytes: bytes | None
     scene_digest: Digest | None
     evidence: ContextArtifactSource | None
@@ -654,6 +656,10 @@ class PostgreSQLContextRepository:
                 ],
             }
         )
+        capability_state_payloads = await load_capability_state_payloads(
+            connection,
+            subject_id=row[2],
+        )
         scene_bytes = (
             None
             if row[3] is None
@@ -677,36 +683,39 @@ class PostgreSQLContextRepository:
             )
         )
         return ContextEpisodeSnapshot(
-            row[0],
-            row[1],
-            row[2],
-            row[3],
-            row[4],
-            str(row[20]),
-            int(row[5]),
-            int(row[6]),
-            row[7],
-            Digest(str(row[8])),
-            Digest(str(row[9])),
-            TraceId(str(row[10])),
-            component_payloads,
-            memory_payloads,
-            bool(memory_exists and memory_exists[0]),
-            relationship_payloads,
-            relationship_commitment_payloads,
-            relationship_issue_payloads,
-            material_sources,
-            activity_summary_bytes,
-            scene_bytes,
-            None if scene_bytes is None else Digest.from_bytes(scene_bytes),
-            evidence,
-            str(row[22]),
-            row[23],
-            int(row[24]),
-            Digest(str(row[25])),
-            row[26],
-            row[27],
-            ContextArtifactSource(
+            episode_id=row[0],
+            opportunity_id=row[1],
+            subject_id=row[2],
+            scene_id=row[3],
+            creator_party_id=row[4],
+            purpose=str(row[20]),
+            subject_version=int(row[5]),
+            state_epoch=int(row[6]),
+            bundle_activation_id=row[7],
+            policy_digest=Digest(str(row[8])),
+            mechanism_config_digest=Digest(str(row[9])),
+            trace_id=TraceId(str(row[10])),
+            component_payloads=component_payloads,
+            memory_payloads=memory_payloads,
+            has_memory_records=bool(memory_exists and memory_exists[0]),
+            relationship_payloads=relationship_payloads,
+            relationship_commitment_payloads=relationship_commitment_payloads,
+            relationship_issue_payloads=relationship_issue_payloads,
+            material_sources=material_sources,
+            activity_summary_bytes=activity_summary_bytes,
+            capability_state_payloads=capability_state_payloads,
+            scene_bytes=scene_bytes,
+            scene_digest=(
+                None if scene_bytes is None else Digest.from_bytes(scene_bytes)
+            ),
+            evidence=evidence,
+            opportunity_source_kind=str(row[22]),
+            opportunity_source_ref=row[23],
+            opportunity_source_version=int(row[24]),
+            opportunity_source_digest=Digest(str(row[25])),
+            opportunity_available_after=row[26],
+            opportunity_expires_at=row[27],
+            fixed_prompt=ContextArtifactSource(
                 await self._artifact_ref(connection, row[14]),
                 row[13],
                 1,
