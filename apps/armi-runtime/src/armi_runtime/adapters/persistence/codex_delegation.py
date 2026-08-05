@@ -32,6 +32,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 
 from .creator_input import CreatorInputContext
+from .effect_grant_coordination import coordinate_dispatch_boundary
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _BINDING = "armi.codex-runner.openai-python-sdk-v1"
@@ -501,8 +502,22 @@ class PostgreSQLCodexDelegationRepository:
 
     async def mark_dispatching(
         self, uow: PostgreSQLUnitOfWork, snapshot: CodexDispatchSnapshot
-    ) -> None:
+    ) -> bool:
         connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        boundary = await coordinate_dispatch_boundary(
+            uow,
+            effect_id=snapshot.effect_id,
+            attempt_id=snapshot.attempt_id,
+            outbox_id=snapshot.outbox_id,
+            claim_owner=snapshot.claim_owner,
+            claim_token=snapshot.claim_token,
+            expected_operation_status="codex_dispatching",
+            cancelled_operation_status="codex_cancelled",
+        )
+        if boundary is None:
+            raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
+        if not boundary.allowed:
+            return False
         updated = await (
             await connection.execute(
                 """
@@ -516,6 +531,7 @@ class PostgreSQLCodexDelegationRepository:
         ).fetchone()
         if updated is None:
             raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
+        return True
 
     async def heartbeat(
         self, uow: PostgreSQLUnitOfWork, snapshot: CodexDispatchSnapshot

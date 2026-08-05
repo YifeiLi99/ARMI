@@ -105,6 +105,28 @@ class EffectContractTests(unittest.TestCase):
             )
         self.assertEqual(invalid.exception.code, "CON-EFFECT-VERIFICATION")
 
+    def test_verified_cancellation_after_attempt_keeps_settlement(self) -> None:
+        now = Instant(datetime.now(UTC))
+        observation = EffectObservation(
+            EffectObservationId(uuid7()),
+            EffectAttemptId(uuid7()),
+            EffectObservationKind.QUERY,
+            EffectObservationReliability.RELIABLE,
+            Digest.from_bytes(b"confirmed absent"),
+            now,
+        )
+        settlement = EffectSettlement(
+            EffectId(uuid7()),
+            EffectStatus.CANCELLED,
+            EffectVerificationStatus.VERIFIED,
+            1,
+            observation,
+            Digest.from_bytes(b"cancelled settlement"),
+            now,
+        )
+
+        self.assertIs(settlement.status, EffectStatus.CANCELLED)
+
     def test_codex_effect_allows_model_identity_enrichment_from_manifest(self) -> None:
         view = EffectView(
             EffectId(uuid7()),

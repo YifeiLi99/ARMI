@@ -188,14 +188,17 @@ class EffectSettlement:
     def __post_init__(self) -> None:
         if type(self.attempt_count) is not int or not 0 <= self.attempt_count <= 2:
             raise EffectViolation("CON-EFFECT-ATTEMPT")
-        terminal = self.status in {
+        settled = self.status in {
             EffectStatus.COMPLETED,
             EffectStatus.FAILED,
             EffectStatus.UNKNOWN,
-        }
-        if terminal != (self.settlement_digest is not None):
+        } or (
+            self.status is EffectStatus.CANCELLED
+            and self.verification_status is EffectVerificationStatus.VERIFIED
+        )
+        if settled != (self.settlement_digest is not None):
             raise EffectViolation("CON-EFFECT-SETTLEMENT")
-        if terminal != (self.settled_at is not None):
+        if settled != (self.settled_at is not None):
             raise EffectViolation("CON-EFFECT-SETTLEMENT")
 
 

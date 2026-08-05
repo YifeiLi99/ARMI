@@ -268,6 +268,9 @@ class PermissionGrant:
     request_id: CapabilityRequestId
     capability: CapabilityKind
     operation: CapabilityOperation
+    subject_id: UUID
+    scene_id: UUID
+    creator_party_id: UUID
     scope: CapabilityScope
     valid_from: datetime
     valid_until: datetime
@@ -280,6 +283,14 @@ class PermissionGrant:
             or type(self.request_id) is not CapabilityRequestId
             or type(self.capability) is not CapabilityKind
             or type(self.operation) is not CapabilityOperation
+            or any(
+                type(value) is not UUID or value.version != 7
+                for value in (
+                    self.subject_id,
+                    self.scene_id,
+                    self.creator_party_id,
+                )
+            )
             or type(self.valid_from) is not datetime
             or type(self.valid_until) is not datetime
             or self.valid_from.tzinfo is None
@@ -295,6 +306,9 @@ class PermissionGrant:
             and (
                 self.operation is not CapabilityOperation.SEND
                 or type(self.scope) is not CreatorSceneReplyScope
+                or self.scope.subject_id != self.subject_id
+                or self.scope.scene_id != self.scene_id
+                or self.scope.creator_party_id != self.creator_party_id
                 or self.valid_until - self.valid_from > timedelta(days=7)
             )
         ) or (
@@ -352,6 +366,9 @@ class GrantMatcher:
             and grant.status is GrantStatus.ACTIVE
             and grant.valid_from <= now < grant.valid_until
             and grant.consumed_uses < scope.max_uses
+            and grant.subject_id == subject_id
+            and grant.scene_id == scene_id
+            and grant.creator_party_id == creator_party_id
             and scope.subject_id == subject_id
             and scope.scene_id == scene_id
             and scope.creator_party_id == creator_party_id
@@ -361,7 +378,15 @@ class GrantMatcher:
         )
 
     @staticmethod
-    def permits_codex(grant: PermissionGrant, *, now: datetime) -> bool:
+    def permits_codex(
+        grant: PermissionGrant,
+        *,
+        now: datetime,
+        subject_id: UUID,
+        scene_id: UUID,
+        creator_party_id: UUID,
+        purpose: str,
+    ) -> bool:
         scope = grant.scope
         return (
             grant.capability is CapabilityKind.CODEX_DELEGATED_WORK
@@ -370,6 +395,10 @@ class GrantMatcher:
             and grant.status is GrantStatus.ACTIVE
             and grant.valid_from <= now < grant.valid_until
             and grant.consumed_uses == 0
+            and grant.subject_id == subject_id
+            and grant.scene_id == scene_id
+            and grant.creator_party_id == creator_party_id
+            and purpose == "delegate_codex_work"
             and scope.workspace_scope == "isolated_ephemeral"
             and scope.artifact_scope == "explicit_only"
             and scope.network_access is False

@@ -241,7 +241,10 @@ class EffectRegistrationPipeline:
                 await self._notify_dispatch(snapshot, include_scene=False)
                 return True
             async with self._factory.unit_of_work(LockPlan()) as uow:
-                await self._dispatcher.mark_dispatching(uow, snapshot)
+                dispatching = await self._dispatcher.mark_dispatching(uow, snapshot)
+            if not dispatching:
+                await self._notify_dispatch(snapshot, include_scene=False)
+                return True
             await self._notify_dispatch(snapshot, include_scene=False)
             try:
                 receipt = await self._dispatch_with_heartbeat(snapshot, payload)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -21,9 +22,21 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 
+from .effect_grant_coordination import (
+    coordinate_dispatch_boundary,
+    supersede_effect_policy,
+)
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _ADAPTER_BINDING = "armi.creator-response-adapter.postgresql-inbox-v1"
+
+
+class _AbsentDisposition(StrEnum):
+    RETRY = "retry"
+    FAILED = "failed"
+    CANCELLED_REVOKED = "cancelled_revoked"
+    CANCELLED_EXPIRED = "cancelled_expired"
+    CANCELLED_SUPERSEDED = "cancelled_superseded"
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,8 +257,24 @@ class PostgreSQLEffectDispatchRepository:
 
     async def mark_dispatching(
         self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
-    ) -> None:
+    ) -> bool:
+        if snapshot.claim_owner is None:
+            raise EffectViolation("EFFECT-CLAIM-STALE")
         connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        boundary = await coordinate_dispatch_boundary(
+            uow,
+            effect_id=snapshot.request.effect_id.value,
+            attempt_id=snapshot.request.attempt_id.value,
+            outbox_id=snapshot.outbox_id,
+            claim_owner=snapshot.claim_owner,
+            claim_token=snapshot.claim_token,
+            expected_operation_status="effect_dispatching",
+            cancelled_operation_status="effect_cancelled",
+        )
+        if boundary is None:
+            raise EffectViolation("EFFECT-CLAIM-STALE")
+        if not boundary.allowed:
+            return False
         row = await (
             await connection.execute(
                 """
@@ -270,6 +299,7 @@ class PostgreSQLEffectDispatchRepository:
         ).fetchone()
         if row is None:
             raise EffectViolation("EFFECT-CLAIM-STALE")
+        return True
 
     async def renew_claim(
         self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
@@ -328,22 +358,32 @@ class PostgreSQLEffectDispatchRepository:
         self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
     ) -> bool:
         connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        budget = await (
-            await connection.execute(
-                """
-                SELECT attempt_count < max_attempts
-                       AND statement_timestamp() < dispatch_deadline
-                FROM armi.effect_outbox_items
-                WHERE effect_outbox_item_id = %s
-                """,
-                (snapshot.outbox_id,),
-            )
-        ).fetchone()
-        retry = bool(budget and budget[0])
+        disposition, grant_id, attempt_state = await self._absent_disposition(
+            connection, snapshot
+        )
         digest = _observation_digest(snapshot, "query", "not_delivered")
-        if retry:
-            await self._record_retry(uow, snapshot, digest)
+        if disposition is _AbsentDisposition.RETRY:
+            await self._record_retry(
+                uow,
+                snapshot,
+                digest,
+                was_dispatched=attempt_state == "dispatching",
+            )
             return True
+        cancellation_reason = {
+            _AbsentDisposition.CANCELLED_REVOKED: "POLICY-GRANT-REVOKED",
+            _AbsentDisposition.CANCELLED_EXPIRED: "POLICY-GRANT-EXPIRED",
+            _AbsentDisposition.CANCELLED_SUPERSEDED: "POLICY-GRANT-NOT-CURRENT",
+        }.get(disposition)
+        if cancellation_reason is not None:
+            await self._settle_cancelled(
+                uow,
+                snapshot,
+                observation_digest=digest,
+                grant_id=grant_id,
+                reason_code=cancellation_reason,
+            )
+            return False
         await self._settle(
             uow,
             snapshot,
@@ -359,6 +399,91 @@ class PostgreSQLEffectDispatchRepository:
             error_code="EFFECT-RECEIVER-NOT-DELIVERED",
         )
         return False
+
+    async def _absent_disposition(
+        self,
+        connection: Any,
+        snapshot: EffectDispatchSnapshot,
+    ) -> tuple[_AbsentDisposition, UUID, str]:
+        policy_ref = await (
+            await connection.execute(
+                """
+                SELECT policy.matched_grant_id
+                FROM armi.effects AS effect
+                JOIN armi.policy_decisions AS policy
+                  ON policy.policy_decision_id = effect.policy_decision_id
+                WHERE effect.effect_id = %s
+                  AND effect.current_attempt_id = %s
+                """,
+                (
+                    snapshot.request.effect_id.value,
+                    snapshot.request.attempt_id.value,
+                ),
+            )
+        ).fetchone()
+        if policy_ref is None or policy_ref[0] is None:
+            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+        grant_id = UUID(str(policy_ref[0]))
+        grant = await (
+            await connection.execute(
+                """
+                SELECT status,
+                       valid_from <= statement_timestamp()
+                       AND statement_timestamp() < valid_until
+                FROM armi.permission_grants
+                WHERE grant_id = %s
+                FOR UPDATE
+                """,
+                (grant_id,),
+            )
+        ).fetchone()
+        current = await (
+            await connection.execute(
+                """
+                SELECT outbox.attempt_count, outbox.max_attempts,
+                       statement_timestamp() < outbox.dispatch_deadline,
+                       policy.is_current
+                         AND policy.decision_outcome = 'allowed',
+                       attempt.dispatch_state
+                FROM armi.effect_outbox_items AS outbox
+                JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
+                JOIN armi.effect_attempts AS attempt
+                  ON attempt.effect_attempt_id = effect.current_attempt_id
+                JOIN armi.policy_decisions AS policy
+                  ON policy.policy_decision_id = effect.policy_decision_id
+                WHERE outbox.effect_outbox_item_id = %s
+                  AND outbox.status = 'claimed'
+                  AND outbox.claim_owner = %s
+                  AND outbox.claim_token = %s
+                  AND effect.effect_id = %s
+                  AND effect.status = 'dispatching'
+                  AND effect.current_attempt_id = %s
+                  AND attempt.dispatch_state IN ('prepared', 'dispatching')
+                FOR UPDATE OF outbox, effect, attempt, policy
+                """,
+                (
+                    snapshot.outbox_id,
+                    snapshot.claim_owner,
+                    snapshot.claim_token,
+                    snapshot.request.effect_id.value,
+                    snapshot.request.attempt_id.value,
+                ),
+            )
+        ).fetchone()
+        if grant is None or current is None:
+            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+        return (
+            _classify_absent_effect(
+                attempt_count=int(current[0]),
+                max_attempts=int(current[1]),
+                before_dispatch_deadline=bool(current[2]),
+                policy_current=bool(current[3]),
+                grant_status=str(grant[0]),
+                grant_time_valid=bool(grant[1]),
+            ),
+            grant_id,
+            str(current[4]),
+        )
 
     async def settle_unknown(
         self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
@@ -440,6 +565,8 @@ class PostgreSQLEffectDispatchRepository:
         uow: PostgreSQLUnitOfWork,
         snapshot: EffectDispatchSnapshot,
         observation_digest: Digest,
+        *,
+        was_dispatched: bool,
     ) -> None:
         connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         observation_id = uuid7()
@@ -452,17 +579,27 @@ class PostgreSQLEffectDispatchRepository:
             observation_digest,
             None,
         )
-        await connection.execute(
-            """
-            UPDATE armi.effect_attempts
-            SET dispatch_state='settled', result_status='failed',
-                error_code='EFFECT-RECEIVER-NOT-DELIVERED',
-                dispatched_at=COALESCE(dispatched_at, statement_timestamp()),
-                settled_at=statement_timestamp()
-            WHERE effect_attempt_id=%s AND dispatch_state IN ('prepared','dispatching')
-            """,
-            (snapshot.request.attempt_id.value,),
-        )
+        if was_dispatched:
+            await connection.execute(
+                """
+                UPDATE armi.effect_attempts
+                SET dispatch_state='settled', result_status='failed',
+                    error_code='EFFECT-RECEIVER-NOT-DELIVERED',
+                    settled_at=statement_timestamp()
+                WHERE effect_attempt_id=%s AND dispatch_state='dispatching'
+                """,
+                (snapshot.request.attempt_id.value,),
+            )
+        else:
+            await connection.execute(
+                """
+                UPDATE armi.effect_attempts
+                SET dispatch_state='settled', result_status='cancelled',
+                    error_code=NULL, settled_at=statement_timestamp()
+                WHERE effect_attempt_id=%s AND dispatch_state='prepared'
+                """,
+                (snapshot.request.attempt_id.value,),
+            )
         await connection.execute(
             """
             UPDATE armi.effects SET status='registered', verification_status='not_started',
@@ -475,14 +612,150 @@ class PostgreSQLEffectDispatchRepository:
             """
             UPDATE armi.effect_outbox_items SET status='ready', available_at=statement_timestamp(),
                 claim_owner=NULL, claim_expires_at=NULL,
-                last_error_code='EFFECT-RECEIVER-NOT-DELIVERED'
+                last_error_code=%s
             WHERE effect_outbox_item_id=%s AND claim_token=%s
             """,
-            (snapshot.outbox_id, snapshot.claim_token),
+            (
+                "EFFECT-RECEIVER-NOT-DELIVERED" if was_dispatched else None,
+                snapshot.outbox_id,
+                snapshot.claim_token,
+            ),
         )
         await connection.execute(
             "UPDATE armi.creator_response_operations SET current_status='effect_registered' WHERE effect_id=%s",
             (snapshot.request.effect_id.value,),
+        )
+
+    async def _settle_cancelled(
+        self,
+        uow: PostgreSQLUnitOfWork,
+        snapshot: EffectDispatchSnapshot,
+        *,
+        observation_digest: Digest,
+        grant_id: UUID,
+        reason_code: str,
+    ) -> None:
+        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        observation_id = uuid7()
+        await self._insert_observation(
+            connection,
+            snapshot,
+            observation_id,
+            "query",
+            "reliable",
+            observation_digest,
+            None,
+        )
+        settlement_digest = _settlement_digest(
+            snapshot, "cancelled", "verified", observation_digest
+        )
+        cancellation_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                cast(
+                    Any,
+                    {
+                        "schema_version": "armi.effect-cancellation.v1",
+                        "effect_id": str(snapshot.request.effect_id.value),
+                        "grant_id": str(grant_id),
+                        "reason_code": reason_code,
+                    },
+                )
+            )
+        )
+        attempt = await (
+            await connection.execute(
+                """
+                UPDATE armi.effect_attempts
+                SET dispatch_state='settled', result_status='cancelled',
+                    error_code=NULL,
+                    settled_at=statement_timestamp()
+                WHERE effect_attempt_id=%s
+                  AND dispatch_state IN ('prepared','dispatching')
+                RETURNING settled_at
+                """,
+                (snapshot.request.attempt_id.value,),
+            )
+        ).fetchone()
+        if attempt is None:
+            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+        effect = await (
+            await connection.execute(
+                """
+                UPDATE armi.effects
+                SET status='cancelled', verification_status='verified',
+                    current_observation_id=%s, settlement_digest=%s,
+                    settled_at=%s, cancelled_at=%s
+                WHERE effect_id=%s AND current_attempt_id=%s
+                  AND status='dispatching'
+                RETURNING policy_decision_id, action_intent_revision_id,
+                          creator_response_operation_id
+                """,
+                (
+                    observation_id,
+                    settlement_digest.value,
+                    attempt[0],
+                    attempt[0],
+                    snapshot.request.effect_id.value,
+                    snapshot.request.attempt_id.value,
+                ),
+            )
+        ).fetchone()
+        outbox = await (
+            await connection.execute(
+                """
+                UPDATE armi.effect_outbox_items
+                SET status='cancelled', claim_owner=NULL, claim_expires_at=NULL,
+                    cancelled_at=%s, delivered_at=NULL, last_error_code=NULL
+                WHERE effect_outbox_item_id=%s AND status='claimed'
+                  AND claim_token=%s
+                RETURNING effect_outbox_item_id
+                """,
+                (attempt[0], snapshot.outbox_id, snapshot.claim_token),
+            )
+        ).fetchone()
+        if effect is None or outbox is None:
+            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+        current_decision_id = await supersede_effect_policy(
+            connection,
+            prior_decision_id=UUID(str(effect[0])),
+            action_revision_id=UUID(str(effect[1])),
+            operation_id=UUID(str(effect[2])),
+            decision_digest=cancellation_digest,
+            reason_code=reason_code,
+        )
+        if current_decision_id is None:
+            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+        operation = await (
+            await connection.execute(
+                """
+                UPDATE armi.creator_response_operations
+                SET current_status='effect_cancelled',
+                    current_policy_decision_id=%s, reason_code=NULL,
+                    completed_at=%s
+                WHERE creator_response_operation_id=%s
+                  AND current_status='effect_dispatching'
+                RETURNING creator_response_operation_id
+                """,
+                (current_decision_id, attempt[0], effect[2]),
+            )
+        ).fetchone()
+        if operation is None:
+            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+        await uow.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", uow.environment_id),
+                Purpose("effect.settlement"),
+                "effect.cancelled",
+                AuditReference("effect", snapshot.request.effect_id.value),
+                AuditResultStatus.APPLIED,
+                snapshot.request.trace_id,
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(snapshot.request.subject_id),
+                request_digest=cancellation_digest,
+                response_digest=settlement_digest,
+                grant=AuditReference("permission_grant", grant_id),
+            )
         )
 
     async def _settle(
@@ -520,7 +793,6 @@ class PostgreSQLEffectDispatchRepository:
                 """
                 UPDATE armi.effect_attempts
                 SET dispatch_state='settled', result_status=%s, error_code=%s,
-                    dispatched_at=COALESCE(dispatched_at, statement_timestamp()),
                     settled_at=statement_timestamp()
                 WHERE effect_attempt_id=%s AND dispatch_state IN ('prepared','dispatching')
                 RETURNING settled_at
@@ -795,6 +1067,32 @@ def _settlement_digest(
             )
         )
     )
+
+
+def _classify_absent_effect(
+    *,
+    attempt_count: int,
+    max_attempts: int,
+    before_dispatch_deadline: bool,
+    policy_current: bool,
+    grant_status: str,
+    grant_time_valid: bool,
+) -> _AbsentDisposition:
+    if not policy_current:
+        return _AbsentDisposition.CANCELLED_SUPERSEDED
+    if grant_status == "revoked":
+        return _AbsentDisposition.CANCELLED_REVOKED
+    if (
+        grant_status == "expired"
+        or not grant_time_valid
+        or not before_dispatch_deadline
+    ):
+        return _AbsentDisposition.CANCELLED_EXPIRED
+    if grant_status != "active":
+        return _AbsentDisposition.CANCELLED_SUPERSEDED
+    if attempt_count < max_attempts:
+        return _AbsentDisposition.RETRY
+    return _AbsentDisposition.FAILED
 
 
 __all__ = ("EffectDispatchSnapshot", "PostgreSQLEffectDispatchRepository")

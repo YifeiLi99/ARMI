@@ -100,7 +100,10 @@ CREATE TABLE armi.effect_attempts (
         OR (dispatch_state = 'dispatching' AND result_status IS NULL
             AND dispatched_at IS NOT NULL AND settled_at IS NULL AND error_code IS NULL)
         OR (dispatch_state = 'settled' AND result_status IS NOT NULL
-            AND dispatched_at IS NOT NULL AND settled_at IS NOT NULL)
+            AND settled_at IS NOT NULL
+            AND (dispatched_at IS NOT NULL
+                OR (result_status IN ('failed', 'cancelled')
+                    AND dispatched_at IS NULL)))
     ),
     CHECK ((result_status IN ('failed', 'unknown')) = (error_code IS NOT NULL))
 );

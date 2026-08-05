@@ -145,18 +145,23 @@ class PostgreSQLEffectLedgerRepository:
         else:
             capability = await (
                 await connection.execute(
-                    "SELECT availability_status FROM armi.capabilities WHERE capability_kind = %s AND operation_class = %s",
+                    """
+                    SELECT capability_id, availability_status
+                    FROM armi.capabilities
+                    WHERE capability_kind = %s AND operation_class = %s
+                    """,
                     (snapshot.capability_kind, snapshot.operation_class),
                 )
             ).fetchone()
-            if capability is None or str(capability[0]) != "available":
+            if capability is None or str(capability[1]) != "available":
                 outcome, reason = "unavailable", "POLICY-CAPABILITY-UNAVAILABLE"
             else:
                 grant = await (
                     await connection.execute(
                         """
                     SELECT grant_id, valid_until FROM armi.permission_grants
-                    WHERE subject_id = %s AND interaction_scene_id = %s AND creator_party_id = %s
+                    WHERE capability_id = %s
+                      AND subject_id = %s AND interaction_scene_id = %s AND creator_party_id = %s
                       AND operation_class = %s AND purpose = %s
                       AND status = 'active' AND valid_from <= statement_timestamp()
                       AND statement_timestamp() < valid_until AND consumed_uses < max_uses
@@ -171,6 +176,7 @@ class PostgreSQLEffectLedgerRepository:
                     ORDER BY valid_until, grant_id LIMIT 1 FOR UPDATE
                     """,
                         (
+                            capability[0],
                             snapshot.subject_id,
                             snapshot.scene_id,
                             snapshot.creator_party_id,

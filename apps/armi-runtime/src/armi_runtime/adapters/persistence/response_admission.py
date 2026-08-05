@@ -148,14 +148,14 @@ class PostgreSQLResponseAdmissionRepository:
             capability = await (
                 await connection.execute(
                     """
-                    SELECT availability_status
+                    SELECT capability_id, availability_status
                     FROM armi.capabilities
                     WHERE capability_kind = 'creator.scene.reply'
                       AND operation_class = 'send'
                     """
                 )
             ).fetchone()
-            if capability is None or str(capability[0]) != "available":
+            if capability is None or str(capability[1]) != "available":
                 status = ResponseAdmissionStatus.UNAVAILABLE
                 grant_id = None
                 reason = "RESPONSE-CAPABILITY-UNAVAILABLE"
@@ -165,7 +165,8 @@ class PostgreSQLResponseAdmissionRepository:
                         """
                         SELECT permission.grant_id
                         FROM armi.permission_grants AS permission
-                        WHERE permission.subject_id = %s
+                        WHERE permission.capability_id = %s
+                          AND permission.subject_id = %s
                           AND permission.interaction_scene_id = %s
                           AND permission.creator_party_id = %s
                           AND permission.operation_class = 'send'
@@ -182,6 +183,7 @@ class PostgreSQLResponseAdmissionRepository:
                         FOR UPDATE
                         """,
                         (
+                            capability[0],
                             snapshot.subject_id,
                             snapshot.scene_id,
                             snapshot.creator_party_id,

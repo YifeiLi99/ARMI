@@ -458,6 +458,9 @@ class PostgreSQLCreatorGrantPolicy:
                         CapabilityOperation.SEND
                         if capability is CapabilityKind.CREATOR_SCENE_REPLY
                         else CapabilityOperation.EXECUTE,
+                        UUID(str(request[1])),
+                        UUID(str(request[2])),
+                        UUID(str(request[3])),
                         scope,
                         now,
                         valid_until,
@@ -1101,6 +1104,9 @@ async def _load_result(
             request_id,
             capability,
             CapabilityOperation(str(row[4])),
+            UUID(str(row[5])),
+            UUID(str(row[6])),
+            UUID(str(row[7])),
             scope,
             row[9],
             row[10],

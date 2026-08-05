@@ -366,9 +366,11 @@ class CodexEffectPipeline:
             bundle = await self._read(snapshot.source_bundle)
             manifest_bytes = await self._read(snapshot.task_manifest)
             task = _task_manifest(snapshot, manifest_bytes)
-            _install_intake(self._run_root, task, bundle)
             async with self._factory.unit_of_work(LockPlan()) as uow:
-                await self._repository.mark_dispatching(uow, snapshot)
+                dispatching = await self._repository.mark_dispatching(uow, snapshot)
+            if not dispatching:
+                return True
+            _install_intake(self._run_root, task, bundle)
             heartbeat = asyncio.create_task(self._heartbeat(snapshot))
             cancellation = threading.Event()
             runner_task = asyncio.create_task(
