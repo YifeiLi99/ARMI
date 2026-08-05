@@ -395,7 +395,7 @@ async def _creator_boundary_request(
             ),
         )
         return CreatorRelationshipBoundaryRequest.model_validate(value)
-    except (UnicodeDecodeError, ValueError, ValidationError):
+    except UnicodeDecodeError, ValueError, ValidationError:
         raise CreatorInputViolation("INPUT-BODY") from None
 
 
@@ -959,16 +959,12 @@ def _life_query_parameters(
             raise ContractViolation("CON-PAGE", "query text is invalid")
     try:
         record_kind = (
-            LifeRecordKind(values["kind"])
-            if allow_kind and "kind" in values
-            else None
+            LifeRecordKind(values["kind"]) if allow_kind and "kind" in values else None
         )
         cursor = (
-            OpaqueCursor.from_wire(values["cursor"])
-            if "cursor" in values
-            else None
+            OpaqueCursor.from_wire(values["cursor"]) if "cursor" in values else None
         )
-    except (ValueError, ContractViolation):
+    except ValueError, ContractViolation:
         raise ContractViolation("CON-PAGE", "query scope is invalid") from None
     return limit, query_text, record_kind, cursor
 
@@ -1811,8 +1807,7 @@ def create_runtime_app(
         ):
             status = (
                 403
-                if browser_sessions is not None
-                and creator_input is not None
+                if browser_sessions is not None and creator_input is not None
                 else 503
             )
             return JSONResponse(
@@ -2221,9 +2216,7 @@ def create_runtime_app(
                     source_kind=item.source_kind,
                     source_fact_class=item.source_fact_class,
                     relation_kind=(
-                        None
-                        if item.relation_kind is None
-                        else item.relation_kind.value
+                        None if item.relation_kind is None else item.relation_kind.value
                     ),
                     related_memory_id=(
                         None
@@ -2235,9 +2228,7 @@ def create_runtime_app(
                 for item in timeline.items
             ],
             next_cursor=(
-                None
-                if timeline.next_cursor is None
-                else timeline.next_cursor.to_wire()
+                None if timeline.next_cursor is None else timeline.next_cursor.to_wire()
             ),
         )
         return JSONResponse(content=response.model_dump(mode="json"))

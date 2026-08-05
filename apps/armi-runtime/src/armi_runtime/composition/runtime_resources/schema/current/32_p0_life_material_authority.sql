@@ -52,6 +52,16 @@ ALTER TABLE armi.cognitive_candidate_validation_items
         )
     );
 
+ALTER TABLE armi.cognitive_context_items
+    DROP CONSTRAINT cognitive_context_items_section_check,
+    ADD CONSTRAINT cognitive_context_items_section_check CHECK (
+        section IN (
+            'runtime_truth', 'purpose', 'self', 'mind', 'life_mode',
+            'scene', 'relationship', 'memory', 'activity', 'material',
+            'evidence', 'capability', 'prompt'
+        )
+    );
+
 ALTER TABLE armi.parties
     ADD CONSTRAINT parties_party_subject_unique
     UNIQUE (party_id, represented_subject_id);

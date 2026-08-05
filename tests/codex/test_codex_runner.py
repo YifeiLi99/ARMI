@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -54,6 +56,33 @@ class _Handle:
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         self.close()
+
+
+def test_codex_runner_preflight_starts_without_model_invocation() -> None:
+    root = Path(__file__).resolve().parents[2]
+    completed = subprocess.run(
+        (
+            sys.executable,
+            str(root / "tools/verify_codex_runner.py"),
+            "--preflight",
+        ),
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    evidence = json.loads(completed.stdout)
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == ""
+    assert evidence["result"] == "pass"
+    assert evidence["model_invocation_count"] == 0
+    assert evidence["sdk_version"] == "0.144.4"
+    assert evidence["runtime_version"] == "0.144.4"
+    assert evidence["job_object"] == "pass"
+    assert evidence["platform_home"] == "clean_reusable"
 
 
 class _Credentials(CredentialPort):

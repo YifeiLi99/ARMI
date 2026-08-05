@@ -90,9 +90,7 @@ class PostgreSQLCreatorMaintenanceQuery:
         try:
             await self._pool.open(wait=True)
         except psycopg.Error, PoolTimeout:
-            raise CreatorMaintenanceViolation(
-                "MAINTENANCE-QUERY-UNAVAILABLE"
-            ) from None
+            raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE") from None
 
     async def close(self) -> None:
         await self._pool.close()
@@ -157,9 +155,7 @@ class PostgreSQLCreatorMaintenanceQuery:
         except CreatorMaintenanceViolation:
             raise
         except psycopg.Error, PoolTimeout:
-            raise CreatorMaintenanceViolation(
-                "MAINTENANCE-QUERY-UNAVAILABLE"
-            ) from None
+            raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE") from None
         return CreatorMaintenanceStatus(session, waiting_input_count)
 
     async def timeline(self, session_id: UUID) -> CreatorMaintenanceTimeline:
@@ -184,9 +180,7 @@ class PostgreSQLCreatorMaintenanceQuery:
                     )
                 ).fetchone()
                 if visible is None:
-                    raise CreatorMaintenanceViolation(
-                        "MAINTENANCE-QUERY-NOT-FOUND"
-                    )
+                    raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-NOT-FOUND")
                 rows = await (
                     await connection.execute(
                         """
@@ -203,9 +197,7 @@ class PostgreSQLCreatorMaintenanceQuery:
         except CreatorMaintenanceViolation:
             raise
         except psycopg.Error, PoolTimeout:
-            raise CreatorMaintenanceViolation(
-                "MAINTENANCE-QUERY-UNAVAILABLE"
-            ) from None
+            raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE") from None
         return CreatorMaintenanceTimeline(
             session_id,
             tuple(self._timeline_item(row) for row in rows[:_PAGE_SIZE]),

@@ -161,7 +161,7 @@ class PostgreSQLSchemaGateway:
                 connect_timeout=5,
                 application_name="armi-schema-development",
             )
-        except (psycopg.Error, UnicodeError, ValueError):
+        except psycopg.Error, UnicodeError, ValueError:
             raise DatabaseViolation(
                 "DB-CONNECTION-UNAVAILABLE",
                 "the configured PostgreSQL connection is unavailable",
@@ -190,7 +190,7 @@ class PostgreSQLSchemaGateway:
             encoding = str(cast(tuple[object, ...], encoding_row)[0])
             timezone = str(cast(tuple[object, ...], timezone_row)[0])
             provider, locale = cast(tuple[object, object], locale_row)
-        except (psycopg.Error, TypeError, ValueError):
+        except psycopg.Error, TypeError, ValueError:
             raise DatabaseViolation(
                 "DB-DATABASE-IDENTITY",
                 "database identity properties could not be verified",
@@ -235,7 +235,7 @@ class PostgreSQLSchemaGateway:
             ).fetchall()
             if schema_row is None:
                 raise ValueError
-        except (psycopg.Error, ValueError):
+        except psycopg.Error, ValueError:
             raise DatabaseViolation(
                 "DB-SCHEMA-INVARIANT",
                 "the schema catalog could not be inspected",

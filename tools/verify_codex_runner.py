@@ -346,8 +346,10 @@ def _preflight(root: Path) -> dict[str, object]:
     }
     try:
         _binary, binary_digest = _runtime_binary()
+        contract_root = preflight_root / "contract"
+        contract_root.mkdir()
         default_task, _bundle = _task(
-            preflight_root / "contract",
+            contract_root,
             CodexExecutionId(uuid7()),
         )
         runner_config = _config(default_task)

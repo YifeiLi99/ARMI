@@ -156,9 +156,7 @@ class CreatorRelationshipTimeline:
             not _uuid7(self.relationship_id)
             or type(self.items) is not tuple
             or len(self.items) > 100
-            or any(
-                type(item) is not CreatorRelationshipRevision for item in self.items
-            )
+            or any(type(item) is not CreatorRelationshipRevision for item in self.items)
             or len({item.revision_no for item in self.items}) != len(self.items)
             or any(
                 newer.revision_no <= older.revision_no

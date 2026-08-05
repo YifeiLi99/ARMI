@@ -391,93 +391,32 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
 
-    def test_runtime_capacity_baseline_uses_private_current_observations(self) -> None:
+    def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        packaged = packaged_birth_digests()
-        anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
-            voice_style="约 16 岁少女口吻",
-            traits=("连续",),
-        )
-        manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
-            environment_id=fixture.environment_id,
-            birth_request_id=_uuid7(),
-            creator_party_id=_uuid7(),
-            idempotency_key="p0-s020-capacity-birth",
-            personality_anchor=anchor,
-            personality_anchor_digest=Digest.from_bytes(
-                rfc8785.dumps(
-                    {
-                        "schema_version": anchor.schema_version,
-                        "voice_style": anchor.voice_style,
-                        "traits": list(anchor.traits),
-                    }
-                )
-            ),
-            composition_digest=packaged["composition_digest"],
-            birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
-            request_digest=Digest.from_bytes(b"p0-s020-capacity-birth"),
-        )
-
-        async def reject_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("capacity baseline has no business lock target")
-
-        async def birth(artifact_root: Path) -> None:
-            factory = PostgreSQLUnitOfWorkFactory(
-                fixture.runtime_dsn,
-                environment_id=fixture.environment_id,
-                lock_acquirer=reject_lock,
-                pool_min=1,
-                pool_max=2,
-                acquire_timeout_seconds=2,
-                statement_timeout_seconds=5,
-            )
-            transaction = BirthTransaction(
-                ContentAddressedArtifactStore(
-                    artifact_root,
-                    max_object_bytes=1024 * 1024,
-                ),
-                ArtifactCatalogRepository(),
-                BirthRepository(),
-                factory,
-            )
-            await factory.open()
-            try:
-                await transaction.birth(manifest)
-            finally:
-                await factory.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             environment_root = Path(temporary).resolve()
             data_root = environment_root / "data"
             secrets_root = environment_root / "secrets"
-            data_root.mkdir()
-            secrets_root.mkdir()
-            asyncio.run(
-                birth(data_root / "artifacts"),
-                loop_factory=lambda: asyncio.SelectorEventLoop(
-                    selectors.SelectSelector()
-                ),
-            )
+            bootstrap_root = environment_root / "bootstrap"
+            for path in (data_root, secrets_root, bootstrap_root):
+                path.mkdir()
             runtime_secret = secrets_root / "runtime"
             runtime_secret.write_text(
                 fixture.runtime_dsn,
                 encoding="utf-8",
                 newline="\n",
             )
+            migrator_secret = secrets_root / "migrator"
+            migrator_secret.write_text(
+                fixture.migrator_dsn,
+                encoding="utf-8",
+                newline="\n",
+            )
+            creator_bearer = "creator-v1." + secrets.token_urlsafe(32)
             creator_secret = secrets_root / "creator"
             creator_secret.write_text(
-                "creator-v1." + secrets.token_urlsafe(32),
+                creator_bearer,
                 encoding="utf-8",
                 newline="\n",
             )
@@ -499,6 +438,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "",
                         "[secret_locators]",
                         f'"database.runtime" = "file:{runtime_secret.as_posix()}"',
+                        f'"database.migrator" = "file:{migrator_secret.as_posix()}"',
                         f'"creator.bearer" = "file:{creator_secret.as_posix()}"',
                         "",
                     )
@@ -506,50 +446,273 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
+            anchor = {
+                "schema_version": "armi.personality-anchor.v1",
+                "voice_style": "约 16 岁少女口吻",
+                "traits": ["连续", "自主"],
+            }
+            (bootstrap_root / "birth-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "armi.birth-manifest.v1",
+                        "environment_id": str(fixture.environment_id),
+                        "birth_request_id": str(_uuid7()),
+                        "creator_party_id": str(_uuid7()),
+                        "idempotency_key": "p0-s021-clean-environment",
+                        "personality_anchor": anchor,
+                        "personality_anchor_digest": Digest.from_bytes(
+                            rfc8785.dumps(anchor)
+                        ).value,
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            entry_point = str(Path(".venv/Scripts/armi.exe").resolve())
+            clean_environment = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("ARMI_")
+            }
+
+            def invoke(*arguments: str) -> dict[str, Any]:
+                completed = subprocess.run(
+                    (entry_point, *arguments),
+                    cwd=Path.cwd(),
+                    env=clean_environment,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=60,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertNotIn(fixture.runtime_dsn, completed.stdout)
+                self.assertNotIn(fixture.migrator_dsn, completed.stdout)
+                self.assertNotIn(creator_bearer, completed.stdout)
+                return cast(dict[str, Any], json.loads(completed.stdout))
+
+            root_argument = ("--environment-root", str(environment_root))
+            checked = invoke("config", "check", *root_argument)
+            self.assertEqual(checked["status"], "pass")
+            installed = invoke("db", "install", *root_argument)
+            self.assertEqual(installed["status"], "current")
+            inspected = invoke("db", "status", *root_argument)
+            self.assertEqual(inspected["status"], "current")
+            born = invoke("bootstrap", "birth", *root_argument)
+            self.assertEqual(born["status"], "applied")
+            with psycopg.connect(fixture.runtime_dsn) as connection:
+                initial_identity = connection.execute(
+                    """
+                    SELECT subject.subject_id, generation.life_generation_id
+                    FROM armi.subjects AS subject
+                    JOIN armi.life_generations AS generation
+                      ON generation.subject_id = subject.subject_id
+                     AND generation.status = 'active'
+                    WHERE subject.singleton_key = 1
+                    """
+                ).fetchone()
+            assert initial_identity is not None
+            self.assertEqual(
+                tuple(str(item) for item in initial_identity),
+                (born["subject_id"], born["life_generation_id"]),
+            )
             duration = int(os.environ.get("P0_CAPACITY_BASELINE_SECONDS", "2"))
             interval = min(5, duration)
             manager = RuntimeProcessManager(
                 environment_root,
                 str(fixture.environment_id),
             )
+            pending_responsibility_before: tuple[UUID, UUID] | None = None
             try:
-                started = manager.start()
+                started = invoke("start", *root_argument)
                 self.assertEqual(started["status"], "started")
-                completed = subprocess.run(
+                first_status = invoke("status", *root_argument)
+                self.assertEqual(first_status["status"], "running")
+                self.assertEqual(
                     (
-                        str(Path(".venv/Scripts/armi.exe").resolve()),
-                        "capacity",
-                        "baseline",
-                        "--environment-root",
-                        str(environment_root),
-                        "--duration-seconds",
-                        str(duration),
-                        "--sample-interval-seconds",
-                        str(interval),
+                        first_status["runtime"]["runtime_state"],
+                        first_status["runtime"]["readiness"],
                     ),
-                    cwd=Path.cwd(),
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
+                    ("degraded", "ready"),
                 )
-                self.assertEqual(completed.returncode, 0, completed.stderr)
-                report = json.loads(completed.stdout)
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1",
+                    runtime_port,
+                    timeout=5,
+                )
+                try:
+                    connection.request("GET", "/health/ready")
+                    ready_response = connection.getresponse()
+                    ready = json.loads(ready_response.read())
+                    self.assertEqual(
+                        (ready_response.status, ready),
+                        (200, {"status": "ready"}),
+                    )
+                    connection.request("GET", "/ui/")
+                    ui_response = connection.getresponse()
+                    ui = ui_response.read()
+                    self.assertEqual(ui_response.status, 200)
+                    self.assertIn(b"ARMI Creator", ui)
+                    self.assertEqual(ui_response.getheader("X-Frame-Options"), "DENY")
+                    connection.request(
+                        "POST",
+                        "/v1/browser-bootstrap-codes",
+                        body=b"",
+                        headers={
+                            "Authorization": f"Bearer {creator_bearer}",
+                            "Content-Length": "0",
+                        },
+                    )
+                    bootstrap_response = connection.getresponse()
+                    bootstrap = json.loads(bootstrap_response.read())
+                    self.assertEqual(bootstrap_response.status, 200)
+                    session_body = json.dumps(
+                        {"bootstrap_code": bootstrap["bootstrap_code"]},
+                        separators=(",", ":"),
+                    ).encode()
+                    browser_headers = {
+                        "Origin": f"http://127.0.0.1:{runtime_port}",
+                        "Sec-Fetch-Site": "same-origin",
+                        "Sec-Fetch-Mode": "cors",
+                        "Sec-Fetch-Dest": "empty",
+                    }
+                    connection.request(
+                        "POST",
+                        "/v1/browser-sessions",
+                        body=session_body,
+                        headers={
+                            **browser_headers,
+                            "Content-Type": "application/json",
+                            "Content-Length": str(len(session_body)),
+                        },
+                    )
+                    session_response = connection.getresponse()
+                    session = json.loads(session_response.read())
+                    self.assertEqual(session_response.status, 200)
+                    authenticated_headers = {
+                        **browser_headers,
+                        "Authorization": (f"Bearer {session['browser_session_token']}"),
+                    }
+                    connection.request(
+                        "GET",
+                        "/v1/runtime/status",
+                        headers=authenticated_headers,
+                    )
+                    creator_status_response = connection.getresponse()
+                    creator_status = json.loads(creator_status_response.read())
+                    self.assertEqual(creator_status_response.status, 200)
+                    self.assertEqual(creator_status["readiness"], "ready")
+                    input_body = json.dumps(
+                        {
+                            "contract_version": "1.0",
+                            "message": "S021 重启责任核对",
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ).encode()
+                    connection.request(
+                        "POST",
+                        "/v1/scenes/default/messages",
+                        body=input_body,
+                        headers={
+                            **authenticated_headers,
+                            "Content-Type": "application/json",
+                            "Content-Length": str(len(input_body)),
+                            "Idempotency-Key": "p0-s021-restart-pending",
+                        },
+                    )
+                    accepted_response = connection.getresponse()
+                    accepted = json.loads(accepted_response.read())
+                    self.assertEqual(accepted_response.status, 202, accepted)
+                    operation_deadline = time.monotonic() + 10
+                    operation: dict[str, Any] = {}
+                    while time.monotonic() < operation_deadline:
+                        connection.request(
+                            "GET",
+                            accepted["details"]["operation_url"],
+                            headers=authenticated_headers,
+                        )
+                        operation_response = connection.getresponse()
+                        operation = cast(
+                            dict[str, Any],
+                            json.loads(operation_response.read()),
+                        )
+                        self.assertEqual(operation_response.status, 200)
+                        if operation.get("waiting_for") in {
+                            "context_preparation",
+                            "model_attempt",
+                        }:
+                            break
+                        time.sleep(0.05)
+                    waiting_for = operation.get("waiting_for")
+                    self.assertEqual(operation.get("status"), "waiting")
+                    self.assertIn(
+                        (waiting_for, operation.get("resume_condition")),
+                        {
+                            ("context_preparation", "context_prepared"),
+                            ("model_attempt", "model_step_available"),
+                        },
+                    )
+                finally:
+                    connection.close()
+                with psycopg.connect(fixture.runtime_dsn) as database:
+                    pending_responsibility_before = database.execute(
+                        """
+                        SELECT interaction.creator_interaction_id,
+                               opportunity.opportunity_id
+                        FROM armi.creator_input_interactions AS interaction
+                        JOIN armi.external_evidence AS evidence
+                          USING (creator_interaction_id)
+                        JOIN armi.opportunities AS opportunity
+                          USING (evidence_id)
+                        WHERE interaction.idempotency_key =
+                              'p0-s021-restart-pending'
+                        """
+                    ).fetchone()
+                    open_work_before = database.execute(
+                        """
+                        SELECT work.work_kind, work.status
+                        FROM armi.creator_input_interactions AS interaction
+                        JOIN armi.external_evidence AS evidence
+                          USING (creator_interaction_id)
+                        JOIN armi.opportunities AS opportunity
+                          USING (evidence_id)
+                        JOIN armi.cognitive_episodes AS episode
+                          USING (opportunity_id)
+                        JOIN armi.durable_work AS work
+                          ON work.owner_kind = 'cognitive_episode'
+                         AND work.owner_ref = episode.cognitive_episode_id
+                        WHERE interaction.idempotency_key =
+                              'p0-s021-restart-pending'
+                          AND work.status IN ('ready', 'leased')
+                        ORDER BY work.work_id
+                        """
+                    ).fetchall()
+                assert pending_responsibility_before is not None
+                self.assertEqual(
+                    str(pending_responsibility_before[1]),
+                    accepted["result_ref"],
+                )
+                self.assertGreaterEqual(len(open_work_before), 1)
+                report = invoke(
+                    "capacity",
+                    "baseline",
+                    *root_argument,
+                    "--duration-seconds",
+                    str(duration),
+                    "--sample-interval-seconds",
+                    str(interval),
+                )
                 summary = {
-                    key: value
-                    for key, value in report.items()
-                    if key != "samples"
+                    key: value for key, value in report.items() if key != "samples"
                 }
                 summary["first_sample"] = report["samples"][0]
                 summary["last_sample"] = report["samples"][-1]
-                print(
-                    json.dumps(
-                        summary,
-                        ensure_ascii=False,
-                        indent=2,
-                        sort_keys=True,
-                    )
-                )
                 self.assertEqual(report["status"], "pass")
                 self.assertGreaterEqual(report["sample_count"], 2)
                 self.assertEqual(report["unavailable_sample_count"], 0)
@@ -558,7 +721,64 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     report["samples"][-1]["authority"]["active_runtime_count"],
                     1,
                 )
+                stopped = invoke("stop", *root_argument)
+                self.assertEqual(stopped["status"], "stopped")
+                restarted = invoke("start", *root_argument)
+                self.assertEqual(restarted["status"], "started")
+                restart_status = invoke("status", *root_argument)
+                self.assertEqual(restart_status["status"], "running")
+                stopped_again = invoke("stop", *root_argument)
+                self.assertEqual(stopped_again["status"], "stopped")
                 with psycopg.connect(fixture.runtime_dsn) as connection:
+                    final_identity = connection.execute(
+                        """
+                        SELECT subject.subject_id, generation.life_generation_id
+                        FROM armi.subjects AS subject
+                        JOIN armi.life_generations AS generation
+                          ON generation.subject_id = subject.subject_id
+                         AND generation.status = 'active'
+                        WHERE subject.singleton_key = 1
+                        """
+                    ).fetchone()
+                    pending_responsibility_after = connection.execute(
+                        """
+                        SELECT interaction.creator_interaction_id,
+                               opportunity.opportunity_id
+                        FROM armi.creator_input_interactions AS interaction
+                        JOIN armi.external_evidence AS evidence
+                          USING (creator_interaction_id)
+                        JOIN armi.opportunities AS opportunity
+                          USING (evidence_id)
+                        WHERE interaction.idempotency_key =
+                              'p0-s021-restart-pending'
+                        """
+                    ).fetchone()
+                    open_work_after = connection.execute(
+                        """
+                        SELECT work.work_kind, work.status
+                        FROM armi.creator_input_interactions AS interaction
+                        JOIN armi.external_evidence AS evidence
+                          USING (creator_interaction_id)
+                        JOIN armi.opportunities AS opportunity
+                          USING (evidence_id)
+                        JOIN armi.cognitive_episodes AS episode
+                          USING (opportunity_id)
+                        JOIN armi.durable_work AS work
+                          ON work.owner_kind = 'cognitive_episode'
+                         AND work.owner_ref = episode.cognitive_episode_id
+                        WHERE interaction.idempotency_key =
+                              'p0-s021-restart-pending'
+                          AND work.status IN ('ready', 'leased')
+                        ORDER BY work.work_id
+                        """
+                    ).fetchall()
+                    safe_recovery_runs = connection.execute(
+                        """
+                        SELECT count(*)
+                        FROM armi.runtime_recovery_runs
+                        WHERE status = 'safe'
+                        """
+                    ).fetchone()
                     stale_notifications = connection.execute(
                         """
                         SELECT count(*)
@@ -569,11 +789,37 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                           AND work.status <> 'ready'
                         """
                     ).fetchone()
+                assert final_identity is not None
+                assert pending_responsibility_after is not None
+                assert safe_recovery_runs is not None
                 assert stale_notifications is not None
+                self.assertEqual(final_identity, initial_identity)
+                self.assertEqual(
+                    pending_responsibility_after,
+                    pending_responsibility_before,
+                )
+                self.assertGreaterEqual(len(open_work_after), 1)
+                self.assertGreaterEqual(safe_recovery_runs[0], 1)
                 self.assertEqual(stale_notifications[0], 0)
+                summary["subject_id"] = str(final_identity[0])
+                summary["life_generation_id"] = str(final_identity[1])
+                summary["pending_opportunity_id"] = str(pending_responsibility_after[1])
+                summary["pending_work"] = [
+                    {"kind": str(row[0]), "status": str(row[1])}
+                    for row in open_work_after
+                ]
+                summary["safe_recovery_runs"] = safe_recovery_runs[0]
+                print(
+                    json.dumps(
+                        summary,
+                        ensure_ascii=False,
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
             finally:
-                stopped = manager.stop()
-                self.assertEqual(stopped["status"], "stopped")
+                if manager.status()["status"] != "stopped":
+                    manager.stop()
 
     def test_life_generation_source_is_single_under_concurrency_and_restart(
         self,
@@ -1260,9 +1506,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (2,),
                 )
                 self.assertIsNotNone(
-                    connection.execute(
-                        "SELECT to_regclass('armi.subjects')"
-                    ).fetchone()
+                    connection.execute("SELECT to_regclass('armi.subjects')").fetchone()
                 )
             recovery = list(
                 (experiment_root / ".armi-admin-recovery").glob(
@@ -2782,7 +3026,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute("SELECT * FROM armi.scene_timeline_items")
             connection.rollback()
 
-
     def test_t03_subject_commit_is_atomic_and_private(self) -> None:
         fixture = self.create_database()
         PostgreSQLSchemaGateway().install(
@@ -4249,6 +4492,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 1,
             ),
         )
+
     def test_runtime_authority_heartbeat_takeover_and_fence(self) -> None:
         fixture = self.create_database()
         PostgreSQLSchemaGateway().install(

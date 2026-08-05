@@ -23,12 +23,12 @@ class _Cursor:
 class _Connection:
     def __init__(self, *, revoked: bool) -> None:
         self.revoked = revoked
-        self.ids = {name: uuid7() for name in ("grant", "policy", "revision", "operation")}
+        self.ids = {
+            name: uuid7() for name in ("grant", "policy", "revision", "operation")
+        }
         self.statements: list[str] = []
 
-    async def execute(
-        self, query: str, params: tuple[object, ...] = ()
-    ) -> _Cursor:
+    async def execute(self, query: str, params: tuple[object, ...] = ()) -> _Cursor:
         statement = " ".join(query.split())
         self.statements.append(statement)
         if "SELECT policy.matched_grant_id" in statement:
@@ -90,7 +90,9 @@ async def test_active_grant_crosses_dispatch_boundary_without_cancellation() -> 
 
     assert result is not None and result.allowed
     assert not uow.audit.events
-    assert not any("UPDATE armi.effect_attempts" in item for item in connection.statements)
+    assert not any(
+        "UPDATE armi.effect_attempts" in item for item in connection.statements
+    )
 
 
 @pytest.mark.asyncio

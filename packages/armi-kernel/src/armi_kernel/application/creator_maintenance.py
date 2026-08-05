@@ -135,8 +135,7 @@ class CreatorMaintenanceTimeline:
             or type(self.items) is not tuple
             or len(self.items) > 100
             or any(
-                type(item) is not CreatorMaintenanceTimelineItem
-                for item in self.items
+                type(item) is not CreatorMaintenanceTimelineItem for item in self.items
             )
             or type(self.truncated) is not bool
         ):

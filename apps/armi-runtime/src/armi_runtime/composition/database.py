@@ -442,9 +442,7 @@ def compose_life_record_query(
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
-                    raise LifeRecordQueryViolation(
-                        "LIFE-QUERY-UNAVAILABLE"
-                    ) from None
+                    raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
                 config = prepared.effective.config
                 return PostgreSQLLifeRecordQuery(
                     conninfo,
@@ -494,9 +492,7 @@ def compose_creator_relationship_query(
 
             return handle.consume(create)
     except ConfigurationViolation:
-        raise CreatorRelationshipViolation(
-            "RELATIONSHIP-QUERY-UNAVAILABLE"
-        ) from None
+        raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE") from None
 
 
 def compose_creator_maintenance_query(
@@ -532,9 +528,7 @@ def compose_creator_maintenance_query(
 
             return handle.consume(create)
     except ConfigurationViolation:
-        raise CreatorMaintenanceViolation(
-            "MAINTENANCE-QUERY-UNAVAILABLE"
-        ) from None
+        raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE") from None
 
 
 def compose_runtime_authority(

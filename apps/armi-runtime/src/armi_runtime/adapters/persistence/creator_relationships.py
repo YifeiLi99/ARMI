@@ -80,9 +80,7 @@ class PostgreSQLCreatorRelationshipQuery:
                 )
             ).fetchone()
             if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
-                raise CreatorRelationshipViolation(
-                    "RELATIONSHIP-QUERY-UNAVAILABLE"
-                )
+                raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE")
 
         self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
             conninfo,
@@ -99,7 +97,7 @@ class PostgreSQLCreatorRelationshipQuery:
     async def open(self) -> None:
         try:
             await self._pool.open(wait=True)
-        except (psycopg.Error, PoolTimeout):
+        except psycopg.Error, PoolTimeout:
             raise CreatorRelationshipViolation(
                 "RELATIONSHIP-QUERY-UNAVAILABLE"
             ) from None
@@ -147,7 +145,7 @@ class PostgreSQLCreatorRelationshipQuery:
                 ).fetchall()
         except CreatorRelationshipViolation:
             raise
-        except (psycopg.Error, PoolTimeout):
+        except psycopg.Error, PoolTimeout:
             raise CreatorRelationshipViolation(
                 "RELATIONSHIP-QUERY-UNAVAILABLE"
             ) from None
@@ -188,9 +186,7 @@ class PostgreSQLCreatorRelationshipQuery:
                     )
                 ).fetchone()
                 if visible is None:
-                    raise CreatorRelationshipViolation(
-                        "RELATIONSHIP-QUERY-NOT-FOUND"
-                    )
+                    raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-NOT-FOUND")
                 rows = await (
                     await connection.execute(
                         """
@@ -208,7 +204,7 @@ class PostgreSQLCreatorRelationshipQuery:
                 ).fetchall()
         except CreatorRelationshipViolation:
             raise
-        except (psycopg.Error, PoolTimeout):
+        except psycopg.Error, PoolTimeout:
             raise CreatorRelationshipViolation(
                 "RELATIONSHIP-QUERY-UNAVAILABLE"
             ) from None
@@ -380,7 +376,7 @@ def _revision(row: tuple[Any, ...]) -> CreatorRelationshipRevision:
             status=RelationshipStatus(_row_text(row[8])),
             occurred_at=row[9],
         )
-    except (CandidateViolation, IndexError, ValueError, TypeError):
+    except CandidateViolation, IndexError, ValueError, TypeError:
         raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-SHAPE") from None
 
 

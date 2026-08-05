@@ -143,9 +143,9 @@ class CreatorContractTests(unittest.TestCase):
             relationship["security"],
             [{"browserSessionBearer": []}],
         )
-        relationship_timeline = paths[
-            "/v1/relationships/{relationship_id}/timeline"
-        ]["get"]
+        relationship_timeline = paths["/v1/relationships/{relationship_id}/timeline"][
+            "get"
+        ]
         self.assertEqual(
             relationship_timeline["operationId"],
             "getCreatorRelationshipTimeline",
@@ -197,7 +197,9 @@ class CreatorContractTests(unittest.TestCase):
         )
         wake = paths["/v1/maintenance/{maintenance_session_id}/wake"]["post"]
         self.assertEqual(wake["operationId"], "requestCreatorEmergencyWake")
-        self.assertEqual(set(wake["responses"]), {"204", "401", "403", "404", "409", "503"})
+        self.assertEqual(
+            set(wake["responses"]), {"204", "401", "403", "404", "409", "503"}
+        )
         events = paths["/v1/scenes/{scene_key}/events"]["get"]
         self.assertEqual(events["operationId"], "streamSceneEvents")
         self.assertEqual(events["security"], [{"browserSessionBearer": []}])
@@ -521,7 +523,9 @@ class CreatorContractTests(unittest.TestCase):
         )
         self.assertEqual(event.resource_kind, "relationship")
 
-    def test_exact_record_and_memory_projection_keep_recallability_explicit(self) -> None:
+    def test_exact_record_and_memory_projection_keep_recallability_explicit(
+        self,
+    ) -> None:
         record = LifeRecordItemResponse.model_validate(
             {
                 "record_ref": ENVIRONMENT_ID,

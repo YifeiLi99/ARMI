@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目当前已达到 M0-Core 单机个人内测可用；P0-S001—S020 的 Activity、注意、Creator 只读闭环、睡眠维护、主观记忆演进、精确生活查询、关系连续、私人生活资料、能力治理、运行观测与分钟级容量基线已经落地，当前按功能优先模式推进 P0-S021。普通 `consider_creator_input` 仍只调用一次主模型：除既有 Experience、Memory 和 Relationship 变化外，ARMI 可创建、完整改写、标记私人、恢复 Creator 可见或删除自己的一项日记、作品、收藏或草稿。Runtime 绑定唯一 subject party owner、资料 identity、current revision/head、来源和当前 visibility；正文保存为不可变内容寻址制品，T-03 原子追加 `created/updated/privacy_changed/deleted` revision 并 CAS 推进 current。删除以 tombstone 使资料退出日常 Context 和 Creator 投影，但保留旧 revision、制品引用及私人操作审计。Creator UI 现在只能显式打开 current `creator_visible` 正文，private、删除和未知资料统一不可见；正文只进入内存 Query cache，并在资料失效、断线核验、401 或注销时清除。ARMI Context 仍可读取未删除的自有 private 资料，Admin `subject_snapshot(detail=private)` 可只读核验含 restricted/tombstone 的 current 正文；普通 Runtime 日志和 Creator 错误响应都不含正文。Creator 不能直接改写资料，可见性也不构成公开、共享或代发许可。能力 Context 现在直接读取 PostgreSQL 权威目录、最新正式申请及有效 grant，明确分开能力存在、技术可用与授权状态；普通对话 `v11/v12` 只允许通过 `ctx:N` 选择固定能力，Runtime 绑定正式 scope，聊天文本不能授予权限，未决或有效 Codex 申请会被去重。grant 当前还显式绑定 subject、scene、Creator 与精确 capability；Creator inbox 和 Codex runner 在外部调用前重新协调撤回/过期，确认未送达的 Creator reply 也只有在原授权仍当前时才会重试。Creator 工作台现已分开展示申请 scope、实际 grant、状态时间与失效边界，effect 详情显式关联原 request/grant，Creator response timeline 可直接打开 effect；界面明确授权不等于 ARMI 意愿，撤回也不改写已派发或未知效果。Runtime 私有状态现按固定间隔给出 authority、work/outbox/effect 积压、进程/数据库/制品/磁盘与日志保留快照；`armi capacity baseline` 可在不制造业务负载的前提下输出有界时间序列和阈值判断，公开 Creator 状态合同不扩张。日志按日期或大小轮转并按保留期清理，制品孤儿清理和数据库 `VACUUM (ANALYZE)` 只经显式运维命令执行。精确查询明确标记为本次取得的记录证据，不会把已经遗忘的内容伪装成自然回忆。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
+项目当前已达到 M0-Core 单机个人内测可用；P0-S001—S021 已完成，当前进入 P0-S022 核心旅程验收。Activity、注意、Creator 只读闭环、睡眠维护、主观记忆演进、精确生活查询、关系连续、私人生活资料、能力治理、运行观测、分钟级容量基线和空环境可运行整合已经落地。普通 `consider_creator_input` 仍只调用一次主模型：除既有 Experience、Memory 和 Relationship 变化外，ARMI 可创建、完整改写、标记私人、恢复 Creator 可见或删除自己的一项日记、作品、收藏或草稿。Runtime 绑定唯一 subject party owner、资料 identity、current revision/head、来源和当前 visibility；正文保存为不可变内容寻址制品，T-03 原子追加 `created/updated/privacy_changed/deleted` revision 并 CAS 推进 current。删除以 tombstone 使资料退出日常 Context 和 Creator 投影，但保留旧 revision、制品引用及私人操作审计。Creator UI 现在只能显式打开 current `creator_visible` 正文，private、删除和未知资料统一不可见；正文只进入内存 Query cache，并在资料失效、断线核验、401 或注销时清除。ARMI Context 仍可读取未删除的自有 private 资料，Admin `subject_snapshot(detail=private)` 可只读核验含 restricted/tombstone 的 current 正文；普通 Runtime 日志和 Creator 错误响应都不含正文。Creator 不能直接改写资料，可见性也不构成公开、共享或代发许可。能力 Context 现在直接读取 PostgreSQL 权威目录、最新正式申请及有效 grant，明确分开能力存在、技术可用与授权状态；普通对话 `v11/v12` 只允许通过 `ctx:N` 选择固定能力，Runtime 绑定正式 scope，聊天文本不能授予权限，未决或有效 Codex 申请会被去重。grant 当前还显式绑定 subject、scene、Creator 与精确 capability；Creator inbox 和 Codex runner 在外部调用前重新协调撤回/过期，确认未送达的 Creator reply 也只有在原授权仍当前时才会重试。Creator 工作台现已分开展示申请 scope、实际 grant、状态时间与失效边界，effect 详情显式关联原 request/grant，Creator response timeline 可直接打开 effect；界面明确授权不等于 ARMI 意愿，撤回也不改写已派发或未知效果。Runtime 私有状态现按固定间隔给出 authority、work/outbox/effect 积压、进程/数据库/制品/磁盘与日志保留快照；`armi capacity baseline` 可在不制造业务负载的前提下输出有界时间序列和阈值判断，公开 Creator 状态合同不扩张。日志按日期或大小轮转并按保留期清理，制品孤儿清理和数据库 `VACUUM (ANALYZE)` 只经显式运维命令执行。精确查询明确标记为本次取得的记录证据，不会把已经遗忘的内容伪装成自然回忆。2026-08-04 的当前环境实测 reply effect 为 `completed/verified`，ARMI 回复“可以啦，我们现在就在正常对话中。”
 
 S039 的 Creator→Codex 产品纵向 gate 已通过：正式 `codex-tasks` 输入经 ARMI 认知、Creator grant、Codex effect、官方 `openai-codex==0.144.4` SDK runner、独立 validator、result evidence 和第二次 T-03 收敛为唯一 private Experience。新任务可逐项选择 `gpt-5.6-sol/terra/luna`、思考级别和内置 Web Search；一次性 workspace 默认可操作，明确 forbidden paths 和禁止逃逸构成安全边界。纯内容任务由结构化 deliverable 落为 `result.md`，代码与文件任务按 task manifest 和独立 validator 核验。正式 Creator 链已经用 Luna、`max` 和 Web Search 完成实机验收，不再把组件级成功冒充产品闭环。
 
@@ -26,8 +26,8 @@ Admin MCP、S033/S034 ARMI 网页观察、Windows 服务身份/DACL、跨候选�
 移入 P0 稳定化，不再阻塞个人内测。当前仍不是生产发布版本；Relationship owner 已能
 从同轮正式 Experience 形成带来源的 current/revision，保存双方边界、结束联系、承诺事件和未解决冲突，并以独立 Context 项跨场景延续而不复制近期现场原文；Memory owner 已能从正式 Experience 形成带来源的 current/revision；Activity owner
 已进入正式组合根，但首次真实自主认知没有创建 `ready`
-Activity。相关 Context 串线已经修复；历史联合验收结果保留到 P0-S021/S022 集中复验，
-不再阻塞后续功能开发。P0-S001—P0-S020 按功能实现完成，当前施工入口为 P0-S021。
+Activity。相关 Context 串线已经修复；历史联合验收结果保留到 P0-S022 集中复验，
+不再阻塞后续功能开发。P0-S001—P0-S021 已完成，当前施工入口为 P0-S022。
 
 ## 本地 Runtime 生命周期
 
@@ -55,6 +55,49 @@ Windows 服务，也不提供开机自启；正式安装、服务身份和无人
 `armi capacity baseline` 默认每 5 秒读取一次私有状态、持续 60 秒，输出原始时间序列
 以及 RSS、积压、数据库、制品、日志和磁盘变化；它只观察已经运行的 Runtime，不会生成
 聊天、模型调用或其他业务负载。阈值可由命令行覆盖，`attention` 返回退出码 4。
+
+## 空环境安装与重启 smoke
+
+首次准备锁定工具链时，优先复用本机缓存；缓存缺失时必须显式允许从已确认的官方来源下载：
+
+```powershell
+.\tools\bootstrap_toolchain.ps1 -Offline
+.\tools\bootstrap_postgresql.ps1
+
+# 仅在缓存缺失且已允许官方网络时使用
+.\tools\bootstrap_toolchain.ps1 -ApprovedOfficialDirect
+.\tools\bootstrap_postgresql.ps1 -AllowOfficialNetwork
+```
+
+一个持久开发环境至少需要绝对路径的 `environment.toml`、分别保存 Runtime/Migrator DSN
+与 Creator bearer 的 secret 文件，以及 `bootstrap/birth-manifest.json`。数据库角色通过
+`tools/bootstrap_database_roles.py` 从 secret 文件建立，不把凭据放入命令行。之后按以下顺序
+使用正式入口：
+
+```powershell
+armi config check --environment-root C:\path\to\environment
+armi db install --environment-root C:\path\to\environment
+armi db status --environment-root C:\path\to\environment
+armi bootstrap birth --environment-root C:\path\to\environment
+armi start --environment-root C:\path\to\environment
+armi status --environment-root C:\path\to\environment
+armi creator-session issue --environment-root C:\path\to\environment
+armi stop --environment-root C:\path\to\environment
+```
+
+仓库提供可重复、可丢弃的 P0-S021 smoke。它自动创建隔离 PostgreSQL 18.4 集群、空数据库、
+角色、环境根和出生资料，经真实 CLI 启动 Creator，接纳一条输入，再停止并重启，核对主体
+identity、life generation 和未完成耐久责任不变；测试完成后清理隔离环境，不调用外部模型或
+Codex。Codex 的基本启动只做零模型调用预检：
+
+```powershell
+$env:PYTEST_ADDOPTS = '-s'
+uv run python tools/run_postgresql_integration.py --test-expression p0_clean_environment_cli_start_restart_and_capacity
+Remove-Item Env:PYTEST_ADDOPTS
+uv run python tools/verify_codex_runner.py --preflight
+```
+
+真实模型对话、真实 Creator→Codex 委托、完整浏览器旅程和长时间观察属于 P0-S022。
 
 ## 开发验证
 

@@ -451,9 +451,7 @@ class CreatorRelationshipCommitmentEventResponse(_StrictWireModel):
 
     @model_validator(mode="after")
     def validate_event(self) -> CreatorRelationshipCommitmentEventResponse:
-        if (self.kind == "conflict_noted") != (
-            self.related_commitment_id is not None
-        ):
+        if (self.kind == "conflict_noted") != (self.related_commitment_id is not None):
             raise ValueError("CON-RELATIONSHIP-EVENT: event is inconsistent")
         return self
 
@@ -461,10 +459,16 @@ class CreatorRelationshipCommitmentEventResponse(_StrictWireModel):
 class CreatorRelationshipRevisionResponse(_StrictWireModel):
     relationship_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     revision_no: Annotated[int, Field(ge=1)]
-    facts: Annotated[list[CreatorRelationshipFactResponse], Field(min_length=1, max_length=64)]
+    facts: Annotated[
+        list[CreatorRelationshipFactResponse], Field(min_length=1, max_length=64)
+    ]
     interpretation: Annotated[str, Field(min_length=1, max_length=1024)]
-    boundaries: Annotated[list[CreatorRelationshipBoundaryResponse], Field(max_length=16)]
-    commitments: Annotated[list[CreatorRelationshipCommitmentResponse], Field(max_length=16)]
+    boundaries: Annotated[
+        list[CreatorRelationshipBoundaryResponse], Field(max_length=16)
+    ]
+    commitments: Annotated[
+        list[CreatorRelationshipCommitmentResponse], Field(max_length=16)
+    ]
     open_issues: Annotated[list[CreatorRelationshipIssueResponse], Field(max_length=32)]
     commitment_event: CreatorRelationshipCommitmentEventResponse | None
     status: Literal["active", "ended"]
@@ -2308,9 +2312,9 @@ def build_creator_openapi() -> dict[str, object]:
     schema["paths"]["/v1/relationships/{relationship_id}/timeline"]["get"][
         "responses"
     ].pop("422", None)
-    schema["paths"]["/v1/relationships/current/boundaries"]["post"][
-        "responses"
-    ].pop("422", None)
+    schema["paths"]["/v1/relationships/current/boundaries"]["post"]["responses"].pop(
+        "422", None
+    )
     schema["paths"]["/v1/life-records"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/materials/{material_id}"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/memories"]["get"]["responses"].pop("422", None)
