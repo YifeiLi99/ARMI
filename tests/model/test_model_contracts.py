@@ -252,6 +252,25 @@ def test_creator_dialogue_material_contract_is_runtime_owned_and_context_bound()
         "ctx:4"
     )
 
+    for action in ("set_private", "set_creator_visible", "delete"):
+        state_change = parse_candidate(
+            json.dumps(
+                {
+                    "kind": "reply",
+                    "content": "这是我对自己资料作出的决定。",
+                    "material_change": {
+                        "action": action,
+                        "material_ref": "ctx:4",
+                    },
+                },
+                ensure_ascii=False,
+            ).encode(),
+            allowed_context_refs=frozenset({"ctx:4"}),
+        )
+        assert (
+            state_change.model_dump(mode="json")["material_change"]["action"] == action
+        )
+
     for invalid in (
         {
             "kind": "reply",
@@ -284,6 +303,23 @@ def test_creator_dialogue_material_contract_is_runtime_owned_and_context_bound()
                 "title": "标题",
                 "body": "正文",
                 "metadata": {"note": "含有\u0000空字符"},
+            },
+        },
+        {
+            "kind": "reply",
+            "content": "越权公开",
+            "material_change": {
+                "action": "publish",
+                "material_ref": "ctx:4",
+            },
+        },
+        {
+            "kind": "reply",
+            "content": "越权共享",
+            "material_change": {
+                "action": "set_private",
+                "material_ref": "ctx:4",
+                "privacy_status": "shared",
             },
         },
     ):

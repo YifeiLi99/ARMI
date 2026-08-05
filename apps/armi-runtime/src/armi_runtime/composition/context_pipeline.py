@@ -344,6 +344,7 @@ class ContextPipeline(OpportunitySelector):
                 "body": body,
                 "metadata": dict(source.metadata),
                 "material_status": source.material_status,
+                "privacy_status": source.privacy_status,
             }
         )
 

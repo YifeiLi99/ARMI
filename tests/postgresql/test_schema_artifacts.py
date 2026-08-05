@@ -44,6 +44,14 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "FOREIGN KEY (owner_party_id, subject_id)" in sql
     assert "UNIQUE (subject_commit_id, proposal_ref)" in sql
     assert "life_materials_current_revision_fk" in sql
+    assert "'privacy_changed', 'deleted'" in sql
+    assert "'creator_visible', 'private', 'shared', 'restricted'" in sql
+    assert "revision_kind = 'updated'" in sql
+    assert "privacy_status IN ('creator_visible', 'private')" in sql
+    assert (
+        "GRANT UPDATE (current_revision_id, head_version, deleted_at, updated_at)"
+        in sql
+    )
     assert "commitments jsonb NOT NULL" in sql
     assert "open_issues jsonb NOT NULL" in sql
     assert "supports_commitment_event" in sql

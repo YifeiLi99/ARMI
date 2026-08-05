@@ -58,7 +58,7 @@ class CreatorRelationshipRevision:
         commitments_valid = type(self.commitments) is tuple and all(
             type(item) is RelationshipCommitment for item in self.commitments
         )
-        commitment_ids = (
+        commitment_ids: set[UUID] = (
             {item.commitment_id for item in self.commitments}
             if commitments_valid
             else set()

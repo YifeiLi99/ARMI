@@ -10,7 +10,7 @@ from uuid import UUID
 
 from armi_kernel.contracts import Instant, OpaqueCursor
 
-LIFE_RECORD_PROJECTION_VERSION = "life-record-query.v1"
+LIFE_RECORD_PROJECTION_VERSION = "life-record-query.v2"
 CREATOR_MEMORY_PROJECTION_VERSION = "creator-memory.v1"
 _CODE = re.compile(r"^(?:CON-)?LIFE-QUERY-[A-Z0-9-]+$", re.ASCII)
 
@@ -41,6 +41,7 @@ class LifeRecordRetrievalKind(StrEnum):
 class LifeRecordKind(StrEnum):
     ACTIVITY = "activity"
     CONVERSATION = "conversation"
+    MATERIAL = "material"
     MEMORY = "memory"
     RELATIONSHIP = "relationship"
     SELF_CHANGE = "self_change"

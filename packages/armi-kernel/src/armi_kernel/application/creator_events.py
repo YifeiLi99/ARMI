@@ -37,6 +37,7 @@ class CreatorEventResourceKind(StrEnum):
     ACTIVITY = "activity"
     MEMORY = "memory"
     MAINTENANCE = "maintenance"
+    MATERIAL = "material"
     RELATIONSHIP = "relationship"
     SCENE_TIMELINE = "scene_timeline"
     CAPABILITY_REQUEST = "capability_request"
@@ -49,6 +50,7 @@ _PROJECTIONS = {
     CreatorEventResourceKind.ACTIVITY: "creator-activity.v1",
     CreatorEventResourceKind.MEMORY: "creator-memory.v1",
     CreatorEventResourceKind.MAINTENANCE: "creator-maintenance.v1",
+    CreatorEventResourceKind.MATERIAL: "life-record-query.v2",
     CreatorEventResourceKind.RELATIONSHIP: "creator-relationship.v1",
     CreatorEventResourceKind.SCENE_TIMELINE: "scene-timeline.v3",
     CreatorEventResourceKind.CAPABILITY_REQUEST: "capability-request.v3",

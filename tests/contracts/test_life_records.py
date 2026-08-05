@@ -113,6 +113,22 @@ def test_exact_query_accepts_current_relationship_understanding() -> None:
     )
 
 
+def test_creator_view_accepts_only_projected_material_summary_shape() -> None:
+    material = LifeRecordItem(
+        record_ref=uuid7(),
+        record_kind=LifeRecordKind.MATERIAL,
+        summary="一份由 ARMI 决定对 Creator 可见的日记",
+        source_kind="life_material_current",
+        occurred_at=_now(),
+        naturally_recallable=None,
+        retrieval_kind=LifeRecordRetrievalKind.CREATOR_VIEW,
+    )
+
+    page = LifeRecordPage((material,))
+    assert page.items[0].record_kind is LifeRecordKind.MATERIAL
+    assert page.projection_version == "life-record-query.v2"
+
+
 def test_cursor_is_signed_and_bound_to_query_scope() -> None:
     environment_id = uuid7()
     creator_id = uuid7()

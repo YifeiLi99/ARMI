@@ -161,6 +161,8 @@ class SubjectCommitPipeline:
             )
             published_materials: list[tuple[str, PublishedArtifact]] = []
             for material in change_set.materials:
+                if material.body_bytes is None:
+                    continue
                 published_materials.append(
                     (
                         material.proposal_ref,
@@ -482,6 +484,25 @@ class SubjectCommitPipeline:
             )
         except DatabaseTransactionError:
             self._diagnostic("subject_commit.memory_notification.lookup_failed")
+        try:
+            async with self._factory.unit_of_work(
+                LockPlan(), read_only=True
+            ) as unit_of_work:
+                material_ids = await self._repository.affected_material_ids(
+                    unit_of_work,
+                    snapshot.validation_id,
+                )
+            invalidations.extend(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.MATERIAL,
+                    str(material_id),
+                    now,
+                    "life-record-query.v2",
+                )
+                for material_id in material_ids
+            )
+        except DatabaseTransactionError:
+            self._diagnostic("subject_commit.material_notification.lookup_failed")
         try:
             async with self._factory.unit_of_work(
                 LockPlan(), read_only=True

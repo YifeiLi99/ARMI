@@ -10,6 +10,8 @@ ALTER TABLE armi.cognitive_attempts
             'armi.creator-dialogue-candidate.v6',
             'armi.creator-dialogue-candidate.v7',
             'armi.creator-dialogue-candidate.v8',
+            'armi.creator-dialogue-candidate.v9',
+            'armi.creator-dialogue-candidate.v10',
             'armi.autonomous-activity-candidate.v1',
             'armi.activity-attention-candidate.v1',
             'armi.sleep-decision-candidate.v1'
@@ -28,6 +30,8 @@ ALTER TABLE armi.cognitive_candidate_validations
             'armi.creator-dialogue-candidate.v6',
             'armi.creator-dialogue-candidate.v7',
             'armi.creator-dialogue-candidate.v8',
+            'armi.creator-dialogue-candidate.v9',
+            'armi.creator-dialogue-candidate.v10',
             'armi.autonomous-activity-candidate.v1',
             'armi.activity-attention-candidate.v1',
             'armi.sleep-decision-candidate.v1'
@@ -66,8 +70,7 @@ CREATE TABLE armi.life_materials (
     schema_version smallint NOT NULL DEFAULT 1 CHECK (schema_version = 1),
     UNIQUE (life_material_id, current_revision_id),
     FOREIGN KEY (owner_party_id, subject_id)
-        REFERENCES armi.parties(party_id, represented_subject_id),
-    CHECK (deleted_at IS NULL)
+        REFERENCES armi.parties(party_id, represented_subject_id)
 );
 
 CREATE TABLE armi.life_material_revisions (
@@ -88,8 +91,12 @@ CREATE TABLE armi.life_material_revisions (
         jsonb_typeof(metadata) = 'object'
         AND jsonb_object_length(metadata) <= 32
     ),
-    revision_kind text NOT NULL CHECK (revision_kind IN ('created', 'updated')),
-    privacy_status text NOT NULL CHECK (privacy_status = 'creator_visible'),
+    revision_kind text NOT NULL CHECK (
+        revision_kind IN ('created', 'updated', 'privacy_changed', 'deleted')
+    ),
+    privacy_status text NOT NULL CHECK (
+        privacy_status IN ('creator_visible', 'private', 'shared', 'restricted')
+    ),
     material_status text NOT NULL CHECK (material_status IN ('active', 'archived')),
     source_kind text NOT NULL CHECK (source_kind = 'subject_cognition'),
     semantic_digest text NOT NULL CHECK (semantic_digest ~ '^sha256:[0-9a-f]{64}$'),
@@ -99,7 +106,22 @@ CREATE TABLE armi.life_material_revisions (
     UNIQUE (subject_commit_id, proposal_ref),
     CHECK (
         (revision_no = 1 AND previous_revision_id IS NULL AND revision_kind = 'created')
-        OR (revision_no > 1 AND previous_revision_id IS NOT NULL AND revision_kind = 'updated')
+        OR (
+            revision_no > 1 AND previous_revision_id IS NOT NULL
+            AND revision_kind IN ('updated', 'privacy_changed', 'deleted')
+        )
+    ),
+    CHECK (
+        (revision_kind = 'created' AND privacy_status = 'creator_visible')
+        OR (
+            revision_kind = 'updated'
+            AND privacy_status IN ('creator_visible', 'private')
+        )
+        OR (
+            revision_kind = 'privacy_changed'
+            AND privacy_status IN ('creator_visible', 'private')
+        )
+        OR (revision_kind = 'deleted' AND privacy_status = 'restricted')
     )
 );
 
@@ -136,5 +158,5 @@ GRANT SELECT, INSERT ON TABLE
     armi.life_material_revisions
 TO armi_runtime;
 
-GRANT UPDATE (current_revision_id, head_version, updated_at)
+GRANT UPDATE (current_revision_id, head_version, deleted_at, updated_at)
 ON armi.life_materials TO armi_runtime;

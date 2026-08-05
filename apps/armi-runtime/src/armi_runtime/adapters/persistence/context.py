@@ -66,6 +66,7 @@ class ContextMaterialSource:
     title: str
     metadata: tuple[tuple[str, str], ...]
     material_status: str
+    privacy_status: str
 
     def __post_init__(self) -> None:
         if (
@@ -98,6 +99,7 @@ class ContextMaterialSource:
             )
             or tuple(sorted(self.metadata)) != self.metadata
             or self.material_status not in {"active", "archived"}
+            or self.privacy_status not in {"creator_visible", "private"}
         ):
             raise ContextViolation("CTX-SOURCE-INVALID")
 
@@ -580,6 +582,7 @@ class PostgreSQLContextRepository:
                        revision.title,
                        revision.metadata,
                        revision.material_status,
+                       revision.privacy_status,
                        revision.artifact_id
                 FROM armi.life_materials AS material
                 JOIN armi.life_material_revisions AS revision
@@ -598,7 +601,7 @@ class PostgreSQLContextRepository:
         for item in material_rows:
             material_source_values.append(
                 ContextMaterialSource(
-                    await self._artifact_ref(connection, item[10]),
+                    await self._artifact_ref(connection, item[11]),
                     item[0],
                     item[1],
                     int(item[2]),
@@ -609,6 +612,7 @@ class PostgreSQLContextRepository:
                     str(item[7]),
                     _material_metadata(item[8]),
                     str(item[9]),
+                    str(item[10]),
                 )
             )
         material_sources = tuple(material_source_values)

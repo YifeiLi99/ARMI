@@ -249,6 +249,7 @@ from .life import (
 from .life_materials import (
     CandidateLifeMaterialDraft,
     LifeMaterialKind,
+    LifeMaterialPrivacyStatus,
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
 )
@@ -570,6 +571,7 @@ __all__: tuple[str, ...] = (
     "GrantMatcher",
     "GrantStatus",
     "LifeMaterialKind",
+    "LifeMaterialPrivacyStatus",
     "LifeMaterialRevisionKind",
     "LifeMaterialStatus",
     "LifeOpportunitySourceKind",

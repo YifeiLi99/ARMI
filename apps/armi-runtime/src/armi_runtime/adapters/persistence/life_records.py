@@ -209,7 +209,7 @@ class PostgreSQLLifeRecordQuery:
 
     async def query(self, request: LifeRecordQuery) -> LifeRecordPage:
         scope = {
-            "projection_version": "life-record-query.v1",
+            "projection_version": "life-record-query.v2",
             "resource": "life_records",
             "actor": request.actor.value,
             "retrieval_kind": request.retrieval_kind.value,
@@ -294,6 +294,23 @@ class PostgreSQLLifeRecordQuery:
                                  memory.current_revision_id
                             WHERE memory.subject_id = %s
                             UNION ALL
+                            SELECT material.life_material_id,
+                                   'material'::text,
+                                   revision.title,
+                                   'life_material_current'::text,
+                                   revision.created_at,
+                                   NULL::boolean
+                            FROM armi.life_materials AS material
+                            JOIN armi.life_material_revisions AS revision
+                              ON revision.life_material_revision_id =
+                                 material.current_revision_id
+                            WHERE material.subject_id = %s
+                              AND material.deleted_at IS NULL
+                              AND (
+                                  %s = 'subject'
+                                  OR revision.privacy_status = 'creator_visible'
+                              )
+                            UNION ALL
                             SELECT relationship.relationship_id,
                                    'relationship'::text,
                                    revision.interpretation,
@@ -335,6 +352,8 @@ class PostgreSQLLifeRecordQuery:
                             subject_id,
                             subject_id,
                             subject_id,
+                            subject_id,
+                            request.actor.value,
                             subject_id,
                             subject_id,
                             None

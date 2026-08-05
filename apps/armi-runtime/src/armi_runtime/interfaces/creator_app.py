@@ -1923,7 +1923,7 @@ def create_runtime_app(
             )
         response = LifeRecordPageResponse(
             contract_version="1.0",
-            projection_version="life-record-query.v1",
+            projection_version="life-record-query.v2",
             retrieval_kind="creator_view",
             items=[
                 LifeRecordItemResponse(

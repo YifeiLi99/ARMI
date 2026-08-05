@@ -90,6 +90,16 @@ class CreatorEventContractTests(unittest.TestCase):
         )
         self.assertEqual(invalidation.resource_ref, str(relationship_id))
 
+    def test_material_invalidation_refreshes_life_record_projection(self) -> None:
+        material_id = uuid7()
+        invalidation = CreatorProjectionInvalidation(
+            resource_kind=CreatorEventResourceKind.MATERIAL,
+            resource_ref=str(material_id),
+            occurred_at=Instant(datetime(2026, 8, 5, tzinfo=UTC)),
+            projection_version="life-record-query.v2",
+        )
+        self.assertEqual(invalidation.resource_ref, str(material_id))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -44,6 +44,8 @@ from armi_kernel.application import (
     FormalNoActionKind,
     FormalNoActionReason,
     LifeMaterialKind,
+    LifeMaterialPrivacyStatus,
+    LifeMaterialRevisionKind,
     LifeMaterialStatus,
     MemoryAccessibility,
     MemoryRelationKind,
@@ -87,23 +89,33 @@ from .autonomous_activity_candidate_contract import (
 from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueCommitmentChange,
     DialogueMaterialChange,
+    DialogueMaterialChangeV7,
+    DialogueMaterialContentChange,
+    DialogueMaterialStateChange,
     DialogueMemoryChange,
     DialogueRelationshipChange,
     DialogueReplyDecision,
     DialogueReplyDecisionV5,
     DialogueReplyDecisionV6,
+    DialogueReplyDecisionV7,
     DialogueReplyDecisionV8,
+    DialogueReplyDecisionV10,
     DialogueTerminalDecision,
     DialogueTerminalDecisionV5,
     DialogueTerminalDecisionV6,
+    DialogueTerminalDecisionV7,
     DialogueTerminalDecisionV8,
+    DialogueTerminalDecisionV10,
     DialogueWebResearchDecision,
     DialogueWebResearchDecisionV8,
+    DialogueWebResearchDecisionV10,
 )
 from .model_contract import (
     ActionChoiceProposal,
@@ -139,7 +151,7 @@ SLEEP_CHANGE_SET_VERSION = "armi.subject-change-set.v9"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v13"
-MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v14"
+MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,6 +259,7 @@ class CandidateLifeMaterialContext:
     title: str
     metadata: tuple[tuple[str, str], ...]
     material_status: LifeMaterialStatus
+    privacy_status: LifeMaterialPrivacyStatus
 
     def __post_init__(self) -> None:
         if (
@@ -278,6 +291,12 @@ class CandidateLifeMaterialContext:
             )
             or tuple(sorted(self.metadata)) != self.metadata
             or type(self.material_status) is not LifeMaterialStatus
+            or type(self.privacy_status) is not LifeMaterialPrivacyStatus
+            or self.privacy_status
+            not in {
+                LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
+                LifeMaterialPrivacyStatus.PRIVATE,
+            }
         ):
             raise CandidateViolation("CON-CANDIDATE-MATERIAL-CONTEXT")
 
@@ -872,6 +891,7 @@ class DeterministicCandidateValidator:
             if source_version
             in {
                 HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
             and web_research_requests
@@ -881,6 +901,8 @@ class DeterministicCandidateValidator:
                 "armi.cognition-candidate.v7",
                 HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
@@ -944,6 +966,7 @@ class DeterministicCandidateValidator:
         } or source_version in {
             "armi.cognition-candidate.v5",
             HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+            HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
             WEB_DIALOGUE_CANDIDATE_VERSION,
         }:
             change_set_value["web_research_requests"] = [
@@ -961,6 +984,7 @@ class DeterministicCandidateValidator:
             in {
                 DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
                 "armi.cognition-candidate.v6",
                 "armi.cognition-candidate.v7",
             }
@@ -968,6 +992,7 @@ class DeterministicCandidateValidator:
                 source_version
                 in {
                     HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                     WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
                 and not web_research_requests
@@ -1415,13 +1440,18 @@ def _expand_dialogue_candidate(
             DialogueReplyDecision,
             DialogueReplyDecisionV5,
             DialogueReplyDecisionV6,
+            DialogueReplyDecisionV7,
             DialogueReplyDecisionV8,
+            DialogueReplyDecisionV10,
             DialogueTerminalDecision,
             DialogueTerminalDecisionV5,
             DialogueTerminalDecisionV6,
+            DialogueTerminalDecisionV7,
             DialogueTerminalDecisionV8,
+            DialogueTerminalDecisionV10,
             DialogueWebResearchDecision,
             DialogueWebResearchDecisionV8,
+            DialogueWebResearchDecisionV10,
         ),
     ):
         return None, None, "CANDIDATE-CONTRACT"
@@ -1450,8 +1480,10 @@ def _expand_dialogue_candidate(
         (
             DialogueReplyDecisionV5,
             DialogueReplyDecisionV6,
+            DialogueReplyDecisionV7,
             DialogueReplyDecision,
             DialogueReplyDecisionV8,
+            DialogueReplyDecisionV10,
         ),
     ):
         catalog = next(
@@ -1606,7 +1638,12 @@ def _expand_dialogue_candidate(
             }
         )
     elif isinstance(
-        decision, (DialogueWebResearchDecision, DialogueWebResearchDecisionV8)
+        decision,
+        (
+            DialogueWebResearchDecision,
+            DialogueWebResearchDecisionV8,
+            DialogueWebResearchDecisionV10,
+        ),
     ):
         purpose = next(
             (
@@ -1719,7 +1756,7 @@ def _expand_dialogue_candidate(
 
 
 def _bind_dialogue_material(
-    change: DialogueMaterialChange,
+    change: DialogueMaterialChange | DialogueMaterialChangeV7,
     *,
     proposal_ref: str,
     evidence: CandidateBasis,
@@ -1728,11 +1765,12 @@ def _bind_dialogue_material(
 ) -> tuple[CandidateLifeMaterialDraft | None, str | None]:
     if context.subject_party_id is None:
         return None, "CANDIDATE-MATERIAL-OWNER"
-    body_bytes = change.body.encode("utf-8", errors="strict")
-    body_digest = Digest.from_bytes(body_bytes)
-    metadata = tuple(sorted(change.metadata.items()))
-    if change.action == "create":
+    if (
+        isinstance(change, (DialogueMaterialContentChange, DialogueMaterialChangeV7))
+        and change.action == "create"
+    ):
         assert change.material_kind is not None
+        body_bytes = change.body.encode("utf-8", errors="strict")
         return (
             CandidateLifeMaterialDraft(
                 proposal_ref,
@@ -1745,14 +1783,13 @@ def _bind_dialogue_material(
                 0,
                 change.title,
                 body_bytes,
-                body_digest,
-                metadata,
+                Digest.from_bytes(body_bytes),
+                tuple(sorted(change.metadata.items())),
                 LifeMaterialStatus(change.material_status),
             ),
             None,
         )
 
-    assert change.material_ref is not None
     target_basis = next(
         (
             item
@@ -1782,12 +1819,50 @@ def _bind_dialogue_material(
         return None, "CANDIDATE-MATERIAL-STALE"
     if current.owner_party_id != context.subject_party_id:
         return None, "CANDIDATE-MATERIAL-OWNER"
-    if (
-        current.title == change.title
-        and current.body_digest == body_digest
-        and current.metadata == metadata
-        and current.material_status is LifeMaterialStatus(change.material_status)
-    ):
+    if isinstance(change, (DialogueMaterialContentChange, DialogueMaterialChangeV7)):
+        body_bytes = change.body.encode("utf-8", errors="strict")
+        body_digest = Digest.from_bytes(body_bytes)
+        metadata = tuple(sorted(change.metadata.items()))
+        material_status = LifeMaterialStatus(change.material_status)
+        if (
+            current.title == change.title
+            and current.body_digest == body_digest
+            and current.metadata == metadata
+            and current.material_status is material_status
+        ):
+            return None, "CANDIDATE-MATERIAL-NO-OP"
+        return (
+            CandidateLifeMaterialDraft(
+                proposal_ref,
+                "group:1",
+                (evidence.ordinal, target_basis.ordinal),
+                current.material_id,
+                current.owner_party_id,
+                current.material_kind,
+                current.current_revision_id,
+                current.head_version,
+                change.title,
+                body_bytes,
+                body_digest,
+                metadata,
+                material_status,
+                current.privacy_status.value,
+            ),
+            None,
+        )
+
+    assert isinstance(change, DialogueMaterialStateChange)
+    privacy_status = {
+        "set_private": LifeMaterialPrivacyStatus.PRIVATE,
+        "set_creator_visible": LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
+        "delete": LifeMaterialPrivacyStatus.RESTRICTED,
+    }[change.action]
+    revision_kind = (
+        LifeMaterialRevisionKind.DELETED
+        if change.action == "delete"
+        else LifeMaterialRevisionKind.PRIVACY_CHANGED
+    )
+    if privacy_status is current.privacy_status:
         return None, "CANDIDATE-MATERIAL-NO-OP"
     return (
         CandidateLifeMaterialDraft(
@@ -1799,11 +1874,13 @@ def _bind_dialogue_material(
             current.material_kind,
             current.current_revision_id,
             current.head_version,
-            change.title,
-            body_bytes,
-            body_digest,
-            metadata,
-            LifeMaterialStatus(change.material_status),
+            current.title,
+            None,
+            current.body_digest,
+            current.metadata,
+            current.material_status,
+            privacy_status.value,
+            change_kind=revision_kind,
         ),
         None,
     )
@@ -2793,11 +2870,16 @@ def _material_wire(value: CandidateLifeMaterialDraft) -> dict[str, object]:
         ),
         "expected_head_version": value.expected_head_version,
         "title": value.title,
-        "body": value.body_bytes.decode("utf-8", errors="strict"),
+        "body": (
+            None
+            if value.body_bytes is None
+            else value.body_bytes.decode("utf-8", errors="strict")
+        ),
         "body_digest": value.body_digest.value,
         "metadata": dict(value.metadata),
         "material_status": value.material_status.value,
         "privacy_status": value.privacy_status,
+        "revision_kind": value.revision_kind.value,
         "source_kind": value.source_kind,
     }
 

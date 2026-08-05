@@ -21,6 +21,8 @@ from armi_kernel.application import (
     CreatorReplyDraft,
     CreatorSceneReplyScope,
     LifeMaterialKind,
+    LifeMaterialPrivacyStatus,
+    LifeMaterialRevisionKind,
     LifeMaterialStatus,
     MemoryAccessibility,
     MemoryRelationKind,
@@ -1182,7 +1184,7 @@ def test_compact_dialogue_creates_runtime_owned_life_material_deterministically(
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and repeated.change_set is not None
     assert first.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v14" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v15" in first.change_set.canonical_bytes
     assert len(first.change_set.materials) == 1
     material = first.change_set.materials[0]
     assert isinstance(material, CandidateLifeMaterialDraft)
@@ -1190,6 +1192,7 @@ def test_compact_dialogue_creates_runtime_owned_life_material_deterministically(
     assert material.material_kind is LifeMaterialKind.DIARY
     assert material.current_revision_id is None
     assert material.expected_head_version == 0
+    assert material.body_bytes is not None
     assert material.body_digest == Digest.from_bytes(material.body_bytes)
     assert any(item is material for item in _validation_drafts(first.change_set))
     reparsed = parse_subject_change_set(first.change_set.canonical_bytes)
@@ -1214,6 +1217,7 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
         "旧标题",
         (("topic", "notes"),),
         LifeMaterialStatus.ACTIVE,
+        LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
     )
     context = replace(
         context,
@@ -1301,6 +1305,135 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
         _bytes(candidate), bases=extended
     )
     assert stale.error_code == "CANDIDATE-MATERIAL-STALE"
+
+
+@pytest.mark.parametrize(
+    ("action", "current_privacy", "privacy_status", "revision_kind"),
+    (
+        (
+            "set_private",
+            LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
+            LifeMaterialPrivacyStatus.PRIVATE,
+            LifeMaterialRevisionKind.PRIVACY_CHANGED,
+        ),
+        (
+            "set_creator_visible",
+            LifeMaterialPrivacyStatus.PRIVATE,
+            LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
+            LifeMaterialRevisionKind.PRIVACY_CHANGED,
+        ),
+        (
+            "delete",
+            LifeMaterialPrivacyStatus.PRIVATE,
+            LifeMaterialPrivacyStatus.RESTRICTED,
+            LifeMaterialRevisionKind.DELETED,
+        ),
+    ),
+)
+def test_compact_dialogue_material_state_changes_reuse_current_content(
+    action: str,
+    current_privacy: LifeMaterialPrivacyStatus,
+    privacy_status: LifeMaterialPrivacyStatus,
+    revision_kind: LifeMaterialRevisionKind,
+) -> None:
+    context, bases = _fixture()
+    subject_party_id = uuid7()
+    material_id, revision_id = uuid7(), uuid7()
+    material_digest = Digest.from_bytes(b"material-context")
+    current = CandidateLifeMaterialContext(
+        material_id,
+        revision_id,
+        2,
+        material_digest,
+        Digest.from_bytes("私人正文".encode()),
+        subject_party_id,
+        LifeMaterialKind.DIARY,
+        "私人记录",
+        (),
+        LifeMaterialStatus.ACTIVE,
+        current_privacy,
+    )
+    context = replace(
+        context,
+        subject_party_id=subject_party_id,
+        current_materials=(current,),
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            6,
+            "material",
+            "current_material",
+            material_id,
+            2,
+            material_digest,
+            "subjective_state",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "这是我对自己资料作出的决定。",
+                "material_change": {
+                    "action": action,
+                    "material_ref": "ctx:6",
+                },
+            }
+        ),
+        bases=extended,
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    material = result.change_set.materials[0]
+    assert material.body_bytes is None
+    assert material.body_digest == current.body_digest
+    assert material.privacy_status == privacy_status.value
+    assert material.revision_kind is revision_kind
+    assert parse_subject_change_set(result.change_set.canonical_bytes).materials == (
+        material,
+    )
+    wrong_owner = DeterministicCandidateValidator(
+        replace(
+            context,
+            current_materials=(replace(current, owner_party_id=uuid7()),),
+        )
+    ).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "我不能改动不属于自己的资料。",
+                "material_change": {
+                    "action": action,
+                    "material_ref": "ctx:6",
+                },
+            }
+        ),
+        bases=extended,
+    )
+    assert wrong_owner.error_code == "CANDIDATE-MATERIAL-OWNER"
 
 
 def test_compact_dialogue_establishes_relationship_from_same_experience() -> None:

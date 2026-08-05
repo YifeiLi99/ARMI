@@ -29,6 +29,15 @@ class LifeMaterialStatus(StrEnum):
 class LifeMaterialRevisionKind(StrEnum):
     CREATED = "created"
     UPDATED = "updated"
+    PRIVACY_CHANGED = "privacy_changed"
+    DELETED = "deleted"
+
+
+class LifeMaterialPrivacyStatus(StrEnum):
+    CREATOR_VISIBLE = "creator_visible"
+    PRIVATE = "private"
+    SHARED = "shared"
+    RESTRICTED = "restricted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,12 +53,13 @@ class CandidateLifeMaterialDraft:
     current_revision_id: UUID | None
     expected_head_version: int
     title: str
-    body_bytes: bytes
+    body_bytes: bytes | None
     body_digest: Digest
     metadata: tuple[tuple[str, str], ...]
     material_status: LifeMaterialStatus
     privacy_status: str = "creator_visible"
     source_kind: str = "subject_cognition"
+    change_kind: LifeMaterialRevisionKind | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -84,11 +94,19 @@ class CandidateLifeMaterialDraft:
             or not 1 <= len(self.title) <= 256
             or not self.title.strip()
             or "\x00" in self.title
-            or type(self.body_bytes) is not bytes
-            or not 1 <= len(self.body_bytes) <= 65_536
-            or b"\x00" in self.body_bytes
+            or (
+                self.body_bytes is not None
+                and (
+                    type(self.body_bytes) is not bytes
+                    or not 1 <= len(self.body_bytes) <= 65_536
+                    or b"\x00" in self.body_bytes
+                )
+            )
             or type(self.body_digest) is not Digest
-            or Digest.from_bytes(self.body_bytes) != self.body_digest
+            or (
+                self.body_bytes is not None
+                and Digest.from_bytes(self.body_bytes) != self.body_digest
+            )
             or type(self.metadata) is not tuple
             or len(self.metadata) > 32
             or any(
@@ -102,24 +120,76 @@ class CandidateLifeMaterialDraft:
             or tuple(sorted(self.metadata)) != self.metadata
             or len({key for key, _ in self.metadata}) != len(self.metadata)
             or type(self.material_status) is not LifeMaterialStatus
-            or self.privacy_status != "creator_visible"
+            or self.privacy_status
+            not in {
+                LifeMaterialPrivacyStatus.CREATOR_VISIBLE.value,
+                LifeMaterialPrivacyStatus.PRIVATE.value,
+                LifeMaterialPrivacyStatus.RESTRICTED.value,
+            }
             or self.source_kind != "subject_cognition"
+            or (
+                self.change_kind is not None
+                and type(self.change_kind) is not LifeMaterialRevisionKind
+            )
         ):
             raise ValueError("life material draft is invalid")
         try:
-            body = self.body_bytes.decode("utf-8", errors="strict")
+            body = (
+                None
+                if self.body_bytes is None
+                else self.body_bytes.decode("utf-8", errors="strict")
+            )
             self.title.encode("utf-8", errors="strict")
             for key, value in self.metadata:
                 key.encode("ascii", errors="strict")
                 value.encode("utf-8", errors="strict")
         except UnicodeError:
             raise ValueError("life material draft is invalid") from None
-        if not body.strip():
+        if body is not None and not body.strip():
+            raise ValueError("life material draft is invalid")
+        revision_kind = self.revision_kind
+        if (
+            (revision_kind is LifeMaterialRevisionKind.CREATED)
+            != (self.current_revision_id is None)
+            or (
+                revision_kind
+                in {
+                    LifeMaterialRevisionKind.CREATED,
+                    LifeMaterialRevisionKind.UPDATED,
+                }
+            )
+            != (self.body_bytes is not None)
+            or (
+                revision_kind is LifeMaterialRevisionKind.CREATED
+                and self.privacy_status
+                != LifeMaterialPrivacyStatus.CREATOR_VISIBLE.value
+            )
+            or (
+                revision_kind is LifeMaterialRevisionKind.UPDATED
+                and self.privacy_status
+                not in {
+                    LifeMaterialPrivacyStatus.CREATOR_VISIBLE.value,
+                    LifeMaterialPrivacyStatus.PRIVATE.value,
+                }
+            )
+            or (
+                revision_kind is LifeMaterialRevisionKind.PRIVACY_CHANGED
+                and self.privacy_status
+                not in {
+                    LifeMaterialPrivacyStatus.CREATOR_VISIBLE.value,
+                    LifeMaterialPrivacyStatus.PRIVATE.value,
+                }
+            )
+            or (
+                revision_kind is LifeMaterialRevisionKind.DELETED
+                and self.privacy_status != LifeMaterialPrivacyStatus.RESTRICTED.value
+            )
+        ):
             raise ValueError("life material draft is invalid")
 
     @property
     def revision_kind(self) -> LifeMaterialRevisionKind:
-        return (
+        return self.change_kind or (
             LifeMaterialRevisionKind.CREATED
             if self.current_revision_id is None
             else LifeMaterialRevisionKind.UPDATED
@@ -129,6 +199,7 @@ class CandidateLifeMaterialDraft:
 __all__ = (
     "CandidateLifeMaterialDraft",
     "LifeMaterialKind",
+    "LifeMaterialPrivacyStatus",
     "LifeMaterialRevisionKind",
     "LifeMaterialStatus",
 )

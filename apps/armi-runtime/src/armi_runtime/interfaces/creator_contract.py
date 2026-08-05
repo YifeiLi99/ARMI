@@ -550,6 +550,7 @@ class CreatorRelationshipBoundaryRequest(_StrictWireModel):
 type LifeRecordKindValue = Literal[
     "activity",
     "conversation",
+    "material",
     "memory",
     "relationship",
     "self_change",
@@ -597,7 +598,7 @@ class LifeRecordItemResponse(_StrictWireModel):
 
 class LifeRecordPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["life-record-query.v1"]
+    projection_version: Literal["life-record-query.v2"]
     retrieval_kind: Literal["exact_query", "creator_view"]
     items: Annotated[list[LifeRecordItemResponse], Field(max_length=100)]
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
@@ -808,6 +809,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "activity.invalidated",
         "memory.invalidated",
         "maintenance.invalidated",
+        "material.invalidated",
         "relationship.invalidated",
         "scene.timeline.invalidated",
         "capability.request.invalidated",
@@ -819,6 +821,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "activity",
         "memory",
         "maintenance",
+        "material",
         "relationship",
         "scene_timeline",
         "capability_request",
@@ -831,6 +834,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "creator-activity.v1",
         "creator-memory.v1",
         "creator-maintenance.v1",
+        "life-record-query.v2",
         "creator-relationship.v1",
         "scene-timeline.v3",
         "capability-request.v3",
@@ -863,6 +867,11 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             "maintenance": (
                 "maintenance.invalidated",
                 "creator-maintenance.v1",
+                _UUIDV7_PATTERN,
+            ),
+            "material": (
+                "material.invalidated",
+                "life-record-query.v2",
                 _UUIDV7_PATTERN,
             ),
             "relationship": (

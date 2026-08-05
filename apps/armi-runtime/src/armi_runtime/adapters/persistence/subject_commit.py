@@ -179,6 +179,25 @@ class PostgreSQLSubjectCommitRepository:
         ).fetchall()
         return tuple(UUID(str(row[0])) for row in rows)
 
+    async def affected_material_ids(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        validation_id: UUID,
+    ) -> tuple[UUID, ...]:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        rows = await (
+            await connection.execute(
+                """
+                SELECT life_material_id
+                FROM armi.life_material_revisions
+                WHERE candidate_validation_id = %s
+                ORDER BY life_material_id
+                """,
+                (validation_id,),
+            )
+        ).fetchall()
+        return tuple(UUID(str(row[0])) for row in rows)
+
     async def affected_relationship_ids(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
@@ -644,6 +663,18 @@ class PostgreSQLSubjectCommitRepository:
             materials=change_set.materials,
             artifact_ids=material_artifact_ids,
         )
+        for material in change_set.materials:
+            await unit_of_work.audit.append(
+                _audit(
+                    unit_of_work,
+                    snapshot,
+                    f"life_material.{material.revision_kind.value}",
+                    "life_material",
+                    material.material_id,
+                    AuditResultStatus.APPLIED,
+                    change_set.digest,
+                )
+            )
 
         for component in sorted(
             change_set.components, key=lambda item: item.owner.value

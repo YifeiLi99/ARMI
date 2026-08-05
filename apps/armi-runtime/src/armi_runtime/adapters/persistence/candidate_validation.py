@@ -132,6 +132,7 @@ class CandidateEpisodeSnapshot:
             str,
             tuple[tuple[str, str], ...],
             str,
+            str,
         ],
         ...,
     ] = ()
@@ -421,6 +422,7 @@ class PostgreSQLCandidateValidationRepository:
                        revision.title,
                        revision.metadata,
                        revision.material_status
+                       , revision.privacy_status
                 FROM armi.cognitive_context_items AS item
                 JOIN armi.life_materials AS material
                   ON material.life_material_id = item.source_ref
@@ -510,6 +512,7 @@ class PostgreSQLCandidateValidationRepository:
                     str(item[7]),
                     _material_metadata(item[8]),
                     str(item[9]),
+                    str(item[10]),
                 )
                 for item in material_rows
             ),

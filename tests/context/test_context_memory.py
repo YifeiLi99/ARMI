@@ -179,6 +179,7 @@ def test_context_includes_current_life_material_with_revision_identity() -> None
             "body": "这是当前完整正文。",
             "metadata": {"mood": "calm"},
             "material_status": "active",
+            "privacy_status": "private",
         }
     )
     request = _context_request(
@@ -195,6 +196,7 @@ def test_context_includes_current_life_material_with_revision_identity() -> None
     assert item.source.digest == semantic_digest
     assert item.trust_class.value == "subjective_state"
     assert "当前完整正文" in cast(str, item.content)
+    assert '"privacy_status":"private"' in cast(str, item.content)
 
 
 def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -> None:

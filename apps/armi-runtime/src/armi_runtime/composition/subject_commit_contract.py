@@ -37,6 +37,7 @@ from armi_kernel.application import (
     FormalNoActionKind,
     FormalNoActionReason,
     LifeMaterialKind,
+    LifeMaterialRevisionKind,
     LifeMaterialStatus,
     MemoryAccessibility,
     MemoryRelationKind,
@@ -89,6 +90,7 @@ _TOP_KEYS_V11 = {*_TOP_KEYS_V10, "memory_revisions"}
 _TOP_KEYS_V12 = {*_TOP_KEYS_V11, "relationships"}
 _TOP_KEYS_V13 = _TOP_KEYS_V12
 _TOP_KEYS_V14 = {*_TOP_KEYS_V13, "materials"}
+_TOP_KEYS_V15 = _TOP_KEYS_V14
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -112,6 +114,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v12",
             "armi.subject-change-set.v13",
             "armi.subject-change-set.v14",
+            "armi.subject-change-set.v15",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -143,6 +146,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V13
             if version.endswith(".v13")
             else _TOP_KEYS_V14
+            if version.endswith(".v14")
+            else _TOP_KEYS_V15
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -200,12 +205,13 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         relationships = tuple(
             _relationship(
                 item,
-                include_commitments=version.endswith((".v13", ".v14")),
+                include_commitments=version.endswith((".v13", ".v14", ".v15")),
             )
             for item in _array(document.get("relationships", []), 1)
         )
         materials = tuple(
-            _material(item) for item in _array(document.get("materials", []), 1)
+            _material(item, include_mutation=version.endswith(".v15"))
+            for item in _array(document.get("materials", []), 1)
         )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
@@ -424,29 +430,41 @@ def _memory(value: object) -> CandidateMemoryDraft:
     )
 
 
-def _material(value: object) -> CandidateLifeMaterialDraft:
+def _material(
+    value: object,
+    *,
+    include_mutation: bool,
+) -> CandidateLifeMaterialDraft:
+    keys = {
+        "proposal_ref",
+        "atomic_group_ref",
+        "basis_ordinals",
+        "material_id",
+        "owner_party_id",
+        "material_kind",
+        "current_revision_id",
+        "expected_head_version",
+        "title",
+        "body",
+        "body_digest",
+        "metadata",
+        "material_status",
+        "privacy_status",
+        "source_kind",
+    }
+    if include_mutation:
+        keys.add("revision_kind")
     item = _object(
         value,
-        {
-            "proposal_ref",
-            "atomic_group_ref",
-            "basis_ordinals",
-            "material_id",
-            "owner_party_id",
-            "material_kind",
-            "current_revision_id",
-            "expected_head_version",
-            "title",
-            "body",
-            "body_digest",
-            "metadata",
-            "material_status",
-            "privacy_status",
-            "source_kind",
-        },
+        keys,
     )
     current_revision_id = item["current_revision_id"]
-    body = _text(item["body"]).encode("utf-8", errors="strict")
+    body_value = item["body"]
+    body = (
+        None
+        if body_value is None and include_mutation
+        else _text(body_value).encode("utf-8", errors="strict")
+    )
     metadata_value = item["metadata"]
     if type(metadata_value) is not dict or any(
         type(key) is not str or type(metadata_item) is not str
@@ -454,6 +472,11 @@ def _material(value: object) -> CandidateLifeMaterialDraft:
     ):
         raise ValueError
     metadata = cast(dict[str, str], metadata_value)
+    revision_kind = (
+        None
+        if not include_mutation
+        else LifeMaterialRevisionKind(_text(item["revision_kind"]))
+    )
     return CandidateLifeMaterialDraft(
         _text(item["proposal_ref"]),
         _text(item["atomic_group_ref"]),
@@ -470,6 +493,12 @@ def _material(value: object) -> CandidateLifeMaterialDraft:
         LifeMaterialStatus(_text(item["material_status"])),
         _text(item["privacy_status"]),
         _text(item["source_kind"]),
+        (
+            None
+            if revision_kind
+            in {LifeMaterialRevisionKind.CREATED, LifeMaterialRevisionKind.UPDATED}
+            else revision_kind
+        ),
     )
 
 

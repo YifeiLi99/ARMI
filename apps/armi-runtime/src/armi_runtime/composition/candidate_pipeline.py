@@ -26,6 +26,7 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateViolation,
     LifeMaterialKind,
+    LifeMaterialPrivacyStatus,
     LifeMaterialStatus,
     LockPlan,
     LockTarget,
@@ -414,6 +415,7 @@ def _material_contexts(
             str,
             tuple[tuple[str, str], ...],
             str,
+            str,
         ],
         ...,
     ],
@@ -431,6 +433,7 @@ def _material_contexts(
                 item[7],
                 item[8],
                 LifeMaterialStatus(item[9]),
+                LifeMaterialPrivacyStatus(item[10]),
             )
             for item in values
         )

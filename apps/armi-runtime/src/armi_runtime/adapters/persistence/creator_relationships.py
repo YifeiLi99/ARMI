@@ -336,11 +336,12 @@ def _issues(value: object) -> tuple[RelationshipIssue, ...]:
         commitment_ids = item["commitment_ids"]
         if type(commitment_ids) is not list:
             raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-SHAPE")
+        commitment_values = cast(list[object], commitment_ids)
         values.append(
             RelationshipIssue(
                 _uuid(item, "issue_id"),
                 RelationshipIssueKind(_text(item, "kind")),
-                tuple(_uuid({"value": value}, "value") for value in commitment_ids),
+                tuple(_uuid({"value": value}, "value") for value in commitment_values),
                 _text(item, "summary"),
                 RelationshipIssueStatus(_text(item, "status")),
             )
