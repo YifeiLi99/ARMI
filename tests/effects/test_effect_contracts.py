@@ -35,6 +35,9 @@ class EffectContractTests(unittest.TestCase):
             EffectStatus.REGISTERED,
             EffectVerificationStatus.NOT_STARTED,
             Instant(datetime.now(UTC)),
+            uuid7(),
+            uuid7(),
+            "creator.scene.reply",
         )
         self.assertEqual(view.effect_id, effect_id)
         self.assertEqual(decision_id.value.version, 7)
@@ -55,6 +58,9 @@ class EffectContractTests(unittest.TestCase):
                 EffectStatus.CANCELLED,
                 EffectVerificationStatus.NOT_STARTED,
                 Instant(datetime.now(UTC)),
+                uuid7(),
+                uuid7(),
+                "creator.scene.reply",
             )
         self.assertEqual(state.exception.code, "CON-EFFECT-STATE")
 
@@ -101,6 +107,9 @@ class EffectContractTests(unittest.TestCase):
                 EffectStatus.UNKNOWN,
                 EffectVerificationStatus.INCONCLUSIVE,
                 Instant(datetime.now(UTC)),
+                uuid7(),
+                uuid7(),
+                "creator.scene.reply",
                 attempt_count=1,
             )
         self.assertEqual(invalid.exception.code, "CON-EFFECT-VERIFICATION")
@@ -135,6 +144,9 @@ class EffectContractTests(unittest.TestCase):
             EffectStatus.COMPLETED,
             EffectVerificationStatus.VERIFIED,
             Instant(datetime.now(UTC)),
+            uuid7(),
+            uuid7(),
+            "codex.delegated-work",
             attempt_count=1,
             sdk_identity="openai-codex==0.144.4",
             source_tree_digest=Digest.from_bytes(b"source"),

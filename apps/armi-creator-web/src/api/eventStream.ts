@@ -21,16 +21,16 @@ const RESOURCES = {
   ],
   scene_timeline: [
     "scene.timeline.invalidated",
-    "scene-timeline.v3",
+    "scene-timeline.v4",
     SCENE_KEY,
   ],
   capability_request: [
     "capability.request.invalidated",
-    "capability-request.v3",
+    "capability-request.v4",
     UUID_V7,
   ],
   operation: ["operation.invalidated", "creator-operation.v1", UUID_V7],
-  effect: ["effect.invalidated", "creator-effect.v1", UUID_V7],
+  effect: ["effect.invalidated", "creator-effect.v2", UUID_V7],
   subject_summary: [
     "subject.summary.invalidated",
     "subject-summary.v1",

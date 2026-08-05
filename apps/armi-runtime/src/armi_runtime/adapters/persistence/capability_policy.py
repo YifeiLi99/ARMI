@@ -89,7 +89,7 @@ class PostgreSQLCreatorGrantPolicy:
         if type(cursor_key) is not bytes or len(cursor_key) < 32:
             raise CapabilityViolation("POLICY-CURSOR-KEY")
         self._cursor_key = hmac.new(
-            cursor_key, b"armi.creator.capability-request.cursor-key.v3", hashlib.sha256
+            cursor_key, b"armi.creator.capability-request.cursor-key.v4", hashlib.sha256
         ).digest()
         self._environment_id = environment_id
         self._notifier = notifier
@@ -156,7 +156,16 @@ class PostgreSQLCreatorGrantPolicy:
                              THEN 'expired'
                              ELSE request.current_status
                            END, request.request_version,
-                           request.created_at, permission.grant_id,
+                           request.created_at,
+                           CASE
+                             WHEN request.current_status IN ('granted', 'limited')
+                              AND permission.valid_until <= statement_timestamp()
+                             THEN permission.valid_until
+                             WHEN request.current_status = 'pending'
+                             THEN request.created_at
+                             ELSE request.resolved_at
+                           END,
+                           permission.grant_id,
                            capability.availability_status,
                            decision.reason_code,
                            CASE
@@ -164,6 +173,13 @@ class PostgreSQLCreatorGrantPolicy:
                               AND permission.valid_until <= statement_timestamp()
                              THEN 'expired'
                              ELSE permission.status
+                           END,
+                           CASE
+                             WHEN permission.status = 'expired'
+                               OR (permission.status = 'active'
+                                AND permission.valid_until <= statement_timestamp())
+                             THEN permission.valid_until
+                             ELSE permission.revoked_at
                            END,
                            permission.valid_from, permission.valid_until,
                            permission.max_uses, permission.consumed_uses,
@@ -219,41 +235,44 @@ class PostgreSQLCreatorGrantPolicy:
                 "status": str(row[14]),
                 "request_version": int(row[15]),
                 "created_at": row[16],
-                "capability_availability": str(row[18]),
+                "status_changed_at": row[17],
+                "capability_availability": str(row[19]),
                 "resolution_reason_code": (
-                    str(row[19]).upper().replace("_", "-")
-                    if row[19] is not None
+                    str(row[20]).upper().replace("_", "-")
+                    if row[20] is not None
                     else None
                 ),
                 "effective_grant": (
                     (
                         {
                             "scope_kind": "creator_scene_reply",
-                            "grant_ref": str(row[17]),
-                            "status": str(row[20]),
-                            "valid_from": row[21],
-                            "valid_until": row[22],
-                            "max_uses": int(row[23]),
-                            "consumed_uses": int(row[24]),
-                            "remaining_uses": int(row[23]) - int(row[24]),
-                            "max_payload_bytes": int(row[25]),
+                            "grant_ref": str(row[18]),
+                            "status": str(row[21]),
+                            "ended_at": row[22],
+                            "valid_from": row[23],
+                            "valid_until": row[24],
+                            "max_uses": int(row[25]),
+                            "consumed_uses": int(row[26]),
+                            "remaining_uses": int(row[25]) - int(row[26]),
+                            "max_payload_bytes": int(row[27]),
                         }
                         if str(row[1]) == "creator.scene.reply"
                         else {
                             "scope_kind": "codex_delegated_work",
-                            "grant_ref": str(row[17]),
-                            "status": str(row[20]),
-                            "valid_from": row[21],
-                            "valid_until": row[22],
-                            "max_uses": int(row[23]),
-                            "consumed_uses": int(row[24]),
-                            "remaining_uses": int(row[23]) - int(row[24]),
-                            "workspace_scope": row[26],
-                            "artifact_scope": row[27],
-                            "network_access": row[28],
+                            "grant_ref": str(row[18]),
+                            "status": str(row[21]),
+                            "ended_at": row[22],
+                            "valid_from": row[23],
+                            "valid_until": row[24],
+                            "max_uses": int(row[25]),
+                            "consumed_uses": int(row[26]),
+                            "remaining_uses": int(row[25]) - int(row[26]),
+                            "workspace_scope": row[28],
+                            "artifact_scope": row[29],
+                            "network_access": row[30],
                         }
                     )
-                    if row[17] is not None
+                    if row[18] is not None
                     else None
                 ),
             }
@@ -747,7 +766,7 @@ class PostgreSQLCreatorGrantPolicy:
                 CreatorEventResourceKind.CAPABILITY_REQUEST,
                 str(request_id),
                 now,
-                "capability-request.v3",
+                "capability-request.v4",
             )
             for request_id in request_ids
         ]
@@ -758,7 +777,7 @@ class PostgreSQLCreatorGrantPolicy:
                         CreatorEventResourceKind.EFFECT,
                         str(effect_id),
                         now,
-                        "creator-effect.v1",
+                        "creator-effect.v2",
                     ),
                     CreatorProjectionInvalidation(
                         CreatorEventResourceKind.OPERATION,
@@ -1135,8 +1154,8 @@ def _encode_cursor(
         cast(
             Any,
             {
-                "schema_version": "armi.capability-request-cursor.v3",
-                "projection_version": "capability-request.v3",
+                "schema_version": "armi.capability-request-cursor.v4",
+                "projection_version": "capability-request.v4",
                 "environment_id": str(environment_id),
                 "creator_party_id": str(creator_party_id),
                 "limit": limit,
@@ -1186,8 +1205,8 @@ def _decode_cursor(
                 "capability_request_id",
                 "projection_version",
             }
-            or document["schema_version"] != "armi.capability-request-cursor.v3"
-            or document["projection_version"] != "capability-request.v3"
+            or document["schema_version"] != "armi.capability-request-cursor.v4"
+            or document["projection_version"] != "capability-request.v4"
             or document["environment_id"] != str(environment_id)
             or document["creator_party_id"] != str(creator_party_id)
             or document["limit"] != limit
@@ -1195,6 +1214,7 @@ def _decode_cursor(
             if document.get("schema_version") in {
                 "armi.capability-request-cursor.v1",
                 "armi.capability-request-cursor.v2",
+                "armi.capability-request-cursor.v3",
             }:
                 raise CapabilityViolation("CONFLICT-CAPABILITY-CURSOR-STALE")
             raise ValueError

@@ -420,7 +420,7 @@ class SubjectCommitPipeline:
                         CreatorEventResourceKind.SCENE_TIMELINE,
                         SceneKey(snapshot.scene_key).value,
                         now,
-                        "scene-timeline.v3",
+                        "scene-timeline.v4",
                     )
                 )
             invalidations.append(
@@ -443,7 +443,7 @@ class SubjectCommitPipeline:
                         CreatorEventResourceKind.CAPABILITY_REQUEST,
                         str(request_id),
                         now,
-                        "capability-request.v3",
+                        "capability-request.v4",
                     )
                     for request_id in request_ids
                 )

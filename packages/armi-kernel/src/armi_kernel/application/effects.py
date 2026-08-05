@@ -220,6 +220,9 @@ class EffectView:
     status: EffectStatus
     verification_status: EffectVerificationStatus
     registered_at: Instant
+    capability_request_ref: UUID
+    grant_ref: UUID
+    capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
     cancelled_at: Instant | None = None
     attempt_count: int = 0
     last_observation_kind: EffectObservationKind | None = None
@@ -241,8 +244,18 @@ class EffectView:
 
     def __post_init__(self) -> None:
         _uuid7(self.root_operation_ref)
+        _uuid7(self.capability_request_ref)
+        _uuid7(self.grant_ref)
         if self.effect_kind not in {"creator_response", "codex_delegation"}:
             raise EffectViolation("CON-EFFECT-KIND")
+        if (
+            self.effect_kind == "creator_response"
+            and self.capability_kind != "creator.scene.reply"
+        ) or (
+            self.effect_kind == "codex_delegation"
+            and self.capability_kind != "codex.delegated-work"
+        ):
+            raise EffectViolation("CON-EFFECT-CAPABILITY")
         if (self.status is EffectStatus.CANCELLED) != (self.cancelled_at is not None):
             raise EffectViolation("CON-EFFECT-STATE")
         if not 0 <= self.attempt_count <= 2:

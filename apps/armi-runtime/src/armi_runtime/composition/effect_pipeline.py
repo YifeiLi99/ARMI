@@ -350,7 +350,7 @@ class EffectRegistrationPipeline:
                 (
                     CreatorEventResourceKind.EFFECT,
                     str(result.effect_id.value),
-                    "creator-effect.v1",
+                    "creator-effect.v2",
                 )
             )
         await self._notify(invalidations)
@@ -374,7 +374,7 @@ class EffectRegistrationPipeline:
             (
                 CreatorEventResourceKind.EFFECT,
                 str(snapshot.request.effect_id.value),
-                "creator-effect.v1",
+                "creator-effect.v2",
             ),
             (
                 CreatorEventResourceKind.OPERATION,
@@ -388,7 +388,7 @@ class EffectRegistrationPipeline:
                 (
                     CreatorEventResourceKind.SCENE_TIMELINE,
                     SceneKey(snapshot.scene_key).value,
-                    "scene-timeline.v3",
+                    "scene-timeline.v4",
                 ),
             )
         await self._notify(invalidations)

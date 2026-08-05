@@ -73,6 +73,18 @@ export function EffectDetail({
         <>
           <dl>
             <div>
+              <dt>能力</dt>
+              <dd>{effect.data.capability_kind}</dd>
+            </div>
+            <div>
+              <dt>Capability 申请</dt>
+              <dd>{effect.data.capability_request_ref}</dd>
+            </div>
+            <div>
+              <dt>授权依据</dt>
+              <dd>{effect.data.grant_ref}</dd>
+            </div>
+            <div>
               <dt>状态</dt>
               <dd>{effect.data.status}</dd>
             </div>
@@ -193,6 +205,22 @@ export function EffectDetail({
           {effect.data.status === "unknown" ? (
             <p className="critical-note" role="status">
               结果未知；请按核验责任确认，不提供自动重试。
+            </p>
+          ) : null}
+          {effect.data.status === "registered" ? (
+            <p className="authority-note" role="status">
+              效果已经登记，但尚未证明进入外部派发；授权撤回或过期后的最终状态以账本重取结果为准。
+            </p>
+          ) : null}
+          {effect.data.status === "dispatching" ? (
+            <p className="critical-note" role="status">
+              效果已进入派发边界；之后撤回授权不会改写在途事实，仍需等待可靠回执或核验结果。
+            </p>
+          ) : null}
+          {effect.data.status === "cancelled" ? (
+            <p className="authority-note" role="status">
+              账本确认该效果已在派发前取消；申请、grant、policy、attempt
+              与取消历史仍被保留。
             </p>
           ) : null}
         </>

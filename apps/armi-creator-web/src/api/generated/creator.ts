@@ -691,6 +691,8 @@ export interface components {
        */
       status:
         "pending" | "granted" | "limited" | "denied" | "revoked" | "expired";
+      /** Status Changed At */
+      status_changed_at: string;
       /** Subject Id */
       subject_id: string;
       /** Valid For Seconds */
@@ -713,7 +715,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "capability-request.v3";
+      projection_version: "capability-request.v4";
     };
     /** CodexEffectiveGrantResponse */
     CodexEffectiveGrantResponse: {
@@ -724,6 +726,8 @@ export interface components {
       artifact_scope: "explicit_only";
       /** Consumed Uses */
       consumed_uses: number;
+      /** Ended At */
+      ended_at?: string | null;
       /** Grant Ref */
       grant_ref: string;
       /**
@@ -1171,10 +1175,10 @@ export interface components {
         | "creator-maintenance.v1"
         | "life-record-query.v2"
         | "creator-relationship.v1"
-        | "scene-timeline.v3"
-        | "capability-request.v3"
+        | "scene-timeline.v4"
+        | "capability-request.v4"
         | "creator-operation.v1"
-        | "creator-effect.v1"
+        | "creator-effect.v2"
         | "subject-summary.v1";
       /**
        * Resource Kind
@@ -1344,6 +1348,8 @@ export interface components {
     CreatorReplyEffectiveGrantResponse: {
       /** Consumed Uses */
       consumed_uses: number;
+      /** Ended At */
+      ended_at?: string | null;
       /** Grant Ref */
       grant_ref: string;
       /** Max Payload Bytes */
@@ -1373,6 +1379,13 @@ export interface components {
       attempt_count: number;
       /** Cancelled At */
       cancelled_at?: string | null;
+      /**
+       * Capability Kind
+       * @enum {string}
+       */
+      capability_kind: "creator.scene.reply" | "codex.delegated-work";
+      /** Capability Request Ref */
+      capability_request_ref: string;
       /** Changed Path Count */
       changed_path_count?: number | null;
       /** Cleanup Status */
@@ -1389,6 +1402,8 @@ export interface components {
        * @enum {string}
        */
       effect_kind: "creator_response" | "codex_delegation";
+      /** Grant Ref */
+      grant_ref: string;
       /** Last Observation Kind */
       last_observation_kind?:
         | (
@@ -1412,7 +1427,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-effect.v1";
+      projection_version: "creator-effect.v2";
       /** Registered At */
       registered_at: string;
       /** Response Text */
@@ -1891,6 +1906,8 @@ export interface components {
     };
     /** SceneTimelineItemResponse */
     SceneTimelineItemResponse: {
+      /** Effect Ref */
+      effect_ref?: string | null;
       /** Occurred At */
       occurred_at: string;
       /** Operation Ref */
@@ -1918,7 +1935,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "scene-timeline.v3";
+      projection_version: "scene-timeline.v4";
       /** Scene Key */
       scene_key: string;
     };

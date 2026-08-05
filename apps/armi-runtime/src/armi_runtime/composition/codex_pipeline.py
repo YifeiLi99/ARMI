@@ -280,7 +280,7 @@ class CodexTaskSourceGateway(
                     CreatorEventResourceKind.SCENE_TIMELINE,
                     scene_key,
                     now,
-                    "scene-timeline.v3",
+                    "scene-timeline.v4",
                 )
             )
             await self._notifier.notify(

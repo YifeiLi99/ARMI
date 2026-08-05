@@ -44,9 +44,12 @@ describe("Creator effect detail", () => {
       '<img src="https://outside.invalid/x" onerror="alert(1)">';
     showEffect({
       contract_version: "1.0",
-      projection_version: "creator-effect.v1",
+      projection_version: "creator-effect.v2",
       effect_id: EFFECT_ID,
-      operation_ref: OPERATION_ID,
+      root_operation_ref: OPERATION_ID,
+      capability_request_ref: OPERATION_ID,
+      grant_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
+      capability_kind: "creator.scene.reply",
       effect_kind: "creator_response",
       status: "completed",
       verification_status: "verified",
@@ -59,6 +62,8 @@ describe("Creator effect detail", () => {
     });
 
     expect(await screen.findByText("已核验回应")).toBeInTheDocument();
+    expect(screen.getByText("授权依据")).toBeInTheDocument();
+    expect(screen.getByText("creator.scene.reply")).toBeInTheDocument();
     expect(screen.getByText(malicious)).toBeInTheDocument();
     expect(document.querySelector("img")).toBeNull();
     expect(document.querySelector("script")).toBeNull();
@@ -67,9 +72,12 @@ describe("Creator effect detail", () => {
   it("makes unknown highly visible without offering a retry action", async () => {
     showEffect({
       contract_version: "1.0",
-      projection_version: "creator-effect.v1",
+      projection_version: "creator-effect.v2",
       effect_id: EFFECT_ID,
-      operation_ref: OPERATION_ID,
+      root_operation_ref: OPERATION_ID,
+      capability_request_ref: OPERATION_ID,
+      grant_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
+      capability_kind: "creator.scene.reply",
       effect_kind: "creator_response",
       status: "unknown",
       verification_status: "inconclusive",

@@ -142,6 +142,16 @@ export function OperationPanel({
               查看效果详情
             </button>
           )}
+          {data.details.delivery_state === "dispatching" ? (
+            <p className="critical-note" role="status">
+              效果已进入派发边界；撤回 grant 不会把在途事实改写为未发生。
+            </p>
+          ) : null}
+          {data.details.delivery_state === "cancelled" ? (
+            <p className="authority-note" role="status">
+              Runtime 已确认效果在派发前取消；历史责任链仍保留。
+            </p>
+          ) : null}
         </>
       )}
     </section>

@@ -306,6 +306,9 @@ export function SessionPanel() {
               setSelectedEffect(null);
               setSelectedOperation(operationRef);
             }}
+            onEffectSelected={(effectRef) => {
+              setSelectedEffect(effectRef);
+            }}
             registerStreamAbort={registerStreamAbort}
           />
         </div>

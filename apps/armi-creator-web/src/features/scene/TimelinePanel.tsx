@@ -11,6 +11,7 @@ type TimelinePanelProps = {
   sceneKey: string;
   onUnauthorized: () => void;
   onOperationSelected: (operationRef: string) => void;
+  onEffectSelected: (effectRef: string) => void;
   registerStreamAbort: (abort: (() => void) | null) => void;
 };
 
@@ -21,6 +22,7 @@ export function TimelinePanel({
   sceneKey,
   onUnauthorized,
   onOperationSelected,
+  onEffectSelected,
   registerStreamAbort,
 }: TimelinePanelProps) {
   const queryClient = useQueryClient();
@@ -128,6 +130,16 @@ export function TimelinePanel({
                   onClick={() => onOperationSelected(item.operation_ref!)}
                 >
                   查看 operation
+                </button>
+              )}
+              {item.effect_ref === undefined ||
+              item.effect_ref === null ? null : (
+                <button
+                  type="button"
+                  className="secondary timeline-operation"
+                  onClick={() => onEffectSelected(item.effect_ref!)}
+                >
+                  查看效果详情
                 </button>
               )}
             </li>

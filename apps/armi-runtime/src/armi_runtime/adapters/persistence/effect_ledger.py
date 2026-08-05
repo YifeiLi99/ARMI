@@ -365,8 +365,10 @@ class PostgreSQLEffectLedgerRepository:
         row = await (
             await connection.execute(
                 """
-            SELECT effect.effect_id, operation.root_opportunity_id, effect_kind, effect.status,
-                   verification_status, registered_at, cancelled_at,
+            SELECT effect.effect_id, operation.root_opportunity_id, effect.effect_kind,
+                   request.capability_request_id, permission.grant_id,
+                   effect.capability_kind, effect.status,
+                   effect.verification_status, effect.registered_at, effect.cancelled_at,
                    (SELECT count(*) FROM armi.effect_attempts AS attempt
                     WHERE attempt.effect_id = effect.effect_id),
                    observation.observation_kind, observation.reliability,
@@ -378,6 +380,14 @@ class PostgreSQLEffectLedgerRepository:
             FROM armi.effects AS effect
             JOIN armi.creator_response_operations AS operation
               ON operation.creator_response_operation_id = effect.creator_response_operation_id
+            JOIN armi.policy_decisions AS policy
+              ON policy.policy_decision_id = effect.policy_decision_id
+            JOIN armi.permission_grants AS permission
+              ON permission.grant_id = policy.matched_grant_id
+             AND permission.creator_party_id = effect.creator_party_id
+            JOIN armi.capability_requests AS request
+              ON request.capability_request_id = permission.capability_request_id
+             AND request.capability_kind = effect.capability_kind
             LEFT JOIN armi.effect_observations AS observation
               ON observation.effect_observation_id = effect.current_observation_id
             LEFT JOIN armi.codex_verification_results AS verification
@@ -399,22 +409,27 @@ class PostgreSQLEffectLedgerRepository:
         effect_kind = cast(
             Literal["creator_response", "codex_delegation"], raw_effect_kind
         )
-        execution_status = None if row[11] is None else str(row[11])
+        execution_status = None if row[14] is None else str(row[14])
         return EffectView(
             effect_id=EffectId(row[0]),
             root_operation_ref=row[1],
             effect_kind=effect_kind,
-            status=EffectStatus(str(row[3])),
-            verification_status=EffectVerificationStatus(str(row[4])),
-            registered_at=Instant(row[5]),
-            cancelled_at=Instant(row[6]) if row[6] is not None else None,
-            attempt_count=int(row[7]),
+            status=EffectStatus(str(row[6])),
+            verification_status=EffectVerificationStatus(str(row[7])),
+            registered_at=Instant(row[8]),
+            capability_request_ref=row[3],
+            grant_ref=row[4],
+            capability_kind=cast(
+                Literal["creator.scene.reply", "codex.delegated-work"], str(row[5])
+            ),
+            cancelled_at=Instant(row[9]) if row[9] is not None else None,
+            attempt_count=int(row[10]),
             last_observation_kind=(
-                EffectObservationKind(str(row[8])) if row[8] is not None else None
+                EffectObservationKind(str(row[11])) if row[11] is not None else None
             ),
             last_observation_reliability=(
-                EffectObservationReliability(str(row[9]))
-                if row[9] is not None
+                EffectObservationReliability(str(row[12]))
+                if row[12] is not None
                 else None
             ),
             verification_action=(
@@ -423,20 +438,20 @@ class PostgreSQLEffectLedgerRepository:
                     if effect_kind == "codex_delegation"
                     else "verify_creator_inbox"
                 )
-                if str(row[3]) == "unknown"
+                if str(row[6]) == "unknown"
                 else None
             ),
-            settled_at=Instant(row[10]) if row[10] is not None else None,
+            settled_at=Instant(row[13]) if row[13] is not None else None,
             # The current schema does not persist the selected execution profile.
             # Do not guess a model identity in a public projection.
             model_id=None,
             sdk_identity="openai-codex==0.144.4"
             if execution_status is not None
             else None,
-            source_tree_digest=Digest(str(row[13])) if row[13] is not None else None,
-            result_tree_digest=Digest(str(row[14])) if row[14] is not None else None,
-            patch_digest=Digest(str(row[15])) if row[15] is not None else None,
-            changed_path_count=int(row[16]) if row[16] is not None else None,
+            source_tree_digest=Digest(str(row[16])) if row[16] is not None else None,
+            result_tree_digest=Digest(str(row[17])) if row[17] is not None else None,
+            patch_digest=Digest(str(row[18])) if row[18] is not None else None,
+            changed_path_count=int(row[19]) if row[19] is not None else None,
             validation_status=(
                 "passed"
                 if execution_status == "verified"
@@ -448,13 +463,13 @@ class PostgreSQLEffectLedgerRepository:
             )
             if execution_status is not None
             else None,
-            cleanup_status=("succeeded" if str(row[12]) == "clean" else "failed")
-            if row[12] is not None
+            cleanup_status=("succeeded" if str(row[15]) == "clean" else "failed")
+            if row[15] is not None
             else None,
             result_acceptance_status=(
-                "accepted" if str(row[17]) == "resolved" else "pending"
+                "accepted" if str(row[20]) == "resolved" else "pending"
             )
-            if row[17] is not None
+            if row[20] is not None
             else None,
         )
 

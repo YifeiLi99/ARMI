@@ -39,10 +39,16 @@ function CapabilityItem({
   const [maxPayloadBytes, setMaxPayloadBytes] = useState(
     item.max_payload_bytes ?? 1,
   );
+  const [limitError, setLimitError] = useState<string | null>(null);
   const pending = item.status === "pending";
   const active = item.status === "granted" || item.status === "limited";
   const unavailable = item.capability_availability === "unavailable";
   const isCodex = item.capability_kind === "codex.delegated-work";
+  const canLimit = isCodex
+    ? item.valid_for_seconds > 60
+    : item.valid_for_seconds > 60 ||
+      item.max_uses > 1 ||
+      (item.max_payload_bytes ?? 1) > 1;
 
   function submitLimit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -55,8 +61,10 @@ function CapabilityItem({
           ? maxPayloadBytes < payloadLimit
           : false);
     if (!narrows) {
+      setLimitError("至少缩短有效期、次数或字节上限之一；不能扩大申请范围。");
       return;
     }
+    setLimitError(null);
     onDecide(
       createDecision(item.request_version, "limit", {
         validForSeconds,
@@ -76,13 +84,37 @@ function CapabilityItem({
       </div>
       <dl>
         <div>
+          <dt>操作</dt>
+          <dd>{item.operation}</dd>
+        </div>
+        <div>
           <dt>目的</dt>
           <dd>{item.purpose}</dd>
         </div>
         <div>
-          <dt>申请限制</dt>
+          <dt>对象</dt>
+          <dd>主体 {item.subject_id}</dd>
+        </div>
+        <div>
+          <dt>场景</dt>
+          <dd>{item.scene_id}</dd>
+        </div>
+        {isCodex ? null : (
+          <>
+            <div>
+              <dt>受众</dt>
+              <dd>{item.audience_scope}</dd>
+            </div>
+            <div>
+              <dt>数据范围</dt>
+              <dd>{item.data_scope}</dd>
+            </div>
+          </>
+        )}
+        <div>
+          <dt>申请上限</dt>
           <dd>
-            {item.valid_for_seconds}s · {item.max_uses} 次
+            授权后最多 {item.valid_for_seconds}s · {item.max_uses} 次
             {item.max_payload_bytes === undefined ||
             item.max_payload_bytes === null
               ? ""
@@ -101,6 +133,14 @@ function CapabilityItem({
           <dt>可用性</dt>
           <dd>{item.capability_availability}</dd>
         </div>
+        <div>
+          <dt>申请时间</dt>
+          <dd>{item.created_at}</dd>
+        </div>
+        <div>
+          <dt>状态更新时间</dt>
+          <dd>{item.status_changed_at}</dd>
+        </div>
         {item.resolution_reason_code === undefined ||
         item.resolution_reason_code === null ? null : (
           <div>
@@ -113,7 +153,9 @@ function CapabilityItem({
           <>
             <div>
               <dt>实际 grant</dt>
-              <dd>{item.effective_grant.status}</dd>
+              <dd>
+                {item.effective_grant.status} · {item.effective_grant.grant_ref}
+              </dd>
             </div>
             <div>
               <dt>剩余</dt>
@@ -123,6 +165,13 @@ function CapabilityItem({
                 {item.effective_grant.valid_until}
               </dd>
             </div>
+            {item.effective_grant.ended_at === undefined ||
+            item.effective_grant.ended_at === null ? null : (
+              <div>
+                <dt>终止时间</dt>
+                <dd>{item.effective_grant.ended_at}</dd>
+              </div>
+            )}
             <div>
               <dt>最终字节限制</dt>
               <dd>
@@ -143,6 +192,19 @@ function CapabilityItem({
           </>
         )}
       </dl>
+      {active ? (
+        <p className="authority-note">
+          当前 grant 只表示系统许可，不表示 ARMI
+          想使用，也不表示现实效果已经发生。
+        </p>
+      ) : null}
+      {item.status === "revoked" || item.status === "expired" ? (
+        <p className="critical-note" role="status">
+          {item.status === "revoked" ? "授权已撤回" : "授权已过期"}
+          ：只阻止尚未派发的使用；已派发、已完成或结果未知的效果不会被改写，请从
+          operation/effect 详情继续核验。
+        </p>
+      ) : null}
       {pending ? (
         <div className="decision-actions">
           {!unavailable ? (
@@ -154,16 +216,21 @@ function CapabilityItem({
                   onDecide(createDecision(item.request_version, "grant"))
                 }
               >
-                允许
+                允许申请范围
               </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy}
-                onClick={() => setShowLimit((value) => !value)}
-              >
-                限制
-              </button>
+              {canLimit ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setLimitError(null);
+                    setShowLimit((value) => !value);
+                  }}
+                >
+                  设置更严格限制
+                </button>
+              ) : null}
             </>
           ) : null}
           <button
@@ -174,7 +241,7 @@ function CapabilityItem({
               onDecide(createDecision(item.request_version, "deny"))
             }
           >
-            拒绝
+            拒绝申请
           </button>
         </div>
       ) : null}
@@ -187,7 +254,7 @@ function CapabilityItem({
             onDecide(createDecision(item.request_version, "revoke"))
           }
         >
-          撤回 grant
+          撤回当前 grant
         </button>
       ) : null}
       {showLimit && pending && !unavailable ? (
@@ -237,6 +304,11 @@ function CapabilityItem({
           <button type="submit" disabled={busy}>
             应用更严格限制
           </button>
+          {limitError === null ? null : (
+            <p role="alert" className="form-error">
+              {limitError}
+            </p>
+          )}
         </form>
       ) : null}
     </li>
@@ -278,7 +350,11 @@ export function CapabilityInbox({
     try {
       await decideCapabilityRequest(token, command.requestId, command.body);
       setPendingCommand(null);
-      setMessage("决定已由 Runtime 提交，正在重取权威状态。");
+      setMessage(
+        command.body.decision === "revoke"
+          ? "撤回决定已由 Runtime 应用；正在核验 grant 与相关效果的权威状态。"
+          : "决定已由 Runtime 应用，正在重取权威状态。",
+      );
       await queryClient.resetQueries({ queryKey, exact: true });
     } catch (error) {
       if (error instanceof ApiFailure && error.status === 401) {
@@ -318,6 +394,10 @@ export function CapabilityInbox({
           {message}
         </p>
       )}
+      <p className="authority-note">
+        这里处理的是系统权限，不替 ARMI
+        决定是否使用能力；界面不会把授权或撤回当作效果完成。
+      </p>
       {requests.isPending ? (
         <p role="status">正在读取权威申请</p>
       ) : requests.isError ? (
@@ -330,7 +410,7 @@ export function CapabilityInbox({
             <CapabilityItem
               key={item.capability_request_id}
               item={item}
-              busy={pendingCommand?.requestId === item.capability_request_id}
+              busy={pendingCommand !== null}
               onDecide={(body) =>
                 void submit({ requestId: item.capability_request_id, body })
               }

@@ -448,6 +448,7 @@ class _CapabilityPolicy:
                     "capability_availability": "available",
                     "request_version": 1,
                     "created_at": datetime.now(UTC),
+                    "status_changed_at": datetime.now(UTC),
                     "resolution_reason_code": None,
                     "effective_grant": None,
                 }
@@ -702,7 +703,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             timeline.json(),
             {
                 "contract_version": "1.0",
-                "projection_version": "scene-timeline.v3",
+                "projection_version": "scene-timeline.v4",
                 "scene_key": "default",
                 "items": [],
             },
@@ -973,7 +974,9 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(missing.status_code, 404)
         self.assertEqual(wake.status_code, 204)
         self.assertEqual(len(self.emergency_wake.requests), 1)
-        self.assertEqual(self.emergency_wake.requests[0][0], self.maintenance_query.session_id)
+        self.assertEqual(
+            self.emergency_wake.requests[0][0], self.maintenance_query.session_id
+        )
         self.assertEqual(self.emergency_wake.requests[0][1].version, 7)
         self.assertEqual(unauthenticated.status_code, 401)
 

@@ -535,6 +535,11 @@
             "title": "Status",
             "type": "string"
           },
+          "status_changed_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Status Changed At",
+            "type": "string"
+          },
           "subject_id": {
             "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
             "title": "Subject Id",
@@ -571,7 +576,8 @@
           "status",
           "capability_availability",
           "request_version",
-          "created_at"
+          "created_at",
+          "status_changed_at"
         ],
         "title": "CapabilityRequestItemResponse",
         "type": "object"
@@ -606,7 +612,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "capability-request.v3",
+            "const": "capability-request.v4",
             "title": "Projection Version",
             "type": "string"
           }
@@ -632,6 +638,18 @@
             "minimum": 0.0,
             "title": "Consumed Uses",
             "type": "integer"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
           },
           "grant_ref": {
             "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
@@ -1767,10 +1785,10 @@
               "creator-maintenance.v1",
               "life-record-query.v2",
               "creator-relationship.v1",
-              "scene-timeline.v3",
-              "capability-request.v3",
+              "scene-timeline.v4",
+              "capability-request.v4",
               "creator-operation.v1",
-              "creator-effect.v1",
+              "creator-effect.v2",
               "subject-summary.v1"
             ],
             "title": "Projection Version",
@@ -2238,6 +2256,18 @@
             "title": "Consumed Uses",
             "type": "integer"
           },
+          "ended_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
           "grant_ref": {
             "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
             "title": "Grant Ref",
@@ -2321,6 +2351,19 @@
             ],
             "title": "Cancelled At"
           },
+          "capability_kind": {
+            "enum": [
+              "creator.scene.reply",
+              "codex.delegated-work"
+            ],
+            "title": "Capability Kind",
+            "type": "string"
+          },
+          "capability_request_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Capability Request Ref",
+            "type": "string"
+          },
           "changed_path_count": {
             "anyOf": [
               {
@@ -2365,6 +2408,11 @@
               "codex_delegation"
             ],
             "title": "Effect Kind",
+            "type": "string"
+          },
+          "grant_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Grant Ref",
             "type": "string"
           },
           "last_observation_kind": {
@@ -2432,7 +2480,7 @@
             "title": "Patch Digest"
           },
           "projection_version": {
-            "const": "creator-effect.v1",
+            "const": "creator-effect.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2581,6 +2629,9 @@
           "projection_version",
           "effect_id",
           "root_operation_ref",
+          "capability_request_ref",
+          "grant_ref",
+          "capability_kind",
           "effect_kind",
           "status",
           "verification_status",
@@ -3584,6 +3635,18 @@
       "SceneTimelineItemResponse": {
         "additionalProperties": false,
         "properties": {
+          "effect_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Ref"
+          },
           "occurred_at": {
             "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
             "title": "Occurred At",
@@ -3660,7 +3723,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "scene-timeline.v3",
+            "const": "scene-timeline.v4",
             "title": "Projection Version",
             "type": "string"
           },

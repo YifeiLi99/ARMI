@@ -1370,13 +1370,16 @@ def create_runtime_app(
         raw_items = cast(list[dict[str, object]], page["items"])
         response = CapabilityRequestPageResponse(
             contract_version="1.0",
-            projection_version="capability-request.v3",
+            projection_version="capability-request.v4",
             items=[
                 CapabilityRequestItemResponse.model_validate(
                     {
                         **item,
                         "created_at": Instant(
                             cast(datetime, item["created_at"])
+                        ).to_wire(),
+                        "status_changed_at": Instant(
+                            cast(datetime, item["status_changed_at"])
                         ).to_wire(),
                         **(
                             {
@@ -1403,6 +1406,25 @@ def create_runtime_app(
                                             )["valid_until"],
                                         )
                                     ).to_wire(),
+                                    **(
+                                        {
+                                            "ended_at": Instant(
+                                                cast(
+                                                    datetime,
+                                                    cast(
+                                                        dict[str, object],
+                                                        item["effective_grant"],
+                                                    )["ended_at"],
+                                                )
+                                            ).to_wire()
+                                        }
+                                        if cast(
+                                            dict[str, object],
+                                            item["effective_grant"],
+                                        ).get("ended_at")
+                                        is not None
+                                        else {}
+                                    ),
                                 }
                             }
                             if item.get("effective_grant") is not None
@@ -1498,7 +1520,7 @@ def create_runtime_app(
                         CreatorEventResourceKind.CAPABILITY_REQUEST,
                         str(result.request_id.value),
                         Instant(datetime.now(UTC)),
-                        "capability-request.v3",
+                        "capability-request.v4",
                     )
                 )
             except Exception:
@@ -2517,7 +2539,7 @@ def create_runtime_app(
             )
         response = SceneTimelinePageResponse(
             contract_version="1.0",
-            projection_version="scene-timeline.v3",
+            projection_version="scene-timeline.v4",
             scene_key=page.scene_key.value,
             items=[
                 SceneTimelineItemResponse(
@@ -2530,6 +2552,9 @@ def create_runtime_app(
                         str(item.operation_ref)
                         if item.operation_ref is not None
                         else None
+                    ),
+                    effect_ref=(
+                        str(item.effect_ref) if item.effect_ref is not None else None
                     ),
                 )
                 for item in page.items
@@ -2779,9 +2804,12 @@ def create_runtime_app(
         return JSONResponse(
             content=EffectResponse(
                 contract_version="1.0",
-                projection_version="creator-effect.v1",
+                projection_version="creator-effect.v2",
                 effect_id=str(view.effect_id.value),
                 root_operation_ref=str(view.root_operation_ref),
+                capability_request_ref=str(view.capability_request_ref),
+                grant_ref=str(view.grant_ref),
+                capability_kind=view.capability_kind,
                 effect_kind=view.effect_kind,
                 status=view.status.value,
                 verification_status=view.verification_status.value,

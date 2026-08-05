@@ -372,7 +372,7 @@ class EvidenceAcceptanceTransaction(
                     resource_kind=CreatorEventResourceKind.SCENE_TIMELINE,
                     resource_ref=SceneKey(scene_key).value,
                     occurred_at=Instant(datetime.now(UTC)),
-                    projection_version="scene-timeline.v3",
+                    projection_version="scene-timeline.v4",
                 )
             )
         except Exception:

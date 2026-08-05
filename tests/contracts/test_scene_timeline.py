@@ -90,6 +90,28 @@ class SceneTimelineContractTests(unittest.TestCase):
             )
         self.assertEqual(missing.exception.code, "CON-SCENE-OPERATION")
 
+    def test_creator_response_requires_a_public_effect_reference(self) -> None:
+        occurred = Instant(datetime(2026, 7, 30, 10, tzinfo=UTC))
+        effect_ref = uuid7()
+        item = SceneTimelineItem(
+            TimelineItemId(uuid7()),
+            "creator_response",
+            effect_ref,
+            AuditResultStatus.COMPLETED,
+            occurred,
+            effect_ref=effect_ref,
+        )
+        self.assertEqual(item.effect_ref, effect_ref)
+        with self.assertRaises(SceneQueryViolation) as missing:
+            SceneTimelineItem(
+                TimelineItemId(uuid7()),
+                "creator_response",
+                effect_ref,
+                AuditResultStatus.COMPLETED,
+                occurred,
+            )
+        self.assertEqual(missing.exception.code, "CON-SCENE-EFFECT")
+
     def test_cursor_is_deterministic_scoped_and_tamper_evident(self) -> None:
         environment_id = uuid7()
         creator_party_id = uuid7()

@@ -10,6 +10,7 @@ const CODE = `bootstrap-v1.${"b".repeat(22)}`;
 const ENVIRONMENT_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef7";
 const CREATOR_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef8";
 const OPPORTUNITY_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef9";
+const EFFECT_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6efd";
 
 function jsonResponse(value: object, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -109,7 +110,7 @@ function preparedContextOperation(): object {
 function capabilityPageResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "capability-request.v3",
+    projection_version: "capability-request.v4",
     items: [],
   };
 }
@@ -263,7 +264,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: [],
         }),
@@ -366,7 +367,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: [
             {
@@ -392,7 +393,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: [
             {
@@ -453,7 +454,7 @@ describe("Creator browser session shell", () => {
       event_kind: "scene.timeline.invalidated",
       resource_kind: "scene_timeline",
       resource_ref: "default",
-      projection_version: "scene-timeline.v3",
+      projection_version: "scene-timeline.v4",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     const fetchMock = vi
@@ -473,7 +474,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: [],
         }),
@@ -494,7 +495,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: [
             {
@@ -563,7 +564,7 @@ describe("Creator browser session shell", () => {
       if (url.includes("/timeline?")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: [],
         });
@@ -639,7 +640,7 @@ describe("Creator browser session shell", () => {
       if (url.startsWith("/v1/scenes/default/timeline")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: [],
         });
@@ -732,7 +733,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: [],
         }),
@@ -796,7 +797,7 @@ describe("Creator browser session shell", () => {
       if (url.includes("/timeline?")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: accepted
             ? [
@@ -807,6 +808,14 @@ describe("Creator browser session shell", () => {
                   status: "accepted",
                   occurred_at: "2026-07-30T10:02:00.000000Z",
                   operation_ref: OPPORTUNITY_ID,
+                },
+                {
+                  timeline_item_id: "018f47a6-7b2d-7c35-8b18-684e38ab6eff",
+                  source_kind: "creator_response",
+                  source_ref: EFFECT_ID,
+                  status: "completed",
+                  occurred_at: "2026-07-30T10:02:01.000000Z",
+                  effect_ref: EFFECT_ID,
                 },
               ]
             : [],
@@ -829,6 +838,26 @@ describe("Creator browser session shell", () => {
       if (url === `/v1/operations/${OPPORTUNITY_ID}`) {
         return jsonResponse(preparedContextOperation());
       }
+      if (url === `/v1/effects/${EFFECT_ID}`) {
+        return jsonResponse({
+          contract_version: "1.0",
+          projection_version: "creator-effect.v2",
+          effect_id: EFFECT_ID,
+          root_operation_ref: OPPORTUNITY_ID,
+          capability_request_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
+          grant_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efc",
+          capability_kind: "creator.scene.reply",
+          effect_kind: "creator_response",
+          status: "completed",
+          verification_status: "verified",
+          registered_at: "2026-07-30T10:02:00.000000Z",
+          attempt_count: 1,
+          last_observation_kind: "receipt",
+          last_observation_reliability: "reliable",
+          settled_at: "2026-07-30T10:02:01.000000Z",
+          response_text: "已核验回应",
+        });
+      }
       throw new Error(`unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -849,6 +878,9 @@ describe("Creator browser session shell", () => {
     expect(
       await screen.findByText("Context 已准备，等待模型步骤"),
     ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看效果详情" }));
+    expect(await screen.findByText("授权依据")).toBeInTheDocument();
+    expect(screen.getByText("creator.scene.reply")).toBeInTheDocument();
     expect(keys).toHaveLength(1);
     expect(keys[0]).toMatch(/^creator-input-v1\.[A-Za-z0-9_-]{22}$/);
     expect(document.body.textContent).not.toContain("保留原样");
@@ -906,7 +938,7 @@ describe("Creator browser session shell", () => {
       if (url.includes("/timeline?")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v3",
+          projection_version: "scene-timeline.v4",
           scene_key: "default",
           items: [],
         });

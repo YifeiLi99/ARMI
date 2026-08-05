@@ -10,12 +10,14 @@ from typing import Any, cast
 from armi_runtime.interfaces.creator_contract import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
+    CapabilityRequestItemResponse,
     CreatorLifeMaterialResponse,
     CreatorMaintenanceStatusResponse,
     CreatorMemoryItemResponse,
     CreatorProjectionEventResponse,
     CreatorRelationshipBoundaryRequest,
     CreatorRelationshipCurrentResponse,
+    EffectResponse,
     FailedOutcomeResponse,
     LifeRecordItemResponse,
     RejectedOutcomeResponse,
@@ -397,7 +399,7 @@ class CreatorContractTests(unittest.TestCase):
             "event_kind": "scene.timeline.invalidated",
             "resource_kind": "scene_timeline",
             "resource_ref": "default",
-            "projection_version": "scene-timeline.v3",
+            "projection_version": "scene-timeline.v4",
             "occurred_at": INSTANT,
         }
         model = CreatorProjectionEventResponse.model_validate(sample)
@@ -588,7 +590,65 @@ class CreatorContractTests(unittest.TestCase):
                 }
             )
 
-    def test_timeline_v2_exposes_only_creator_input_operation_refs(self) -> None:
+    def test_capability_and_effect_projections_keep_the_authority_link(self) -> None:
+        request_id = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ab"
+        grant_id = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ac"
+        request = CapabilityRequestItemResponse.model_validate(
+            {
+                "capability_request_id": request_id,
+                "capability_kind": "creator.scene.reply",
+                "operation": "send",
+                "subject_id": ENVIRONMENT_ID,
+                "scene_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad",
+                "purpose": "respond_to_creator",
+                "audience_scope": "creator",
+                "data_scope": "creator_visible_response",
+                "valid_for_seconds": 600,
+                "max_uses": 2,
+                "max_payload_bytes": 4096,
+                "status": "limited",
+                "capability_availability": "available",
+                "request_version": 2,
+                "created_at": INSTANT,
+                "status_changed_at": INSTANT,
+                "effective_grant": {
+                    "scope_kind": "creator_scene_reply",
+                    "grant_ref": grant_id,
+                    "status": "active",
+                    "valid_from": INSTANT,
+                    "valid_until": "2026-07-29T10:10:00.000000Z",
+                    "max_uses": 1,
+                    "consumed_uses": 0,
+                    "remaining_uses": 1,
+                    "max_payload_bytes": 2048,
+                },
+            }
+        )
+        assert request.effective_grant is not None
+        self.assertEqual(request.effective_grant.grant_ref, grant_id)
+        effect = EffectResponse.model_validate(
+            {
+                "contract_version": "1.0",
+                "projection_version": "creator-effect.v2",
+                "effect_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ae",
+                "root_operation_ref": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9af",
+                "capability_request_ref": request_id,
+                "grant_ref": grant_id,
+                "capability_kind": "creator.scene.reply",
+                "effect_kind": "creator_response",
+                "status": "registered",
+                "verification_status": "not_started",
+                "registered_at": INSTANT,
+                "attempt_count": 0,
+            }
+        )
+        self.assertEqual(effect.capability_request_ref, request_id)
+        with self.assertRaises(ValidationError):
+            EffectResponse.model_validate(
+                {**effect.model_dump(), "capability_kind": "codex.delegated-work"}
+            )
+
+    def test_timeline_v4_exposes_operation_and_effect_refs_explicitly(self) -> None:
         operation_ref = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad"
         item = {
             "timeline_item_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ab",
@@ -603,12 +663,24 @@ class CreatorContractTests(unittest.TestCase):
         page = SceneTimelinePageResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "scene-timeline.v3",
+                "projection_version": "scene-timeline.v4",
                 "scene_key": "default",
                 "items": [item],
             }
         )
         self.assertEqual(page.items[0].operation_ref, operation_ref)
+        effect_ref = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ae"
+        response = SceneTimelineItemResponse.model_validate(
+            {
+                "timeline_item_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9af",
+                "source_kind": "creator_response",
+                "source_ref": effect_ref,
+                "status": "completed",
+                "occurred_at": INSTANT,
+                "effect_ref": effect_ref,
+            }
+        )
+        self.assertEqual(response.effect_ref, effect_ref)
         with self.assertRaises(ValidationError):
             SceneTimelineItemResponse.model_validate(
                 {key: value for key, value in item.items() if key != "operation_ref"}

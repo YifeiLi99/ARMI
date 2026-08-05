@@ -173,8 +173,9 @@ class SceneTimelineItemResponse(_StrictWireModel):
     status: TimelineStatus
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
 
-    @field_validator("timeline_item_id", "source_ref", "operation_ref")
+    @field_validator("timeline_item_id", "source_ref", "operation_ref", "effect_ref")
     @classmethod
     def validate_uuid7(cls, value: str | None) -> str | None:
         if value is None:
@@ -192,6 +193,10 @@ class SceneTimelineItemResponse(_StrictWireModel):
             raise ValueError(
                 "CON-SCENE-OPERATION: operation-backed item must expose its operation"
             )
+        if (self.source_kind == "creator_response") != (self.effect_ref is not None):
+            raise ValueError(
+                "CON-SCENE-EFFECT: response-backed item must expose its effect"
+            )
         return self
 
     @field_validator("occurred_at")
@@ -204,7 +209,7 @@ class SceneTimelineItemResponse(_StrictWireModel):
 
 class SceneTimelinePageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["scene-timeline.v3"]
+    projection_version: Literal["scene-timeline.v4"]
     scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
     items: Annotated[list[SceneTimelineItemResponse], Field(max_length=100)]
     next_cursor: (
@@ -894,10 +899,10 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "creator-maintenance.v1",
         "life-record-query.v2",
         "creator-relationship.v1",
-        "scene-timeline.v3",
-        "capability-request.v3",
+        "scene-timeline.v4",
+        "capability-request.v4",
         "creator-operation.v1",
-        "creator-effect.v1",
+        "creator-effect.v2",
         "subject-summary.v1",
     ]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
@@ -939,12 +944,12 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             ),
             "scene_timeline": (
                 "scene.timeline.invalidated",
-                "scene-timeline.v3",
+                "scene-timeline.v4",
                 _SCENE_KEY_PATTERN,
             ),
             "capability_request": (
                 "capability.request.invalidated",
-                "capability-request.v3",
+                "capability-request.v4",
                 _UUIDV7_PATTERN,
             ),
             "operation": (
@@ -954,7 +959,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             ),
             "effect": (
                 "effect.invalidated",
-                "creator-effect.v1",
+                "creator-effect.v2",
                 _UUIDV7_PATTERN,
             ),
             "subject_summary": (
@@ -1354,9 +1359,12 @@ class SubjectSummaryResponse(_StrictWireModel):
 
 class EffectResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-effect.v1"]
+    projection_version: Literal["creator-effect.v2"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     root_operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: Literal[
         "registered", "dispatching", "completed", "failed", "unknown", "cancelled"
@@ -1400,10 +1408,23 @@ class EffectResponse(_StrictWireModel):
 
     @model_validator(mode="after")
     def validate_effect(self) -> EffectResponse:
-        for value in (self.effect_id, self.root_operation_ref):
+        for value in (
+            self.effect_id,
+            self.root_operation_ref,
+            self.capability_request_ref,
+            self.grant_ref,
+        ):
             parsed = UUID(value)
             if parsed.version != 7 or str(parsed) != value:
                 raise ValueError("CON-EFFECT-ID: identity must be canonical UUIDv7")
+        if (
+            self.effect_kind == "creator_response"
+            and self.capability_kind != "creator.scene.reply"
+        ) or (
+            self.effect_kind == "codex_delegation"
+            and self.capability_kind != "codex.delegated-work"
+        ):
+            raise ValueError("CON-EFFECT-CAPABILITY: capability link is invalid")
         if (self.status == "cancelled") != (self.cancelled_at is not None):
             raise ValueError("CON-EFFECT-STATE: cancellation time mismatch")
         if (self.last_observation_kind is None) != (
@@ -1461,13 +1482,26 @@ class _EffectiveGrantResponseBase(_StrictWireModel):
     status: Literal["active", "revoked", "expired"]
     valid_from: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     valid_until: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    ended_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
 
     @model_validator(mode="after")
     def validate_grant(self) -> _EffectiveGrantResponseBase:
-        if Instant.from_wire(self.valid_from).to_wire() != self.valid_from:
+        valid_from = Instant.from_wire(self.valid_from)
+        valid_until = Instant.from_wire(self.valid_until)
+        if valid_from.to_wire() != self.valid_from:
             raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
-        if Instant.from_wire(self.valid_until).to_wire() != self.valid_until:
+        if valid_until.to_wire() != self.valid_until:
             raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
+        ended_at = (
+            Instant.from_wire(self.ended_at) if self.ended_at is not None else None
+        )
+        if ended_at is not None:
+            if ended_at.to_wire() != self.ended_at:
+                raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
+            if not valid_from.value <= ended_at.value <= valid_until.value:
+                raise ValueError("CON-CAPABILITY-TIME: end time is outside the grant")
+        if (self.status == "active") != (self.ended_at is None):
+            raise ValueError("CON-CAPABILITY-GRANT: end time is inconsistent")
         return self
 
 
@@ -1525,6 +1559,7 @@ class CapabilityRequestItemResponse(_StrictWireModel):
     capability_availability: Literal["available", "unavailable"]
     request_version: Annotated[int, Field(ge=1)]
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    status_changed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     resolution_reason_code: (
         Annotated[str, Field(pattern=r"[A-Z][A-Z0-9-]{2,127}")] | None
     ) = None
@@ -1542,6 +1577,11 @@ class CapabilityRequestItemResponse(_StrictWireModel):
     @model_validator(mode="after")
     def validate_scope(self) -> CapabilityRequestItemResponse:
         if Instant.from_wire(self.created_at).to_wire() != self.created_at:
+            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
+        if (
+            Instant.from_wire(self.status_changed_at).to_wire()
+            != self.status_changed_at
+        ):
             raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
         if self.capability_kind == "creator.scene.reply":
             if (
@@ -1573,16 +1613,24 @@ class CapabilityRequestItemResponse(_StrictWireModel):
             or self.network_access is not False
         ):
             raise ValueError("CON-CAPABILITY-SCOPE: Codex scope is invalid")
-        if self.status in {"granted", "limited"} and self.effective_grant is None:
+        if self.status in {"granted", "limited", "revoked", "expired"} and (
+            self.effective_grant is None
+        ):
             raise ValueError("CON-CAPABILITY-STATE: grant reference is missing")
         if self.status in {"pending", "denied"} and self.effective_grant is not None:
             raise ValueError("CON-CAPABILITY-STATE: grant reference is inconsistent")
+        if self.effective_grant is not None:
+            expected_grant_status = (
+                "active" if self.status in {"granted", "limited"} else self.status
+            )
+            if self.effective_grant.status != expected_grant_status:
+                raise ValueError("CON-CAPABILITY-STATE: grant status is inconsistent")
         return self
 
 
 class CapabilityRequestPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["capability-request.v3"]
+    projection_version: Literal["capability-request.v4"]
     items: Annotated[list[CapabilityRequestItemResponse], Field(max_length=100)]
     next_cursor: (
         Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None

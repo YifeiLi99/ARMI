@@ -292,7 +292,11 @@ class PostgreSQLSceneTimelineQuery:
                                 COALESCE(
                                     opportunity.root_opportunity_id,
                                     commit_opportunity.root_opportunity_id
-                                )
+                                ),
+                                CASE
+                                  WHEN item.source_kind = 'creator_response'
+                                  THEN item.source_ref
+                                END
                             FROM armi.scene_timeline_items AS item
                             LEFT JOIN armi.creator_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
@@ -349,7 +353,11 @@ class PostgreSQLSceneTimelineQuery:
                                 COALESCE(
                                     opportunity.root_opportunity_id,
                                     commit_opportunity.root_opportunity_id
-                                )
+                                ),
+                                CASE
+                                  WHEN item.source_kind = 'creator_response'
+                                  THEN item.source_ref
+                                END
                             FROM armi.scene_timeline_items AS item
                             LEFT JOIN armi.creator_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
@@ -404,8 +412,11 @@ class PostgreSQLSceneTimelineQuery:
 
         visible = rows[: request.limit]
         if any(
-            (str(row[1]) in {"creator_input", "subject_commit"})
-            != isinstance(row[5], UUID)
+            (
+                (str(row[1]) in {"creator_input", "subject_commit"})
+                != isinstance(row[5], UUID)
+            )
+            or ((str(row[1]) == "creator_response") != isinstance(row[6], UUID))
             for row in visible
         ):
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
@@ -417,6 +428,7 @@ class PostgreSQLSceneTimelineQuery:
                 status=AuditResultStatus(str(row[3])),
                 occurred_at=Instant(cast(datetime, row[4])),
                 operation_ref=cast(UUID | None, row[5]),
+                effect_ref=cast(UUID | None, row[6]),
             )
             for row in reversed(visible)
         )
