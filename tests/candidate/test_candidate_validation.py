@@ -545,6 +545,7 @@ def test_attention_candidate_enforces_complete_status_matrix(
             "progress_summary": "bounded progress",
             "waiting_summary": "await evidence",
             "condition_kind": "external_evidence",
+            "delay_seconds": 60,
             "resumption_cue": "matching evidence arrives",
             "next_step": "review the evidence",
         },
@@ -574,6 +575,9 @@ def test_attention_candidate_enforces_complete_status_matrix(
         _bytes(payloads[kind]), bases=(*bases, current, resources)
     )
     assert (result.status is CandidateValidationStatus.ACCEPTED) is accepted
+    if accepted and kind == "wait":
+        assert result.change_set is not None
+        assert result.change_set.activity_decisions[0].delay_seconds is None
     if not accepted:
         assert result.error_code == "CANDIDATE-ACTIVITY-TRANSITION"
 

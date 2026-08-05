@@ -874,6 +874,23 @@ class PostgreSQLContextRepository:
         ).fetchone()
         if updated is None:
             raise ContextViolation("CTX-WORK-STALE")
+        resolved = await (
+            await connection.execute(
+                """
+                UPDATE armi.opportunities AS opportunity
+                SET current_disposition = 'resolved',
+                    resolved_at = statement_timestamp()
+                FROM armi.cognitive_episodes AS episode
+                WHERE episode.cognitive_episode_id = %s
+                  AND opportunity.opportunity_id = episode.opportunity_id
+                  AND opportunity.current_disposition = 'selected'
+                RETURNING opportunity.opportunity_id
+                """,
+                (episode_id,),
+            )
+        ).fetchone()
+        if resolved is None:
+            raise ContextViolation("CTX-OPPORTUNITY-STATE")
         await unit_of_work.work.fail(lease, error_code=code)
         await unit_of_work.audit.append(
             AuditDraft(

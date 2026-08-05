@@ -388,6 +388,15 @@ class VolcengineArkModelAdapter(ModelPort):
             or cached_tokens < 0
         ):
             raise ModelViolation("MODEL-PROVIDER-RESPONSE")
+        usage = ModelUsage(
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            self._binding.estimate_cost_microyuan(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            ),
+        )
         try:
             request_value = json.loads(request.canonical_bytes)
             allowed_refs = frozenset(
@@ -402,31 +411,34 @@ class VolcengineArkModelAdapter(ModelPort):
             return _failure(
                 ModelResultStatus.REJECTED,
                 "MODEL-RESPONSE-SCHEMA",
+                provider_request_id=provider_request_id,
+                provider_model_id=model_id,
+                usage=usage,
             )
         except ModelViolation:
             return _failure(
                 ModelResultStatus.REJECTED,
                 "MODEL-RESPONSE-SCHEMA",
+                provider_request_id=provider_request_id,
+                provider_model_id=model_id,
+                usage=usage,
             )
         if candidate.schema_version != self._binding.response_contract_version:
             return _failure(
                 ModelResultStatus.REJECTED,
                 "MODEL-RESPONSE-SCHEMA",
+                provider_request_id=provider_request_id,
+                provider_model_id=model_id,
+                usage=usage,
             )
         if _contains_forbidden_output(raw_value):
             return _failure(
                 ModelResultStatus.REJECTED,
                 "MODEL-RESPONSE-FORBIDDEN",
+                provider_request_id=provider_request_id,
+                provider_model_id=model_id,
+                usage=usage,
             )
-        usage = ModelUsage(
-            input_tokens,
-            output_tokens,
-            cached_tokens,
-            self._binding.estimate_cost_microyuan(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            ),
-        )
         safe_response = {
             "schema_version": "armi.model-response-artifact.v1",
             "provider_request_id": provider_request_id,
@@ -479,8 +491,23 @@ def _contains_forbidden_output(value: object) -> bool:
     )
 
 
-def _failure(status: ModelResultStatus, code: str) -> ModelInvocationResult:
-    return ModelInvocationResult(status, None, None, None, None, None, code)
+def _failure(
+    status: ModelResultStatus,
+    code: str,
+    *,
+    provider_request_id: str | None = None,
+    provider_model_id: str | None = None,
+    usage: ModelUsage | None = None,
+) -> ModelInvocationResult:
+    return ModelInvocationResult(
+        status,
+        provider_request_id,
+        provider_model_id,
+        None,
+        None,
+        usage,
+        code,
+    )
 
 
 def _status_violation(status_code: int, *, dispatched: bool) -> ModelViolation:

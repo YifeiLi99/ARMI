@@ -137,6 +137,7 @@ ALTER TABLE armi.creator_response_operations
     DROP CONSTRAINT creator_response_operations_current_status_check,
     DROP CONSTRAINT creator_response_operations_check,
     DROP CONSTRAINT creator_response_operations_effect_state_check,
+    DROP CONSTRAINT creator_response_operations_reason_code_check,
     ADD COLUMN operation_kind text NOT NULL DEFAULT 'creator_response',
     ADD CONSTRAINT creator_response_operations_operation_kind_check
         CHECK (operation_kind IN ('creator_response', 'codex_delegation')),
@@ -147,8 +148,13 @@ ALTER TABLE armi.creator_response_operations
             'codex_waiting_grant', 'codex_dispatching', 'codex_verifying',
             'codex_completed', 'codex_failed', 'codex_unknown', 'codex_cancelled',
             'codex_result_pending', 'codex_result_accepted',
+            'codex_result_rejected',
             'no_action', 'unauthorized', 'unavailable', 'failed'
         )
+    ),
+    ADD CONSTRAINT creator_response_operations_reason_code_check CHECK (
+        reason_code IS NULL
+        OR reason_code ~ '^(?:RESPONSE|POLICY|ACTION|CANDIDATE)-[A-Z0-9-]+$'
     ),
     ADD CONSTRAINT creator_response_operations_check CHECK (
         (formal_no_action_id IS NOT NULL AND operation_kind = 'creator_response'

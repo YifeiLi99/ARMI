@@ -79,26 +79,24 @@ def test_activity_attention_contract_rejects_authority_and_invalid_wait_shapes()
     assert "activity_id" not in schema_text
     assert '"failed"' not in schema_text
 
-    invalid = (
-        {"kind": "engage", "activity_id": str(uuid7())},
-        {
-            "kind": "wait",
-            "progress_summary": "blocked",
-            "next_step": "continue",
-            "waiting_summary": "wait",
-            "resumption_cue": "time",
-            "condition_kind": "time",
-        },
-        {
-            "kind": "wait",
-            "progress_summary": "blocked",
-            "next_step": "continue",
-            "waiting_summary": "wait",
-            "resumption_cue": "input",
-            "condition_kind": "creator_input",
-            "delay_seconds": 60,
-        },
+    accepted_wait = parse_candidate(
+        json.dumps(
+            {
+                "kind": "wait",
+                "progress_summary": "blocked",
+                "next_step": "continue",
+                "waiting_summary": "wait",
+                "resumption_cue": "input",
+                "condition_kind": "creator_input",
+                "delay_seconds": 60,
+            }
+        ).encode(),
+        allowed_context_refs=frozenset(),
+        expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     )
+    assert getattr(accepted_wait, "kind", None) == "wait"
+
+    invalid = ({"kind": "engage", "activity_id": str(uuid7())},)
     for value in invalid:
         with pytest.raises(ModelViolation):
             parse_candidate(
@@ -898,3 +896,8 @@ async def test_active_adapter_rejects_historical_candidate_contract() -> None:
     result = await adapter.invoke(_request(binding))
     assert result.status is ModelResultStatus.REJECTED
     assert result.error_code == "MODEL-RESPONSE-SCHEMA"
+    assert result.provider_request_id == "req-safe-id"
+    assert result.provider_model_id == "doubao-seed-evolving-20260731"
+    assert result.usage is not None
+    assert result.usage.input_tokens == 128
+    assert result.usage.output_tokens == 64

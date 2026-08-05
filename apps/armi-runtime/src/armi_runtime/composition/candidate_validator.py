@@ -1301,7 +1301,16 @@ class DeterministicCandidateValidator:
             waiting = candidate.waiting_summary
             cue = candidate.resumption_cue
             waiting_kind = ActivityWaitingKind(candidate.condition_kind)
-            delay = candidate.delay_seconds
+            if (
+                waiting_kind is ActivityWaitingKind.TIME
+                and candidate.delay_seconds is None
+            ):
+                return _rejected("CANDIDATE-ACTIVITY-WAIT-DELAY")
+            delay = (
+                candidate.delay_seconds
+                if waiting_kind is ActivityWaitingKind.TIME
+                else None
+            )
         elif isinstance(candidate, AttentionPauseDecision):
             progress = candidate.progress_summary
             next_step = candidate.next_step

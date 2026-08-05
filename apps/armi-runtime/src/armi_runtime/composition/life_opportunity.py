@@ -196,6 +196,9 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
                 maintenance = await self.maintain_sleep_once()
                 if maintenance.opportunity_id is not None:
                     self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+                material = await self.admit_life_material_once()
+                if material.status is OpportunityAdmissionStatus.ADMITTED:
+                    self._wakeups.notify(OPPORTUNITY_AVAILABLE)
                 result = await self.admit_attention_once()
                 if result.status is OpportunityAdmissionStatus.ADMITTED:
                     self._wakeups.notify(OPPORTUNITY_AVAILABLE)
@@ -211,6 +214,15 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
     async def maintain_sleep_once(self) -> OpportunityAdmissionOutcome:
         try:
             return await self._maintenance.maintain_once()
+        except LifeViolation:
+            raise
+        except DatabaseTransactionError:
+            raise LifeViolation("LIFE-DATABASE") from None
+
+    async def admit_life_material_once(self) -> OpportunityAdmissionOutcome:
+        try:
+            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+                return await self._repository.admit_life_material_revision(unit_of_work)
         except LifeViolation:
             raise
         except DatabaseTransactionError:

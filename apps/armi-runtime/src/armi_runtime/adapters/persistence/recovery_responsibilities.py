@@ -200,4 +200,87 @@ async def repair_outbox(
     return tuple(findings), requeued, dead
 
 
+async def repair_terminal_cognitive_responsibilities(
+    connection: psycopg.AsyncConnection[tuple[Any, ...]],
+    writer: PostgreSQLAuditWriter,
+    fence: RuntimeFence,
+    audit_factory: AuditFactory,
+) -> tuple[RecoveryFinding, ...]:
+    """Close opportunities and operations left open by terminal cognition."""
+
+    findings: list[RecoveryFinding] = []
+    opportunities = await (
+        await connection.execute(
+            """
+            UPDATE armi.opportunities AS opportunity
+            SET current_disposition = CASE
+                    WHEN episode.status = 'cancelled' THEN 'cancelled'
+                    ELSE 'resolved'
+                END,
+                resolved_at = statement_timestamp()
+            FROM armi.cognitive_episodes AS episode
+            WHERE episode.opportunity_id = opportunity.opportunity_id
+              AND episode.status IN ('candidate_rejected', 'failed', 'cancelled')
+              AND opportunity.current_disposition = 'selected'
+            RETURNING opportunity.opportunity_id, episode.status
+            """
+        )
+    ).fetchall()
+    for opportunity_id, episode_status in opportunities:
+        status = str(episode_status)
+        suffix = status.replace("_", "-").upper()
+        findings.append(
+            RecoveryFinding(
+                "opportunity",
+                RecoveryDecision.TERMINAL,
+                f"REC-OPPORTUNITY-EPISODE-{suffix}",
+                opportunity_id,
+            )
+        )
+        await writer.append(
+            audit_factory(
+                fence,
+                f"opportunity.recovered.{status}",
+                opportunity_id,
+            )
+        )
+    operations = await (
+        await connection.execute(
+            """
+            UPDATE armi.creator_response_operations AS operation
+            SET current_status = 'codex_result_rejected',
+                reason_code = episode.failure_code,
+                completed_at = statement_timestamp()
+            FROM armi.codex_verification_results AS verification
+            JOIN armi.codex_result_sources AS source
+              ON source.codex_verification_id = verification.codex_verification_id
+            JOIN armi.cognitive_episodes AS episode
+              ON episode.opportunity_id = source.opportunity_id
+            WHERE operation.effect_id = verification.effect_id
+              AND operation.current_status = 'codex_result_pending'
+              AND episode.status = 'candidate_rejected'
+              AND episode.failure_code IS NOT NULL
+            RETURNING operation.creator_response_operation_id
+            """
+        )
+    ).fetchall()
+    for (operation_id,) in operations:
+        findings.append(
+            RecoveryFinding(
+                "creator_response_operation",
+                RecoveryDecision.TERMINAL,
+                "REC-CODEX-RESULT-CANDIDATE-REJECTED",
+                operation_id,
+            )
+        )
+        await writer.append(
+            audit_factory(
+                fence,
+                "codex.result.recovered.candidate_rejected",
+                operation_id,
+            )
+        )
+    return tuple(findings)
+
+
 __all__ = ()

@@ -146,6 +146,23 @@ class PostgreSQLSubjectCommitRepository:
             """,
             (code, row[0]),
         )
+        resolved = await (
+            await connection.execute(
+                """
+                UPDATE armi.opportunities AS opportunity
+                SET current_disposition = 'resolved',
+                    resolved_at = statement_timestamp()
+                FROM armi.cognitive_episodes AS episode
+                WHERE episode.cognitive_episode_id = %s
+                  AND opportunity.opportunity_id = episode.opportunity_id
+                  AND opportunity.current_disposition = 'selected'
+                RETURNING opportunity.opportunity_id
+                """,
+                (row[0],),
+            )
+        ).fetchone()
+        if resolved is None:
+            raise SubjectCommitViolation("SUBJECT-OPPORTUNITY-STATE")
         await unit_of_work.work.fail(lease, error_code=code)
         await unit_of_work.audit.append(
             AuditDraft(
@@ -766,7 +783,7 @@ class PostgreSQLSubjectCommitRepository:
                     semantic_digest, semantic_payload, privacy_scope
                 ) VALUES (
                     %s, %s, %s, %s, %s, 'subject_commit', %s,
-                    %s, %s, %s, %s, 'private'
+                    %s, %s, %s, %s::jsonb, 'private'
                 )
                 """,
                 (
@@ -779,7 +796,7 @@ class PostgreSQLSubjectCommitRepository:
                     commit_id.value,
                     component.proposal_ref,
                     component.next_state_digest.value,
-                    json.loads(component.canonical_next_state),
+                    component.canonical_next_state.decode("utf-8"),
                 ),
             )
             updated = await (
@@ -1827,7 +1844,7 @@ async def _update_life_focus(
             semantic_payload, privacy_scope
         ) VALUES (
             %s, %s, 'life_mode', %s, %s, 'subject_commit', %s,
-            %s, %s, %s, %s, 'private'
+            %s, %s, %s, %s::jsonb, 'private'
         )
         """,
         (
@@ -1839,7 +1856,7 @@ async def _update_life_focus(
             commit_id.value,
             decision.proposal_ref,
             Digest.from_bytes(canonical).value,
-            json.loads(canonical),
+            canonical.decode("utf-8"),
         ),
     )
     updated = await (

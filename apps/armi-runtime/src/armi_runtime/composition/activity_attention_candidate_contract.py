@@ -10,7 +10,6 @@ from pydantic import (
     Field,
     TypeAdapter,
     field_validator,
-    model_validator,
 )
 
 ACTIVITY_ATTENTION_CANDIDATE_VERSION = "armi.activity-attention-candidate.v1"
@@ -62,12 +61,6 @@ class AttentionWaitDecision(_StrictModel):
     @classmethod
     def _next(cls, value: str) -> str:
         return _text(value, 1024)
-
-    @model_validator(mode="after")
-    def _delay_shape(self) -> AttentionWaitDecision:
-        if (self.condition_kind == "time") != (self.delay_seconds is not None):
-            raise ValueError("delay_seconds is required only for time waits")
-        return self
 
 
 class AttentionPauseDecision(_StrictModel):

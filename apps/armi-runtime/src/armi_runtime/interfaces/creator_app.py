@@ -705,6 +705,15 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             waiting_for="codex_result_acceptance",
             resume_condition="codex_result_accepted",
         ).to_wire()
+    if operation.phase is CreatorOperationPhase.CODEX_RESULT_REJECTED:
+        return RejectedOutcome(
+            **_outcome_common(),
+            message="The verified Codex result was rejected by cognition validation.",
+            error=ErrorDescriptor(
+                ErrorCategory.INTEGRITY,
+                "INTEGRITY_COGNITION_CANDIDATE_REJECTED",
+            ),
+        ).to_wire()
     if operation.phase is CreatorOperationPhase.CODEX_COMPLETED:
         assert operation.completion_digest is not None
         return CompletedOutcome(
@@ -873,6 +882,7 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
         CreatorOperationPhase.CODEX_DISPATCHING,
         CreatorOperationPhase.CODEX_VERIFYING,
         CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE,
+        CreatorOperationPhase.CODEX_RESULT_REJECTED,
         CreatorOperationPhase.CODEX_COMPLETED,
         CreatorOperationPhase.CODEX_FAILED,
         CreatorOperationPhase.CODEX_UNKNOWN,
@@ -894,6 +904,7 @@ def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
         CreatorOperationPhase.CODEX_DISPATCHING: "dispatching",
         CreatorOperationPhase.CODEX_VERIFYING: "dispatching",
         CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "completed",
+        CreatorOperationPhase.CODEX_RESULT_REJECTED: "completed",
         CreatorOperationPhase.CODEX_COMPLETED: "completed",
         CreatorOperationPhase.CODEX_FAILED: "failed",
         CreatorOperationPhase.CODEX_UNKNOWN: "unknown",

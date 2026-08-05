@@ -152,6 +152,7 @@ class CreatorOperationPhase(StrEnum):
     CODEX_DISPATCHING = "codex_dispatching"
     CODEX_VERIFYING = "codex_verifying"
     CODEX_RESULT_ACCEPTANCE = "codex_result_acceptance"
+    CODEX_RESULT_REJECTED = "codex_result_rejected"
     CODEX_COMPLETED = "codex_completed"
     CODEX_FAILED = "codex_failed"
     CODEX_UNKNOWN = "codex_unknown"
@@ -225,6 +226,7 @@ class CreatorOperation:
                 CreatorOperationPhase.CODEX_DISPATCHING,
                 CreatorOperationPhase.CODEX_VERIFYING,
                 CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE,
+                CreatorOperationPhase.CODEX_RESULT_REJECTED,
                 CreatorOperationPhase.CODEX_COMPLETED,
                 CreatorOperationPhase.CODEX_FAILED,
                 CreatorOperationPhase.CODEX_UNKNOWN,
@@ -251,7 +253,10 @@ class CreatorOperation:
                 is None
             ):
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
-        elif self.phase is CreatorOperationPhase.CANDIDATE_REJECTED:
+        elif self.phase in {
+            CreatorOperationPhase.CANDIDATE_REJECTED,
+            CreatorOperationPhase.CODEX_RESULT_REJECTED,
+        }:
             if (
                 type(self.failure_code) is not str
                 or re.fullmatch(r"CANDIDATE-[A-Z0-9-]+", self.failure_code) is None

@@ -344,7 +344,10 @@ class CreatorInputRepository:
             phase = CreatorOperationPhase.CANDIDATE_VALIDATED
         elif disposition == "selected" and episode_status == "committing":
             phase = CreatorOperationPhase.SUBJECT_COMMITTING
-        elif disposition == "selected" and episode_status == "candidate_rejected":
+        elif (
+            disposition in {"selected", "resolved"}
+            and episode_status == "candidate_rejected"
+        ):
             phase = CreatorOperationPhase.CANDIDATE_REJECTED
         elif response_status == "pending":
             phase = CreatorOperationPhase.RESPONSE_ADMISSION
@@ -370,6 +373,8 @@ class CreatorInputRepository:
             phase = CreatorOperationPhase.CODEX_VERIFYING
         elif response_status == "codex_result_pending":
             phase = CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE
+        elif response_status == "codex_result_rejected":
+            phase = CreatorOperationPhase.CODEX_RESULT_REJECTED
         elif response_status in {"codex_completed", "codex_result_accepted"}:
             phase = CreatorOperationPhase.CODEX_COMPLETED
         elif response_status == "codex_failed":
@@ -405,7 +410,11 @@ class CreatorInputRepository:
             and int(row[11]) == 1
         ):
             phase = CreatorOperationPhase.STALE_CONFLICT
-        elif disposition == "selected" and episode_status in {"failed", "cancelled"}:
+        elif disposition in {
+            "selected",
+            "resolved",
+            "cancelled",
+        } and episode_status in {"failed", "cancelled"}:
             phase = CreatorOperationPhase.FAILED
         else:
             raise CreatorInputViolation("DB-INPUT-STATE")

@@ -10,6 +10,8 @@ from armi_kernel.application import (
     CreatorInputCommand,
     CreatorInputViolation,
     CreatorInteractionId,
+    CreatorOperation,
+    CreatorOperationPhase,
     EvidenceId,
     OpportunityId,
 )
@@ -58,6 +60,36 @@ class CreatorInputContractTests(unittest.TestCase):
         error = CreatorInputViolation("INPUT-MESSAGE")
         self.assertNotIn("contains", str(error))
         self.assertNotIn("path", str(error))
+
+    def test_rejected_codex_result_keeps_effect_custody_and_candidate_error(
+        self,
+    ) -> None:
+        acceptance = CreatorInputAcceptance(
+            CreatorInteractionId(uuid7()),
+            EvidenceId(uuid7()),
+            OpportunityId(uuid7()),
+            Digest.from_bytes(b"request"),
+            Digest.from_bytes(b"task"),
+            False,
+        )
+        operation = CreatorOperation(
+            acceptance,
+            CreatorOperationPhase.CODEX_RESULT_REJECTED,
+            failure_code="CANDIDATE-CONTRACT",
+            effect_ref=uuid7(),
+        )
+
+        self.assertEqual(
+            operation.phase,
+            CreatorOperationPhase.CODEX_RESULT_REJECTED,
+        )
+        with self.assertRaisesRegex(CreatorInputViolation, "CON-INPUT-OPERATION"):
+            CreatorOperation(
+                acceptance,
+                CreatorOperationPhase.CODEX_RESULT_REJECTED,
+                failure_code="MODEL-RESPONSE-SCHEMA",
+                effect_ref=uuid7(),
+            )
 
 
 if __name__ == "__main__":

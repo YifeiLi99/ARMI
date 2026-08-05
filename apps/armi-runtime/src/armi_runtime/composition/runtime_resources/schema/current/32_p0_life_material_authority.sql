@@ -176,3 +176,28 @@ TO armi_runtime;
 
 GRANT UPDATE (current_revision_id, head_version, deleted_at, updated_at)
 ON armi.life_materials TO armi_runtime;
+
+ALTER TABLE armi.opportunities
+    DROP CONSTRAINT opportunities_source_kind_check,
+    DROP CONSTRAINT opportunities_source_shape_check,
+    ADD CONSTRAINT opportunities_source_kind_check CHECK (
+        source_kind IN (
+            'external_evidence', 'life_generation_available',
+            'subject_component_revision', 'activity_revision',
+            'maintenance_window', 'life_material_revision'
+        )
+    ),
+    ADD CONSTRAINT opportunities_source_shape_check CHECK (
+        (source_kind = 'external_evidence'
+            AND evidence_id = source_ref AND scene_id IS NOT NULL
+            AND creator_party_id IS NOT NULL AND activity_id IS NULL)
+        OR (source_kind IN (
+                'life_generation_available', 'subject_component_revision',
+                'maintenance_window', 'life_material_revision'
+            )
+            AND evidence_id IS NULL AND scene_id IS NULL
+            AND creator_party_id IS NULL AND activity_id IS NULL)
+        OR (source_kind = 'activity_revision'
+            AND evidence_id IS NULL AND scene_id IS NULL
+            AND creator_party_id IS NULL AND activity_id IS NOT NULL)
+    );

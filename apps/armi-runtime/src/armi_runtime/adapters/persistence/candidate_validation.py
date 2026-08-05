@@ -610,6 +610,45 @@ class PostgreSQLCandidateValidationRepository:
         ).fetchone()
         if updated is None:
             raise CandidateViolation("CANDIDATE-EPISODE-STATE")
+        if result.status is CandidateValidationStatus.REJECTED:
+            resolved = await (
+                await connection.execute(
+                    """
+                    UPDATE armi.opportunities
+                    SET current_disposition = 'resolved',
+                        resolved_at = statement_timestamp()
+                    WHERE opportunity_id = %s
+                      AND current_disposition = 'selected'
+                    RETURNING opportunity_id
+                    """,
+                    (snapshot.opportunity_id,),
+                )
+            ).fetchone()
+            if resolved is None:
+                raise CandidateViolation("CANDIDATE-OPPORTUNITY-STATE")
+            if snapshot.purpose == "consider_codex_result":
+                assert result.error_code is not None
+                operation = await (
+                    await connection.execute(
+                        """
+                        UPDATE armi.creator_response_operations AS operation
+                        SET current_status = 'codex_result_rejected',
+                            reason_code = %s,
+                            completed_at = statement_timestamp()
+                        FROM armi.codex_result_sources AS source
+                        JOIN armi.codex_verification_results AS verification
+                          ON verification.codex_verification_id =
+                             source.codex_verification_id
+                        WHERE source.opportunity_id = %s
+                          AND operation.effect_id = verification.effect_id
+                          AND operation.current_status = 'codex_result_pending'
+                        RETURNING operation.creator_response_operation_id
+                        """,
+                        (result.error_code, snapshot.opportunity_id),
+                    )
+                ).fetchone()
+                if operation is None:
+                    raise CandidateViolation("CANDIDATE-CODEX-RESULT-LINK")
         if change_set is not None:
             now_row = await (
                 await connection.execute("SELECT statement_timestamp()")

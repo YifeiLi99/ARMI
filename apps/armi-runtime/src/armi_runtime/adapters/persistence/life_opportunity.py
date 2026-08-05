@@ -325,6 +325,126 @@ class PostgreSQLLifeOpportunityRepository:
             opportunity_id,
         )
 
+    async def admit_life_material_revision(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+    ) -> OpportunityAdmissionOutcome:
+        """Offer one current active ARMI-owned material for autonomous consideration."""
+
+        fence = unit_of_work.runtime_fence
+        if fence is None:
+            raise LifeViolation("LIFE-FENCE-REQUIRED")
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                SELECT material.life_material_id,
+                       revision.life_material_revision_id,
+                       material.head_version,
+                       revision.semantic_digest
+                FROM armi.life_materials AS material
+                JOIN armi.life_material_revisions AS revision
+                  ON revision.life_material_revision_id =
+                     material.current_revision_id
+                WHERE material.subject_id = %s
+                  AND material.life_generation_id = %s
+                  AND material.deleted_at IS NULL
+                  AND revision.material_status = 'active'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM armi.opportunities AS existing
+                      WHERE existing.subject_id = material.subject_id
+                        AND existing.source_kind = 'life_material_revision'
+                        AND existing.source_ref =
+                            revision.life_material_revision_id
+                        AND existing.source_version = material.head_version
+                        AND existing.purpose = 'consider_autonomous_life'
+                        AND existing.reconsideration_no = 0
+                  )
+                ORDER BY material.updated_at, material.life_material_id
+                LIMIT 1
+                """,
+                (fence.subject_id, fence.life_generation_id),
+            )
+        ).fetchone()
+        if row is None:
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-MATERIAL-IDLE",
+            )
+        opportunity_id = uuid7()
+        inserted = await (
+            await connection.execute(
+                """
+                INSERT INTO armi.opportunities (
+                    opportunity_id, evidence_id, subject_id, scene_id,
+                    creator_party_id, purpose, eligibility_status,
+                    current_disposition, root_opportunity_id,
+                    reconsideration_no, source_kind, source_ref,
+                    source_version, source_digest, schema_version
+                ) VALUES (
+                    %s, NULL, %s, NULL, NULL, 'consider_autonomous_life',
+                    'eligible', 'open', %s, 0, 'life_material_revision',
+                    %s, %s, %s, 1
+                )
+                ON CONFLICT (
+                    subject_id, source_kind, source_ref, source_version,
+                    purpose, reconsideration_no
+                ) DO NOTHING RETURNING opportunity_id
+                """,
+                (
+                    opportunity_id,
+                    fence.subject_id,
+                    opportunity_id,
+                    row[1],
+                    int(row[2]),
+                    str(row[3]),
+                ),
+            )
+        ).fetchone()
+        if inserted is None:
+            existing = await (
+                await connection.execute(
+                    """
+                    SELECT opportunity_id, source_digest
+                    FROM armi.opportunities
+                    WHERE subject_id = %s
+                      AND source_kind = 'life_material_revision'
+                      AND source_ref = %s
+                      AND source_version = %s
+                      AND purpose = 'consider_autonomous_life'
+                      AND reconsideration_no = 0
+                    """,
+                    (fence.subject_id, row[1], int(row[2])),
+                )
+            ).fetchone()
+            if existing is None or str(existing[1]) != str(row[3]):
+                raise LifeViolation("LIFE-SOURCE-DRIFT")
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.DUPLICATE,
+                existing[0],
+            )
+        await unit_of_work.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", unit_of_work.environment_id),
+                Purpose("life.opportunity"),
+                "life.opportunity.admitted",
+                AuditReference("opportunity", opportunity_id),
+                AuditResultStatus.APPLIED,
+                TraceId(opportunity_id.hex),
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(fence.subject_id),
+                request=AuditReference("life_material_revision", row[1]),
+                request_digest=Digest(str(row[3])),
+            )
+        )
+        return OpportunityAdmissionOutcome(
+            OpportunityAdmissionStatus.ADMITTED,
+            opportunity_id,
+        )
+
     async def admit_activity_attention(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
@@ -412,6 +532,42 @@ class PostgreSQLLifeOpportunityRepository:
                  AND previous.source_ref = revision.activity_revision_id
                  AND previous.purpose = 'consider_activity_attention'
                 WHERE activity.subject_id = %s
+                  AND (
+                    NOT EXISTS (
+                        SELECT 1 FROM armi.opportunities AS candidate_root
+                        WHERE candidate_root.subject_id = activity.subject_id
+                          AND candidate_root.source_kind = 'activity_revision'
+                          AND candidate_root.source_ref = revision.activity_revision_id
+                          AND candidate_root.source_version = revision.revision_no
+                          AND candidate_root.purpose = 'consider_activity_attention'
+                          AND candidate_root.reconsideration_no = 0
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM armi.opportunities AS candidate_root
+                        JOIN armi.cognitive_episodes AS candidate_episode
+                          ON candidate_episode.opportunity_id =
+                             candidate_root.opportunity_id
+                        WHERE candidate_root.subject_id = activity.subject_id
+                          AND candidate_root.source_kind = 'activity_revision'
+                          AND candidate_root.source_ref = revision.activity_revision_id
+                          AND candidate_root.source_version = revision.revision_no
+                          AND candidate_root.purpose = 'consider_activity_attention'
+                          AND candidate_root.reconsideration_no = 0
+                          AND candidate_root.current_disposition = 'resolved'
+                          AND candidate_root.resolved_at + interval '60 seconds'
+                              <= statement_timestamp()
+                          AND candidate_episode.status IN (
+                              'failed', 'candidate_rejected'
+                          )
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM armi.opportunities AS candidate_successor
+                              WHERE candidate_successor.predecessor_opportunity_id =
+                                    candidate_root.opportunity_id
+                          )
+                    )
+                  )
                 GROUP BY activity.activity_id, revision.activity_revision_id
                 """,
                 (fence.subject_id,),
@@ -498,18 +654,92 @@ class PostgreSQLLifeOpportunityRepository:
             existing = await (
                 await connection.execute(
                     """
-                    SELECT opportunity_id, source_digest
-                    FROM armi.opportunities
-                    WHERE subject_id = %s AND source_kind = 'activity_revision'
-                      AND source_ref = %s AND source_version = %s
-                      AND purpose = 'consider_activity_attention'
-                      AND reconsideration_no = 0
+                    SELECT root.opportunity_id, root.source_digest,
+                           root.current_disposition,
+                           root.resolved_at IS NOT NULL
+                               AND root.resolved_at + interval '60 seconds'
+                                   <= statement_timestamp(),
+                           EXISTS (
+                               SELECT 1 FROM armi.cognitive_episodes AS episode
+                               WHERE episode.opportunity_id = root.opportunity_id
+                                 AND episode.status IN (
+                                     'failed', 'candidate_rejected'
+                                 )
+                           ),
+                           successor.opportunity_id
+                    FROM armi.opportunities AS root
+                    LEFT JOIN armi.opportunities AS successor
+                      ON successor.predecessor_opportunity_id = root.opportunity_id
+                    WHERE root.subject_id = %s
+                      AND root.source_kind = 'activity_revision'
+                      AND root.source_ref = %s AND root.source_version = %s
+                      AND root.purpose = 'consider_activity_attention'
+                      AND root.reconsideration_no = 0
                     """,
                     (fence.subject_id, selected[1], int(selected[2])),
                 )
             ).fetchone()
             if existing is None or str(existing[1]) != source_digest.value:
                 raise LifeViolation("LIFE-SOURCE-DRIFT")
+            if existing[5] is not None:
+                return OpportunityAdmissionOutcome(
+                    OpportunityAdmissionStatus.DUPLICATE, existing[5]
+                )
+            if (
+                str(existing[2]) == "resolved"
+                and bool(existing[3])
+                and bool(existing[4])
+            ):
+                retry_id = uuid7()
+                retried = await (
+                    await connection.execute(
+                        """
+                        INSERT INTO armi.opportunities (
+                            opportunity_id, evidence_id, subject_id, scene_id,
+                            creator_party_id, purpose, eligibility_status,
+                            current_disposition, root_opportunity_id,
+                            predecessor_opportunity_id, reconsideration_no,
+                            source_kind, source_ref, source_version,
+                            source_digest, activity_id, schema_version
+                        ) VALUES (
+                            %s, NULL, %s, NULL, NULL,
+                            'consider_activity_attention', 'eligible', 'open',
+                            %s, %s, 1, 'activity_revision', %s, %s, %s, %s, 1
+                        )
+                        ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+                        RETURNING opportunity_id
+                        """,
+                        (
+                            retry_id,
+                            fence.subject_id,
+                            existing[0],
+                            existing[0],
+                            selected[1],
+                            int(selected[2]),
+                            source_digest.value,
+                            selected[0],
+                        ),
+                    )
+                ).fetchone()
+                if retried is not None:
+                    await unit_of_work.audit.append(
+                        AuditDraft(
+                            AuditEventId(uuid7()),
+                            AuditReference("runtime", unit_of_work.environment_id),
+                            Purpose("life.attention.opportunity"),
+                            "life.attention.opportunity.readmitted",
+                            AuditReference("opportunity", retry_id),
+                            AuditResultStatus.APPLIED,
+                            TraceId(retry_id.hex),
+                            AuditSensitivity.PRIVATE,
+                            subject_id=SubjectId(fence.subject_id),
+                            request=AuditReference("activity_revision", selected[1]),
+                            request_digest=source_digest,
+                        )
+                    )
+                    return OpportunityAdmissionOutcome(
+                        OpportunityAdmissionStatus.ADMITTED, retry_id
+                    )
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.DUPLICATE, existing[0]
             )

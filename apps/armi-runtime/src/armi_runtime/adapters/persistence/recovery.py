@@ -41,7 +41,11 @@ from armi_runtime.adapters.artifacts.content_store import (
 from armi_runtime.adapters.persistence.role_policy import physical_role_name
 
 from .audit_events import PostgreSQLAuditWriter
-from .recovery_responsibilities import repair_outbox, repair_work
+from .recovery_responsibilities import (
+    repair_outbox,
+    repair_terminal_cognitive_responsibilities,
+    repair_work,
+)
 
 _SEARCH_PATH = "pg_catalog, armi"
 
@@ -181,6 +185,11 @@ class PostgreSQLRuntimeRecovery:
             findings.extend(work[0])
             outbox = await repair_outbox(connection, writer, fence, _audit)
             findings.extend(outbox[0])
+            findings.extend(
+                await repair_terminal_cognitive_responsibilities(
+                    connection, writer, fence, _audit
+                )
+            )
             await self._verify_fence(connection, fence)
             return _Scan(
                 recovery_run_id=run_id,
@@ -1271,7 +1280,8 @@ class PostgreSQLRuntimeRecovery:
                                         OR delivery.effect_id IS NOT NULL
                                         OR response.current_status NOT IN (
                                             'codex_result_pending',
-                                            'codex_result_accepted'
+                                            'codex_result_accepted',
+                                            'codex_result_rejected'
                                         )
                                     )
                                 )

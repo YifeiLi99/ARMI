@@ -410,15 +410,21 @@ class PostgreSQLCognitiveModelRepository:
             )
             audit_status = AuditResultStatus.WAITING
         else:
-            await connection.execute(
-                """
+            updated = await (
+                await connection.execute(
+                    """
                 UPDATE armi.cognitive_episodes
                 SET status = 'failed', failure_code = %s
                 WHERE cognitive_episode_id = %s
                   AND status = 'calling_model'
+                RETURNING cognitive_episode_id
                 """,
-                (code, snapshot.episode_id),
-            )
+                    (code, snapshot.episode_id),
+                )
+            ).fetchone()
+            if updated is None:
+                raise ModelViolation("MODEL-EPISODE-STATE")
+            await _resolve_selected_opportunity(connection, snapshot.episode_id)
             await unit_of_work.work.fail(lease, error_code=code)
             audit_status = AuditResultStatus.FAILED
         await unit_of_work.audit.append(
@@ -457,6 +463,7 @@ class PostgreSQLCognitiveModelRepository:
         ).fetchone()
         if updated is None:
             raise ModelViolation("MODEL-EPISODE-STATE")
+        await _resolve_selected_opportunity(connection, snapshot.episode_id)
         await unit_of_work.work.fail(lease, error_code=code)
         await unit_of_work.audit.append(
             AuditDraft(
@@ -603,6 +610,26 @@ def _settlement_audit(
         subject_id=SubjectId(snapshot.subject_id),
         response_digest=response_digest,
     )
+
+
+async def _resolve_selected_opportunity(connection: Any, episode_id: UUID) -> None:
+    resolved = await (
+        await connection.execute(
+            """
+            UPDATE armi.opportunities AS opportunity
+            SET current_disposition = 'resolved',
+                resolved_at = statement_timestamp()
+            FROM armi.cognitive_episodes AS episode
+            WHERE episode.cognitive_episode_id = %s
+              AND opportunity.opportunity_id = episode.opportunity_id
+              AND opportunity.current_disposition = 'selected'
+            RETURNING opportunity.opportunity_id
+            """,
+            (episode_id,),
+        )
+    ).fetchone()
+    if resolved is None:
+        raise ModelViolation("MODEL-OPPORTUNITY-STATE")
 
 
 __all__ = ("ModelEpisodeSnapshot", "PostgreSQLCognitiveModelRepository")
