@@ -21,6 +21,7 @@ from armi_kernel.application import (
     CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateRejection,
+    CandidateRelationshipDraft,
     CandidateSleepDecisionDraft,
     CandidateViolation,
     CapabilityKind,
@@ -38,6 +39,13 @@ from armi_kernel.application import (
     MemoryRelationKind,
     MemoryRevisionKind,
     MemorySourceKind,
+    RelationshipBoundary,
+    RelationshipBoundaryAction,
+    RelationshipBoundaryKind,
+    RelationshipFact,
+    RelationshipFactKind,
+    RelationshipPartyRole,
+    RelationshipStatus,
     SleepDecisionKind,
     SubjectChangeSet,
     SubjectCommitViolation,
@@ -68,6 +76,7 @@ _TOP_KEYS_V8 = {*_TOP_KEYS_V7, "activity_decisions"}
 _TOP_KEYS_V9 = {*_TOP_KEYS_V8, "sleep_decisions"}
 _TOP_KEYS_V10 = {*_TOP_KEYS_V6, "web_research_requests", "memories"}
 _TOP_KEYS_V11 = {*_TOP_KEYS_V10, "memory_revisions"}
+_TOP_KEYS_V12 = {*_TOP_KEYS_V11, "relationships"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -88,6 +97,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v9",
             "armi.subject-change-set.v10",
             "armi.subject-change-set.v11",
+            "armi.subject-change-set.v12",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -113,6 +123,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V10
             if version.endswith(".v10")
             else _TOP_KEYS_V11
+            if version.endswith(".v11")
+            else _TOP_KEYS_V12
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -167,6 +179,9 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             _memory_revision(item)
             for item in _array(document.get("memory_revisions", []), 1)
         )
+        relationships = tuple(
+            _relationship(item) for item in _array(document.get("relationships", []), 1)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -195,6 +210,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             sleep_decisions,
             memories,
             memory_revisions,
+            relationships,
         )
         proposal_refs = [
             item.proposal_ref
@@ -210,6 +226,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *sleep_decisions,
                 *memories,
                 *memory_revisions,
+                *relationships,
                 *rejections,
             )
         ]
@@ -225,6 +242,13 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             for memory in memories
         ):
             raise ValueError
+        if any(
+            relationship.source_experience_ref not in experience_by_ref
+            or experience_by_ref[relationship.source_experience_ref].atomic_group_ref
+            != relationship.atomic_group_ref
+            for relationship in relationships
+        ):
+            raise ValueError
         change_material = (
             result.experiences
             or result.components
@@ -236,6 +260,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.sleep_decisions
             or result.memories
             or result.memory_revisions
+            or result.relationships
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
@@ -413,6 +438,70 @@ def _memory_revision(value: object) -> CandidateMemoryRevisionDraft:
         None if relation_kind is None else MemoryRelationKind(_text(relation_kind)),
         _text(item["mechanism_identity"]),
         _text(item["mechanism_config_identity"]),
+        _text(item["privacy_scope"]),
+    )
+
+
+def _relationship(value: object) -> CandidateRelationshipDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "fact_class",
+            "relationship_id",
+            "subject_party_id",
+            "other_party_id",
+            "current_revision_id",
+            "expected_head_version",
+            "source_experience_ref",
+            "facts",
+            "interpretation",
+            "boundaries",
+            "status",
+            "scope",
+            "mechanism_identity",
+            "privacy_scope",
+        },
+    )
+    current_revision_id = item["current_revision_id"]
+    return CandidateRelationshipDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        CandidateFactClass(_text(item["fact_class"])),
+        _uuid7(item["relationship_id"]),
+        _uuid7(item["subject_party_id"]),
+        _uuid7(item["other_party_id"]),
+        None if current_revision_id is None else _uuid7(current_revision_id),
+        _nonnegative(item["expected_head_version"]),
+        _text(item["source_experience_ref"]),
+        tuple(
+            RelationshipFact(
+                RelationshipFactKind(_text(fact["kind"])),
+                _text(fact["summary"]),
+            )
+            for fact in (
+                _object(raw, {"kind", "summary"}) for raw in _array(item["facts"], 64)
+            )
+        ),
+        _text(item["interpretation"]),
+        tuple(
+            RelationshipBoundary(
+                RelationshipPartyRole(_text(boundary["party_role"])),
+                RelationshipBoundaryKind(_text(boundary["kind"])),
+                RelationshipBoundaryAction(_text(boundary["action"])),
+                _text(boundary["summary"]),
+            )
+            for boundary in (
+                _object(raw, {"party_role", "kind", "action", "summary"})
+                for raw in _array(item["boundaries"], 16)
+            )
+        ),
+        RelationshipStatus(_text(item["status"])),
+        _text(item["scope"]),
+        _text(item["mechanism_identity"]),
         _text(item["privacy_scope"]),
     )
 

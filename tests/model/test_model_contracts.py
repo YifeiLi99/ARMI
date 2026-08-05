@@ -205,6 +205,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         "content": "Hello, I am here.",
         "experience": None,
         "memory_change": None,
+        "relationship_change": None,
     }
 
 
@@ -302,7 +303,74 @@ def test_creator_dialogue_memory_revision_is_narrow_and_strict() -> None:
             )
 
 
-def test_web_dialogue_v2_is_compact_versioned_and_rejects_urls() -> None:
+def test_creator_dialogue_relationship_change_is_narrow_and_experience_bound() -> None:
+    parsed = parse_candidate(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "我会尊重这个边界。",
+                "experience": {"first_person_gist": "创造者明确要求我停止联系。"},
+                "relationship_change": {
+                    "interpretation": "我理解这段接触现在应当结束。",
+                    "fact": {
+                        "kind": "party_expression",
+                        "summary": "创造者表达了结束接触的决定。",
+                    },
+                    "boundary": {
+                        "party": "creator",
+                        "kind": "exit",
+                        "action": "end_contact",
+                        "summary": "创造者要求结束接触。",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset(),
+    )
+    change = parsed.model_dump(mode="json")["relationship_change"]
+    assert change["boundary"]["action"] == "end_contact"
+
+    for invalid in (
+        {
+            "kind": "reply",
+            "content": "没有经历来源",
+            "relationship_change": {"interpretation": "不能提交"},
+        },
+        {
+            "kind": "reply",
+            "content": "错误边界",
+            "experience": {"first_person_gist": "一次交流。"},
+            "relationship_change": {
+                "boundary": {
+                    "party": "armi",
+                    "kind": "contact",
+                    "action": "end_contact",
+                    "summary": "错误形状",
+                }
+            },
+        },
+        {
+            "kind": "reply",
+            "content": "伪造共同经历",
+            "experience": {"first_person_gist": "本轮真实交流。"},
+            "relationship_change": {
+                "interpretation": "不能由模型另造共同经历。",
+                "fact": {
+                    "kind": "shared_experience",
+                    "summary": "并未发生的共同历史。",
+                },
+            },
+        },
+    ):
+        with pytest.raises(ModelViolation):
+            parse_candidate(
+                json.dumps(invalid, ensure_ascii=False).encode(),
+                allowed_context_refs=frozenset(),
+            )
+
+
+def test_web_dialogue_v4_is_compact_versioned_and_rejects_urls() -> None:
     schema = candidate_schema(WEB_DIALOGUE_CANDIDATE_VERSION)
     schema_text = json.dumps(schema, separators=(",", ":"))
     assert '"web_research"' in schema_text

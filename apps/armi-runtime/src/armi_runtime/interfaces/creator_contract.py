@@ -340,6 +340,7 @@ type LifeRecordKindValue = Literal[
     "activity",
     "conversation",
     "memory",
+    "relationship",
     "self_change",
 ]
 type MemoryAccessibilityValue = Literal["available", "faded", "forgotten"]
@@ -378,9 +379,7 @@ class LifeRecordItemResponse(_StrictWireModel):
 
     @model_validator(mode="after")
     def validate_record_shape(self) -> LifeRecordItemResponse:
-        if (self.record_kind == "memory") != (
-            self.naturally_recallable is not None
-        ):
+        if (self.record_kind == "memory") != (self.naturally_recallable is not None):
             raise ValueError("CON-LIFE-QUERY-SHAPE: recallability is inconsistent")
         return self
 
@@ -390,9 +389,7 @@ class LifeRecordPageResponse(_StrictWireModel):
     projection_version: Literal["life-record-query.v1"]
     retrieval_kind: Literal["exact_query", "creator_view"]
     items: Annotated[list[LifeRecordItemResponse], Field(max_length=100)]
-    next_cursor: (
-        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
-    )
+    next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
 class CreatorMemoryItemResponse(_StrictWireModel):
@@ -435,9 +432,7 @@ class CreatorMemoryPageResponse(_StrictWireModel):
     projection_version: Literal["creator-memory.v1"]
     retrieval_kind: Literal["creator_view"]
     items: Annotated[list[CreatorMemoryItemResponse], Field(max_length=100)]
-    next_cursor: (
-        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
-    )
+    next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
 class CreatorMemoryTimelineItemResponse(_StrictWireModel):
@@ -459,9 +454,7 @@ class CreatorMemoryTimelineItemResponse(_StrictWireModel):
         if value is not None:
             parsed = UUID(value)
             if parsed.version != 7 or str(parsed) != value:
-                raise ValueError(
-                    "CON-LIFE-QUERY-ID: identity must be canonical UUIDv7"
-                )
+                raise ValueError("CON-LIFE-QUERY-ID: identity must be canonical UUIDv7")
         return value
 
     @field_validator("occurred_at")
@@ -484,9 +477,7 @@ class CreatorMemoryTimelineResponse(_StrictWireModel):
     retrieval_kind: Literal["creator_view"]
     memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[CreatorMemoryTimelineItemResponse], Field(max_length=100)]
-    next_cursor: (
-        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
-    )
+    next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
 type MaintenancePhaseValue = Literal[
@@ -541,10 +532,9 @@ class CreatorMaintenanceSessionResponse(_StrictWireModel):
 
     @model_validator(mode="after")
     def validate_session_shape(self) -> CreatorMaintenanceSessionResponse:
-        if (
-            self.revision_no != self.head_version
-            or (self.result_status == "running") == (self.finished_at is not None)
-        ):
+        if self.revision_no != self.head_version or (
+            self.result_status == "running"
+        ) == (self.finished_at is not None):
             raise ValueError("CON-MAINTENANCE-SHAPE: session fields are inconsistent")
         return self
 
@@ -560,7 +550,9 @@ class CreatorMaintenanceStatusResponse(_StrictWireModel):
         if (self.session is None or self.session.result_status != "running") and (
             self.waiting_input_count != 0
         ):
-            raise ValueError("CON-MAINTENANCE-SHAPE: waiting count requires maintenance")
+            raise ValueError(
+                "CON-MAINTENANCE-SHAPE: waiting count requires maintenance"
+            )
         return self
 
 
@@ -592,7 +584,9 @@ class CreatorMaintenanceTimelineResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     projection_version: Literal["creator-maintenance.v1"]
     maintenance_session_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    items: Annotated[list[CreatorMaintenanceTimelineItemResponse], Field(max_length=100)]
+    items: Annotated[
+        list[CreatorMaintenanceTimelineItemResponse], Field(max_length=100)
+    ]
     truncated: bool
 
 

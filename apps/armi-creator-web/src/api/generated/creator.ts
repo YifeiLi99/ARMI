@@ -1244,7 +1244,8 @@ export interface components {
       summary: string;
     };
     /** @enum {string} */
-    LifeRecordKindValue: "activity" | "conversation" | "memory" | "self_change";
+    LifeRecordKindValue:
+      "activity" | "conversation" | "memory" | "relationship" | "self_change";
     /** LifeRecordPageResponse */
     LifeRecordPageResponse: {
       /**

@@ -56,6 +56,7 @@ from armi_kernel.contracts import (
     TraceId,
 )
 
+from .relationship_commit import apply_relationships
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.subject.commit"
@@ -423,6 +424,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.sleep_decisions
             and not change_set.memories
             and not change_set.memory_revisions
+            and not change_set.relationships
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -578,6 +580,17 @@ class PostgreSQLSubjectCommitRepository:
             snapshot=snapshot,
             commit_id=commit_id,
             revisions=change_set.memory_revisions,
+        )
+
+        await apply_relationships(
+            connection,
+            validation_id=snapshot.validation_id,
+            subject_id=snapshot.subject_id,
+            generation_id=snapshot.generation_id,
+            creator_party_id=snapshot.creator_party_id,
+            commit_id=commit_id.value,
+            relationships=change_set.relationships,
+            experience_ids={key: value.value for key, value in experience_ids.items()},
         )
 
         for component in sorted(

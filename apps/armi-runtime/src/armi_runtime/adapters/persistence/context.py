@@ -70,6 +70,7 @@ class ContextEpisodeSnapshot:
     component_payloads: tuple[tuple[str, UUID, int, bytes, Digest], ...]
     memory_payloads: tuple[tuple[UUID, int, bytes, Digest, str], ...]
     has_memory_records: bool
+    relationship_payloads: tuple[tuple[UUID, int, bytes, Digest], ...]
     activity_summary_bytes: bytes
     scene_bytes: bytes | None
     scene_digest: Digest | None
@@ -430,6 +431,48 @@ class PostgreSQLContextRepository:
             )
             for item in memory_rows
         )
+        relationship_rows = await (
+            await connection.execute(
+                """
+                SELECT relationship.relationship_id,
+                       relationship.head_version,
+                       relationship.scope,
+                       revision.facts,
+                       revision.interpretation,
+                       revision.boundaries,
+                       revision.relationship_status
+                FROM armi.relationships AS relationship
+                JOIN armi.relationship_revisions AS revision
+                  ON revision.relationship_revision_id =
+                     relationship.current_revision_id
+                WHERE relationship.subject_id = %s
+                  AND relationship.life_generation_id = %s
+                  AND relationship.other_party_id = %s
+                  AND relationship.scope = 'creator_social'
+                ORDER BY relationship.relationship_id
+                """,
+                (row[2], row[28], row[4]),
+            )
+        ).fetchall()
+        relationship_payloads = tuple(
+            (
+                item[0],
+                int(item[1]),
+                (
+                    payload := rfc8785.dumps(
+                        {
+                            "scope": str(item[2]),
+                            "facts": item[3],
+                            "interpretation": str(item[4]),
+                            "boundaries": item[5],
+                            "status": str(item[6]),
+                        }
+                    )
+                ),
+                Digest.from_bytes(payload),
+            )
+            for item in relationship_rows
+        )
         activity_rows = await (
             await connection.execute(
                 """
@@ -506,6 +549,7 @@ class PostgreSQLContextRepository:
             component_payloads,
             memory_payloads,
             bool(memory_exists and memory_exists[0]),
+            relationship_payloads,
             activity_summary_bytes,
             scene_bytes,
             None if scene_bytes is None else Digest.from_bytes(scene_bytes),

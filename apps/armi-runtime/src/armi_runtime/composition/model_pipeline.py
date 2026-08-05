@@ -213,9 +213,9 @@ class ModelPipeline:
                     else DIALOGUE_INSTRUCTIONS
                 ),
                 schema_name=(
-                    "armi_creator_dialogue_candidate_v2"
+                    "armi_creator_dialogue_candidate_v4"
                     if web_search_active
-                    else "armi_creator_dialogue_candidate_v1"
+                    else "armi_creator_dialogue_candidate_v3"
                 ),
             ),
             "consider_autonomous_life": VolcengineArkModelAdapter(

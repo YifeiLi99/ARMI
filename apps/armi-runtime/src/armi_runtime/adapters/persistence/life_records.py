@@ -116,7 +116,7 @@ class LifeRecordCursorCodec:
             payload = cast(dict[str, object], json.loads(raw))
             if rfc8785.dumps(cast(Any, payload)) != raw:
                 raise ValueError
-        except (UnicodeDecodeError, ValueError, json.JSONDecodeError, TypeError):
+        except UnicodeDecodeError, ValueError, json.JSONDecodeError, TypeError:
             raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID") from None
         fixed = {
             "contract_version": "1.0",
@@ -186,7 +186,7 @@ class PostgreSQLLifeRecordQuery:
             if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
                 raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
 
-        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]] (
+        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
             conninfo,
             min_size=1,
             max_size=1,
@@ -232,7 +232,7 @@ class PostgreSQLLifeRecordQuery:
                     cast(str, raw["before_kind"]),
                     UUID(cast(str, raw["before_id"])),
                 )
-            except (KeyError, TypeError, ValueError):
+            except KeyError, TypeError, ValueError:
                 raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID") from None
             if (
                 boundary[1] not in {item.value for item in LifeRecordKind}
@@ -294,6 +294,18 @@ class PostgreSQLLifeRecordQuery:
                                  memory.current_revision_id
                             WHERE memory.subject_id = %s
                             UNION ALL
+                            SELECT relationship.relationship_id,
+                                   'relationship'::text,
+                                   revision.interpretation,
+                                   'relationship_current'::text,
+                                   revision.created_at,
+                                   NULL::boolean
+                            FROM armi.relationships AS relationship
+                            JOIN armi.relationship_revisions AS revision
+                              ON revision.relationship_revision_id =
+                                 relationship.current_revision_id
+                            WHERE relationship.subject_id = %s
+                            UNION ALL
                             SELECT revision.component_revision_id,
                                    'self_change'::text,
                                    left(revision.semantic_payload::text, 4096),
@@ -320,6 +332,7 @@ class PostgreSQLLifeRecordQuery:
                         LIMIT %s
                         """,
                         (
+                            subject_id,
                             subject_id,
                             subject_id,
                             subject_id,
@@ -405,7 +418,7 @@ class PostgreSQLLifeRecordQuery:
                     Instant.from_wire(raw["before_at"]),
                     UUID(cast(str, raw["before_id"])),
                 )
-            except (KeyError, TypeError, ValueError):
+            except KeyError, TypeError, ValueError:
                 raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID") from None
             if boundary[1].version != 7:
                 raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID")
@@ -619,9 +632,7 @@ class PostgreSQLLifeRecordQuery:
             uncertainty=None if row[5] is None else str(row[5]),
             source_kind=str(row[6]),
             source_fact_class=str(row[7]),
-            relation_kind=(
-                None if row[8] is None else MemoryRelationKind(str(row[8]))
-            ),
+            relation_kind=(None if row[8] is None else MemoryRelationKind(str(row[8]))),
             related_memory_id=cast(UUID | None, row[9]),
             occurred_at=Instant(cast(datetime, row[10])),
         )

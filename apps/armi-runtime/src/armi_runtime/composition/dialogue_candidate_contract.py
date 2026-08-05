@@ -13,8 +13,8 @@ from pydantic import (
     model_validator,
 )
 
-DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v1"
-WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v2"
+DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v3"
+WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v4"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[
@@ -66,6 +66,36 @@ class DialogueMemoryChange(_StrictModel):
         return self
 
 
+class DialogueRelationshipFact(_StrictModel):
+    kind: Literal["party_expression"]
+    summary: Summary
+
+
+class DialogueRelationshipBoundary(_StrictModel):
+    party: Literal["armi", "creator"]
+    kind: Literal["contact", "address", "privacy", "disclosure", "exit"]
+    action: Literal["refuse", "restrict", "end_contact"]
+    summary: Summary
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> DialogueRelationshipBoundary:
+        if (self.action == "end_contact") != (self.kind == "exit"):
+            raise ValueError("only an exit boundary can end contact")
+        return self
+
+
+class DialogueRelationshipChange(_StrictModel):
+    interpretation: Summary | None = None
+    fact: DialogueRelationshipFact | None = None
+    boundary: DialogueRelationshipBoundary | None = None
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> DialogueRelationshipChange:
+        if self.interpretation is None and self.fact is None and self.boundary is None:
+            raise ValueError("relationship change is empty")
+        return self
+
+
 class CreatorDialogueCandidate(_StrictModel):
     """A subjective dialogue choice; wire metadata belongs to the adapter."""
 
@@ -74,26 +104,33 @@ class CreatorDialogueCandidate(_StrictModel):
         raise NotImplementedError
 
 
-class _CreatorDialogueCandidateV1(CreatorDialogueCandidate):
+class _CreatorDialogueCandidateV3(CreatorDialogueCandidate):
     @property
     def schema_version(self) -> str:
         return DIALOGUE_CANDIDATE_VERSION
 
 
-class _CreatorDialogueCandidateV2(CreatorDialogueCandidate):
+class _CreatorDialogueCandidateV4(CreatorDialogueCandidate):
     @property
     def schema_version(self) -> str:
         return WEB_DIALOGUE_CANDIDATE_VERSION
 
 
-class DialogueReplyDecision(_CreatorDialogueCandidateV1):
+class DialogueReplyDecision(_CreatorDialogueCandidateV3):
     kind: Literal["reply"]
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
     experience: DialogueExperience | None = None
     memory_change: DialogueMemoryChange | None = None
+    relationship_change: DialogueRelationshipChange | None = None
+
+    @model_validator(mode="after")
+    def validate_relationship_source(self) -> DialogueReplyDecision:
+        if self.relationship_change is not None and self.experience is None:
+            raise ValueError("relationship change requires an experience")
+        return self
 
 
-class DialogueTerminalDecision(_CreatorDialogueCandidateV1):
+class DialogueTerminalDecision(_CreatorDialogueCandidateV3):
     kind: Literal[
         "decline",
         "no_action",
@@ -109,14 +146,21 @@ DialogueDecision = Annotated[
 ]
 
 
-class DialogueReplyDecisionV2(_CreatorDialogueCandidateV2):
+class DialogueReplyDecisionV4(_CreatorDialogueCandidateV4):
     kind: Literal["reply"]
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
     experience: DialogueExperience | None = None
     memory_change: DialogueMemoryChange | None = None
+    relationship_change: DialogueRelationshipChange | None = None
+
+    @model_validator(mode="after")
+    def validate_relationship_source(self) -> DialogueReplyDecisionV4:
+        if self.relationship_change is not None and self.experience is None:
+            raise ValueError("relationship change requires an experience")
+        return self
 
 
-class DialogueTerminalDecisionV2(_CreatorDialogueCandidateV2):
+class DialogueTerminalDecisionV4(_CreatorDialogueCandidateV4):
     kind: Literal[
         "decline",
         "no_action",
@@ -126,27 +170,27 @@ class DialogueTerminalDecisionV2(_CreatorDialogueCandidateV2):
     ]
 
 
-class DialogueWebResearchDecision(_CreatorDialogueCandidateV2):
+class DialogueWebResearchDecision(_CreatorDialogueCandidateV4):
     kind: Literal["web_research"]
     query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
 
 
-DialogueDecisionV2 = Annotated[
-    DialogueReplyDecisionV2 | DialogueTerminalDecisionV2 | DialogueWebResearchDecision,
+DialogueDecisionV4 = Annotated[
+    DialogueReplyDecisionV4 | DialogueTerminalDecisionV4 | DialogueWebResearchDecision,
     Field(discriminator="kind"),
 ]
 
-_ADAPTER_V1: TypeAdapter[DialogueDecision] = TypeAdapter(DialogueDecision)
-_ADAPTER_V2: TypeAdapter[DialogueDecisionV2] = TypeAdapter(DialogueDecisionV2)
+_ADAPTER_V3: TypeAdapter[DialogueDecision] = TypeAdapter(DialogueDecision)
+_ADAPTER_V4: TypeAdapter[DialogueDecisionV4] = TypeAdapter(DialogueDecisionV4)
 
 
 def dialogue_candidate_schema(
     version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> dict[str, Any]:
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V1.json_schema()
+        return _ADAPTER_V3.json_schema()
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V2.json_schema()
+        return _ADAPTER_V4.json_schema()
     raise ValueError("unsupported dialogue candidate version")
 
 
@@ -156,9 +200,9 @@ def parse_dialogue_candidate(
     version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> CreatorDialogueCandidate:
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V1.validate_python(value, strict=True)
+        return _ADAPTER_V3.validate_python(value, strict=True)
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V2.validate_python(value, strict=True)
+        return _ADAPTER_V4.validate_python(value, strict=True)
     raise ValueError("unsupported dialogue candidate version")
 
 
@@ -168,10 +212,13 @@ __all__ = (
     "CreatorDialogueCandidate",
     "DialogueExperience",
     "DialogueMemoryChange",
+    "DialogueRelationshipBoundary",
+    "DialogueRelationshipChange",
+    "DialogueRelationshipFact",
     "DialogueReplyDecision",
-    "DialogueReplyDecisionV2",
+    "DialogueReplyDecisionV4",
     "DialogueTerminalDecision",
-    "DialogueTerminalDecisionV2",
+    "DialogueTerminalDecisionV4",
     "DialogueWebResearchDecision",
     "dialogue_candidate_schema",
     "parse_dialogue_candidate",

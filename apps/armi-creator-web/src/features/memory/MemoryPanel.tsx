@@ -177,6 +177,7 @@ export function MemoryPanel({
             <option value="activity">Activity</option>
             <option value="conversation">对话经历</option>
             <option value="memory">主观记忆</option>
+            <option value="relationship">关系理解</option>
             <option value="self_change">自我变化</option>
           </select>
         </label>

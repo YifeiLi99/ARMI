@@ -2221,6 +2221,7 @@
           "activity",
           "conversation",
           "memory",
+          "relationship",
           "self_change"
         ],
         "type": "string"

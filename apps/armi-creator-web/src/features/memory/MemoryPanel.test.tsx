@@ -113,6 +113,9 @@ describe("Creator memory panel", () => {
     const user = userEvent.setup();
     renderPanel();
 
+    expect(screen.getByRole("option", { name: "关系理解" })).toHaveValue(
+      "relationship",
+    );
     expect(
       await screen.findByText("本次从权威生活记录取得的证据", {
         exact: false,

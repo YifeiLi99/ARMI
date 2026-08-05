@@ -178,7 +178,7 @@ export async function getCreatorActivityTimeline(
 }
 
 export type LifeRecordKind =
-  "activity" | "conversation" | "memory" | "self_change";
+  "activity" | "conversation" | "memory" | "relationship" | "self_change";
 
 export async function queryCreatorLifeRecords(
   token: string,

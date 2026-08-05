@@ -29,6 +29,13 @@ from armi_kernel.application import (
     LockTarget,
     MemoryAccessibility,
     MemorySourceKind,
+    RelationshipBoundary,
+    RelationshipBoundaryAction,
+    RelationshipBoundaryKind,
+    RelationshipFact,
+    RelationshipFactKind,
+    RelationshipPartyRole,
+    RelationshipStatus,
     RuntimeFence,
     WorkLease,
     WorkViolation,
@@ -57,6 +64,7 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 from .candidate_validator import (
     CANDIDATE_VALIDATOR_IDENTITY,
     CandidateMemoryContext,
+    CandidateRelationshipContext,
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
@@ -187,6 +195,32 @@ class CandidateValidationPipeline:
                             MemoryAccessibility(item[8]),
                         )
                         for item in snapshot.current_memories
+                    ),
+                    subject_party_id=snapshot.subject_party_id,
+                    current_relationship=(
+                        None
+                        if snapshot.current_relationship is None
+                        else CandidateRelationshipContext(
+                            snapshot.current_relationship[0],
+                            snapshot.current_relationship[1],
+                            snapshot.current_relationship[2],
+                            snapshot.current_relationship[3],
+                            tuple(
+                                RelationshipFact(RelationshipFactKind(item[0]), item[1])
+                                for item in snapshot.current_relationship[4]
+                            ),
+                            snapshot.current_relationship[5],
+                            tuple(
+                                RelationshipBoundary(
+                                    RelationshipPartyRole(item[0]),
+                                    RelationshipBoundaryKind(item[1]),
+                                    RelationshipBoundaryAction(item[2]),
+                                    item[3],
+                                )
+                                for item in snapshot.current_relationship[6]
+                            ),
+                            RelationshipStatus(snapshot.current_relationship[7]),
+                        )
                     ),
                 )
             )

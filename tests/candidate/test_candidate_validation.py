@@ -23,6 +23,13 @@ from armi_kernel.application import (
     MemoryRelationKind,
     MemoryRevisionKind,
     MemorySourceKind,
+    RelationshipBoundary,
+    RelationshipBoundaryAction,
+    RelationshipBoundaryKind,
+    RelationshipFact,
+    RelationshipFactKind,
+    RelationshipPartyRole,
+    RelationshipStatus,
     SubjectCommitViolation,
 )
 from armi_kernel.contracts import Digest
@@ -31,6 +38,7 @@ from armi_runtime.adapters.persistence.candidate_validation import (
 )
 from armi_runtime.composition.candidate_validator import (
     CandidateMemoryContext,
+    CandidateRelationshipContext,
     CandidateValidationContext,
     DeterministicCandidateValidator,
     _memory_source_kind,
@@ -719,7 +727,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
     assert rejected.error_code == "CANDIDATE-WEB-URL-FORBIDDEN"
 
 
-def test_compact_dialogue_v2_web_research_binds_authority_deterministically() -> None:
+def test_compact_dialogue_v4_web_research_binds_authority_deterministically() -> None:
     context, bases = _fixture()
     extended = (
         *bases,
@@ -1114,6 +1122,251 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert parse_subject_change_set(first.change_set.canonical_bytes).digest == (
         first.change_set.digest
     )
+
+
+def test_compact_dialogue_establishes_relationship_from_same_experience() -> None:
+    context, bases = _fixture()
+    subject_party_id = uuid7()
+    context = replace(context, subject_party_id=subject_party_id)
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = _bytes(
+        {
+            "kind": "reply",
+            "content": "我会尊重这个决定。",
+            "experience": {"first_person_gist": "创造者明确要求结束接触。"},
+            "relationship_change": {
+                "interpretation": "我理解我们现在应当结束接触。",
+                "fact": {
+                    "kind": "party_expression",
+                    "summary": "创造者表达了结束接触的决定。",
+                },
+                "boundary": {
+                    "party": "creator",
+                    "kind": "exit",
+                    "action": "end_contact",
+                    "summary": "创造者要求结束接触。",
+                },
+            },
+        }
+    )
+    validator = DeterministicCandidateValidator(context)
+    result = validator.validate(candidate, bases=extended)
+    repeated = validator.validate(
+        candidate,
+        bases=extended,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None and repeated.change_set is not None
+    assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v12" in result.change_set.canonical_bytes
+    assert len(result.change_set.experiences) == 1
+    assert len(result.change_set.relationships) == 1
+    relationship = result.change_set.relationships[0]
+    assert relationship.subject_party_id == subject_party_id
+    assert relationship.other_party_id == context.creator_party_id
+    assert relationship.source_experience_ref == (
+        result.change_set.experiences[0].proposal_ref
+    )
+    assert tuple(item.kind for item in relationship.facts) == (
+        RelationshipFactKind.SHARED_EXPERIENCE,
+        RelationshipFactKind.PARTY_EXPRESSION,
+    )
+    assert relationship.status is RelationshipStatus.ENDED
+    assert relationship.boundaries == (
+        RelationshipBoundary(
+            RelationshipPartyRole.OTHER,
+            RelationshipBoundaryKind.EXIT,
+            RelationshipBoundaryAction.END_CONTACT,
+            "创造者要求结束接触。",
+        ),
+    )
+    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert reparsed.relationships == result.change_set.relationships
+    assert any(item is relationship for item in _validation_drafts(result.change_set))
+
+
+def test_ended_relationship_blocks_later_creator_reply() -> None:
+    context, bases = _fixture()
+    relationship_id = uuid7()
+    revision_id = uuid7()
+    relationship_digest = Digest.from_bytes(b"current-relationship")
+    context = replace(
+        context,
+        subject_party_id=uuid7(),
+        current_relationship=CandidateRelationshipContext(
+            relationship_id,
+            revision_id,
+            1,
+            relationship_digest,
+            (
+                RelationshipFact(
+                    RelationshipFactKind.PARTY_EXPRESSION,
+                    "创造者表达了结束接触的决定。",
+                ),
+            ),
+            "我理解我们已经结束接触。",
+            (
+                RelationshipBoundary(
+                    RelationshipPartyRole.OTHER,
+                    RelationshipBoundaryKind.EXIT,
+                    RelationshipBoundaryAction.END_CONTACT,
+                    "创造者要求结束接触。",
+                ),
+            ),
+            RelationshipStatus.ENDED,
+        ),
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            6,
+            "relationship",
+            "current_relationship",
+            relationship_id,
+            1,
+            relationship_digest,
+            "subjective_state",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes({"kind": "reply", "content": "这条回复不应被发送。"}),
+        bases=extended,
+    )
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.error_code == "CANDIDATE-ATOMIC-GROUP"
+
+
+def test_compact_dialogue_revises_only_current_context_relationship() -> None:
+    context, bases = _fixture()
+    relationship_id = uuid7()
+    revision_id = uuid7()
+    relationship_digest = Digest.from_bytes(b"current-relationship")
+    original_fact = RelationshipFact(
+        RelationshipFactKind.SHARED_EXPERIENCE,
+        "我们进行过一次真实交流。",
+    )
+    context = replace(
+        context,
+        subject_party_id=uuid7(),
+        current_relationship=CandidateRelationshipContext(
+            relationship_id,
+            revision_id,
+            2,
+            relationship_digest,
+            (original_fact,),
+            "我仍在从实际交往中了解创造者。",
+            (),
+            RelationshipStatus.ACTIVE,
+        ),
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            6,
+            "relationship",
+            "current_relationship",
+            relationship_id,
+            2,
+            relationship_digest,
+            "subjective_state",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "我知道这个称呼会让你不舒服。",
+                "experience": {"first_person_gist": "创造者拒绝了一个称呼。"},
+                "relationship_change": {
+                    "interpretation": "我理解创造者不接受这个称呼。",
+                    "fact": {
+                        "kind": "party_expression",
+                        "summary": "创造者表达了称呼偏好。",
+                    },
+                    "boundary": {
+                        "party": "creator",
+                        "kind": "address",
+                        "action": "restrict",
+                        "summary": "不要使用这个称呼。",
+                    },
+                },
+            }
+        ),
+        bases=extended,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    relationship = result.change_set.relationships[0]
+    assert relationship.relationship_id == relationship_id
+    assert relationship.current_revision_id == revision_id
+    assert relationship.expected_head_version == 2
+    assert relationship.facts[0] == original_fact
+    assert relationship.status is RelationshipStatus.ACTIVE
+    assert relationship.boundaries[0].kind is RelationshipBoundaryKind.ADDRESS
 
 
 def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() -> None:

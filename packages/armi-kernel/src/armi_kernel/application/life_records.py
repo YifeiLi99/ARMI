@@ -42,6 +42,7 @@ class LifeRecordKind(StrEnum):
     ACTIVITY = "activity"
     CONVERSATION = "conversation"
     MEMORY = "memory"
+    RELATIONSHIP = "relationship"
     SELF_CHANGE = "self_change"
 
 
@@ -101,8 +102,7 @@ class LifeRecordQuery:
                 and type(self.record_kind) is not LifeRecordKind
             )
             or (
-                self.query_text is not None
-                and not _text(self.query_text, maximum=1024)
+                self.query_text is not None and not _text(self.query_text, maximum=1024)
             )
             or (self.cursor is not None and type(self.cursor) is not OpaqueCursor)
         ):
@@ -267,9 +267,7 @@ class CreatorMemoryTimeline:
             not _uuid7(self.memory_id)
             or type(self.items) is not tuple
             or len(self.items) > 100
-            or any(
-                type(item) is not CreatorMemoryTimelineItem for item in self.items
-            )
+            or any(type(item) is not CreatorMemoryTimelineItem for item in self.items)
             or (
                 self.next_cursor is not None
                 and type(self.next_cursor) is not OpaqueCursor

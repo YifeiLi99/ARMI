@@ -71,6 +71,35 @@ class MemoryRelationKind(StrEnum):
     REINTERPRETS = "reinterprets"
 
 
+class RelationshipFactKind(StrEnum):
+    SHARED_EXPERIENCE = "shared_experience"
+    PARTY_EXPRESSION = "party_expression"
+
+
+class RelationshipPartyRole(StrEnum):
+    SUBJECT = "subject"
+    OTHER = "other"
+
+
+class RelationshipBoundaryKind(StrEnum):
+    CONTACT = "contact"
+    ADDRESS = "address"
+    PRIVACY = "privacy"
+    DISCLOSURE = "disclosure"
+    EXIT = "exit"
+
+
+class RelationshipBoundaryAction(StrEnum):
+    REFUSE = "refuse"
+    RESTRICT = "restrict"
+    END_CONTACT = "end_contact"
+
+
+class RelationshipStatus(StrEnum):
+    ACTIVE = "active"
+    ENDED = "ended"
+
+
 class CandidateOwner(StrEnum):
     EXPERIENCE = "experience"
     SELF = "self"
@@ -290,6 +319,113 @@ class CandidateMemoryRevisionDraft:
             or type(self.relation_kind) is not MemoryRelationKind
         ):
             raise CandidateViolation("CON-CANDIDATE-MEMORY-RELATION")
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipFact:
+    kind: RelationshipFactKind
+    summary: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.kind) is not RelationshipFactKind
+            or not _optional_text(self.summary, 2048)
+            or len(self.summary) > 512
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-FACT")
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipBoundary:
+    party_role: RelationshipPartyRole
+    kind: RelationshipBoundaryKind
+    action: RelationshipBoundaryAction
+    summary: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.party_role) is not RelationshipPartyRole
+            or type(self.kind) is not RelationshipBoundaryKind
+            or type(self.action) is not RelationshipBoundaryAction
+            or not _optional_text(self.summary, 2048)
+            or len(self.summary) > 512
+            or (self.action is RelationshipBoundaryAction.END_CONTACT)
+            != (self.kind is RelationshipBoundaryKind.EXIT)
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-BOUNDARY")
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateRelationshipDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    fact_class: CandidateFactClass
+    relationship_id: UUID
+    subject_party_id: UUID
+    other_party_id: UUID
+    current_revision_id: UUID | None
+    expected_head_version: int
+    source_experience_ref: str
+    facts: tuple[RelationshipFact, ...]
+    interpretation: str
+    boundaries: tuple[RelationshipBoundary, ...]
+    status: RelationshipStatus
+    scope: str = "creator_social"
+    mechanism_identity: str = "armi.relationship.contextual-v1"
+    privacy_scope: str = "private"
+
+    def __post_init__(self) -> None:
+        _validate_proposal(
+            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
+        )
+        if (
+            type(self.fact_class) is not CandidateFactClass
+            or self.fact_class is not CandidateFactClass.SUBJECTIVE_UNDERSTANDING
+            or any(
+                type(value) is not UUID or value.version != 7
+                for value in (
+                    self.relationship_id,
+                    self.subject_party_id,
+                    self.other_party_id,
+                )
+            )
+            or self.subject_party_id == self.other_party_id
+            or (
+                self.current_revision_id is not None
+                and (
+                    type(self.current_revision_id) is not UUID
+                    or self.current_revision_id.version != 7
+                )
+            )
+            or type(self.expected_head_version) is not int
+            or self.expected_head_version < 0
+            or (self.current_revision_id is None) != (self.expected_head_version == 0)
+            or type(self.source_experience_ref) is not str
+            or _REF.fullmatch(self.source_experience_ref) is None
+            or self.source_experience_ref == self.proposal_ref
+            or type(self.facts) is not tuple
+            or not 1 <= len(self.facts) <= 64
+            or any(type(value) is not RelationshipFact for value in self.facts)
+            or len(set(self.facts)) != len(self.facts)
+            or not _optional_text(self.interpretation, 4096)
+            or len(self.interpretation) > 1024
+            or type(self.boundaries) is not tuple
+            or len(self.boundaries) > 16
+            or any(type(value) is not RelationshipBoundary for value in self.boundaries)
+            or len({(value.party_role, value.kind) for value in self.boundaries})
+            != len(self.boundaries)
+            or type(self.status) is not RelationshipStatus
+            or (self.status is RelationshipStatus.ENDED)
+            != any(
+                value.action is RelationshipBoundaryAction.END_CONTACT
+                for value in self.boundaries
+            )
+            or self.scope != "creator_social"
+            or self.mechanism_identity != "armi.relationship.contextual-v1"
+            or self.privacy_scope != "private"
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP")
 
 
 @dataclass(frozen=True, slots=True)
@@ -557,6 +693,7 @@ class SubjectChangeSet:
     sleep_decisions: tuple[CandidateSleepDecisionDraft, ...] = ()
     memories: tuple[CandidateMemoryDraft, ...] = ()
     memory_revisions: tuple[CandidateMemoryRevisionDraft, ...] = ()
+    relationships: tuple[CandidateRelationshipDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -695,6 +832,7 @@ __all__ = (
     "CandidateMemoryRevisionDraft",
     "CandidateOwner",
     "CandidateRejection",
+    "CandidateRelationshipDraft",
     "CandidateSleepDecisionDraft",
     "CandidateValidationId",
     "CandidateValidationResult",
@@ -705,5 +843,12 @@ __all__ = (
     "MemoryRelationKind",
     "MemoryRevisionKind",
     "MemorySourceKind",
+    "RelationshipBoundary",
+    "RelationshipBoundaryAction",
+    "RelationshipBoundaryKind",
+    "RelationshipFact",
+    "RelationshipFactKind",
+    "RelationshipPartyRole",
+    "RelationshipStatus",
     "SubjectChangeSet",
 )

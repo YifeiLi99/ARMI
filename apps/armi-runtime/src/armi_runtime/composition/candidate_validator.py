@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -24,6 +25,7 @@ from armi_kernel.application import (
     CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateRejection,
+    CandidateRelationshipDraft,
     CandidateSleepDecisionDraft,
     CandidateValidationId,
     CandidateValidationResult,
@@ -45,6 +47,13 @@ from armi_kernel.application import (
     MemoryRevisionKind,
     MemorySourceKind,
     ModelViolation,
+    RelationshipBoundary,
+    RelationshipBoundaryAction,
+    RelationshipBoundaryKind,
+    RelationshipFact,
+    RelationshipFactKind,
+    RelationshipPartyRole,
+    RelationshipStatus,
     SleepDecisionKind,
     SubjectChangeSet,
     WebResearchRequestDraft,
@@ -70,10 +79,11 @@ from .dialogue_candidate_contract import (
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueMemoryChange,
+    DialogueRelationshipChange,
     DialogueReplyDecision,
-    DialogueReplyDecisionV2,
+    DialogueReplyDecisionV4,
     DialogueTerminalDecision,
-    DialogueTerminalDecisionV2,
+    DialogueTerminalDecisionV4,
     DialogueWebResearchDecision,
 )
 from .model_contract import (
@@ -109,6 +119,7 @@ ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 SLEEP_CHANGE_SET_VERSION = "armi.subject-change-set.v9"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
+RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v12"
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +154,43 @@ class CandidateMemoryContext:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateRelationshipContext:
+    relationship_id: UUID
+    current_revision_id: UUID
+    head_version: int
+    context_digest: Digest
+    facts: tuple[RelationshipFact, ...]
+    interpretation: str
+    boundaries: tuple[RelationshipBoundary, ...]
+    status: RelationshipStatus
+
+    def __post_init__(self) -> None:
+        if (
+            any(
+                type(value) is not UUID or value.version != 7
+                for value in (self.relationship_id, self.current_revision_id)
+            )
+            or type(self.head_version) is not int
+            or self.head_version <= 0
+            or type(self.context_digest) is not Digest
+            or type(self.facts) is not tuple
+            or not self.facts
+            or any(type(value) is not RelationshipFact for value in self.facts)
+            or not self.interpretation
+            or type(self.boundaries) is not tuple
+            or any(type(value) is not RelationshipBoundary for value in self.boundaries)
+            or type(self.status) is not RelationshipStatus
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-CONTEXT")
+
+
+@dataclass(frozen=True, slots=True)
+class DialogueBoundChanges:
+    memory_revision: CandidateMemoryRevisionDraft | None = None
+    relationship: CandidateRelationshipDraft | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateValidationContext:
     subject_id: UUID
     generation_id: UUID
@@ -166,6 +214,8 @@ class CandidateValidationContext:
     current_activity_status: ActivityStatus | None = None
     resource_snapshot_digest: Digest | None = None
     current_memories: tuple[CandidateMemoryContext, ...] = ()
+    subject_party_id: UUID | None = None
+    current_relationship: CandidateRelationshipContext | None = None
 
     def __post_init__(self) -> None:
         if any(
@@ -216,6 +266,17 @@ class CandidateValidationContext:
             type(value) is not CandidateMemoryContext for value in self.current_memories
         ):
             raise CandidateViolation("CON-CANDIDATE-MEMORY-CONTEXT")
+        if self.subject_party_id is not None and (
+            type(self.subject_party_id) is not UUID
+            or self.subject_party_id.version != 7
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-CONTEXT")
+        if self.current_relationship is not None and (
+            type(self.current_relationship) is not CandidateRelationshipContext
+            or self.subject_party_id is None
+            or self.creator_party_id is None
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-CONTEXT")
 
 
 class DeterministicCandidateValidator:
@@ -304,9 +365,9 @@ class DeterministicCandidateValidator:
         if self._context.scene_id is None or self._context.creator_party_id is None:
             return _rejected("CANDIDATE-SCENE-CONTEXT")
         source_version = parsed_candidate.schema_version
-        dialogue_memory_revision: CandidateMemoryRevisionDraft | None = None
+        dialogue_bound_changes: DialogueBoundChanges | None = None
         if isinstance(parsed_candidate, CreatorDialogueCandidate):
-            candidate, dialogue_memory_revision, expansion_error = (
+            candidate, dialogue_bound_changes, expansion_error = (
                 _expand_dialogue_candidate(
                     parsed_candidate,
                     bases=bases,
@@ -358,6 +419,7 @@ class DeterministicCandidateValidator:
             CandidateExperienceDraft
             | CandidateMemoryDraft
             | CandidateMemoryRevisionDraft
+            | CandidateRelationshipDraft
             | CandidateComponentDraft
             | CapabilityRequestDraft
             | CreatorReplyDraft
@@ -557,11 +619,24 @@ class DeterministicCandidateValidator:
                 failure,
             )
 
-        if dialogue_memory_revision is not None:
-            group_members[dialogue_memory_revision.atomic_group_ref].append(
-                dialogue_memory_revision.proposal_ref
+        if (
+            dialogue_bound_changes is not None
+            and dialogue_bound_changes.memory_revision is not None
+        ):
+            memory_revision = dialogue_bound_changes.memory_revision
+            group_members[memory_revision.atomic_group_ref].append(
+                memory_revision.proposal_ref
             )
-            accepted[dialogue_memory_revision.proposal_ref] = dialogue_memory_revision
+            accepted[memory_revision.proposal_ref] = memory_revision
+        if (
+            dialogue_bound_changes is not None
+            and dialogue_bound_changes.relationship is not None
+        ):
+            relationship = dialogue_bound_changes.relationship
+            group_members[relationship.atomic_group_ref].append(
+                relationship.proposal_ref
+            )
+            accepted[relationship.proposal_ref] = relationship
 
         for proposal_ref, draft in tuple(accepted.items()):
             if (
@@ -639,6 +714,11 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateMemoryRevisionDraft)
         )
+        relationships = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, CandidateRelationshipDraft)
+        )
         capability_requests = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -662,7 +742,9 @@ class DeterministicCandidateValidator:
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
         change_set_version = (
-            MEMORY_REVISION_CHANGE_SET_VERSION
+            RELATIONSHIP_CHANGE_SET_VERSION
+            if relationships
+            else MEMORY_REVISION_CHANGE_SET_VERSION
             if memory_revisions
             else MEMORY_CHANGE_SET_VERSION
             if memories
@@ -707,15 +789,24 @@ class DeterministicCandidateValidator:
         if change_set_version in {
             MEMORY_CHANGE_SET_VERSION,
             MEMORY_REVISION_CHANGE_SET_VERSION,
+            RELATIONSHIP_CHANGE_SET_VERSION,
         }:
             change_set_value["memories"] = [_memory_wire(item) for item in memories]
-        if change_set_version == MEMORY_REVISION_CHANGE_SET_VERSION:
+        if change_set_version in {
+            MEMORY_REVISION_CHANGE_SET_VERSION,
+            RELATIONSHIP_CHANGE_SET_VERSION,
+        }:
             change_set_value["memory_revisions"] = [
                 _memory_revision_wire(item) for item in memory_revisions
+            ]
+        if change_set_version == RELATIONSHIP_CHANGE_SET_VERSION:
+            change_set_value["relationships"] = [
+                _relationship_wire(item) for item in relationships
             ]
         if change_set_version in {
             MEMORY_CHANGE_SET_VERSION,
             MEMORY_REVISION_CHANGE_SET_VERSION,
+            RELATIONSHIP_CHANGE_SET_VERSION,
         } or source_version in {
             "armi.cognition-candidate.v5",
             WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -728,6 +819,7 @@ class DeterministicCandidateValidator:
             in {
                 MEMORY_CHANGE_SET_VERSION,
                 MEMORY_REVISION_CHANGE_SET_VERSION,
+                RELATIONSHIP_CHANGE_SET_VERSION,
             }
             or source_version
             in {
@@ -766,6 +858,7 @@ class DeterministicCandidateValidator:
             codex_delegations,
             memories=memories,
             memory_revisions=memory_revisions,
+            relationships=relationships,
         )
         status = (
             CandidateValidationStatus.PARTIALLY_ACCEPTED
@@ -1150,7 +1243,7 @@ def _expand_dialogue_candidate(
     context: CandidateValidationContext,
 ) -> tuple[
     CognitionCandidateV5 | CognitionCandidateV7 | None,
-    CandidateMemoryRevisionDraft | None,
+    DialogueBoundChanges | None,
     str | None,
 ]:
     evidence = next(
@@ -1178,9 +1271,9 @@ def _expand_dialogue_candidate(
         source,
         (
             DialogueReplyDecision,
-            DialogueReplyDecisionV2,
+            DialogueReplyDecisionV4,
             DialogueTerminalDecision,
-            DialogueTerminalDecisionV2,
+            DialogueTerminalDecisionV4,
             DialogueWebResearchDecision,
         ),
     ):
@@ -1201,8 +1294,10 @@ def _expand_dialogue_candidate(
     capability_requests: list[dict[str, Any]] = []
     action_choices: list[dict[str, Any]] = []
     memory_revision: CandidateMemoryRevisionDraft | None = None
+    relationship: CandidateRelationshipDraft | None = None
+    experience_ref: str | None = None
     understanding_basis_refs = (evidence_ref,)
-    if isinstance(decision, (DialogueReplyDecision, DialogueReplyDecisionV2)):
+    if isinstance(decision, (DialogueReplyDecision, DialogueReplyDecisionV4)):
         catalog = next(
             (
                 item
@@ -1219,9 +1314,10 @@ def _expand_dialogue_candidate(
         catalog_ref = f"ctx:{catalog.ordinal}"
         proposal_no = 1
         if decision.experience is not None:
+            experience_ref = f"proposal:{proposal_no}"
             experiences.append(
                 {
-                    "proposal_ref": f"proposal:{proposal_no}",
+                    "proposal_ref": experience_ref,
                     "atomic_group_ref": "group:1",
                     "basis_refs": (evidence_ref,),
                     "payload": {
@@ -1259,6 +1355,25 @@ def _expand_dialogue_candidate(
             )
             if memory_revision is None:
                 return None, None, memory_error or "CANDIDATE-MEMORY-CONTEXT"
+            proposal_no += 1
+        if decision.relationship_change is not None:
+            if decision.experience is None:
+                return None, None, "CANDIDATE-RELATIONSHIP-EXPERIENCE"
+            relationship, relationship_error = _bind_dialogue_relationship(
+                decision.relationship_change,
+                experience=decision.experience,
+                source_experience_ref=experience_ref,
+                proposal_ref=f"proposal:{proposal_no}",
+                evidence=evidence,
+                bases=bases,
+                context=context,
+            )
+            if relationship is None:
+                return (
+                    None,
+                    None,
+                    relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT",
+                )
             proposal_no += 1
         shared_bases = (evidence_ref, scene_ref, catalog_ref)
         capability_requests.append(
@@ -1392,7 +1507,7 @@ def _expand_dialogue_candidate(
                     },
                     strict=True,
                 ),
-                None,
+                DialogueBoundChanges(),
                 None,
             )
         except Exception:
@@ -1426,7 +1541,7 @@ def _expand_dialogue_candidate(
                 },
                 strict=True,
             ),
-            memory_revision,
+            DialogueBoundChanges(memory_revision, relationship),
             None,
         )
     except Exception:
@@ -1534,6 +1649,150 @@ def _bind_dialogue_memory_revision(
         ),
         None,
     )
+
+
+def _bind_dialogue_relationship(
+    change: DialogueRelationshipChange,
+    *,
+    experience: Any,
+    source_experience_ref: str | None,
+    proposal_ref: str,
+    evidence: CandidateBasis,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[CandidateRelationshipDraft | None, str | None]:
+    if (
+        source_experience_ref is None
+        or context.subject_party_id is None
+        or context.creator_party_id is None
+    ):
+        return None, "CANDIDATE-RELATIONSHIP-CONTEXT"
+    current = context.current_relationship
+    if current is not None and current.status is RelationshipStatus.ENDED:
+        return None, "CANDIDATE-RELATIONSHIP-ENDED"
+    current_basis: CandidateBasis | None = None
+    if current is not None:
+        current_basis = next(
+            (
+                item
+                for item in bases
+                if item.section == "relationship"
+                and item.item_kind == "current_relationship"
+                and item.source_ref == current.relationship_id
+                and item.source_version == current.head_version
+                and item.source_digest == current.context_digest
+                and item.trust_class == "subjective_state"
+            ),
+            None,
+        )
+        if current_basis is None:
+            return None, "CANDIDATE-RELATIONSHIP-BASIS"
+
+    facts = list(() if current is None else current.facts)
+    shared_experience = RelationshipFact(
+        RelationshipFactKind.SHARED_EXPERIENCE,
+        experience.first_person_gist,
+    )
+    if shared_experience not in facts:
+        facts.append(shared_experience)
+    if change.fact is not None:
+        fact = RelationshipFact(
+            RelationshipFactKind(change.fact.kind),
+            change.fact.summary,
+        )
+        if fact not in facts:
+            facts.append(fact)
+    if len(facts) > 64:
+        return None, "CANDIDATE-RELATIONSHIP-FACT-LIMIT"
+
+    interpretation = (
+        change.interpretation
+        if change.interpretation is not None
+        else None
+        if current is None
+        else current.interpretation
+    )
+    if interpretation is None:
+        return None, "CANDIDATE-RELATIONSHIP-INTERPRETATION"
+
+    boundaries = {
+        (item.party_role, item.kind): item
+        for item in (() if current is None else current.boundaries)
+    }
+    if change.boundary is not None:
+        boundary = RelationshipBoundary(
+            RelationshipPartyRole(
+                "subject" if change.boundary.party == "armi" else "other"
+            ),
+            RelationshipBoundaryKind(change.boundary.kind),
+            RelationshipBoundaryAction(change.boundary.action),
+            change.boundary.summary,
+        )
+        boundaries[(boundary.party_role, boundary.kind)] = boundary
+    ordered_boundaries = tuple(
+        value
+        for _key, value in sorted(
+            boundaries.items(),
+            key=lambda item: (item[0][0].value, item[0][1].value),
+        )
+    )
+    status = (
+        RelationshipStatus.ENDED
+        if any(
+            value.action is RelationshipBoundaryAction.END_CONTACT
+            for value in ordered_boundaries
+        )
+        else RelationshipStatus.ACTIVE
+    )
+    next_facts = tuple(facts)
+    if current is not None and (
+        next_facts,
+        interpretation,
+        ordered_boundaries,
+        status,
+    ) == (
+        current.facts,
+        current.interpretation,
+        current.boundaries,
+        current.status,
+    ):
+        return None, "CANDIDATE-RELATIONSHIP-NO-OP"
+    basis_ordinals = [evidence.ordinal]
+    if current_basis is not None:
+        basis_ordinals.append(current_basis.ordinal)
+    return (
+        CandidateRelationshipDraft(
+            proposal_ref,
+            "group:1",
+            tuple(basis_ordinals),
+            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+            (
+                _derived_relationship_id(context.model_attempt_id)
+                if current is None
+                else current.relationship_id
+            ),
+            context.subject_party_id,
+            context.creator_party_id,
+            None if current is None else current.current_revision_id,
+            0 if current is None else current.head_version,
+            source_experience_ref,
+            next_facts,
+            interpretation,
+            ordered_boundaries,
+            status,
+        ),
+        None,
+    )
+
+
+def _derived_relationship_id(model_attempt_id: UUID) -> UUID:
+    """Bind a stable UUIDv7 identity without giving the model identity authority."""
+
+    digest = sha256(model_attempt_id.bytes + b"\0creator-relationship").digest()
+    raw = bytearray(model_attempt_id.bytes[:6] + digest[:10])
+    raw[6] = (raw[6] & 0x0F) | 0x70
+    raw[8] = (raw[8] & 0x3F) | 0x80
+    return UUID(bytes=bytes(raw))
 
 
 def _all_proposals(
@@ -1700,6 +1959,11 @@ def _action_failure(
     ):
         return "CANDIDATE-ACTION-EVIDENCE-BASIS"
     if isinstance(payload, (CreatorReplyPayload, RuntimeBoundCreatorReplyPayload)):
+        if (
+            context.current_relationship is not None
+            and context.current_relationship.status is RelationshipStatus.ENDED
+        ):
+            return "CANDIDATE-RELATIONSHIP-BOUNDARY"
         if not any(
             basis.section == "capability"
             and basis.item_kind == "capability_catalog"
@@ -1850,6 +2114,7 @@ def _draft_owner(
     draft: CandidateExperienceDraft
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
+    | CandidateRelationshipDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1861,6 +2126,8 @@ def _draft_owner(
         return CandidateOwner.EXPERIENCE
     if isinstance(draft, (CandidateMemoryDraft, CandidateMemoryRevisionDraft)):
         return CandidateOwner.MEMORY
+    if isinstance(draft, CandidateRelationshipDraft):
+        return CandidateOwner.RELATIONSHIP
     if isinstance(draft, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
     if isinstance(draft, (CreatorReplyDraft, FormalNoActionDraft)):
@@ -1876,6 +2143,7 @@ def _draft_fact_class(
     draft: CandidateExperienceDraft
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
+    | CandidateRelationshipDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1942,6 +2210,42 @@ def _memory_revision_wire(
         ),
         "mechanism_identity": value.mechanism_identity,
         "mechanism_config_identity": value.mechanism_config_identity,
+        "privacy_scope": value.privacy_scope,
+    }
+
+
+def _relationship_wire(value: CandidateRelationshipDraft) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "fact_class": value.fact_class.value,
+        "relationship_id": str(value.relationship_id),
+        "subject_party_id": str(value.subject_party_id),
+        "other_party_id": str(value.other_party_id),
+        "current_revision_id": (
+            None
+            if value.current_revision_id is None
+            else str(value.current_revision_id)
+        ),
+        "expected_head_version": value.expected_head_version,
+        "source_experience_ref": value.source_experience_ref,
+        "facts": [
+            {"kind": item.kind.value, "summary": item.summary} for item in value.facts
+        ],
+        "interpretation": value.interpretation,
+        "boundaries": [
+            {
+                "party_role": item.party_role.value,
+                "kind": item.kind.value,
+                "action": item.action.value,
+                "summary": item.summary,
+            }
+            for item in value.boundaries
+        ],
+        "status": value.status.value,
+        "scope": value.scope,
+        "mechanism_identity": value.mechanism_identity,
         "privacy_scope": value.privacy_scope,
     }
 

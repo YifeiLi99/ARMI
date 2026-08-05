@@ -97,6 +97,22 @@ def test_exact_query_can_return_a_forgotten_memory_without_changing_its_head() -
         )
 
 
+def test_exact_query_accepts_current_relationship_understanding() -> None:
+    relationship = LifeRecordItem(
+        record_ref=uuid7(),
+        record_kind=LifeRecordKind.RELATIONSHIP,
+        summary="我理解我们正在从真实交往中了解彼此。",
+        source_kind="relationship_current",
+        occurred_at=_now(),
+        naturally_recallable=None,
+        retrieval_kind=LifeRecordRetrievalKind.EXACT_QUERY,
+    )
+
+    assert LifeRecordPage((relationship,)).items[0].record_kind is (
+        LifeRecordKind.RELATIONSHIP
+    )
+
+
 def test_cursor_is_signed_and_bound_to_query_scope() -> None:
     environment_id = uuid7()
     creator_id = uuid7()
@@ -131,7 +147,9 @@ def test_cursor_is_signed_and_bound_to_query_scope() -> None:
             scope={**scope, "query_text": "另一个查询"},
             boundary_keys=frozenset({"before_at", "before_id"}),
         )
-    damaged = OpaqueCursor(cursor.value[:-1] + ("A" if cursor.value[-1] != "A" else "B"))
+    damaged = OpaqueCursor(
+        cursor.value[:-1] + ("A" if cursor.value[-1] != "A" else "B")
+    )
     with pytest.raises(LifeRecordQueryViolation, match="LIFE-QUERY-CURSOR-INVALID"):
         codec.decode(
             damaged,

@@ -451,9 +451,32 @@ def _context_request(
                 ),
             )
         )
+    if snapshot.relationship_payloads:
+        for relationship_id, version, payload, digest in snapshot.relationship_payloads:
+            items.append(
+                ContextItemCandidate(
+                    ContextSection.RELATIONSHIP,
+                    "current_relationship",
+                    ContextSourceIdentity(
+                        "relationship", relationship_id, version, digest
+                    ),
+                    ContextTrustClass.SUBJECTIVE_STATE,
+                    "private",
+                    payload.decode("utf-8"),
+                    False,
+                    88,
+                )
+            )
+    else:
+        items.append(
+            _unavailable(
+                ContextSection.RELATIONSHIP,
+                "relationship",
+                reason="CTX-RELATIONSHIP-NONE",
+            )
+        )
     items.extend(
         (
-            _unavailable(ContextSection.RELATIONSHIP, "relationship"),
             _item(
                 ContextSection.ACTIVITY,
                 "current_life_opportunity",

@@ -36,7 +36,7 @@ from .dialogue_candidate_contract import (
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueReplyDecision,
-    DialogueReplyDecisionV2,
+    DialogueReplyDecisionV4,
     DialogueWebResearchDecision,
     dialogue_candidate_schema,
     parse_dialogue_candidate,
@@ -64,7 +64,10 @@ DIALOGUE_INSTRUCTIONS = (
     "本次输入确实值得成为人生经历时才填写 experience; 只有确实理解、注意到且对自己有"
     "意义时才填写其中的 memory_summary。自然想起已有记忆时可在同一个 reply 里填写一个"
     "memory_change: recall、fade、forget 或 reinterpret; 只能引用 Context 中的 ctx 编号,"
-    "新摘要只用于 reinterpret。不要输出理由、协议版本、数据库"
+    "新摘要只用于 reinterpret。一次真实交往确实改变当前关系理解、形成对方明确表达的事实或收紧"
+    "双方边界时,可在同一 reply 与 experience 中填写一个 relationship_change;首次形成时"
+    "必须同时填写 interpretation,共同经历事实由 Runtime 从本轮 experience 绑定;不要推断"
+    "对方隐藏内心、替对方同意或预设亲子、友情、爱情和共同历史。不要输出理由、协议版本、数据库"
     "身份、版本、basis、权限、工具、效果状态或隐藏思维链; 这些由 Runtime 从冻结 Context"
     "绑定并确定性校验。"
 )
@@ -77,7 +80,10 @@ WEB_DIALOGUE_INSTRUCTIONS = (
     "值得成为人生经历时才填写 experience; 只有确实理解、注意到且对自己有意义时才填写"
     "其中的 memory_summary。自然想起已有记忆时可在同一个 reply 里填写一个"
     "memory_change: recall、fade、forget 或 reinterpret; 只能引用 Context 中的 ctx 编号,"
-    "新摘要只用于 reinterpret。不要输出理由、协议版本、subject、版本、basis、"
+    "新摘要只用于 reinterpret。一次真实交往确实改变当前关系理解、形成对方明确表达的事实或收紧"
+    "双方边界时,可在同一 reply 与 experience 中填写一个 relationship_change;首次形成时"
+    "必须同时填写 interpretation,共同经历事实由 Runtime 从本轮 experience 绑定;不要推断"
+    "对方隐藏内心、替对方同意或预设关系。不要输出理由、协议版本、subject、版本、basis、"
     "权限或效果状态;这些由 Runtime 从冻结 Context 绑定并确定性校验。"
 )
 AUTONOMOUS_ACTIVITY_INSTRUCTIONS = (
@@ -720,7 +726,7 @@ def parse_candidate(
     if isinstance(candidate, AutonomousTerminalDecision):
         return candidate
     if isinstance(candidate, CreatorDialogueCandidate):
-        if isinstance(candidate, (DialogueReplyDecision, DialogueReplyDecisionV2)):
+        if isinstance(candidate, (DialogueReplyDecision, DialogueReplyDecisionV4)):
             try:
                 encoded = candidate.content.encode("utf-8", errors="strict")
             except UnicodeEncodeError:
