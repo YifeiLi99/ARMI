@@ -178,6 +178,25 @@ class PostgreSQLSubjectCommitRepository:
         ).fetchall()
         return tuple(UUID(str(row[0])) for row in rows)
 
+    async def affected_relationship_ids(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        validation_id: UUID,
+    ) -> tuple[UUID, ...]:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        rows = await (
+            await connection.execute(
+                """
+                SELECT relationship_id
+                FROM armi.relationship_revisions
+                WHERE candidate_validation_id = %s
+                ORDER BY relationship_id
+                """,
+                (validation_id,),
+            )
+        ).fetchall()
+        return tuple(UUID(str(row[0])) for row in rows)
+
     async def snapshot(
         self,
         unit_of_work: PostgreSQLUnitOfWork,

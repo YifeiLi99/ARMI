@@ -176,6 +176,14 @@ from .creator_maintenance import (
     CreatorMaintenanceViolation,
     MaintenanceTransitionKind,
 )
+from .creator_relationships import (
+    RELATIONSHIP_PROJECTION_VERSION,
+    CreatorRelationshipItem,
+    CreatorRelationshipQueryPort,
+    CreatorRelationshipRevision,
+    CreatorRelationshipTimeline,
+    CreatorRelationshipViolation,
+)
 from .credentials import (
     CredentialLocator,
     CredentialPort,
@@ -378,6 +386,7 @@ __all__: tuple[str, ...] = (
     "LIFE_RECORD_PROJECTION_VERSION",
     "MAINTENANCE_PROJECTION_VERSION",
     "PROJECTION_VERSION",
+    "RELATIONSHIP_PROJECTION_VERSION",
     "ActionAdapterPort",
     "ActionIntentId",
     "ActivityAttentionDecisionKind",
@@ -512,6 +521,11 @@ __all__: tuple[str, ...] = (
     "CreatorOperationQueryPort",
     "CreatorProjectionInvalidation",
     "CreatorProjectionNotifier",
+    "CreatorRelationshipItem",
+    "CreatorRelationshipQueryPort",
+    "CreatorRelationshipRevision",
+    "CreatorRelationshipTimeline",
+    "CreatorRelationshipViolation",
     "CreatorReplyDraft",
     "CreatorResponseDeliveryId",
     "CreatorResponseOperationId",

@@ -480,8 +480,126 @@ textarea:focus-visible {
   gap: 0.3rem;
 }
 
+.relationship-current {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.relationship-current h3,
+.relationship-boundary-form h3 {
+  margin: 0.4rem 0 0;
+  font-size: 1rem;
+}
+
+.relationship-state-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.relationship-state-row strong {
+  overflow-wrap: anywhere;
+}
+
+.relationship-state-row span {
+  flex: none;
+  color: #6d685f;
+  font-size: 0.78rem;
+}
+
+.relationship-facts,
+.relationship-list,
+.relationship-timeline ol {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0;
+  list-style: none;
+}
+
+.relationship-facts li {
+  padding-left: 0.8rem;
+  border-left: 2px solid rgb(63 117 86 / 35%);
+  overflow-wrap: anywhere;
+}
+
+.relationship-list li,
+.relationship-timeline li {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem;
+  border: 1px solid rgb(32 32 31 / 12%);
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 48%);
+}
+
+.relationship-list span,
+.relationship-list small,
+.relationship-timeline span,
+.relationship-timeline small {
+  overflow-wrap: anywhere;
+}
+
+.relationship-list small,
+.relationship-timeline small,
+.relationship-timeline time {
+  color: #6d685f;
+  font-size: 0.78rem;
+}
+
+.relationship-issues {
+  padding: 0.8rem;
+  border-left: 3px solid #a86a3d;
+  background: rgb(168 106 61 / 8%);
+}
+
+.relationship-timeline {
+  padding-top: 0.8rem;
+  border-top: 1px solid rgb(32 32 31 / 10%);
+}
+
+.relationship-boundary-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(32 32 31 / 10%);
+}
+
+.relationship-boundary-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.relationship-boundary-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #6d685f;
+  font-size: 0.82rem;
+}
+
+.relationship-boundary-form select,
+.relationship-boundary-form textarea {
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgb(32 32 31 / 18%);
+  border-radius: 0.65rem;
+  background: rgb(255 255 255 / 72%);
+  color: var(--ink-strong);
+  font: inherit;
+}
+
+.relationship-boundary-form textarea {
+  resize: vertical;
+}
+
 @media (max-width: 680px) {
   .memory-search {
+    grid-template-columns: 1fr;
+  }
+
+  .relationship-boundary-fields {
     grid-template-columns: 1fr;
   }
 }

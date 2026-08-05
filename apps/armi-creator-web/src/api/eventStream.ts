@@ -13,6 +13,11 @@ const RESOURCES = {
   activity: ["activity.invalidated", "creator-activity.v1", UUID_V7],
   memory: ["memory.invalidated", "creator-memory.v1", UUID_V7],
   maintenance: ["maintenance.invalidated", "creator-maintenance.v1", UUID_V7],
+  relationship: [
+    "relationship.invalidated",
+    "creator-relationship.v1",
+    UUID_V7,
+  ],
   scene_timeline: [
     "scene.timeline.invalidated",
     "scene-timeline.v3",

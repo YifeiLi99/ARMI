@@ -72,6 +72,8 @@ export function useSceneEventStream({
             "memory-timeline",
             "maintenance-status",
             "maintenance-timeline",
+            "relationship-current",
+            "relationship-timeline",
             "capability-requests",
             "creator-operation",
             "creator-effect",
@@ -115,6 +117,15 @@ export function useSceneEventStream({
           predicate: (query) =>
             query.queryKey[0] === "maintenance-status" ||
             (query.queryKey[0] === "maintenance-timeline" &&
+              query.queryKey.includes(resourceRef)),
+        });
+        return;
+      }
+      if (resourceKind === "relationship") {
+        await queryClient.resetQueries({
+          predicate: (query) =>
+            query.queryKey[0] === "relationship-current" ||
+            (query.queryKey[0] === "relationship-timeline" &&
               query.queryKey.includes(resourceRef)),
         });
         return;
@@ -233,6 +244,8 @@ export function useSceneEventStream({
               "memory-timeline",
               "maintenance-status",
               "maintenance-timeline",
+              "relationship-current",
+              "relationship-timeline",
               "capability-requests",
               "creator-operation",
               "creator-effect",

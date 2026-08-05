@@ -31,6 +31,10 @@ from armi_kernel.application import (
     CreatorMemoryTimelineItem,
     CreatorOperation,
     CreatorOperationPhase,
+    CreatorRelationshipItem,
+    CreatorRelationshipRevision,
+    CreatorRelationshipTimeline,
+    CreatorRelationshipViolation,
     EffectArtifactKind,
     EvidenceId,
     LifeRecordActor,
@@ -43,6 +47,13 @@ from armi_kernel.application import (
     MaintenanceResultStatus,
     MaintenanceTriggerKind,
     OpportunityId,
+    RelationshipBoundary,
+    RelationshipBoundaryAction,
+    RelationshipBoundaryKind,
+    RelationshipFact,
+    RelationshipFactKind,
+    RelationshipPartyRole,
+    RelationshipStatus,
     SceneTimelinePage,
     SceneTimelineQuery,
 )
@@ -126,6 +137,57 @@ class _CreatorActivityQuery:
             False,
         )
 
+
+class _CreatorRelationshipQuery:
+    def __init__(self) -> None:
+        self.relationship_id = uuid7()
+        self.revision_id = uuid7()
+        self.occurred_at = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
+
+    def _revision(self) -> CreatorRelationshipRevision:
+        return CreatorRelationshipRevision(
+            relationship_revision_id=self.revision_id,
+            revision_no=1,
+            facts=(
+                RelationshipFact(
+                    RelationshipFactKind.PARTY_EXPRESSION,
+                    "Creator 表达了联系限制",
+                ),
+            ),
+            interpretation="我会尊重这项边界",
+            boundaries=(
+                RelationshipBoundary(
+                    RelationshipPartyRole.OTHER,
+                    RelationshipBoundaryKind.CONTACT,
+                    RelationshipBoundaryAction.RESTRICT,
+                    "不要在深夜联系",
+                ),
+            ),
+            commitments=(),
+            open_issues=(),
+            commitment_event=None,
+            status=RelationshipStatus.ACTIVE,
+            occurred_at=self.occurred_at,
+        )
+
+    async def current(self) -> CreatorRelationshipItem:
+        current = self._revision()
+        return CreatorRelationshipItem(
+            relationship_id=self.relationship_id,
+            current_revision_id=self.revision_id,
+            head_version=1,
+            current=current,
+            created_at=self.occurred_at,
+        )
+
+    async def timeline(self, relationship_id: UUID) -> CreatorRelationshipTimeline:
+        if relationship_id != self.relationship_id:
+            raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-NOT-FOUND")
+        return CreatorRelationshipTimeline(
+            relationship_id,
+            (self._revision(),),
+            False,
+        )
 
 class _CreatorMaintenanceQuery:
     def __init__(self) -> None:
@@ -401,6 +463,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.activity_query = _CreatorActivityQuery()
         self.life_record_query = _LifeRecordQuery()
         self.maintenance_query = _CreatorMaintenanceQuery()
+        self.relationship_query = _CreatorRelationshipQuery()
         self.emergency_wake = _EmergencyWake(self.maintenance_query)
 
     def test_codex_final_result_projects_only_verified_deliverable(self) -> None:
@@ -446,6 +509,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             life_record_query=self.life_record_query,
             creator_memory_query=self.life_record_query,
             creator_maintenance_query=self.maintenance_query,
+            creator_relationship_query=self.relationship_query,
             creator_emergency_wake=self.emergency_wake,
             creator_events=self.events,
             creator_input=self.creator_input,
@@ -697,6 +761,83 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(timeline.json()["items"][0]["revision_kind"], "forgotten")
         self.assertEqual(invalid.status_code, 400)
         self.assertEqual(missing.status_code, 404)
+
+    def test_relationship_projection_and_boundary_expression_are_session_bound(
+        self,
+    ) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            headers = self._browser_headers(token)
+            current = client.get(
+                "/v1/relationships/current",
+                headers=headers,
+            )
+            timeline = client.get(
+                (
+                    "/v1/relationships/"
+                    f"{self.relationship_query.relationship_id}/timeline"
+                ),
+                headers=headers,
+            )
+            missing = client.get(
+                f"/v1/relationships/{uuid7()}/timeline",
+                headers=headers,
+            )
+            accepted = client.post(
+                "/v1/relationships/current/boundaries",
+                headers={**headers, "Idempotency-Key": "boundary-1"},
+                json={
+                    "contract_version": "1.0",
+                    "kind": "contact",
+                    "action": "restrict",
+                    "summary": "不要在深夜联系",
+                },
+            )
+            invalid = client.post(
+                "/v1/relationships/current/boundaries",
+                headers={**headers, "Idempotency-Key": "boundary-2"},
+                json={
+                    "contract_version": "1.0",
+                    "kind": "contact",
+                    "action": "end_contact",
+                    "summary": "错误组合",
+                },
+            )
+            unauthenticated = client.get(
+                "/v1/relationships/current",
+                headers=self._browser_headers(),
+            )
+
+        self.assertEqual(current.status_code, 200)
+        self.assertEqual(
+            current.json()["projection_version"],
+            "creator-relationship.v1",
+        )
+        self.assertEqual(
+            current.json()["relationship"]["current"]["boundaries"][0]["kind"],
+            "contact",
+        )
+        self.assertNotIn("scene_key", current.text)
+        self.assertNotIn("message", current.text)
+        self.assertEqual(timeline.status_code, 200)
+        self.assertEqual(timeline.json()["items"][0]["revision_no"], 1)
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(accepted.status_code, 202)
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(unauthenticated.status_code, 401)
+        command = self.creator_input.commands[-1]
+        self.assertEqual(command.scene_key, "default")
+        self.assertIn("不要在深夜联系", command.message)
+        self.assertNotIn("scene_key", command.message)
 
     def test_maintenance_status_timeline_and_wake_are_session_bound(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

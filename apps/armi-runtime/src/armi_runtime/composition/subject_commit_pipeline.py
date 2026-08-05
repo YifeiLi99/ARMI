@@ -433,6 +433,27 @@ class SubjectCommitPipeline:
             async with self._factory.unit_of_work(
                 LockPlan(), read_only=True
             ) as unit_of_work:
+                relationship_ids = await self._repository.affected_relationship_ids(
+                    unit_of_work,
+                    snapshot.validation_id,
+                )
+            invalidations.extend(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.RELATIONSHIP,
+                    str(relationship_id),
+                    now,
+                    "creator-relationship.v1",
+                )
+                for relationship_id in relationship_ids
+            )
+        except DatabaseTransactionError:
+            self._diagnostic(
+                "subject_commit.relationship_notification.lookup_failed"
+            )
+        try:
+            async with self._factory.unit_of_work(
+                LockPlan(), read_only=True
+            ) as unit_of_work:
                 maintenance_ids = (
                     await self._repository.affected_maintenance_session_ids(
                         unit_of_work,

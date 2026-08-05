@@ -20,6 +20,7 @@ import { MessageComposer } from "../scene/MessageComposer";
 import { ActivityPanel } from "../activity/ActivityPanel";
 import { MaintenancePanel } from "../maintenance/MaintenancePanel";
 import { MemoryPanel } from "../memory/MemoryPanel";
+import { RelationshipPanel } from "../relationship/RelationshipPanel";
 import { CapabilityInbox } from "../capability/CapabilityInbox";
 import { EffectDetail } from "../effect/EffectDetail";
 import { OperationPanel } from "../operation/OperationPanel";
@@ -325,6 +326,16 @@ export function SessionPanel() {
             environmentId={view.session.environment_id}
             creatorPartyId={view.session.creator_party_id}
             onUnauthorized={unauthorized}
+          />
+          <RelationshipPanel
+            token={view.stored.token}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
+            onUnauthorized={unauthorized}
+            onOperationAccepted={(operationRef) => {
+              setSelectedEffect(null);
+              setSelectedOperation(operationRef);
+            }}
           />
           <CapabilityInbox
             token={view.stored.token}

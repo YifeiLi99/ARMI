@@ -14,6 +14,7 @@ from armi_kernel.application import (
     CreatorActivityViolation,
     CreatorMaintenanceViolation,
     CreatorProjectionNotifier,
+    CreatorRelationshipViolation,
     CredentialPort,
     CredentialPurpose,
     LifeRecordQueryViolation,
@@ -41,6 +42,9 @@ from armi_runtime.adapters.persistence.creator_activities import (
 )
 from armi_runtime.adapters.persistence.creator_maintenance import (
     PostgreSQLCreatorMaintenanceQuery,
+)
+from armi_runtime.adapters.persistence.creator_relationships import (
+    PostgreSQLCreatorRelationshipQuery,
 )
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.recovery import (
@@ -399,6 +403,44 @@ def compose_life_record_query(
             return handle.consume(create)
     except ConfigurationViolation:
         raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
+
+
+def compose_creator_relationship_query(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+) -> PostgreSQLCreatorRelationshipQuery:
+    """Resolve the Runtime credential for the bounded relationship projection."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLCreatorRelationshipQuery:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise CreatorRelationshipViolation(
+                        "RELATIONSHIP-QUERY-UNAVAILABLE"
+                    ) from None
+                config = prepared.effective.config
+                return PostgreSQLCreatorRelationshipQuery(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise CreatorRelationshipViolation(
+            "RELATIONSHIP-QUERY-UNAVAILABLE"
+        ) from None
 
 
 def compose_creator_maintenance_query(
@@ -1192,6 +1234,7 @@ __all__ = (
     "compose_creator_activity_query",
     "compose_creator_input",
     "compose_creator_maintenance_query",
+    "compose_creator_relationship_query",
     "compose_effect_registration_pipeline",
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",

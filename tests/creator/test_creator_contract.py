@@ -13,6 +13,8 @@ from armi_runtime.interfaces.creator_contract import (
     CreatorMaintenanceStatusResponse,
     CreatorMemoryItemResponse,
     CreatorProjectionEventResponse,
+    CreatorRelationshipBoundaryRequest,
+    CreatorRelationshipCurrentResponse,
     FailedOutcomeResponse,
     LifeRecordItemResponse,
     RejectedOutcomeResponse,
@@ -75,6 +77,9 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/maintenance/status",
                 "/v1/maintenance/{maintenance_session_id}/timeline",
                 "/v1/maintenance/{maintenance_session_id}/wake",
+                "/v1/relationships/current",
+                "/v1/relationships/current/boundaries",
+                "/v1/relationships/{relationship_id}/timeline",
                 "/v1/runtime/status",
                 "/v1/operations/{result_ref}",
                 "/v1/effects/{effect_id}",
@@ -124,6 +129,31 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(
             set(activity_timeline["responses"]),
             {"200", "400", "401", "403", "404", "503"},
+        )
+        relationship = paths["/v1/relationships/current"]["get"]
+        self.assertEqual(
+            relationship["operationId"],
+            "getCreatorRelationshipCurrent",
+        )
+        self.assertEqual(
+            relationship["security"],
+            [{"browserSessionBearer": []}],
+        )
+        relationship_timeline = paths[
+            "/v1/relationships/{relationship_id}/timeline"
+        ]["get"]
+        self.assertEqual(
+            relationship_timeline["operationId"],
+            "getCreatorRelationshipTimeline",
+        )
+        boundary = paths["/v1/relationships/current/boundaries"]["post"]
+        self.assertEqual(
+            boundary["operationId"],
+            "expressCreatorRelationshipBoundary",
+        )
+        self.assertEqual(
+            set(boundary["responses"]),
+            {"202", "400", "401", "403", "409", "413", "503"},
         )
         life_records = paths["/v1/life-records"]["get"]
         self.assertEqual(life_records["operationId"], "queryCreatorLifeRecords")
@@ -375,6 +405,110 @@ class CreatorContractTests(unittest.TestCase):
                 self.assertRaises(ValidationError),
             ):
                 CreatorProjectionEventResponse.model_validate({**sample, field: value})
+
+    def test_relationship_projection_excludes_scene_text_and_boundary_is_strict(
+        self,
+    ) -> None:
+        current = CreatorRelationshipCurrentResponse.model_validate(
+            {
+                "contract_version": "1.0",
+                "projection_version": "creator-relationship.v1",
+                "relationship": {
+                    "relationship_id": ENVIRONMENT_ID,
+                    "current_revision_id": ENVIRONMENT_ID,
+                    "head_version": 1,
+                    "created_at": INSTANT,
+                    "current": {
+                        "relationship_revision_id": ENVIRONMENT_ID,
+                        "revision_no": 1,
+                        "facts": [
+                            {
+                                "kind": "party_expression",
+                                "summary": "Creator 表达了联系限制",
+                            }
+                        ],
+                        "interpretation": "我会尊重这项边界",
+                        "boundaries": [
+                            {
+                                "party_role": "other",
+                                "kind": "contact",
+                                "action": "restrict",
+                                "summary": "不要在深夜联系",
+                            }
+                        ],
+                        "commitments": [],
+                        "open_issues": [],
+                        "commitment_event": None,
+                        "status": "active",
+                        "occurred_at": INSTANT,
+                    },
+                },
+            }
+        )
+        assert current.relationship is not None
+        self.assertEqual(current.relationship.current.boundaries[0].kind, "contact")
+        projected = current.model_dump(mode="json")
+        self.assertNotIn("scene_key", json.dumps(projected))
+        self.assertNotIn("message", json.dumps(projected))
+        with self.assertRaises(ValidationError):
+            CreatorRelationshipCurrentResponse.model_validate(
+                {
+                    **projected,
+                    "relationship": {
+                        **cast(dict[str, object], projected["relationship"]),
+                        "current": {
+                            **cast(
+                                dict[str, object],
+                                cast(dict[str, object], projected["relationship"])[
+                                    "current"
+                                ],
+                            ),
+                            "scene_text": "不应进入关系投影",
+                        },
+                    },
+                }
+            )
+        boundary = CreatorRelationshipBoundaryRequest.model_validate(
+            {
+                "contract_version": "1.0",
+                "kind": "exit",
+                "action": "end_contact",
+                "summary": "结束联系",
+            }
+        )
+        self.assertEqual(boundary.action, "end_contact")
+        with self.assertRaises(ValidationError):
+            CreatorRelationshipBoundaryRequest.model_validate(
+                {
+                    "contract_version": "1.0",
+                    "kind": "contact",
+                    "action": "end_contact",
+                    "summary": "错误组合",
+                }
+            )
+        with self.assertRaises(ValidationError):
+            CreatorRelationshipBoundaryRequest.model_validate(
+                {
+                    "contract_version": "1.0",
+                    "kind": "contact",
+                    "action": "restrict",
+                    "summary": "   ",
+                }
+            )
+
+    def test_relationship_projection_event_is_exact(self) -> None:
+        event = CreatorProjectionEventResponse.model_validate(
+            {
+                "contract_version": "1.0",
+                "event_id": f"sse-v1.{'a' * 22}.1",
+                "event_kind": "relationship.invalidated",
+                "resource_kind": "relationship",
+                "resource_ref": ENVIRONMENT_ID,
+                "projection_version": "creator-relationship.v1",
+                "occurred_at": INSTANT,
+            }
+        )
+        self.assertEqual(event.resource_kind, "relationship")
 
     def test_exact_record_and_memory_projection_keep_recallability_explicit(self) -> None:
         record = LifeRecordItemResponse.model_validate(

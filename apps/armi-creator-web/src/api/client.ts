@@ -20,6 +20,12 @@ export type CreatorMaintenanceStatus =
   components["schemas"]["CreatorMaintenanceStatusResponse"];
 export type CreatorMaintenanceTimeline =
   components["schemas"]["CreatorMaintenanceTimelineResponse"];
+export type CreatorRelationshipCurrent =
+  components["schemas"]["CreatorRelationshipCurrentResponse"];
+export type CreatorRelationshipTimeline =
+  components["schemas"]["CreatorRelationshipTimelineResponse"];
+export type CreatorRelationshipBoundary =
+  components["schemas"]["CreatorRelationshipBoundaryRequest"];
 export type AcceptedOperation =
   components["schemas"]["AcceptedOutcomeResponse"];
 export type CreatorOperation =
@@ -257,6 +263,54 @@ export async function getCreatorMaintenanceStatus(
   const response = await fetch("/v1/maintenance/status", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getCreatorRelationshipCurrent(
+  token: string,
+  signal?: AbortSignal,
+): Promise<CreatorRelationshipCurrent> {
+  const response = await fetch("/v1/relationships/current", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getCreatorRelationshipTimeline(
+  token: string,
+  relationshipId: string,
+  signal?: AbortSignal,
+): Promise<CreatorRelationshipTimeline> {
+  const response = await fetch(
+    `/v1/relationships/${encodeURIComponent(relationshipId)}/timeline`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
+}
+
+export async function expressCreatorRelationshipBoundary(
+  token: string,
+  idempotencyKey: string,
+  boundary: CreatorRelationshipBoundary,
+  signal?: AbortSignal,
+): Promise<AcceptedOperation> {
+  const response = await fetch("/v1/relationships/current/boundaries", {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify(boundary),
     ...(signal === undefined ? {} : { signal }),
   });
   return requireJson(response);

@@ -1647,6 +1647,7 @@
               "activity.invalidated",
               "memory.invalidated",
               "maintenance.invalidated",
+              "relationship.invalidated",
               "scene.timeline.invalidated",
               "capability.request.invalidated",
               "operation.invalidated",
@@ -1666,6 +1667,7 @@
               "creator-activity.v1",
               "creator-memory.v1",
               "creator-maintenance.v1",
+              "creator-relationship.v1",
               "scene-timeline.v3",
               "capability-request.v3",
               "creator-operation.v1",
@@ -1680,6 +1682,7 @@
               "activity",
               "memory",
               "maintenance",
+              "relationship",
               "scene_timeline",
               "capability_request",
               "operation",
@@ -1706,6 +1709,424 @@
           "occurred_at"
         ],
         "title": "CreatorProjectionEventResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipBoundaryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/RelationshipBoundaryActionValue"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RelationshipBoundaryKindValue"
+          },
+          "summary": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "kind",
+          "action",
+          "summary"
+        ],
+        "title": "CreatorRelationshipBoundaryRequest",
+        "type": "object"
+      },
+      "CreatorRelationshipBoundaryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/RelationshipBoundaryActionValue"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RelationshipBoundaryKindValue"
+          },
+          "party_role": {
+            "$ref": "#/components/schemas/RelationshipPartyRoleValue"
+          },
+          "summary": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "party_role",
+          "kind",
+          "action",
+          "summary"
+        ],
+        "title": "CreatorRelationshipBoundaryResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipCommitmentEventResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "commitment_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Commitment Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RelationshipCommitmentEventKindValue"
+          },
+          "related_commitment_id": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Commitment Id"
+          },
+          "summary": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "commitment_id",
+          "kind",
+          "summary",
+          "related_commitment_id"
+        ],
+        "title": "CreatorRelationshipCommitmentEventResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipCommitmentResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "commitment_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Commitment Id",
+            "type": "string"
+          },
+          "content": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "last_event_kind": {
+            "$ref": "#/components/schemas/RelationshipCommitmentEventKindValue"
+          },
+          "last_event_summary": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Last Event Summary",
+            "type": "string"
+          },
+          "party_role": {
+            "$ref": "#/components/schemas/RelationshipPartyRoleValue"
+          },
+          "scope": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Scope",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RelationshipCommitmentStatusValue"
+          }
+        },
+        "required": [
+          "commitment_id",
+          "party_role",
+          "scope",
+          "content",
+          "status",
+          "last_event_kind",
+          "last_event_summary"
+        ],
+        "title": "CreatorRelationshipCommitmentResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipCurrentResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "creator-relationship.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "relationship": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreatorRelationshipItemResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "relationship"
+        ],
+        "title": "CreatorRelationshipCurrentResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipFactResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "shared_experience",
+              "party_expression"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "summary"
+        ],
+        "title": "CreatorRelationshipFactResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipIssueResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "commitment_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Commitment Ids",
+            "type": "array"
+          },
+          "issue_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Issue Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "contradictory_commitments",
+              "commitment_violation"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "status": {
+            "const": "open",
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issue_id",
+          "kind",
+          "commitment_ids",
+          "summary",
+          "status"
+        ],
+        "title": "CreatorRelationshipIssueResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current": {
+            "$ref": "#/components/schemas/CreatorRelationshipRevisionResponse"
+          },
+          "current_revision_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Current Revision Id",
+            "type": "string"
+          },
+          "head_version": {
+            "minimum": 1.0,
+            "title": "Head Version",
+            "type": "integer"
+          },
+          "relationship_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Relationship Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relationship_id",
+          "current_revision_id",
+          "head_version",
+          "current",
+          "created_at"
+        ],
+        "title": "CreatorRelationshipItemResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipRevisionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "boundaries": {
+            "items": {
+              "$ref": "#/components/schemas/CreatorRelationshipBoundaryResponse"
+            },
+            "maxItems": 16,
+            "title": "Boundaries",
+            "type": "array"
+          },
+          "commitment_event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreatorRelationshipCommitmentEventResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "commitments": {
+            "items": {
+              "$ref": "#/components/schemas/CreatorRelationshipCommitmentResponse"
+            },
+            "maxItems": 16,
+            "title": "Commitments",
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/CreatorRelationshipFactResponse"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Facts",
+            "type": "array"
+          },
+          "interpretation": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Interpretation",
+            "type": "string"
+          },
+          "occurred_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "open_issues": {
+            "items": {
+              "$ref": "#/components/schemas/CreatorRelationshipIssueResponse"
+            },
+            "maxItems": 32,
+            "title": "Open Issues",
+            "type": "array"
+          },
+          "relationship_revision_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Relationship Revision Id",
+            "type": "string"
+          },
+          "revision_no": {
+            "minimum": 1.0,
+            "title": "Revision No",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "ended"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relationship_revision_id",
+          "revision_no",
+          "facts",
+          "interpretation",
+          "boundaries",
+          "commitments",
+          "open_issues",
+          "commitment_event",
+          "status",
+          "occurred_at"
+        ],
+        "title": "CreatorRelationshipRevisionResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipTimelineResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CreatorRelationshipRevisionResponse"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "projection_version": {
+            "const": "creator-relationship.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "relationship_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Relationship Id",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "relationship_id",
+          "items",
+          "truncated"
+        ],
+        "title": "CreatorRelationshipTimelineResponse",
         "type": "object"
       },
       "CreatorReplyEffectiveGrantResponse": {
@@ -2953,6 +3374,53 @@
         ],
         "title": "RejectedOutcomeResponse",
         "type": "object"
+      },
+      "RelationshipBoundaryActionValue": {
+        "enum": [
+          "refuse",
+          "restrict",
+          "end_contact"
+        ],
+        "type": "string"
+      },
+      "RelationshipBoundaryKindValue": {
+        "enum": [
+          "contact",
+          "address",
+          "privacy",
+          "disclosure",
+          "exit"
+        ],
+        "type": "string"
+      },
+      "RelationshipCommitmentEventKindValue": {
+        "enum": [
+          "established",
+          "modified",
+          "fulfilled",
+          "withdrawn",
+          "forgotten",
+          "violated",
+          "conflict_noted"
+        ],
+        "type": "string"
+      },
+      "RelationshipCommitmentStatusValue": {
+        "enum": [
+          "active",
+          "fulfilled",
+          "withdrawn",
+          "forgotten",
+          "violated"
+        ],
+        "type": "string"
+      },
+      "RelationshipPartyRoleValue": {
+        "enum": [
+          "subject",
+          "other"
+        ],
+        "type": "string"
       },
       "RuntimeState": {
         "enum": [
@@ -4835,6 +5303,250 @@
           }
         ],
         "summary": "Get Creator Operation"
+      }
+    },
+    "/v1/relationships/current": {
+      "get": {
+        "operationId": "getCreatorRelationshipCurrent",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorRelationshipCurrentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Get Creator Relationship Current"
+      }
+    },
+    "/v1/relationships/current/boundaries": {
+      "post": {
+        "operationId": "expressCreatorRelationshipBoundary",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "pattern": "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatorRelationshipBoundaryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Express Creator Relationship Boundary"
+      }
+    },
+    "/v1/relationships/{relationship_id}/timeline": {
+      "get": {
+        "operationId": "getCreatorRelationshipTimeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "relationship_id",
+            "required": true,
+            "schema": {
+              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+              "title": "Relationship Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorRelationshipTimelineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Get Creator Relationship Timeline"
       }
     },
     "/v1/runtime/status": {

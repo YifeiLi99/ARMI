@@ -311,6 +311,57 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/relationships/current": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Creator Relationship Current */
+    get: operations["getCreatorRelationshipCurrent"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/relationships/current/boundaries": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Express Creator Relationship Boundary */
+    post: operations["expressCreatorRelationshipBoundary"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/relationships/{relationship_id}/timeline": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Creator Relationship Timeline */
+    get: operations["getCreatorRelationshipTimeline"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/runtime/status": {
     parameters: {
       query?: never;
@@ -1040,6 +1091,7 @@ export interface components {
         | "activity.invalidated"
         | "memory.invalidated"
         | "maintenance.invalidated"
+        | "relationship.invalidated"
         | "scene.timeline.invalidated"
         | "capability.request.invalidated"
         | "operation.invalidated"
@@ -1055,6 +1107,7 @@ export interface components {
         | "creator-activity.v1"
         | "creator-memory.v1"
         | "creator-maintenance.v1"
+        | "creator-relationship.v1"
         | "scene-timeline.v3"
         | "capability-request.v3"
         | "creator-operation.v1"
@@ -1068,6 +1121,7 @@ export interface components {
         | "activity"
         | "memory"
         | "maintenance"
+        | "relationship"
         | "scene_timeline"
         | "capability_request"
         | "operation"
@@ -1075,6 +1129,152 @@ export interface components {
         | "subject_summary";
       /** Resource Ref */
       resource_ref: string;
+    };
+    /** CreatorRelationshipBoundaryRequest */
+    CreatorRelationshipBoundaryRequest: {
+      action: components["schemas"]["RelationshipBoundaryActionValue"];
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      kind: components["schemas"]["RelationshipBoundaryKindValue"];
+      /** Summary */
+      summary: string;
+    };
+    /** CreatorRelationshipBoundaryResponse */
+    CreatorRelationshipBoundaryResponse: {
+      action: components["schemas"]["RelationshipBoundaryActionValue"];
+      kind: components["schemas"]["RelationshipBoundaryKindValue"];
+      party_role: components["schemas"]["RelationshipPartyRoleValue"];
+      /** Summary */
+      summary: string;
+    };
+    /** CreatorRelationshipCommitmentEventResponse */
+    CreatorRelationshipCommitmentEventResponse: {
+      /** Commitment Id */
+      commitment_id: string;
+      kind: components["schemas"]["RelationshipCommitmentEventKindValue"];
+      /** Related Commitment Id */
+      related_commitment_id: string | null;
+      /** Summary */
+      summary: string;
+    };
+    /** CreatorRelationshipCommitmentResponse */
+    CreatorRelationshipCommitmentResponse: {
+      /** Commitment Id */
+      commitment_id: string;
+      /** Content */
+      content: string;
+      last_event_kind: components["schemas"]["RelationshipCommitmentEventKindValue"];
+      /** Last Event Summary */
+      last_event_summary: string;
+      party_role: components["schemas"]["RelationshipPartyRoleValue"];
+      /** Scope */
+      scope: string;
+      status: components["schemas"]["RelationshipCommitmentStatusValue"];
+    };
+    /** CreatorRelationshipCurrentResponse */
+    CreatorRelationshipCurrentResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-relationship.v1";
+      relationship:
+        components["schemas"]["CreatorRelationshipItemResponse"] | null;
+    };
+    /** CreatorRelationshipFactResponse */
+    CreatorRelationshipFactResponse: {
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: "shared_experience" | "party_expression";
+      /** Summary */
+      summary: string;
+    };
+    /** CreatorRelationshipIssueResponse */
+    CreatorRelationshipIssueResponse: {
+      /** Commitment Ids */
+      commitment_ids: string[];
+      /** Issue Id */
+      issue_id: string;
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: "contradictory_commitments" | "commitment_violation";
+      /**
+       * Status
+       * @constant
+       */
+      status: "open";
+      /** Summary */
+      summary: string;
+    };
+    /** CreatorRelationshipItemResponse */
+    CreatorRelationshipItemResponse: {
+      /** Created At */
+      created_at: string;
+      current: components["schemas"]["CreatorRelationshipRevisionResponse"];
+      /** Current Revision Id */
+      current_revision_id: string;
+      /** Head Version */
+      head_version: number;
+      /** Relationship Id */
+      relationship_id: string;
+    };
+    /** CreatorRelationshipRevisionResponse */
+    CreatorRelationshipRevisionResponse: {
+      /** Boundaries */
+      boundaries: components["schemas"]["CreatorRelationshipBoundaryResponse"][];
+      commitment_event:
+        | components["schemas"]["CreatorRelationshipCommitmentEventResponse"]
+        | null;
+      /** Commitments */
+      commitments: components["schemas"]["CreatorRelationshipCommitmentResponse"][];
+      /** Facts */
+      facts: components["schemas"]["CreatorRelationshipFactResponse"][];
+      /** Interpretation */
+      interpretation: string;
+      /** Occurred At */
+      occurred_at: string;
+      /** Open Issues */
+      open_issues: components["schemas"]["CreatorRelationshipIssueResponse"][];
+      /** Relationship Revision Id */
+      relationship_revision_id: string;
+      /** Revision No */
+      revision_no: number;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "active" | "ended";
+    };
+    /** CreatorRelationshipTimelineResponse */
+    CreatorRelationshipTimelineResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["CreatorRelationshipRevisionResponse"][];
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-relationship.v1";
+      /** Relationship Id */
+      relationship_id: string;
+      /** Truncated */
+      truncated: boolean;
     };
     /** CreatorReplyEffectiveGrantResponse */
     CreatorReplyEffectiveGrantResponse: {
@@ -1572,6 +1772,25 @@ export interface components {
       /** Trace Id */
       trace_id: string;
     };
+    /** @enum {string} */
+    RelationshipBoundaryActionValue: "refuse" | "restrict" | "end_contact";
+    /** @enum {string} */
+    RelationshipBoundaryKindValue:
+      "contact" | "address" | "privacy" | "disclosure" | "exit";
+    /** @enum {string} */
+    RelationshipCommitmentEventKindValue:
+      | "established"
+      | "modified"
+      | "fulfilled"
+      | "withdrawn"
+      | "forgotten"
+      | "violated"
+      | "conflict_noted";
+    /** @enum {string} */
+    RelationshipCommitmentStatusValue:
+      "active" | "fulfilled" | "withdrawn" | "forgotten" | "violated";
+    /** @enum {string} */
+    RelationshipPartyRoleValue: "subject" | "other";
     /**
      * RuntimeState
      * @enum {string}
@@ -2794,6 +3013,200 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["OperationOutcomeResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getCreatorRelationshipCurrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatorRelationshipCurrentResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  expressCreatorRelationshipBoundary: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreatorRelationshipBoundaryRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AcceptedOutcomeResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Content Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getCreatorRelationshipTimeline: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        relationship_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatorRelationshipTimelineResponse"];
         };
       };
       /** @description Bad Request */

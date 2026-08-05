@@ -164,12 +164,23 @@ function memoryPageResponse(): object {
   };
 }
 
+function relationshipCurrentResponse(): object {
+  return {
+    contract_version: "1.0",
+    projection_version: "creator-relationship.v1",
+    relationship: null,
+  };
+}
+
 function optionalLifeProjectionResponse(url: string): Response | undefined {
   if (url.startsWith("/v1/life-records?")) {
     return jsonResponse(lifeRecordPageResponse());
   }
   if (url.startsWith("/v1/memories?")) {
     return jsonResponse(memoryPageResponse());
+  }
+  if (url === "/v1/relationships/current") {
+    return jsonResponse(relationshipCurrentResponse());
   }
   return undefined;
 }
@@ -261,6 +272,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(relationshipCurrentResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse());
@@ -278,7 +290,7 @@ describe("Creator browser session shell", () => {
     expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
     expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(11);
+    expect(fetchMock).toHaveBeenCalledTimes(12);
     expect(screen.getByText("权威版本")).toBeInTheDocument();
   });
 
@@ -371,6 +383,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(relationshipCurrentResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse())
@@ -467,6 +480,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(relationshipCurrentResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(
@@ -498,7 +512,7 @@ describe("Creator browser session shell", () => {
     await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(12);
+    expect(fetchMock).toHaveBeenCalledTimes(13);
   });
 
   it("uses an Activity invalidation only to refetch its read projection", async () => {
@@ -724,6 +738,7 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
+      .mockResolvedValueOnce(jsonResponse(relationshipCurrentResponse()))
       .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(new Response(null, { status: 401 }));

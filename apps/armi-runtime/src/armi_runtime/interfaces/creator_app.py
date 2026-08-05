@@ -38,6 +38,9 @@ from armi_kernel.application import (
     CreatorOperationPhase,
     CreatorOperationQueryPort,
     CreatorProjectionInvalidation,
+    CreatorRelationshipQueryPort,
+    CreatorRelationshipRevision,
+    CreatorRelationshipViolation,
     EffectArtifactKind,
     EffectId,
     EffectLedgerPort,
@@ -110,6 +113,16 @@ from .creator_contract import (
     CreatorMemoryPageResponse,
     CreatorMemoryTimelineItemResponse,
     CreatorMemoryTimelineResponse,
+    CreatorRelationshipBoundaryRequest,
+    CreatorRelationshipBoundaryResponse,
+    CreatorRelationshipCommitmentEventResponse,
+    CreatorRelationshipCommitmentResponse,
+    CreatorRelationshipCurrentResponse,
+    CreatorRelationshipFactResponse,
+    CreatorRelationshipIssueResponse,
+    CreatorRelationshipItemResponse,
+    CreatorRelationshipRevisionResponse,
+    CreatorRelationshipTimelineResponse,
     EffectResponse,
     LifeRecordItemResponse,
     LifeRecordPageResponse,
@@ -361,6 +374,47 @@ async def _creator_input_request(
         raise CreatorInputViolation("INPUT-BODY") from None
 
 
+async def _creator_boundary_request(
+    request: Request,
+    maximum_bytes: int,
+) -> CreatorRelationshipBoundaryRequest:
+    if request.headers.get("content-type") != "application/json":
+        raise CreatorInputViolation("INPUT-CONTENT-TYPE")
+    body = await request.body()
+    if not body or len(body) > min(maximum_bytes, 4096):
+        raise CreatorInputViolation("INPUT-SIZE")
+    try:
+        value = json.loads(
+            body.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite JSON")
+            ),
+        )
+        return CreatorRelationshipBoundaryRequest.model_validate(value)
+    except (UnicodeDecodeError, ValueError, ValidationError):
+        raise CreatorInputViolation("INPUT-BODY") from None
+
+
+def _boundary_message(request: CreatorRelationshipBoundaryRequest) -> str:
+    kind = {
+        "contact": "联系",
+        "address": "称呼",
+        "privacy": "隐私",
+        "disclosure": "信息披露",
+        "exit": "结束联系",
+    }[request.kind]
+    action = {
+        "refuse": "拒绝",
+        "restrict": "限制",
+        "end_contact": "结束联系",
+    }[request.action]
+    return (
+        f"我通过 Creator 的关系边界操作明确表达: 对于{kind}, 我选择{action}。"
+        f"具体说明: {request.summary}"
+    )
+
+
 async def _creator_codex_task_request(
     request: Request,
     maximum_bytes: int,
@@ -418,6 +472,70 @@ def _accepted_wire(acceptance: CreatorInputAcceptance) -> dict[str, object]:
             "operation_url": f"/v1/operations/{acceptance.opportunity_id}",
         },
     ).to_wire()
+
+
+def _relationship_revision_response(
+    revision: CreatorRelationshipRevision,
+) -> CreatorRelationshipRevisionResponse:
+    return CreatorRelationshipRevisionResponse(
+        relationship_revision_id=str(revision.relationship_revision_id),
+        revision_no=revision.revision_no,
+        facts=[
+            CreatorRelationshipFactResponse(
+                kind=item.kind.value,
+                summary=item.summary,
+            )
+            for item in revision.facts
+        ],
+        interpretation=revision.interpretation,
+        boundaries=[
+            CreatorRelationshipBoundaryResponse(
+                party_role=item.party_role.value,
+                kind=item.kind.value,
+                action=item.action.value,
+                summary=item.summary,
+            )
+            for item in revision.boundaries
+        ],
+        commitments=[
+            CreatorRelationshipCommitmentResponse(
+                commitment_id=str(item.commitment_id),
+                party_role=item.party_role.value,
+                scope=item.scope,
+                content=item.content,
+                status=item.status.value,
+                last_event_kind=item.last_event_kind.value,
+                last_event_summary=item.last_event_summary,
+            )
+            for item in revision.commitments
+        ],
+        open_issues=[
+            CreatorRelationshipIssueResponse(
+                issue_id=str(item.issue_id),
+                kind=item.kind.value,
+                commitment_ids=[str(value) for value in item.commitment_ids],
+                summary=item.summary,
+                status=item.status.value,
+            )
+            for item in revision.open_issues
+        ],
+        commitment_event=(
+            None
+            if revision.commitment_event is None
+            else CreatorRelationshipCommitmentEventResponse(
+                commitment_id=str(revision.commitment_event.commitment_id),
+                kind=revision.commitment_event.kind.value,
+                summary=revision.commitment_event.summary,
+                related_commitment_id=(
+                    None
+                    if revision.commitment_event.related_commitment_id is None
+                    else str(revision.commitment_event.related_commitment_id)
+                ),
+            )
+        ),
+        status=revision.status.value,
+        occurred_at=Instant(revision.occurred_at).to_wire(),
+    )
 
 
 def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
@@ -867,6 +985,7 @@ def create_runtime_app(
     life_record_query: LifeRecordQueryPort | None = None,
     creator_memory_query: CreatorMemoryQueryPort | None = None,
     creator_maintenance_query: CreatorMaintenanceQueryPort | None = None,
+    creator_relationship_query: CreatorRelationshipQueryPort | None = None,
     creator_emergency_wake: CreatorEmergencyWakePort | None = None,
     creator_events: CreatorEventBroker | None = None,
     creator_input: CreatorInputAcceptancePort | None = None,
@@ -1535,6 +1654,206 @@ def create_runtime_app(
         return JSONResponse(content=response.model_dump(mode="json"))
 
     del list_creator_activities, get_creator_activity_timeline
+
+    @app.get("/v1/relationships/current")
+    async def get_creator_relationship_current(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_relationship_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None
+                and creator_relationship_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_RELATIONSHIP_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            item = await creator_relationship_query.current()
+        except CreatorRelationshipViolation:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_RELATIONSHIP_QUERY_UNAVAILABLE"),
+            )
+        response = CreatorRelationshipCurrentResponse(
+            contract_version="1.0",
+            projection_version="creator-relationship.v1",
+            relationship=(
+                None
+                if item is None
+                else CreatorRelationshipItemResponse(
+                    relationship_id=str(item.relationship_id),
+                    current_revision_id=str(item.current_revision_id),
+                    head_version=item.head_version,
+                    current=_relationship_revision_response(item.current),
+                    created_at=Instant(item.created_at).to_wire(),
+                )
+            ),
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
+    @app.get("/v1/relationships/{relationship_id}/timeline")
+    async def get_creator_relationship_timeline(
+        relationship_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_relationship_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None
+                and creator_relationship_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_RELATIONSHIP_QUERY_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        try:
+            parsed = UUID(relationship_id)
+            if parsed.version != 7 or str(parsed) != relationship_id:
+                raise ValueError
+        except ValueError:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("SCOPE_RELATIONSHIP_NOT_VISIBLE"),
+            )
+        try:
+            timeline = await creator_relationship_query.timeline(parsed)
+        except CreatorRelationshipViolation as error:
+            if error.code == "RELATIONSHIP-QUERY-NOT-FOUND":
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_RELATIONSHIP_NOT_VISIBLE"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_RELATIONSHIP_QUERY_UNAVAILABLE"),
+            )
+        response = CreatorRelationshipTimelineResponse(
+            contract_version="1.0",
+            projection_version="creator-relationship.v1",
+            relationship_id=str(timeline.relationship_id),
+            items=[_relationship_revision_response(item) for item in timeline.items],
+            truncated=timeline.truncated,
+        )
+        return JSONResponse(content=response.model_dump(mode="json"))
+
+    @app.post("/v1/relationships/current/boundaries")
+    async def express_creator_relationship_boundary(
+        request: Request,
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_input is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None
+                and creator_input is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_RELATIONSHIP_INPUT_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            metadata = browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        idempotency_value = _single_header(request, b"idempotency-key")
+        if idempotency_value is None:
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_IDEMPOTENCY_KEY"),
+            )
+        try:
+            model = await _creator_boundary_request(request, request_body_max_bytes)
+            acceptance = await creator_input.accept(
+                CreatorInputCommand(
+                    scene_key=metadata.default_scene_key,
+                    message=_boundary_message(model),
+                    idempotency_key=IdempotencyKey(idempotency_value),
+                    trace_id=TraceId(secrets.token_hex(16)),
+                )
+            )
+        except (ContractViolation, CreatorInputViolation) as error:
+            if isinstance(error, ContractViolation):
+                status, content = 400, _rejected("INPUT_IDEMPOTENCY_KEY")
+            else:
+                status, content = _input_failure(error)
+            emit("creator.relationship_boundary.rejected")
+            return JSONResponse(status_code=status, content=content)
+        emit(
+            "creator.relationship_boundary.accepted"
+            if acceptance.newly_accepted
+            else "creator.relationship_boundary.idempotent"
+        )
+        if creator_events is not None and acceptance.newly_accepted:
+            try:
+                await creator_events.notify(
+                    CreatorProjectionInvalidation(
+                        CreatorEventResourceKind.OPERATION,
+                        str(acceptance.opportunity_id),
+                        Instant(datetime.now(UTC)),
+                        "creator-operation.v1",
+                    )
+                )
+            except Exception:
+                emit("creator.operation.notification_failed")
+        return JSONResponse(status_code=202, content=_accepted_wire(acceptance))
+
+    del (
+        express_creator_relationship_boundary,
+        get_creator_relationship_current,
+        get_creator_relationship_timeline,
+    )
 
     @app.get("/v1/life-records")
     async def query_creator_life_records(request: Request) -> JSONResponse:

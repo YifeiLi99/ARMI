@@ -336,6 +336,217 @@ class CreatorActivityTimelineResponse(_StrictWireModel):
     truncated: bool
 
 
+type RelationshipPartyRoleValue = Literal["subject", "other"]
+type RelationshipBoundaryKindValue = Literal[
+    "contact", "address", "privacy", "disclosure", "exit"
+]
+type RelationshipBoundaryActionValue = Literal["refuse", "restrict", "end_contact"]
+type RelationshipCommitmentStatusValue = Literal[
+    "active", "fulfilled", "withdrawn", "forgotten", "violated"
+]
+type RelationshipCommitmentEventKindValue = Literal[
+    "established",
+    "modified",
+    "fulfilled",
+    "withdrawn",
+    "forgotten",
+    "violated",
+    "conflict_noted",
+]
+
+
+class CreatorRelationshipFactResponse(_StrictWireModel):
+    kind: Literal["shared_experience", "party_expression"]
+    summary: Annotated[str, Field(min_length=1, max_length=512)]
+
+
+class CreatorRelationshipBoundaryResponse(_StrictWireModel):
+    party_role: RelationshipPartyRoleValue
+    kind: RelationshipBoundaryKindValue
+    action: RelationshipBoundaryActionValue
+    summary: Annotated[str, Field(min_length=1, max_length=512)]
+
+    @model_validator(mode="after")
+    def validate_boundary(self) -> CreatorRelationshipBoundaryResponse:
+        if (self.action == "end_contact") != (self.kind == "exit"):
+            raise ValueError("CON-RELATIONSHIP-BOUNDARY: boundary is inconsistent")
+        return self
+
+
+class CreatorRelationshipCommitmentResponse(_StrictWireModel):
+    commitment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    party_role: RelationshipPartyRoleValue
+    scope: Annotated[str, Field(min_length=1, max_length=512)]
+    content: Annotated[str, Field(min_length=1, max_length=1024)]
+    status: RelationshipCommitmentStatusValue
+    last_event_kind: RelationshipCommitmentEventKindValue
+    last_event_summary: Annotated[str, Field(min_length=1, max_length=512)]
+
+    @field_validator("commitment_id")
+    @classmethod
+    def validate_commitment_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-RELATIONSHIP-ID: identity must be canonical UUIDv7")
+        return value
+
+
+class CreatorRelationshipIssueResponse(_StrictWireModel):
+    issue_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    kind: Literal["contradictory_commitments", "commitment_violation"]
+    commitment_ids: Annotated[list[str], Field(min_length=1, max_length=2)]
+    summary: Annotated[str, Field(min_length=1, max_length=512)]
+    status: Literal["open"]
+
+    @field_validator("issue_id")
+    @classmethod
+    def validate_issue_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-RELATIONSHIP-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("commitment_ids")
+    @classmethod
+    def validate_commitment_ids(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("CON-RELATIONSHIP-ISSUE: commitments must be unique")
+        for item in value:
+            parsed = UUID(item)
+            if parsed.version != 7 or str(parsed) != item:
+                raise ValueError(
+                    "CON-RELATIONSHIP-ID: identity must be canonical UUIDv7"
+                )
+        return value
+
+    @model_validator(mode="after")
+    def validate_issue(self) -> CreatorRelationshipIssueResponse:
+        expected = 2 if self.kind == "contradictory_commitments" else 1
+        if len(self.commitment_ids) != expected:
+            raise ValueError("CON-RELATIONSHIP-ISSUE: commitment count is invalid")
+        return self
+
+
+class CreatorRelationshipCommitmentEventResponse(_StrictWireModel):
+    commitment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    kind: RelationshipCommitmentEventKindValue
+    summary: Annotated[str, Field(min_length=1, max_length=512)]
+    related_commitment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
+
+    @field_validator("commitment_id", "related_commitment_id")
+    @classmethod
+    def validate_event_id(cls, value: str | None) -> str | None:
+        if value is not None:
+            parsed = UUID(value)
+            if parsed.version != 7 or str(parsed) != value:
+                raise ValueError(
+                    "CON-RELATIONSHIP-ID: identity must be canonical UUIDv7"
+                )
+        return value
+
+    @model_validator(mode="after")
+    def validate_event(self) -> CreatorRelationshipCommitmentEventResponse:
+        if (self.kind == "conflict_noted") != (
+            self.related_commitment_id is not None
+        ):
+            raise ValueError("CON-RELATIONSHIP-EVENT: event is inconsistent")
+        return self
+
+
+class CreatorRelationshipRevisionResponse(_StrictWireModel):
+    relationship_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    revision_no: Annotated[int, Field(ge=1)]
+    facts: Annotated[list[CreatorRelationshipFactResponse], Field(min_length=1, max_length=64)]
+    interpretation: Annotated[str, Field(min_length=1, max_length=1024)]
+    boundaries: Annotated[list[CreatorRelationshipBoundaryResponse], Field(max_length=16)]
+    commitments: Annotated[list[CreatorRelationshipCommitmentResponse], Field(max_length=16)]
+    open_issues: Annotated[list[CreatorRelationshipIssueResponse], Field(max_length=32)]
+    commitment_event: CreatorRelationshipCommitmentEventResponse | None
+    status: Literal["active", "ended"]
+    occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("relationship_revision_id")
+    @classmethod
+    def validate_revision_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-RELATIONSHIP-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("occurred_at")
+    @classmethod
+    def validate_revision_time(cls, value: str) -> str:
+        if Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-RELATIONSHIP-TIME: instant must be canonical")
+        return value
+
+
+class CreatorRelationshipItemResponse(_StrictWireModel):
+    relationship_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    current_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    head_version: Annotated[int, Field(ge=1)]
+    current: CreatorRelationshipRevisionResponse
+    created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+    @field_validator("relationship_id", "current_revision_id")
+    @classmethod
+    def validate_relationship_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-RELATIONSHIP-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_created_at(cls, value: str) -> str:
+        if Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-RELATIONSHIP-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_head(self) -> CreatorRelationshipItemResponse:
+        if (
+            self.current_revision_id != self.current.relationship_revision_id
+            or self.head_version != self.current.revision_no
+        ):
+            raise ValueError("CON-RELATIONSHIP-HEAD: head is inconsistent")
+        return self
+
+
+class CreatorRelationshipCurrentResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-relationship.v1"]
+    relationship: CreatorRelationshipItemResponse | None
+
+
+class CreatorRelationshipTimelineResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-relationship.v1"]
+    relationship_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    items: Annotated[list[CreatorRelationshipRevisionResponse], Field(max_length=100)]
+    truncated: bool
+
+
+class CreatorRelationshipBoundaryRequest(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    kind: RelationshipBoundaryKindValue
+    action: RelationshipBoundaryActionValue
+    summary: Annotated[str, Field(min_length=1, max_length=512)]
+
+    @field_validator("summary")
+    @classmethod
+    def validate_summary(cls, value: str) -> str:
+        if not value.strip() or "\x00" in value:
+            raise ValueError("CON-RELATIONSHIP-BOUNDARY: summary is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_boundary(self) -> CreatorRelationshipBoundaryRequest:
+        if (self.action == "end_contact") != (self.kind == "exit"):
+            raise ValueError("CON-RELATIONSHIP-BOUNDARY: boundary is inconsistent")
+        return self
+
+
 type LifeRecordKindValue = Literal[
     "activity",
     "conversation",
@@ -597,6 +808,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "activity.invalidated",
         "memory.invalidated",
         "maintenance.invalidated",
+        "relationship.invalidated",
         "scene.timeline.invalidated",
         "capability.request.invalidated",
         "operation.invalidated",
@@ -607,6 +819,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "activity",
         "memory",
         "maintenance",
+        "relationship",
         "scene_timeline",
         "capability_request",
         "operation",
@@ -618,6 +831,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "creator-activity.v1",
         "creator-memory.v1",
         "creator-maintenance.v1",
+        "creator-relationship.v1",
         "scene-timeline.v3",
         "capability-request.v3",
         "creator-operation.v1",
@@ -649,6 +863,11 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             "maintenance": (
                 "maintenance.invalidated",
                 "creator-maintenance.v1",
+                _UUIDV7_PATTERN,
+            ),
+            "relationship": (
+                "relationship.invalidated",
+                "creator-relationship.v1",
                 _UUIDV7_PATTERN,
             ),
             "scene_timeline": (
@@ -1535,6 +1754,68 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/relationships/current",
+        operation_id="getCreatorRelationshipCurrent",
+        response_model=CreatorRelationshipCurrentResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_relationship_current() -> CreatorRelationshipCurrentResponse:
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/relationships/{relationship_id}/timeline",
+        operation_id="getCreatorRelationshipTimeline",
+        response_model=CreatorRelationshipTimelineResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_relationship_timeline(
+        relationship_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+    ) -> CreatorRelationshipTimelineResponse:
+        del relationship_id
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/relationships/current/boundaries",
+        operation_id="expressCreatorRelationshipBoundary",
+        status_code=202,
+        response_model=AcceptedOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def express_creator_relationship_boundary(
+        _request: CreatorRelationshipBoundaryRequest,
+        _idempotency_key: Annotated[
+            str,
+            Header(
+                alias="Idempotency-Key",
+                pattern=_IDEMPOTENCY_KEY_PATTERN,
+                max_length=128,
+            ),
+        ],
+    ) -> AcceptedOutcomeResponse:
+        del _request, _idempotency_key
+        raise NotImplementedError
+
+    @app.get(
         "/v1/life-records",
         operation_id="queryCreatorLifeRecords",
         response_model=LifeRecordPageResponse,
@@ -1861,6 +2142,9 @@ def build_creator_openapi() -> dict[str, object]:
         subject_summary,
         list_creator_activities,
         get_creator_activity_timeline,
+        get_creator_relationship_current,
+        get_creator_relationship_timeline,
+        express_creator_relationship_boundary,
         query_creator_life_records,
         list_creator_memories,
         get_creator_memory_timeline,
@@ -1886,6 +2170,12 @@ def build_creator_openapi() -> dict[str, object]:
     schema["paths"]["/v1/activities/{activity_id}/timeline"]["get"]["responses"].pop(
         "422", None
     )
+    schema["paths"]["/v1/relationships/{relationship_id}/timeline"]["get"][
+        "responses"
+    ].pop("422", None)
+    schema["paths"]["/v1/relationships/current/boundaries"]["post"][
+        "responses"
+    ].pop("422", None)
     schema["paths"]["/v1/life-records"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/memories"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/memories/{memory_id}/timeline"]["get"]["responses"].pop(
@@ -1950,6 +2240,16 @@ __all__ = (
     "CreatorMemoryTimelineItemResponse",
     "CreatorMemoryTimelineResponse",
     "CreatorProjectionEventResponse",
+    "CreatorRelationshipBoundaryRequest",
+    "CreatorRelationshipBoundaryResponse",
+    "CreatorRelationshipCommitmentEventResponse",
+    "CreatorRelationshipCommitmentResponse",
+    "CreatorRelationshipCurrentResponse",
+    "CreatorRelationshipFactResponse",
+    "CreatorRelationshipIssueResponse",
+    "CreatorRelationshipItemResponse",
+    "CreatorRelationshipRevisionResponse",
+    "CreatorRelationshipTimelineResponse",
     "EffectResponse",
     "ErrorDescriptorResponse",
     "FailedOutcomeResponse",

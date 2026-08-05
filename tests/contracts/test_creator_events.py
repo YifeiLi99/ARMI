@@ -80,6 +80,16 @@ class CreatorEventContractTests(unittest.TestCase):
         )
         self.assertEqual(invalidation.resource_ref, str(memory_id))
 
+    def test_relationship_invalidation_uses_relationship_identity(self) -> None:
+        relationship_id = uuid7()
+        invalidation = CreatorProjectionInvalidation(
+            resource_kind=CreatorEventResourceKind.RELATIONSHIP,
+            resource_ref=str(relationship_id),
+            occurred_at=Instant(datetime(2026, 8, 5, tzinfo=UTC)),
+            projection_version="creator-relationship.v1",
+        )
+        self.assertEqual(invalidation.resource_ref, str(relationship_id))
+
 
 if __name__ == "__main__":
     unittest.main()
