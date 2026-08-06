@@ -60,6 +60,10 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "supports_commitment_event" in sql
     assert "accessibility IN ('available', 'faded', 'forgotten')" in sql
     assert "wake_request_id" in sql
+    assert "change_reason IN ('birth', 'created', 'revised', 'deactivated')" in sql
+    assert "GRANT UPDATE (current_revision_id, status)" in sql
+    assert "CHECK (status = 'active' OR current_revision_id IS NOT NULL)" in sql
+    assert "CHECK (subject_commit_id IS NULL)" in sql
     assert "schema_migrations" not in sql
 
 

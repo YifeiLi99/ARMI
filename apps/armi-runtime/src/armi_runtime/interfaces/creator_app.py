@@ -40,6 +40,11 @@ from armi_kernel.application import (
     CreatorOperationPhase,
     CreatorOperationQueryPort,
     CreatorProjectionInvalidation,
+    CreatorPromptDeactivateCommand,
+    CreatorPromptPort,
+    CreatorPromptRevisionCommand,
+    CreatorPromptView,
+    CreatorPromptViolation,
     CreatorRelationshipQueryPort,
     CreatorRelationshipRevision,
     CreatorRelationshipViolation,
@@ -55,6 +60,7 @@ from armi_kernel.application import (
     LifeRecordRetrievalKind,
     LifeViolation,
     OpportunityId,
+    PromptKind,
     SceneKey,
     SceneQueryViolation,
     SceneTimelineQuery,
@@ -116,6 +122,9 @@ from .creator_contract import (
     CreatorMemoryPageResponse,
     CreatorMemoryTimelineItemResponse,
     CreatorMemoryTimelineResponse,
+    CreatorPromptDeactivateRequest,
+    CreatorPromptResponse,
+    CreatorPromptRevisionRequest,
     CreatorRelationshipBoundaryRequest,
     CreatorRelationshipBoundaryResponse,
     CreatorRelationshipCommitmentEventResponse,
@@ -460,6 +469,101 @@ async def _capability_decision_request(
         return CapabilityRequestDecisionRequest.model_validate(value)
     except UnicodeDecodeError, ValueError, ValidationError:
         raise CapabilityViolation("CON-CAPABILITY-BODY") from None
+
+
+async def _creator_prompt_revision_request(
+    request: Request,
+    maximum_bytes: int,
+) -> CreatorPromptRevisionRequest:
+    if request.headers.get("content-type") != "application/json":
+        raise CreatorPromptViolation("CON-PROMPT-CONTENT-TYPE")
+    body = await request.body()
+    if not body or len(body) > maximum_bytes:
+        raise CreatorPromptViolation("CON-PROMPT-BODY")
+    try:
+        value = json.loads(
+            body.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite JSON")
+            ),
+        )
+        return CreatorPromptRevisionRequest.model_validate(value)
+    except UnicodeDecodeError, ValueError, ValidationError:
+        raise CreatorPromptViolation("CON-PROMPT-BODY") from None
+
+
+async def _creator_prompt_deactivate_request(
+    request: Request,
+    maximum_bytes: int,
+) -> CreatorPromptDeactivateRequest:
+    if request.headers.get("content-type") != "application/json":
+        raise CreatorPromptViolation("CON-PROMPT-CONTENT-TYPE")
+    body = await request.body()
+    if not body or len(body) > min(maximum_bytes, 1024):
+        raise CreatorPromptViolation("CON-PROMPT-BODY")
+    try:
+        value = json.loads(
+            body.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite JSON")
+            ),
+        )
+        return CreatorPromptDeactivateRequest.model_validate(value)
+    except UnicodeDecodeError, ValueError, ValidationError:
+        raise CreatorPromptViolation("CON-PROMPT-BODY") from None
+
+
+def _creator_prompt_response(view: CreatorPromptView) -> CreatorPromptResponse:
+    return CreatorPromptResponse(
+        contract_version="1.0",
+        projection_version="creator-prompt.v1",
+        prompt_document_id=str(view.prompt_document_id),
+        prompt_kind="creator_guidance",
+        status=view.status.value,
+        current_revision_id=(
+            None if view.current_revision_id is None else str(view.current_revision_id)
+        ),
+        revision_no=view.revision_no,
+        previous_revision_id=(
+            None
+            if view.previous_revision_id is None
+            else str(view.previous_revision_id)
+        ),
+        revision_kind=(
+            None if view.revision_kind is None else view.revision_kind.value
+        ),
+        content=view.content,
+        content_digest=(
+            None if view.content_digest is None else view.content_digest.value
+        ),
+        activated_at=(
+            None if view.activated_at is None else view.activated_at.to_wire()
+        ),
+    )
+
+
+def _creator_prompt_error(error: CreatorPromptViolation) -> JSONResponse:
+    if error.code.startswith("CONFLICT-PROMPT-"):
+        return JSONResponse(
+            status_code=409,
+            content=_rejected("CONFLICT_PROMPT_REVISION"),
+        )
+    if error.code.startswith("SCOPE-PROMPT-"):
+        return JSONResponse(
+            status_code=403,
+            content=_rejected("SCOPE_PROMPT_NOT_WRITABLE"),
+        )
+    if error.code.startswith("CON-PROMPT-"):
+        return JSONResponse(
+            status_code=400,
+            content=_rejected("INPUT_PROMPT_INVALID"),
+        )
+    return JSONResponse(
+        status_code=503,
+        content=_unavailable("DEPENDENCY_CREATOR_PROMPT_UNAVAILABLE"),
+    )
 
 
 def _accepted_wire(acceptance: CreatorInputAcceptance) -> dict[str, object]:
@@ -1002,6 +1106,7 @@ def create_runtime_app(
     creator_input: CreatorInputAcceptancePort | None = None,
     creator_operations: CreatorOperationQueryPort | None = None,
     subject_summary: SubjectSummaryProvider | None = None,
+    creator_prompt: CreatorPromptPort | None = None,
     capability_policy: CapabilityPolicyPort | None = None,
     effect_ledger: EffectLedgerPort | None = None,
     codex_task_admission: CreatorCodexTaskAdmissionPort | None = None,
@@ -1304,6 +1409,144 @@ def create_runtime_app(
                 observed_at=Instant(summary.observed_at).to_wire(),
             ).model_dump(mode="json", exclude_none=True)
         )
+
+    @app.get("/v1/prompts/creator-guidance")
+    async def get_creator_prompt(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_prompt is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_prompt is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_CREATOR_PROMPT_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            view = await creator_prompt.get(PromptKind.CREATOR_GUIDANCE)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except CreatorPromptViolation as error:
+            return _creator_prompt_error(error)
+        return JSONResponse(
+            content=_creator_prompt_response(view).model_dump(mode="json")
+        )
+
+    @app.put("/v1/prompts/creator-guidance")
+    async def revise_creator_prompt(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_prompt is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_prompt is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_CREATOR_PROMPT_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            body = await _creator_prompt_revision_request(
+                request,
+                request_body_max_bytes,
+            )
+            view = await creator_prompt.revise(
+                CreatorPromptRevisionCommand(
+                    prompt_kind=PromptKind.CREATOR_GUIDANCE,
+                    expected_revision_id=(
+                        None
+                        if body.expected_revision_id is None
+                        else UUID(body.expected_revision_id)
+                    ),
+                    content=body.content,
+                    trace_id=TraceId(secrets.token_hex(16)),
+                )
+            )
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except CreatorPromptViolation as error:
+            return _creator_prompt_error(error)
+        return JSONResponse(
+            content=_creator_prompt_response(view).model_dump(mode="json")
+        )
+
+    @app.post("/v1/prompts/creator-guidance/deactivation")
+    async def deactivate_creator_prompt(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_prompt is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_prompt is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_CREATOR_PROMPT_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            body = await _creator_prompt_deactivate_request(
+                request,
+                request_body_max_bytes,
+            )
+            view = await creator_prompt.deactivate(
+                CreatorPromptDeactivateCommand(
+                    prompt_kind=PromptKind.CREATOR_GUIDANCE,
+                    expected_revision_id=UUID(body.expected_revision_id),
+                    trace_id=TraceId(secrets.token_hex(16)),
+                )
+            )
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except CreatorPromptViolation as error:
+            return _creator_prompt_error(error)
+        return JSONResponse(
+            content=_creator_prompt_response(view).model_dump(mode="json")
+        )
+
+    del get_creator_prompt, revise_creator_prompt, deactivate_creator_prompt
 
     @app.get("/v1/capability-requests")
     async def list_capability_requests(request: Request) -> JSONResponse:

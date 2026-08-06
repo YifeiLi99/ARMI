@@ -12,6 +12,7 @@ from armi_kernel.contracts import (
     AcceptedOutcome,
     AppliedOutcome,
     CompletedOutcome,
+    Digest,
     ErrorDescriptor,
     ErrorInstanceId,
     FailedOutcome,
@@ -1679,6 +1680,120 @@ class CapabilityRequestDecisionRequest(_StrictWireModel):
         return self
 
 
+class CreatorPromptRevisionRequest(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    expected_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
+    content: Annotated[str, Field(min_length=1, max_length=65_536)]
+
+    @field_validator("expected_revision_id")
+    @classmethod
+    def validate_expected_revision_id(cls, value: str | None) -> str | None:
+        if value is not None:
+            parsed = UUID(value)
+            if parsed.version != 7 or str(parsed) != value:
+                raise ValueError("CON-PROMPT-ID: revision identity must be UUIDv7")
+        return value
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        try:
+            encoded = value.encode("utf-8", errors="strict")
+        except UnicodeError:
+            raise ValueError("CON-PROMPT-CONTENT: content must be UTF-8") from None
+        if not value.strip() or "\x00" in value or len(encoded) > 65_536:
+            raise ValueError("CON-PROMPT-CONTENT: content is invalid")
+        return value
+
+
+class CreatorPromptDeactivateRequest(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    expected_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+
+    @field_validator("expected_revision_id")
+    @classmethod
+    def validate_expected_revision_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-PROMPT-ID: revision identity must be UUIDv7")
+        return value
+
+
+class CreatorPromptResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-prompt.v1"]
+    prompt_document_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    prompt_kind: Literal["creator_guidance"]
+    status: Literal["active", "inactive"]
+    current_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
+    revision_no: Annotated[int, Field(ge=1)] | None
+    previous_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
+    revision_kind: Literal["created", "revised", "deactivated"] | None
+    content: Annotated[str, Field(min_length=1, max_length=65_536)] | None
+    content_digest: Annotated[
+        str,
+        Field(pattern=r"sha256:[0-9a-f]{64}"),
+    ] | None
+    activated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+
+    @field_validator(
+        "prompt_document_id",
+        "current_revision_id",
+        "previous_revision_id",
+    )
+    @classmethod
+    def validate_prompt_id(cls, value: str | None) -> str | None:
+        if value is not None:
+            parsed = UUID(value)
+            if parsed.version != 7 or str(parsed) != value:
+                raise ValueError("CON-PROMPT-ID: identity must be UUIDv7")
+        return value
+
+    @field_validator("activated_at")
+    @classmethod
+    def validate_activated_at(cls, value: str | None) -> str | None:
+        if value is not None and Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-PROMPT-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_revision(self) -> CreatorPromptResponse:
+        revision_values = (
+            self.current_revision_id,
+            self.revision_no,
+            self.revision_kind,
+            self.content,
+            self.content_digest,
+            self.activated_at,
+        )
+        if (self.current_revision_id is not None) != all(
+            value is not None for value in revision_values
+        ):
+            raise ValueError("CON-PROMPT-REVISION: revision is inconsistent")
+        if self.current_revision_id is None and self.status != "active":
+            raise ValueError("CON-PROMPT-STATUS: status is inconsistent")
+        if (self.revision_kind == "deactivated") != (self.status == "inactive"):
+            raise ValueError("CON-PROMPT-STATUS: status is inconsistent")
+        if (self.revision_no == 1) != (
+            self.current_revision_id is not None
+            and self.previous_revision_id is None
+        ) and self.current_revision_id is not None:
+            raise ValueError("CON-PROMPT-REVISION: predecessor is inconsistent")
+        if self.content is not None:
+            try:
+                encoded = self.content.encode("utf-8", errors="strict")
+            except UnicodeError:
+                raise ValueError("CON-PROMPT-CONTENT: content is invalid") from None
+            if (
+                not self.content.strip()
+                or "\x00" in self.content
+                or len(encoded) > 65_536
+                or Digest.from_bytes(encoded).value != self.content_digest
+            ):
+                raise ValueError("CON-PROMPT-CONTENT: content is invalid")
+        return self
+
+
 def build_creator_openapi() -> dict[str, object]:
     """Build the schema locally without exporting or starting an ASGI app."""
 
@@ -1792,6 +1907,60 @@ def build_creator_openapi() -> dict[str, object]:
         dependencies=[Security(bearer)],
     )
     async def subject_summary() -> SubjectSummaryResponse:
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/prompts/creator-guidance",
+        operation_id="getCreatorPrompt",
+        response_model=CreatorPromptResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_prompt() -> CreatorPromptResponse:
+        raise NotImplementedError
+
+    @app.put(
+        "/v1/prompts/creator-guidance",
+        operation_id="reviseCreatorPrompt",
+        response_model=CreatorPromptResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def revise_creator_prompt(
+        _request: CreatorPromptRevisionRequest,
+    ) -> CreatorPromptResponse:
+        del _request
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/prompts/creator-guidance/deactivation",
+        operation_id="deactivateCreatorPrompt",
+        response_model=CreatorPromptResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def deactivate_creator_prompt(
+        _request: CreatorPromptDeactivateRequest,
+    ) -> CreatorPromptResponse:
+        del _request
         raise NotImplementedError
 
     @app.get(
@@ -2278,6 +2447,9 @@ def build_creator_openapi() -> dict[str, object]:
         delete_browser_session,
         runtime_status,
         subject_summary,
+        get_creator_prompt,
+        revise_creator_prompt,
+        deactivate_creator_prompt,
         list_creator_activities,
         get_creator_activity_timeline,
         get_creator_relationship_current,
@@ -2315,6 +2487,12 @@ def build_creator_openapi() -> dict[str, object]:
     schema["paths"]["/v1/relationships/current/boundaries"]["post"]["responses"].pop(
         "422", None
     )
+    schema["paths"]["/v1/prompts/creator-guidance"]["put"]["responses"].pop(
+        "422", None
+    )
+    schema["paths"]["/v1/prompts/creator-guidance/deactivation"]["post"][
+        "responses"
+    ].pop("422", None)
     schema["paths"]["/v1/life-records"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/materials/{material_id}"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/memories"]["get"]["responses"].pop("422", None)
@@ -2381,6 +2559,9 @@ __all__ = (
     "CreatorMemoryTimelineItemResponse",
     "CreatorMemoryTimelineResponse",
     "CreatorProjectionEventResponse",
+    "CreatorPromptDeactivateRequest",
+    "CreatorPromptResponse",
+    "CreatorPromptRevisionRequest",
     "CreatorRelationshipBoundaryRequest",
     "CreatorRelationshipBoundaryResponse",
     "CreatorRelationshipCommitmentEventResponse",

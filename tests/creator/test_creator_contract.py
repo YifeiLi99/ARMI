@@ -86,6 +86,8 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/relationships/{relationship_id}/timeline",
                 "/v1/runtime/status",
                 "/v1/operations/{result_ref}",
+                "/v1/prompts/creator-guidance",
+                "/v1/prompts/creator-guidance/deactivation",
                 "/v1/effects/{effect_id}",
                 "/v1/effects/{effect_id}/artifacts/{artifact_kind}",
                 "/v1/subject/summary",
@@ -116,6 +118,22 @@ class CreatorContractTests(unittest.TestCase):
         self.assertNotIn("security", paths["/v1/browser-sessions"]["post"])
         self.assertNotIn("security", paths["/health/live"]["get"])
         self.assertNotIn("security", paths["/health/ready"]["get"])
+        prompt = paths["/v1/prompts/creator-guidance"]
+        self.assertEqual(prompt["get"]["operationId"], "getCreatorPrompt")
+        self.assertEqual(prompt["put"]["operationId"], "reviseCreatorPrompt")
+        self.assertEqual(
+            prompt["put"]["security"],
+            [{"browserSessionBearer": []}],
+        )
+        self.assertEqual(
+            set(prompt["put"]["responses"]),
+            {"200", "400", "401", "403", "409", "413", "503"},
+        )
+        deactivation = paths["/v1/prompts/creator-guidance/deactivation"]["post"]
+        self.assertEqual(
+            deactivation["operationId"],
+            "deactivateCreatorPrompt",
+        )
         timeline = paths["/v1/scenes/{scene_key}/timeline"]["get"]
         self.assertEqual(timeline["operationId"], "getSceneTimeline")
         self.assertEqual(timeline["security"], [{"browserSessionBearer": []}])

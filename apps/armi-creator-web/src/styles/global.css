@@ -136,6 +136,7 @@ h1 {
 
 .session-form input,
 .message-composer textarea,
+.prompt-form textarea,
 .limit-form input {
   width: 100%;
   padding: 0.85rem 1rem;
@@ -150,6 +151,37 @@ h1 {
   min-height: 8rem;
   resize: vertical;
   line-height: 1.55;
+}
+
+.prompt-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.prompt-form textarea {
+  min-height: 12rem;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.prompt-form dl {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.prompt-form dl div {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.45fr) 1fr;
+  gap: 1rem;
+}
+
+.prompt-form dt {
+  color: #6d685f;
+}
+
+.prompt-form dd {
+  margin: 0;
 }
 
 .message-composer form {

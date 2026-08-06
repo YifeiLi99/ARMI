@@ -180,6 +180,11 @@ class ContextPipeline(OpportunitySelector):
                 else await self._read_source(snapshot.evidence, snapshot)
             )
             prompt_bytes = await self._read_source(snapshot.fixed_prompt, snapshot)
+            creator_prompt_bytes = (
+                None
+                if snapshot.creator_prompt is None
+                else await self._read_source(snapshot.creator_prompt, snapshot)
+            )
             material_payloads: list[tuple[ContextMaterialSource, bytes]] = []
             for source in snapshot.material_sources:
                 material_payloads.append(
@@ -190,6 +195,7 @@ class ContextPipeline(OpportunitySelector):
                 evidence_bytes,
                 prompt_bytes,
                 tuple(material_payloads),
+                creator_prompt_bytes,
                 web_search_active=self._web_search_active,
             )
             result = self._compiler.compile(request)
@@ -388,6 +394,7 @@ def _context_request(
     evidence_bytes: bytes | None,
     prompt_bytes: bytes,
     material_payloads: tuple[tuple[ContextMaterialSource, bytes], ...] = (),
+    creator_prompt_bytes: bytes | None = None,
     *,
     web_search_active: bool,
 ) -> ContextRequest:
@@ -733,7 +740,20 @@ def _context_request(
                 required=True,
                 relevance=100,
             ),
-            _unavailable(ContextSection.PROMPT, "creator_prompt"),
+            (
+                _unavailable(ContextSection.PROMPT, "creator_prompt")
+                if snapshot.creator_prompt is None or creator_prompt_bytes is None
+                else _item(
+                    ContextSection.PROMPT,
+                    "creator_prompt",
+                    snapshot.creator_prompt.source_id,
+                    snapshot.creator_prompt.source_version,
+                    creator_prompt_bytes,
+                    ContextTrustClass.POLICY,
+                    required=False,
+                    relevance=90,
+                )
+            ),
             _unavailable(ContextSection.PROMPT, "subject_prompt"),
         )
     )

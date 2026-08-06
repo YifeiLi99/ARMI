@@ -33,6 +33,10 @@ from armi_kernel.application import (
     CreatorMemoryTimelineItem,
     CreatorOperation,
     CreatorOperationPhase,
+    CreatorPromptDeactivateCommand,
+    CreatorPromptRevisionCommand,
+    CreatorPromptView,
+    CreatorPromptViolation,
     CreatorRelationshipItem,
     CreatorRelationshipRevision,
     CreatorRelationshipTimeline,
@@ -52,6 +56,9 @@ from armi_kernel.application import (
     MaintenanceResultStatus,
     MaintenanceTriggerKind,
     OpportunityId,
+    PromptDocumentStatus,
+    PromptKind,
+    PromptRevisionKind,
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
@@ -467,6 +474,76 @@ class _CapabilityPolicy:
         )
 
 
+class _CreatorPrompt:
+    def __init__(self) -> None:
+        self.document_id = uuid7()
+        self.current = CreatorPromptView(
+            prompt_document_id=self.document_id,
+            prompt_kind=PromptKind.CREATOR_GUIDANCE,
+            status=PromptDocumentStatus.ACTIVE,
+            current_revision_id=None,
+            revision_no=None,
+            previous_revision_id=None,
+            revision_kind=None,
+            content=None,
+            content_digest=None,
+            activated_at=None,
+        )
+
+    async def get(self, prompt_kind: PromptKind) -> CreatorPromptView:
+        if prompt_kind is not PromptKind.CREATOR_GUIDANCE:
+            raise CreatorPromptViolation("SCOPE-PROMPT-NOT-WRITABLE")
+        return self.current
+
+    async def revise(
+        self,
+        command: CreatorPromptRevisionCommand,
+    ) -> CreatorPromptView:
+        if command.expected_revision_id != self.current.current_revision_id:
+            raise CreatorPromptViolation("CONFLICT-PROMPT-REVISION")
+        revision_id = uuid7()
+        self.current = CreatorPromptView(
+            prompt_document_id=self.document_id,
+            prompt_kind=PromptKind.CREATOR_GUIDANCE,
+            status=PromptDocumentStatus.ACTIVE,
+            current_revision_id=revision_id,
+            revision_no=(self.current.revision_no or 0) + 1,
+            previous_revision_id=self.current.current_revision_id,
+            revision_kind=(
+                PromptRevisionKind.CREATED
+                if self.current.current_revision_id is None
+                else PromptRevisionKind.REVISED
+            ),
+            content=command.content,
+            content_digest=Digest.from_bytes(command.content_bytes),
+            activated_at=Instant(datetime.now(UTC)),
+        )
+        return self.current
+
+    async def deactivate(
+        self,
+        command: CreatorPromptDeactivateCommand,
+    ) -> CreatorPromptView:
+        if command.expected_revision_id != self.current.current_revision_id:
+            raise CreatorPromptViolation("CONFLICT-PROMPT-REVISION")
+        assert self.current.content is not None
+        assert self.current.content_digest is not None
+        revision_id = uuid7()
+        self.current = CreatorPromptView(
+            prompt_document_id=self.document_id,
+            prompt_kind=PromptKind.CREATOR_GUIDANCE,
+            status=PromptDocumentStatus.INACTIVE,
+            current_revision_id=revision_id,
+            revision_no=(self.current.revision_no or 0) + 1,
+            previous_revision_id=self.current.current_revision_id,
+            revision_kind=PromptRevisionKind.DEACTIVATED,
+            content=self.current.content,
+            content_digest=self.current.content_digest,
+            activated_at=Instant(datetime.now(UTC)),
+        )
+        return self.current
+
+
 class CreatorRuntimeAppTests(unittest.TestCase):
     def setUp(self) -> None:
         self.lifecycle = LifecycleController(environment_id=ENVIRONMENT_ID)
@@ -495,6 +572,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.creator_input = _CreatorInput()
         self.creator_codex_task = _CreatorCodexTask()
         self.capability_policy = _CapabilityPolicy()
+        self.creator_prompt = _CreatorPrompt()
         self.activity_query = _CreatorActivityQuery()
         self.life_record_query = _LifeRecordQuery()
         self.maintenance_query = _CreatorMaintenanceQuery()
@@ -551,6 +629,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_input=self.creator_input,
             codex_task_admission=self.creator_codex_task,
             creator_operations=self.creator_input,
+            creator_prompt=self.creator_prompt,
             capability_policy=self.capability_policy,
         )
 
@@ -628,6 +707,91 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 },
             )
             self.assertEqual(rejected.status_code, 403)
+
+    def test_creator_prompt_create_revise_stale_and_deactivate(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+                content=b"",
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            headers = self._browser_headers(token)
+
+            initial = client.get(
+                "/v1/prompts/creator-guidance",
+                headers=headers,
+            )
+            created = client.put(
+                "/v1/prompts/creator-guidance",
+                headers=headers,
+                json={
+                    "contract_version": "1.0",
+                    "expected_revision_id": None,
+                    "content": "请在形成结论前区分事实与推测。",
+                },
+            )
+            first_revision = created.json()["current_revision_id"]
+            revised = client.put(
+                "/v1/prompts/creator-guidance",
+                headers=headers,
+                json={
+                    "contract_version": "1.0",
+                    "expected_revision_id": first_revision,
+                    "content": "请区分事实、推测与仍然未知的部分。",
+                },
+            )
+            stale = client.put(
+                "/v1/prompts/creator-guidance",
+                headers=headers,
+                json={
+                    "contract_version": "1.0",
+                    "expected_revision_id": first_revision,
+                    "content": "这条旧版本写入不应生效。",
+                },
+            )
+            deactivated = client.post(
+                "/v1/prompts/creator-guidance/deactivation",
+                headers=headers,
+                json={
+                    "contract_version": "1.0",
+                    "expected_revision_id": revised.json()["current_revision_id"],
+                },
+            )
+            unauthenticated = client.get(
+                "/v1/prompts/creator-guidance",
+                headers=self._browser_headers(),
+            )
+            wrong_origin = client.put(
+                "/v1/prompts/creator-guidance",
+                headers={**headers, "Origin": "http://invalid"},
+                json={
+                    "contract_version": "1.0",
+                    "expected_revision_id": deactivated.json()[
+                        "current_revision_id"
+                    ],
+                    "content": "不能越过浏览器边界。",
+                },
+            )
+
+        self.assertEqual(initial.status_code, 200)
+        self.assertIsNone(initial.json()["current_revision_id"])
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(created.json()["revision_kind"], "created")
+        self.assertEqual(revised.json()["revision_no"], 2)
+        self.assertEqual(revised.json()["previous_revision_id"], first_revision)
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(deactivated.status_code, 200)
+        self.assertEqual(deactivated.json()["status"], "inactive")
+        self.assertEqual(deactivated.json()["revision_kind"], "deactivated")
+        self.assertEqual(deactivated.json()["revision_no"], 3)
+        self.assertEqual(unauthenticated.status_code, 401)
+        self.assertEqual(wrong_origin.status_code, 403)
 
     def test_full_issue_exchange_status_and_logout_flow(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

@@ -25,6 +25,7 @@ import { RelationshipPanel } from "../relationship/RelationshipPanel";
 import { CapabilityInbox } from "../capability/CapabilityInbox";
 import { EffectDetail } from "../effect/EffectDetail";
 import { OperationPanel } from "../operation/OperationPanel";
+import { PromptPanel } from "../prompt/PromptPanel";
 import { TimelinePanel } from "../scene/TimelinePanel";
 import { SubjectSummaryPanel } from "../subject/SubjectSummaryPanel";
 
@@ -313,6 +314,12 @@ export function SessionPanel() {
           />
         </div>
         <div className="authority-column">
+          <PromptPanel
+            token={view.stored.token}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
+            onUnauthorized={unauthorized}
+          />
           <MaintenancePanel
             token={view.stored.token}
             environmentId={view.session.environment_id}

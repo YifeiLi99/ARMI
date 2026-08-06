@@ -14,7 +14,7 @@ COMPOSITION_SCHEMA_VERSION: Final = "armi.runtime-composition.v1"
 WEB_BINDING_ID: Final = "armi.model-tool.volcengine-ark-web-search-v1"
 _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 _SEAMS: Final = (
-    ("M0-SEAM-CONTEXT", ("M0-S023",)),
+    ("M0-SEAM-CONTEXT", ("M0-S023", "P1-S002")),
     ("M0-SEAM-MODEL", ("M0-S024",)),
     (
         "M0-SEAM-COGNITIVE-CANDIDATE",
@@ -29,11 +29,25 @@ _SEAMS: Final = (
     ("M0-SEAM-CODEX", ("M0-S038", "M0-S039")),
     (
         "M0-SEAM-CREATOR-PROJECTION",
-        ("M0-S019", "M0-S020", "M0-S021", "M0-S030", "M0-S031"),
+        (
+            "M0-S019",
+            "M0-S020",
+            "M0-S021",
+            "M0-S030",
+            "M0-S031",
+            "P1-S002",
+        ),
     ),
     (
         "M0-SEAM-CREATOR-UI",
-        ("M0-S007", "M0-S020", "M0-S022", "M0-S031", "M0-S043"),
+        (
+            "M0-S007",
+            "M0-S020",
+            "M0-S022",
+            "M0-S031",
+            "M0-S043",
+            "P1-S002",
+        ),
     ),
 )
 

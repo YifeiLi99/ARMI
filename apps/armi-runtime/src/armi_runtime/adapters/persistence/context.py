@@ -138,6 +138,7 @@ class ContextEpisodeSnapshot:
     opportunity_available_after: datetime
     opportunity_expires_at: datetime | None
     fixed_prompt: ContextArtifactSource
+    creator_prompt: ContextArtifactSource | None = None
 
 
 class PostgreSQLContextRepository:
@@ -358,7 +359,10 @@ class PostgreSQLContextRepository:
                     opportunity.source_digest,
                     opportunity.available_after,
                     opportunity.expires_at,
-                    subject.current_generation_id
+                    subject.current_generation_id,
+                    creator_prompt.prompt_revision_id,
+                    creator_prompt.revision_no,
+                    creator_prompt.content_artifact_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -379,6 +383,17 @@ class PostgreSQLContextRepository:
                  AND document.status = 'active'
                 JOIN armi.prompt_revisions AS prompt
                   ON prompt.prompt_revision_id = document.current_revision_id
+                LEFT JOIN armi.prompt_documents AS creator_document
+                  ON creator_document.subject_id = episode.subject_id
+                 AND creator_document.prompt_kind = 'creator_guidance'
+                 AND creator_document.write_authority = 'creator'
+                 AND creator_document.status = 'active'
+                 AND creator_document.current_revision_id IS NOT NULL
+                LEFT JOIN armi.prompt_revisions AS creator_prompt
+                  ON creator_prompt.prompt_revision_id =
+                     creator_document.current_revision_id
+                 AND creator_prompt.prompt_document_id =
+                     creator_document.prompt_document_id
                 WHERE work.work_id = %s
                   AND work.status = 'leased'
                   AND work.current_attempt_id = %s
@@ -720,6 +735,16 @@ class PostgreSQLContextRepository:
                 row[13],
                 1,
                 "fixed_prompt",
+            ),
+            creator_prompt=(
+                None
+                if row[29] is None
+                else ContextArtifactSource(
+                    await self._artifact_ref(connection, row[31]),
+                    row[29],
+                    int(row[30]),
+                    "creator_prompt",
+                )
             ),
         )
 

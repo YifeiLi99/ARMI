@@ -115,7 +115,8 @@ CREATE TABLE armi.prompt_documents (
     write_authority text NOT NULL
         CHECK (write_authority IN ('fixed', 'creator', 'subject')),
     current_revision_id uuid,
-    status text NOT NULL DEFAULT 'active' CHECK (status = 'active'),
+    status text NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'inactive')),
     created_at timestamptz(6) NOT NULL DEFAULT clock_timestamp(),
     UNIQUE (subject_id, prompt_kind),
     CHECK (
@@ -124,9 +125,14 @@ CREATE TABLE armi.prompt_documents (
         OR (prompt_kind = 'subject_guidance' AND write_authority = 'subject')
     ),
     CHECK (
-        (prompt_kind = 'personality_anchor' AND current_revision_id IS NOT NULL)
-        OR (prompt_kind <> 'personality_anchor' AND current_revision_id IS NULL)
-    )
+        (
+            prompt_kind = 'personality_anchor'
+            AND status = 'active'
+            AND current_revision_id IS NOT NULL
+        )
+        OR prompt_kind <> 'personality_anchor'
+    ),
+    CHECK (status = 'active' OR current_revision_id IS NOT NULL)
 );
 
 CREATE TABLE armi.prompt_revisions (
@@ -134,17 +140,25 @@ CREATE TABLE armi.prompt_revisions (
         CHECK (uuid_extract_version(prompt_revision_id) = 7),
     prompt_document_id uuid NOT NULL
         REFERENCES armi.prompt_documents(prompt_document_id),
-    revision_no bigint NOT NULL CHECK (revision_no = 1),
-    previous_revision_id uuid,
+    revision_no bigint NOT NULL CHECK (revision_no >= 1),
+    previous_revision_id uuid REFERENCES armi.prompt_revisions(prompt_revision_id),
     content_artifact_id uuid NOT NULL REFERENCES armi.artifacts(artifact_id),
     content_digest text NOT NULL
         CHECK (content_digest ~ '^sha256:[0-9a-f]{64}$'),
     author_party_id uuid NOT NULL REFERENCES armi.parties(party_id),
     subject_commit_id uuid,
-    change_reason text NOT NULL CHECK (change_reason = 'birth'),
+    change_reason text NOT NULL
+        CHECK (change_reason IN ('birth', 'created', 'revised', 'deactivated')),
     activated_at timestamptz(6) NOT NULL DEFAULT clock_timestamp(),
     UNIQUE (prompt_document_id, revision_no),
-    CHECK (previous_revision_id IS NULL),
+    CHECK (
+        (revision_no = 1 AND previous_revision_id IS NULL)
+        OR (revision_no > 1 AND previous_revision_id IS NOT NULL)
+    ),
+    CHECK (
+        (change_reason = 'birth' AND revision_no = 1)
+        OR change_reason <> 'birth'
+    ),
     CHECK (subject_commit_id IS NULL)
 );
 
@@ -270,11 +284,15 @@ GRANT INSERT (
     prompt_revision_id,
     prompt_document_id,
     revision_no,
+    previous_revision_id,
     content_artifact_id,
     content_digest,
     author_party_id,
     change_reason
 ) ON armi.prompt_revisions TO armi_runtime;
+
+GRANT UPDATE (current_revision_id, status)
+ON armi.prompt_documents TO armi_runtime;
 
 GRANT INSERT (
     subject_id,

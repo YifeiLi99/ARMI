@@ -14,6 +14,7 @@ from armi_kernel.application import (
     CreatorActivityViolation,
     CreatorMaintenanceViolation,
     CreatorProjectionNotifier,
+    CreatorPromptViolation,
     CreatorRelationshipViolation,
     CredentialPort,
     CredentialPurpose,
@@ -80,6 +81,7 @@ from .creator_input import (
     EvidenceAcceptanceTransaction,
     build_evidence_acceptance_transaction,
 )
+from .creator_prompts import CreatorPromptService, build_creator_prompt_service
 from .effect_pipeline import (
     EffectRegistrationPipeline,
     build_effect_registration_pipeline,
@@ -644,6 +646,53 @@ def compose_creator_input(
             status="unavailable",
             exit_code=3,
         ) from None
+
+
+def compose_creator_prompt_service(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+    authority_admission: Callable[[], RuntimeFence],
+) -> CreatorPromptService:
+    """Resolve the Runtime credential for the T-04 Creator Prompt owner."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> CreatorPromptService:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise CreatorPromptViolation(
+                        "DB-PROMPT-UNAVAILABLE"
+                    ) from None
+                config = prepared.effective.config
+                return build_creator_prompt_service(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
 
 
 def compose_life_opportunity_pipeline(
@@ -1284,6 +1333,7 @@ __all__ = (
     "compose_creator_activity_query",
     "compose_creator_input",
     "compose_creator_maintenance_query",
+    "compose_creator_prompt_service",
     "compose_creator_relationship_query",
     "compose_effect_registration_pipeline",
     "compose_life_opportunity_pipeline",

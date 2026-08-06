@@ -7,7 +7,8 @@
   "seams": [
     {
       "activation_steps": [
-        "M0-S023"
+        "M0-S023",
+        "P1-S002"
       ],
       "active_binding": "armi.context-compiler.deterministic-v1",
       "runtime_discovery": false,
@@ -99,7 +100,8 @@
         "M0-S020",
         "M0-S021",
         "M0-S030",
-        "M0-S031"
+        "M0-S031",
+        "P1-S002"
       ],
       "active_binding": "armi.creator-projection-workbench.v1",
       "runtime_discovery": false,
@@ -111,7 +113,8 @@
         "M0-S020",
         "M0-S022",
         "M0-S031",
-        "M0-S043"
+        "M0-S043",
+        "P1-S002"
       ],
       "active_binding": "armi.creator-workbench.v1",
       "runtime_discovery": false,

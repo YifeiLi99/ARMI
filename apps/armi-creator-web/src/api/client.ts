@@ -33,6 +33,7 @@ export type AcceptedOperation =
 export type CreatorOperation =
   components["schemas"]["OperationOutcomeResponse"];
 export type SubjectSummary = components["schemas"]["SubjectSummaryResponse"];
+export type CreatorPrompt = components["schemas"]["CreatorPromptResponse"];
 export type CapabilityRequestPage =
   components["schemas"]["CapabilityRequestPageResponse"];
 export type CapabilityRequest =
@@ -443,6 +444,62 @@ export async function getSubjectSummary(
   const response = await fetch("/v1/subject/summary", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getCreatorPrompt(
+  token: string,
+  signal?: AbortSignal,
+): Promise<CreatorPrompt> {
+  const response = await fetch("/v1/prompts/creator-guidance", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function reviseCreatorPrompt(
+  token: string,
+  expectedRevisionId: string | null,
+  content: string,
+  signal?: AbortSignal,
+): Promise<CreatorPrompt> {
+  const response = await fetch("/v1/prompts/creator-guidance", {
+    method: "PUT",
+    credentials: "omit",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      contract_version: "1.0",
+      expected_revision_id: expectedRevisionId,
+      content,
+    }),
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function deactivateCreatorPrompt(
+  token: string,
+  expectedRevisionId: string,
+  signal?: AbortSignal,
+): Promise<CreatorPrompt> {
+  const response = await fetch("/v1/prompts/creator-guidance/deactivation", {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      contract_version: "1.0",
+      expected_revision_id: expectedRevisionId,
+    }),
     ...(signal === undefined ? {} : { signal }),
   });
   return requireJson(response);

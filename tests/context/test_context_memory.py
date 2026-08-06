@@ -30,6 +30,7 @@ def _snapshot(
     capability_state_payloads: tuple[tuple[object, ...], ...] = (),
     scene_id: object | None = None,
     scene_bytes: bytes | None = None,
+    creator_prompt: object | None = None,
 ) -> ContextEpisodeSnapshot:
     source_ref = uuid7()
     return cast(
@@ -59,6 +60,7 @@ def _snapshot(
             opportunity_expires_at=None,
             evidence=None,
             fixed_prompt=SimpleNamespace(source_id=uuid7(), source_version=1),
+            creator_prompt=creator_prompt,
             policy_digest=Digest.from_bytes(b"policy"),
             mechanism_config_digest=Digest.from_bytes(b"context-config"),
             trace_id=TraceId("1" * 32),
@@ -77,6 +79,64 @@ def _memory(accessibility: str) -> tuple[object, ...]:
         }
     )
     return uuid7(), 2, payload, Digest.from_bytes(payload), accessibility
+
+
+def test_active_creator_prompt_is_frozen_by_revision_in_future_context() -> None:
+    revision_id = uuid7()
+    snapshot = _snapshot(
+        (),
+        creator_prompt=SimpleNamespace(
+            source_id=revision_id,
+            source_version=3,
+        ),
+    )
+    request = _context_request(
+        snapshot,
+        None,
+        b"fixed prompt",
+        (),
+        b"distinguish facts from guesses",
+        web_search_active=False,
+    )
+
+    item = next(value for value in request.items if value.item_kind == "creator_prompt")
+    assert item.source.reference == revision_id
+    assert item.source.version == 3
+    assert item.content == "distinguish facts from guesses"
+    old_compiled = DeterministicContextCompiler().compile(request)
+
+    next_revision_id = uuid7()
+    next_snapshot = cast(
+        ContextEpisodeSnapshot,
+        SimpleNamespace(
+            **{
+                **vars(snapshot),
+                "creator_prompt": SimpleNamespace(
+                    source_id=next_revision_id,
+                    source_version=4,
+                ),
+            }
+        ),
+    )
+    next_request = _context_request(
+        next_snapshot,
+        None,
+        b"fixed prompt",
+        (),
+        b"distinguish observations, claims, and unknowns",
+        web_search_active=False,
+    )
+    next_item = next(
+        value for value in next_request.items if value.item_kind == "creator_prompt"
+    )
+
+    assert item.source.reference == revision_id
+    assert item.content == "distinguish facts from guesses"
+    assert next_item.source.reference == next_revision_id
+    assert next_item.source.version == 4
+    assert old_compiled.manifest_digest != DeterministicContextCompiler().compile(
+        next_request
+    ).manifest_digest
 
 
 def test_capability_state_separates_availability_authorization_and_desire() -> None:
