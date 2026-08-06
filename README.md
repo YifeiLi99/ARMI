@@ -15,7 +15,7 @@ ARMI 不是围绕一次对话或一项任务运行的 AI 助手，而是一套�
 - **内核与能力解耦**：心智、记忆、调度和权限构成内核，网页、Codex 与其他外部能力通过适配器逐步接入。
 - **可持续重构**：身份、事实、权限和效果语义保持稳定；模型、Context、记忆与调度策略、前端和适配器可以在窄契约内替换，不让一次实验改动牵连整个系统。
 
-项目当前已达到 M0-Core 单机个人内测可用，P0-S001—S022 已完成，P0 核心旅程已在单机隔离环境通过。P1-S001—S004 已完成功能实现，下一施工入口为 P1-S005。Creator 现在可以维护自己的 Prompt；ARMI 也能基于同轮真实 Experience 选择结构化的认知、表达和反思方法，并可明确发起获准范围内的精确生活查询。Runtime 以 v17/v18 对话候选绑定查询类型和窄查询文字，在 T-03 登记耐久查询责任；查询结果以“本轮刚查到”的 Runtime evidence 进入新 opportunity，不改变 Memory accessibility，也不开放 audit、凭据或 Admin 数据。Activity、注意、Creator 只读闭环、睡眠维护、主观记忆演进、关系连续、私人生活资料、能力治理、运行观测、容量基线和空环境整合均已落地。P0 通过不代表生产发布；P1 当前仍只包含 18 个内部功能步骤，外部程序、安全、部署、迁移和发布等待创造者指导后另行规划。
+项目当前已达到 M0-Core 单机个人内测可用，P0-S001—S022 已完成，P0 核心旅程已在单机隔离环境通过。P1-S001—S005 已完成功能实现，下一施工入口为 P1-S006。Creator 现在可以维护自己的 Prompt；ARMI 能基于同轮真实 Experience 选择结构化的认知、表达和反思方法，主动查询获准生活记录，也能让持有注意的 `in_progress` Activity 完成一次有界内部工作。attention v2 只负责取得或恢复注意；独立 internal-work 候选负责真实进度、创作资料、等待更多信息、完成、放弃和正式无结果，并由 T-03 原子追加 Activity revision 与可选 life material。该链路不接网页、外部工具、账号或新执行器。P0 通过不代表生产发布；P1 当前仍只包含 18 个内部功能步骤，外部程序、安全、部署、迁移和发布等待创造者指导后另行规划。
 
 S039 的 Creator→Codex 产品纵向 gate 已通过：正式 `codex-tasks` 输入经 ARMI 认知、Creator grant、Codex effect、官方 `openai-codex==0.144.4` SDK runner、独立 validator、result evidence 和第二次 T-03 收敛为唯一 private Experience。新任务可逐项选择 `gpt-5.6-sol/terra/luna`、思考级别和内置 Web Search；一次性 workspace 默认可操作，明确 forbidden paths 和禁止逃逸构成安全边界。纯内容任务由结构化 deliverable 落为 `result.md`，代码与文件任务按 task manifest 和独立 validator 核验。正式 Creator 链已经用 Luna、`max` 和 Web Search 完成实机验收，不再把组件级成功冒充产品闭环。
 

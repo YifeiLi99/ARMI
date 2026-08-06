@@ -78,11 +78,19 @@ from armi_kernel.contracts import Digest
 from .activity_attention_candidate_contract import (
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     ActivityAttentionCandidate,
-    AttentionPauseDecision,
-    AttentionProgressDecision,
     AttentionSimpleDecision,
-    AttentionTerminalDecision,
-    AttentionWaitDecision,
+)
+from .activity_internal_work_candidate_contract import (
+    ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
+    ActivityInternalWorkCandidate,
+    InternalWorkAbandonDecision,
+    InternalWorkCompleteDecision,
+    InternalWorkMaterialChange,
+    InternalWorkMaterialCreate,
+    InternalWorkMaterialUpdate,
+    InternalWorkNeedInformationDecision,
+    InternalWorkNoResultDecision,
+    InternalWorkProgressDecision,
 )
 from .autonomous_activity_candidate_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
@@ -511,6 +519,8 @@ class DeterministicCandidateValidator:
                 expected_version=(
                     ACTIVITY_ATTENTION_CANDIDATE_VERSION
                     if self._context.purpose == "consider_activity_attention"
+                    else ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION
+                    if self._context.purpose == "consider_activity_internal_work"
                     else AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
                     if self._context.purpose == "consider_autonomous_life"
                     else SLEEP_DECISION_CANDIDATE_VERSION
@@ -549,12 +559,21 @@ class DeterministicCandidateValidator:
         if isinstance(
             parsed_candidate,
             (
-                AttentionSimpleDecision,
-                AttentionProgressDecision,
-                AttentionWaitDecision,
-                AttentionPauseDecision,
-                AttentionTerminalDecision,
+                InternalWorkProgressDecision,
+                InternalWorkCompleteDecision,
+                InternalWorkNeedInformationDecision,
+                InternalWorkAbandonDecision,
+                InternalWorkNoResultDecision,
             ),
+        ):
+            return self._validate_internal_work(
+                parsed_candidate,
+                bases=bases,
+                candidate_digest=candidate_digest,
+            )
+        if isinstance(
+            parsed_candidate,
+            AttentionSimpleDecision,
         ):
             return self._validate_attention(
                 parsed_candidate,
@@ -1460,37 +1479,6 @@ class DeterministicCandidateValidator:
         kind = ActivityAttentionDecisionKind(candidate.kind)
         if not _attention_transition_allowed(context.current_activity_status, kind):
             return _rejected("CANDIDATE-ACTIVITY-TRANSITION")
-        progress = next_step = waiting = cue = terminal = None
-        waiting_kind = None
-        delay = None
-        if isinstance(candidate, AttentionProgressDecision):
-            progress, next_step = candidate.progress_summary, candidate.next_step
-        elif isinstance(candidate, AttentionWaitDecision):
-            progress = candidate.progress_summary
-            next_step = candidate.next_step
-            waiting = candidate.waiting_summary
-            cue = candidate.resumption_cue
-            waiting_kind = ActivityWaitingKind(candidate.condition_kind)
-            if (
-                waiting_kind is ActivityWaitingKind.TIME
-                and candidate.delay_seconds is None
-            ):
-                return _rejected("CANDIDATE-ACTIVITY-WAIT-DELAY")
-            delay = (
-                candidate.delay_seconds
-                if waiting_kind is ActivityWaitingKind.TIME
-                else None
-            )
-        elif isinstance(candidate, AttentionPauseDecision):
-            progress = candidate.progress_summary
-            next_step = candidate.next_step
-            waiting = "scheduled review"
-            cue = candidate.resumption_cue
-            waiting_kind = ActivityWaitingKind.SCHEDULED_REVIEW
-            delay = candidate.review_after_seconds
-        elif isinstance(candidate, AttentionTerminalDecision):
-            progress = candidate.progress_summary
-            terminal = candidate.terminal_reason
         decision = CandidateActivityDecisionDraft(
             "proposal:1",
             "group:1",
@@ -1500,13 +1488,6 @@ class DeterministicCandidateValidator:
             context.current_activity_head_version,
             context.resource_snapshot_digest,
             kind,
-            progress,
-            next_step,
-            waiting,
-            cue,
-            waiting_kind,
-            delay,
-            terminal,
         )
         disposition = (
             CandidateDisposition.CHANGE
@@ -1574,6 +1555,158 @@ class DeterministicCandidateValidator:
             CandidateValidationStatus.ACCEPTED,
             change_set,
             1,
+            0,
+            None,
+        )
+
+    def _validate_internal_work(
+        self,
+        candidate: ActivityInternalWorkCandidate,
+        *,
+        bases: tuple[CandidateBasis, ...],
+        candidate_digest: Digest,
+    ) -> CandidateValidationResult:
+        context = self._context
+        if (
+            context.purpose != "consider_activity_internal_work"
+            or context.opportunity_id is None
+            or context.scene_id is not None
+            or context.creator_party_id is not None
+            or context.current_activity_id is None
+            or context.current_activity_revision_id is None
+            or context.current_activity_head_version is None
+            or context.current_activity_status is not ActivityStatus.IN_PROGRESS
+            or context.resource_snapshot_digest is None
+        ):
+            return _rejected("CANDIDATE-ACTIVITY-WORK-CONTEXT")
+        source = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_activity"
+                and item.trust_class == "runtime_authority"
+                and item.source_ref == context.current_activity_revision_id
+            ),
+            None,
+        )
+        if source is None:
+            return _rejected("CANDIDATE-ACTIVITY-WORK-SOURCE")
+
+        progress = next_step = waiting = cue = terminal = None
+        waiting_kind = None
+        delay = None
+        material_change: InternalWorkMaterialChange | None = None
+        if isinstance(candidate, InternalWorkProgressDecision):
+            kind = ActivityAttentionDecisionKind.PROGRESS
+            progress, next_step = candidate.progress_summary, candidate.next_step
+            material_change = candidate.material_change
+        elif isinstance(candidate, InternalWorkCompleteDecision):
+            kind = ActivityAttentionDecisionKind.COMPLETE
+            progress, terminal = candidate.progress_summary, candidate.terminal_reason
+            material_change = candidate.material_change
+        elif isinstance(candidate, InternalWorkNeedInformationDecision):
+            kind = ActivityAttentionDecisionKind.WAIT
+            progress, next_step = candidate.progress_summary, candidate.next_step
+            waiting, cue = candidate.information_needed, candidate.resumption_cue
+            waiting_kind = ActivityWaitingKind.CREATOR_INPUT
+        elif isinstance(candidate, InternalWorkAbandonDecision):
+            kind = ActivityAttentionDecisionKind.ABANDON
+            progress, terminal = candidate.progress_summary, candidate.terminal_reason
+        else:
+            kind = ActivityAttentionDecisionKind.PAUSE
+            progress = f"本次有界工作未形成新结果: {candidate.reason}"
+            next_step = candidate.next_step
+            waiting = candidate.reason
+            cue = candidate.resumption_cue
+            waiting_kind = ActivityWaitingKind.SCHEDULED_REVIEW
+            delay = candidate.review_after_seconds
+
+        decision = CandidateActivityDecisionDraft(
+            "proposal:1",
+            "group:1",
+            (source.ordinal,),
+            context.current_activity_id,
+            context.current_activity_revision_id,
+            context.current_activity_head_version,
+            context.resource_snapshot_digest,
+            kind,
+            progress,
+            next_step,
+            waiting,
+            cue,
+            waiting_kind,
+            delay,
+            terminal,
+        )
+        material: CandidateLifeMaterialDraft | None = None
+        if material_change is not None:
+            material, error = _bind_internal_work_material(
+                material_change,
+                activity_basis=source,
+                bases=bases,
+                context=context,
+            )
+            if material is None:
+                return _rejected(error or "CANDIDATE-ACTIVITY-WORK-MATERIAL")
+
+        value = {
+            "schema_version": "armi.subject-change-set.v18",
+            "subject_id": str(context.subject_id),
+            "generation_id": str(context.generation_id),
+            "episode_id": str(context.episode_id),
+            "model_attempt_id": str(context.model_attempt_id),
+            "base": {
+                "subject_version": context.base_subject_version,
+                "state_epoch": context.base_state_epoch,
+                "bundle_activation_id": str(context.bundle_activation_id),
+                "context_digest": context.context_digest.value,
+            },
+            "candidate_digest": candidate_digest.value,
+            "disposition": CandidateDisposition.CHANGE.value,
+            "experiences": [],
+            "components": [],
+            "capability_requests": [],
+            "action_choices": [],
+            "web_research_requests": [],
+            "codex_delegations": [],
+            "activities": [],
+            "activity_decisions": [_activity_decision_wire(decision)],
+            "memories": [],
+            "memory_revisions": [],
+            "relationships": [],
+            "materials": [] if material is None else [_material_wire(material)],
+            "prompts": [],
+            "exact_life_queries": [],
+            "rejections": [],
+        }
+        canonical = rfc8785.dumps(cast(Any, value))
+        change_set = SubjectChangeSet(
+            canonical_bytes=canonical,
+            digest=Digest.from_bytes(canonical),
+            subject_id=context.subject_id,
+            generation_id=context.generation_id,
+            episode_id=context.episode_id,
+            model_attempt_id=context.model_attempt_id,
+            base_subject_version=context.base_subject_version,
+            base_state_epoch=context.base_state_epoch,
+            bundle_activation_id=context.bundle_activation_id,
+            context_digest=context.context_digest,
+            candidate_digest=candidate_digest,
+            disposition=CandidateDisposition.CHANGE,
+            experiences=(),
+            components=(),
+            capability_requests=(),
+            action_choices=(),
+            web_research_requests=(),
+            rejections=(),
+            activity_decisions=(decision,),
+            materials=() if material is None else (material,),
+        )
+        return CandidateValidationResult(
+            CandidateValidationId(uuid7()),
+            CandidateValidationStatus.ACCEPTED,
+            change_set,
+            1 if material is None else 2,
             0,
             None,
         )
@@ -2495,6 +2628,98 @@ def _bind_dialogue_material(
     )
 
 
+def _bind_internal_work_material(
+    change: InternalWorkMaterialChange,
+    *,
+    activity_basis: CandidateBasis,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[CandidateLifeMaterialDraft | None, str | None]:
+    if context.subject_party_id is None:
+        return None, "CANDIDATE-MATERIAL-OWNER"
+    if isinstance(change, InternalWorkMaterialCreate):
+        body_bytes = change.body.encode("utf-8", errors="strict")
+        return (
+            CandidateLifeMaterialDraft(
+                "proposal:2",
+                "group:1",
+                (activity_basis.ordinal,),
+                _derived_material_id(context.model_attempt_id),
+                context.subject_party_id,
+                LifeMaterialKind(change.material_kind),
+                None,
+                0,
+                change.title,
+                body_bytes,
+                Digest.from_bytes(body_bytes),
+                tuple(sorted(change.metadata.items())),
+                LifeMaterialStatus(change.material_status),
+            ),
+            None,
+        )
+
+    assert isinstance(change, InternalWorkMaterialUpdate)
+    target_basis = next(
+        (
+            item
+            for item in bases
+            if f"ctx:{item.ordinal}" == change.material_ref
+            and item.section == "material"
+            and item.item_kind == "current_material"
+            and item.trust_class == "subjective_state"
+            and item.source_ref is not None
+        ),
+        None,
+    )
+    if target_basis is None:
+        return None, "CANDIDATE-MATERIAL-CONTEXT"
+    current = next(
+        (
+            item
+            for item in context.current_materials
+            if item.material_id == target_basis.source_ref
+        ),
+        None,
+    )
+    if current is None or (
+        current.head_version != target_basis.source_version
+        or current.context_digest != target_basis.source_digest
+    ):
+        return None, "CANDIDATE-MATERIAL-STALE"
+    if current.owner_party_id != context.subject_party_id:
+        return None, "CANDIDATE-MATERIAL-OWNER"
+    body_bytes = change.body.encode("utf-8", errors="strict")
+    body_digest = Digest.from_bytes(body_bytes)
+    metadata = tuple(sorted(change.metadata.items()))
+    material_status = LifeMaterialStatus(change.material_status)
+    if (
+        current.title == change.title
+        and current.body_digest == body_digest
+        and current.metadata == metadata
+        and current.material_status is material_status
+    ):
+        return None, "CANDIDATE-MATERIAL-NO-OP"
+    return (
+        CandidateLifeMaterialDraft(
+            "proposal:2",
+            "group:1",
+            (activity_basis.ordinal, target_basis.ordinal),
+            current.material_id,
+            current.owner_party_id,
+            current.material_kind,
+            current.current_revision_id,
+            current.head_version,
+            change.title,
+            body_bytes,
+            body_digest,
+            metadata,
+            material_status,
+            current.privacy_status.value,
+        ),
+        None,
+    )
+
+
 def _bind_dialogue_memory_revision(
     change: DialogueMemoryChange,
     *,
@@ -3284,13 +3509,7 @@ def _attention_transition_allowed(
         }
     return decision in {
         ActivityStatus.READY: {ActivityAttentionDecisionKind.ENGAGE},
-        ActivityStatus.IN_PROGRESS: {
-            ActivityAttentionDecisionKind.PROGRESS,
-            ActivityAttentionDecisionKind.WAIT,
-            ActivityAttentionDecisionKind.PAUSE,
-            ActivityAttentionDecisionKind.COMPLETE,
-            ActivityAttentionDecisionKind.ABANDON,
-        },
+        ActivityStatus.IN_PROGRESS: {ActivityAttentionDecisionKind.ENGAGE},
         ActivityStatus.WAITING: {ActivityAttentionDecisionKind.RESUME},
         ActivityStatus.PAUSED: {ActivityAttentionDecisionKind.RESUME},
         ActivityStatus.RESUMING: {ActivityAttentionDecisionKind.ENGAGE},

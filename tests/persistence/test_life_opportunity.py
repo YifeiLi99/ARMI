@@ -121,3 +121,76 @@ def test_current_active_material_admits_one_idempotent_autonomous_opportunity() 
         digest.value,
     )
     assert len(unit_of_work.audit.events) == 1
+
+
+class _InternalWorkConnection:
+    def __init__(self, *, activity_id: UUID, revision_id: UUID) -> None:
+        self._activity_id = activity_id
+        self._revision_id = revision_id
+        self._opportunity_id: UUID | None = None
+        self._source_digest: str | None = None
+
+    async def execute(
+        self,
+        statement: str,
+        parameters: tuple[object, ...] = (),
+    ) -> _Cursor:
+        if "SELECT revision.semantic_payload" in statement:
+            return _Cursor(
+                (
+                    {"active_activities": [str(self._activity_id)]},
+                    False,
+                    0,
+                    False,
+                )
+            )
+        if "AND revision.status = 'in_progress'" in statement:
+            return _Cursor(
+                (
+                    self._activity_id,
+                    self._revision_id,
+                    2,
+                    "in_progress",
+                    "write one bounded essay",
+                    "an outline exists",
+                    "draft one section",
+                )
+            )
+        if "INSERT INTO armi.opportunities" in statement:
+            if self._opportunity_id is None:
+                self._opportunity_id = cast(UUID, parameters[0])
+                self._source_digest = cast(str, parameters[5])
+                return _Cursor((self._opportunity_id,))
+            return _Cursor(None)
+        if "SELECT opportunity_id, source_digest" in statement:
+            assert self._opportunity_id is not None
+            assert self._source_digest is not None
+            return _Cursor((self._opportunity_id, self._source_digest))
+        raise AssertionError(statement)
+
+
+def test_active_in_progress_activity_admits_one_durable_internal_work_step() -> None:
+    connection = _InternalWorkConnection(
+        activity_id=uuid7(),
+        revision_id=uuid7(),
+    )
+    unit_of_work = _UnitOfWork(cast(_Connection, connection))
+    repository = PostgreSQLLifeOpportunityRepository()
+
+    first = asyncio.run(
+        repository.admit_activity_internal_work(
+            cast(PostgreSQLUnitOfWork, unit_of_work),
+            model_concurrency=2,
+        )
+    )
+    replay = asyncio.run(
+        repository.admit_activity_internal_work(
+            cast(PostgreSQLUnitOfWork, unit_of_work),
+            model_concurrency=2,
+        )
+    )
+
+    assert first.status is OpportunityAdmissionStatus.ADMITTED
+    assert replay.status is OpportunityAdmissionStatus.DUPLICATE
+    assert replay.opportunity_id == first.opportunity_id
+    assert len(unit_of_work.audit.events) == 1

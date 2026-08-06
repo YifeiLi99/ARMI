@@ -438,7 +438,8 @@ def _context_request(
                 }
             ),
             ContextTrustClass.RUNTIME_AUTHORITY,
-            required=snapshot.purpose == "consider_activity_attention",
+            required=snapshot.purpose
+            in {"consider_activity_attention", "consider_activity_internal_work"},
             relevance=100,
             source_kind="resource_snapshot",
         ),
@@ -692,6 +693,7 @@ def _context_request(
                 in {
                     "consider_autonomous_life",
                     "consider_activity_attention",
+                    "consider_activity_internal_work",
                     "consider_sleep",
                 },
                 relevance=95,
@@ -704,7 +706,8 @@ def _context_request(
                 snapshot.opportunity_source_version,
                 snapshot.activity_summary_bytes,
                 ContextTrustClass.RUNTIME_AUTHORITY,
-                required=snapshot.purpose == "consider_activity_attention",
+                required=snapshot.purpose
+                in {"consider_activity_attention", "consider_activity_internal_work"},
                 relevance=100,
                 source_kind=snapshot.opportunity_source_kind,
             ),

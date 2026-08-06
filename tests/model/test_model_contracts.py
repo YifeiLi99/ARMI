@@ -23,6 +23,7 @@ from armi_runtime.composition.model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
+    ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -68,35 +69,22 @@ def test_activity_attention_contract_rejects_authority_and_invalid_wait_shapes()
     None
 ):
     parsed = parse_candidate(
-        b'{"kind":"progress","progress_summary":"done","next_step":"continue"}',
+        b'{"kind":"engage"}',
         allowed_context_refs=frozenset(),
         expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     )
-    assert getattr(parsed, "kind", None) == "progress"
+    assert getattr(parsed, "kind", None) == "engage"
     schema_text = json.dumps(
         candidate_schema(ACTIVITY_ATTENTION_CANDIDATE_VERSION), separators=(",", ":")
     )
     assert "activity_id" not in schema_text
     assert '"failed"' not in schema_text
 
-    accepted_wait = parse_candidate(
-        json.dumps(
-            {
-                "kind": "wait",
-                "progress_summary": "blocked",
-                "next_step": "continue",
-                "waiting_summary": "wait",
-                "resumption_cue": "input",
-                "condition_kind": "creator_input",
-                "delay_seconds": 60,
-            }
-        ).encode(),
-        allowed_context_refs=frozenset(),
-        expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
+    invalid = (
+        {"kind": "engage", "activity_id": str(uuid7())},
+        {"kind": "progress", "progress_summary": "done", "next_step": "continue"},
+        {"kind": "complete", "progress_summary": "done", "terminal_reason": "done"},
     )
-    assert getattr(accepted_wait, "kind", None) == "wait"
-
-    invalid = ({"kind": "engage", "activity_id": str(uuid7())},)
     for value in invalid:
         with pytest.raises(ModelViolation):
             parse_candidate(
@@ -104,6 +92,58 @@ def test_activity_attention_contract_rejects_authority_and_invalid_wait_shapes()
                 allowed_context_refs=frozenset(),
                 expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
             )
+
+
+def test_activity_internal_work_contract_is_bounded_and_has_no_external_execution() -> (
+    None
+):
+    parsed = parse_candidate(
+        json.dumps(
+            {
+                "kind": "progress",
+                "progress_summary": "formed a real outline",
+                "next_step": "review one section later",
+                "material_change": {
+                    "action": "create",
+                    "material_kind": "draft",
+                    "title": "outline",
+                    "body": "A real bounded draft.",
+                    "metadata": {},
+                    "material_status": "active",
+                },
+            }
+        ).encode(),
+        allowed_context_refs=frozenset(),
+        expected_version=ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
+    )
+    assert getattr(parsed, "kind", None) == "progress"
+    schema_text = json.dumps(
+        candidate_schema(ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION),
+        separators=(",", ":"),
+    )
+    assert "material_change" in schema_text
+    assert "web" not in schema_text
+    assert "tool" not in schema_text
+    assert "activity_id" not in schema_text
+    binding = load_purpose_binding("consider_activity_internal_work")
+    assert binding.profile == "activity_internal_work"
+    assert binding.response_contract_version == ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION
+    assert binding.output_token_limit == 4096
+
+    with pytest.raises(ModelViolation):
+        parse_candidate(
+            json.dumps(
+                {
+                    "kind": "no_result",
+                    "reason": "nothing reliable",
+                    "next_step": "retry later",
+                    "resumption_cue": "scheduled review",
+                    "review_after_seconds": 1,
+                }
+            ).encode(),
+            allowed_context_refs=frozenset(),
+            expected_version=ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
+        )
 
 
 def _candidate() -> dict[str, object]:

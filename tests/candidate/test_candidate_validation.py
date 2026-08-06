@@ -352,7 +352,7 @@ def test_autonomous_context_does_not_bind_attention_resource_authority() -> None
     assert result.change_set.activity_decisions == ()
 
 
-def test_attention_candidate_binds_authority_and_round_trips_change_set_v8() -> None:
+def test_attention_engagement_binds_authority_and_round_trips_change_set_v8() -> None:
     context, bases = _fixture()
     activity_id = uuid7()
     revision_id = uuid7()
@@ -390,8 +390,7 @@ def test_attention_candidate_binds_authority_and_round_trips_change_set_v8() -> 
         "internal",
     )
     result = DeterministicCandidateValidator(attention).validate(
-        b'{"kind":"progress","progress_summary":"one bounded step",'
-        b'"next_step":"wait for the next consideration"}',
+        b'{"kind":"engage"}',
         bases=(*bases, current, resources),
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
@@ -406,7 +405,7 @@ def test_attention_candidate_binds_authority_and_round_trips_change_set_v8() -> 
     assert len(_validation_drafts(parsed)) == 1
 
 
-def test_attention_candidate_rejects_illegal_ready_progress_transition() -> None:
+def test_attention_candidate_cannot_bypass_internal_work_with_progress() -> None:
     context, bases = _fixture()
     revision_id = uuid7()
     attention = replace(
@@ -436,7 +435,253 @@ def test_attention_candidate_rejects_illegal_ready_progress_transition() -> None
         bases=(*bases, current),
     )
     assert result.status is CandidateValidationStatus.REJECTED
-    assert result.error_code == "CANDIDATE-ACTIVITY-TRANSITION"
+    assert result.error_code == "CANDIDATE-CONTRACT"
+
+
+@pytest.mark.parametrize(
+    ("candidate", "decision_kind"),
+    (
+        (
+            {
+                "kind": "progress",
+                "progress_summary": "梳理出了一个可继续验证的观点",
+                "next_step": "下一轮继续检查反例",
+            },
+            "progress",
+        ),
+        (
+            {
+                "kind": "complete",
+                "progress_summary": "作品正文已经形成",
+                "terminal_reason": "本次创作目标已经完成",
+                "material_change": {
+                    "action": "create",
+                    "material_kind": "work",
+                    "title": "一段短文",
+                    "body": "这是本次内部创作形成的真实正文。",
+                    "metadata": {"activity": "internal_work"},
+                    "material_status": "active",
+                },
+            },
+            "complete",
+        ),
+        (
+            {
+                "kind": "need_information",
+                "progress_summary": "已确认现有资料不足以继续",
+                "next_step": "取得缺少的信息后再整理",
+                "information_needed": "需要 Creator 说明目标读者",
+                "resumption_cue": "Creator 提供目标读者",
+            },
+            "wait",
+        ),
+        (
+            {
+                "kind": "abandon",
+                "progress_summary": "已重新评估这项活动的意义",
+                "terminal_reason": "我不再想继续这项活动",
+            },
+            "abandon",
+        ),
+        (
+            {
+                "kind": "no_result",
+                "reason": "本轮思考没有形成足够可靠的新结论",
+                "next_step": "稍后换一个角度再看",
+                "resumption_cue": "到达下一次有界复查",
+                "review_after_seconds": 300,
+            },
+            "pause",
+        ),
+    ),
+)
+def test_internal_activity_work_maps_real_outcomes_into_atomic_change_set_v18(
+    candidate: Mapping[str, object], decision_kind: str
+) -> None:
+    context, bases = _fixture()
+    activity_id, revision_id, subject_party_id = uuid7(), uuid7(), uuid7()
+    resource_digest = Digest.from_bytes(b"internal work resources")
+    work = replace(
+        context,
+        purpose="consider_activity_internal_work",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+        current_activity_id=activity_id,
+        current_activity_revision_id=revision_id,
+        current_activity_head_version=2,
+        current_activity_status=ActivityStatus.IN_PROGRESS,
+        resource_snapshot_digest=resource_digest,
+        subject_party_id=subject_party_id,
+    )
+    current = CandidateBasis(
+        4,
+        "activity",
+        "current_activity",
+        revision_id,
+        2,
+        Digest.from_bytes(b"activity revision"),
+        "runtime_authority",
+        "private",
+    )
+    resources = CandidateBasis(
+        5,
+        "runtime_truth",
+        "resource_snapshot",
+        uuid7(),
+        1,
+        resource_digest,
+        "runtime_authority",
+        "internal",
+    )
+    result = DeterministicCandidateValidator(work).validate(
+        _bytes(candidate), bases=(*bases, current, resources)
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert b"armi.subject-change-set.v18" in result.change_set.canonical_bytes
+    assert result.change_set.activity_decisions[0].decision_kind.value == decision_kind
+    parsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert parsed.activity_decisions == result.change_set.activity_decisions
+    assert parsed.materials == result.change_set.materials
+    if decision_kind == "complete":
+        assert len(parsed.materials) == 1
+        assert parsed.materials[0].owner_party_id == subject_party_id
+        assert parsed.materials[0].atomic_group_ref == "group:1"
+        assert parsed.materials[0].body_bytes is not None
+    else:
+        assert parsed.materials == ()
+
+
+def test_internal_activity_work_requires_current_in_progress_head() -> None:
+    context, bases = _fixture()
+    revision_id = uuid7()
+    work = replace(
+        context,
+        purpose="consider_activity_internal_work",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+        current_activity_id=uuid7(),
+        current_activity_revision_id=revision_id,
+        current_activity_head_version=1,
+        current_activity_status=ActivityStatus.READY,
+        resource_snapshot_digest=Digest.from_bytes(b"internal work resources"),
+    )
+    current = CandidateBasis(
+        4,
+        "activity",
+        "current_activity",
+        revision_id,
+        1,
+        Digest.from_bytes(b"activity revision"),
+        "runtime_authority",
+        "private",
+    )
+    result = DeterministicCandidateValidator(work).validate(
+        _bytes(
+            {
+                "kind": "progress",
+                "progress_summary": "不应被接受",
+                "next_step": "不应继续",
+            }
+        ),
+        bases=(*bases, current),
+    )
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.error_code == "CANDIDATE-ACTIVITY-WORK-CONTEXT"
+
+
+def test_internal_activity_work_updates_only_a_frozen_owned_material_head() -> None:
+    context, bases = _fixture()
+    activity_id, activity_revision_id = uuid7(), uuid7()
+    material_id, material_revision_id, subject_party_id = uuid7(), uuid7(), uuid7()
+    material_context_digest = Digest.from_bytes(b"material context")
+    current_material = CandidateLifeMaterialContext(
+        material_id,
+        material_revision_id,
+        3,
+        material_context_digest,
+        Digest.from_bytes("旧正文".encode()),
+        subject_party_id,
+        LifeMaterialKind.DRAFT,
+        "旧标题",
+        (),
+        LifeMaterialStatus.ACTIVE,
+        LifeMaterialPrivacyStatus.PRIVATE,
+    )
+    resource_digest = Digest.from_bytes(b"internal work resources")
+    work = replace(
+        context,
+        purpose="consider_activity_internal_work",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+        current_activity_id=activity_id,
+        current_activity_revision_id=activity_revision_id,
+        current_activity_head_version=2,
+        current_activity_status=ActivityStatus.IN_PROGRESS,
+        resource_snapshot_digest=resource_digest,
+        subject_party_id=subject_party_id,
+        current_materials=(current_material,),
+    )
+    current_activity = CandidateBasis(
+        4,
+        "activity",
+        "current_activity",
+        activity_revision_id,
+        2,
+        Digest.from_bytes(b"activity revision"),
+        "runtime_authority",
+        "private",
+    )
+    resources = CandidateBasis(
+        5,
+        "runtime_truth",
+        "resource_snapshot",
+        uuid7(),
+        1,
+        resource_digest,
+        "runtime_authority",
+        "internal",
+    )
+    material_basis = CandidateBasis(
+        6,
+        "material",
+        "current_material",
+        material_id,
+        3,
+        material_context_digest,
+        "subjective_state",
+        "private",
+    )
+    result = DeterministicCandidateValidator(work).validate(
+        _bytes(
+            {
+                "kind": "progress",
+                "progress_summary": "已把已有草稿整理成完整段落",
+                "next_step": "下一轮检查结构",
+                "material_change": {
+                    "action": "update",
+                    "material_ref": "ctx:6",
+                    "title": "整理后的标题",
+                    "body": "这是基于已有生活资料整理后的完整正文。",
+                    "metadata": {"stage": "organized"},
+                    "material_status": "active",
+                },
+            }
+        ),
+        bases=(*bases, current_activity, resources, material_basis),
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    material = result.change_set.materials[0]
+    assert material.material_id == material_id
+    assert material.current_revision_id == material_revision_id
+    assert material.expected_head_version == 3
+    assert material.basis_ordinals == (4, 6)
 
 
 @pytest.mark.parametrize(
@@ -452,11 +697,7 @@ def test_attention_candidate_rejects_illegal_ready_progress_transition() -> None
                 "need_information",
             },
             ActivityStatus.IN_PROGRESS: {
-                "progress",
-                "wait",
-                "pause",
-                "complete",
-                "abandon",
+                "engage",
                 "no_action",
                 "defer",
                 "need_information",
@@ -485,12 +726,7 @@ def test_attention_candidate_rejects_illegal_ready_progress_transition() -> None
         }.items()
         for kind in (
             "engage",
-            "progress",
-            "wait",
-            "pause",
             "resume",
-            "complete",
-            "abandon",
             "no_action",
             "defer",
             "need_information",
@@ -537,38 +773,7 @@ def test_attention_candidate_enforces_complete_status_matrix(
     )
     payloads = {
         "engage": {"kind": "engage"},
-        "progress": {
-            "kind": "progress",
-            "progress_summary": "bounded progress",
-            "next_step": "continue later",
-        },
-        "wait": {
-            "kind": "wait",
-            "progress_summary": "bounded progress",
-            "waiting_summary": "await evidence",
-            "condition_kind": "external_evidence",
-            "delay_seconds": 60,
-            "resumption_cue": "matching evidence arrives",
-            "next_step": "review the evidence",
-        },
-        "pause": {
-            "kind": "pause",
-            "progress_summary": "bounded progress",
-            "resumption_cue": "scheduled review",
-            "review_after_seconds": 60,
-            "next_step": "reconsider",
-        },
         "resume": {"kind": "resume"},
-        "complete": {
-            "kind": "complete",
-            "progress_summary": "bounded progress",
-            "terminal_reason": "goal reached",
-        },
-        "abandon": {
-            "kind": "abandon",
-            "progress_summary": "bounded progress",
-            "terminal_reason": "no longer wanted",
-        },
         "no_action": {"kind": "no_action"},
         "defer": {"kind": "defer"},
         "need_information": {"kind": "need_information"},
@@ -577,9 +782,6 @@ def test_attention_candidate_enforces_complete_status_matrix(
         _bytes(payloads[kind]), bases=(*bases, current, resources)
     )
     assert (result.status is CandidateValidationStatus.ACCEPTED) is accepted
-    if accepted and kind == "wait":
-        assert result.change_set is not None
-        assert result.change_set.activity_decisions[0].delay_seconds is None
     if not accepted:
         assert result.error_code == "CANDIDATE-ACTIVITY-TRANSITION"
 

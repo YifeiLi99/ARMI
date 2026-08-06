@@ -96,6 +96,7 @@ _TOP_KEYS_V14 = {*_TOP_KEYS_V13, "materials"}
 _TOP_KEYS_V15 = _TOP_KEYS_V14
 _TOP_KEYS_V16 = {*_TOP_KEYS_V15, "prompts"}
 _TOP_KEYS_V17 = {*_TOP_KEYS_V16, "exact_life_queries"}
+_TOP_KEYS_V18 = {*_TOP_KEYS_V17, "activities", "activity_decisions"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -122,6 +123,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v15",
             "armi.subject-change-set.v16",
             "armi.subject-change-set.v17",
+            "armi.subject-change-set.v18",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -159,6 +161,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V16
             if version.endswith(".v16")
             else _TOP_KEYS_V17
+            if version.endswith(".v17")
+            else _TOP_KEYS_V18
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -216,14 +220,16 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         relationships = tuple(
             _relationship(
                 item,
-                include_commitments=version.endswith((".v13", ".v14", ".v15", ".v16")),
+                include_commitments=version.endswith(
+                    (".v13", ".v14", ".v15", ".v16", ".v17", ".v18")
+                ),
             )
             for item in _array(document.get("relationships", []), 1)
         )
         materials = tuple(
             _material(
                 item,
-                include_mutation=version.endswith((".v15", ".v16")),
+                include_mutation=version.endswith((".v15", ".v16", ".v17", ".v18")),
             )
             for item in _array(document.get("materials", []), 1)
         )

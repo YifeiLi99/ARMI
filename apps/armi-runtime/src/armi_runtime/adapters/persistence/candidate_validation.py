@@ -305,7 +305,10 @@ class PostgreSQLCandidateValidationRepository:
                 JOIN armi.activity_revisions AS revision
                   ON revision.activity_revision_id = activity.current_revision_id
                 WHERE episode.cognitive_episode_id = %s
-                  AND episode.purpose = 'consider_activity_attention'
+                  AND episode.purpose IN (
+                      'consider_activity_attention',
+                      'consider_activity_internal_work'
+                  )
                   AND opportunity.source_ref = activity.current_revision_id
                 """,
                 (row[0],),
@@ -321,7 +324,8 @@ class PostgreSQLCandidateValidationRepository:
                 ),
                 None,
             )
-            if str(row[13]) == "consider_activity_attention"
+            if str(row[13])
+            in {"consider_activity_attention", "consider_activity_internal_work"}
             else None
         )
         memory_rows = await (

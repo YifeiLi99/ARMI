@@ -25,6 +25,7 @@ from armi_kernel.application import (
     CandidateApplicationStatus,
     CandidateDisposition,
     CandidateExactLifeQueryDraft,
+    CandidateLifeMaterialDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateSleepDecisionDraft,
@@ -862,7 +863,7 @@ class PostgreSQLSubjectCommitRepository:
             commit_id=commit_id,
             activities=change_set.activities,
         )
-        attention_result_revision = await _apply_activity_attention_transition(
+        activity_result_revision = await _apply_activity_transition(
             connection,
             snapshot=snapshot,
             commit_id=commit_id,
@@ -938,7 +939,15 @@ class PostgreSQLSubjectCommitRepository:
             snapshot=snapshot,
             application_id=application_id,
             decisions=change_set.activity_decisions,
-            result_revision_id=attention_result_revision,
+            result_revision_id=activity_result_revision,
+        )
+        await _insert_activity_internal_work_decision(
+            connection,
+            snapshot=snapshot,
+            application_id=application_id,
+            decisions=change_set.activity_decisions,
+            materials=change_set.materials,
+            result_revision_id=activity_result_revision,
         )
         await _insert_sleep_decision(
             connection,
@@ -1705,7 +1714,7 @@ async def _insert_activities(
             raise SubjectCommitViolation("SUBJECT-ACTIVITY-HEAD-STALE")
 
 
-async def _apply_activity_attention_transition(
+async def _apply_activity_transition(
     connection: Any,
     *,
     snapshot: SubjectCommitSnapshot,
@@ -1768,7 +1777,7 @@ async def _apply_activity_attention_transition(
     current_status = str(row[6])
     allowed = {
         "ready": {"engage"},
-        "in_progress": {"progress", "wait", "pause", "complete", "abandon"},
+        "in_progress": {"engage", "progress", "wait", "pause", "complete", "abandon"},
         "waiting": {"resume"},
         "paused": {"resume"},
         "resuming": {"engage"},
@@ -1932,7 +1941,8 @@ async def _insert_attention_reconsideration(
     decisions: tuple[CandidateActivityDecisionDraft, ...],
 ) -> UUID | None:
     if (
-        len(decisions) != 1
+        snapshot.opportunity_purpose != "consider_activity_attention"
+        or len(decisions) != 1
         or decisions[0].decision_kind.value != "defer"
         or snapshot.reconsideration_no != 0
     ):
@@ -2152,6 +2162,8 @@ async def _insert_activity_attention_decision(
     decisions: tuple[CandidateActivityDecisionDraft, ...],
     result_revision_id: UUID | None,
 ) -> None:
+    if snapshot.opportunity_purpose != "consider_activity_attention":
+        return
     if not decisions:
         return
     if len(decisions) != 1:
@@ -2185,6 +2197,56 @@ async def _insert_activity_attention_decision(
             decision.decision_kind.value,
             result_revision_id,
             review_not_before,
+        ),
+    )
+
+
+async def _insert_activity_internal_work_decision(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    application_id: CandidateApplicationId,
+    decisions: tuple[CandidateActivityDecisionDraft, ...],
+    materials: tuple[CandidateLifeMaterialDraft, ...],
+    result_revision_id: UUID | None,
+) -> None:
+    if snapshot.opportunity_purpose != "consider_activity_internal_work":
+        return
+    if len(decisions) != 1 or result_revision_id is None or len(materials) > 1:
+        raise SubjectCommitViolation("SUBJECT-ACTIVITY-WORK-SHAPE")
+    decision = decisions[0]
+    outcome = {
+        "progress": "progress",
+        "complete": "complete",
+        "wait": "need_information",
+        "abandon": "abandon",
+        "pause": "no_result",
+    }.get(decision.decision_kind.value)
+    if outcome is None:
+        raise SubjectCommitViolation("SUBJECT-ACTIVITY-WORK-SHAPE")
+    await connection.execute(
+        """
+        INSERT INTO armi.activity_internal_work_decisions (
+            work_decision_id, opportunity_id, cognitive_episode_id,
+            candidate_validation_id, candidate_application_id, activity_id,
+            expected_revision_id, expected_head_version,
+            resource_snapshot_digest, outcome_kind, result_revision_id,
+            output_material_id, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+        """,
+        (
+            uuid7(),
+            snapshot.opportunity_id,
+            snapshot.episode_id,
+            snapshot.validation_id,
+            application_id.value,
+            decision.activity_id,
+            decision.current_revision_id,
+            decision.expected_head_version,
+            decision.resource_snapshot_digest.value,
+            outcome,
+            result_revision_id,
+            None if not materials else materials[0].material_id,
         ),
     )
 

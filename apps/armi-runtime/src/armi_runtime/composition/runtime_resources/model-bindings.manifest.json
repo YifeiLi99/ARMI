@@ -28,7 +28,12 @@
     "consider_activity_attention": {
       "output_token_limit": 1024,
       "profile": "activity_attention",
-      "response_contract_version": "armi.activity-attention-candidate.v1"
+      "response_contract_version": "armi.activity-attention-candidate.v2"
+    },
+    "consider_activity_internal_work": {
+      "output_token_limit": 4096,
+      "profile": "activity_internal_work",
+      "response_contract_version": "armi.activity-internal-work-candidate.v1"
     },
     "consider_autonomous_life": {
       "output_token_limit": 1024,

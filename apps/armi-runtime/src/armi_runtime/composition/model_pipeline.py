@@ -58,6 +58,8 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 from .model_contract import (
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     ACTIVITY_ATTENTION_INSTRUCTIONS,
+    ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
+    ACTIVITY_INTERNAL_WORK_INSTRUCTIONS,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     DIALOGUE_CANDIDATE_VERSION,
@@ -137,6 +139,10 @@ class ModelPipeline:
             "consider_activity_attention",
             expected_dialogue_version=dialogue_version,
         )
+        internal_work_binding = load_purpose_binding(
+            "consider_activity_internal_work",
+            expected_dialogue_version=dialogue_version,
+        )
         sleep_binding = load_purpose_binding(
             "consider_sleep",
             expected_dialogue_version=dialogue_version,
@@ -174,6 +180,17 @@ class ModelPipeline:
                 value,
                 allowed_context_refs=allowed_context_refs,
                 expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
+            )
+
+        def parse_internal_work(
+            value: bytes,
+            *,
+            allowed_context_refs: frozenset[str],
+        ):
+            return parse_candidate(
+                value,
+                allowed_context_refs=allowed_context_refs,
+                expected_version=ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
             )
 
         def parse_sleep(
@@ -238,7 +255,18 @@ class ModelPipeline:
                 ),
                 candidate_parser=parse_attention,
                 instructions=ACTIVITY_ATTENTION_INSTRUCTIONS,
-                schema_name="armi_activity_attention_candidate_v1",
+                schema_name="armi_activity_attention_candidate_v2",
+            ),
+            "consider_activity_internal_work": VolcengineArkModelAdapter(
+                binding=internal_work_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    internal_work_binding.response_contract_version
+                ),
+                candidate_parser=parse_internal_work,
+                instructions=ACTIVITY_INTERNAL_WORK_INSTRUCTIONS,
+                schema_name="armi_activity_internal_work_candidate_v1",
             ),
             "consider_sleep": VolcengineArkModelAdapter(
                 binding=sleep_binding,

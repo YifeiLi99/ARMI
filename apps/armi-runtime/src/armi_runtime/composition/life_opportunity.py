@@ -199,6 +199,9 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
                 material = await self.admit_life_material_once()
                 if material.status is OpportunityAdmissionStatus.ADMITTED:
                     self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+                internal_work = await self.admit_internal_work_once()
+                if internal_work.status is OpportunityAdmissionStatus.ADMITTED:
+                    self._wakeups.notify(OPPORTUNITY_AVAILABLE)
                 result = await self.admit_attention_once()
                 if result.status is OpportunityAdmissionStatus.ADMITTED:
                     self._wakeups.notify(OPPORTUNITY_AVAILABLE)
@@ -247,6 +250,18 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 return await self._repository.admit_activity_attention(
+                    unit_of_work,
+                    model_concurrency=self._model_concurrency,
+                )
+        except LifeViolation:
+            raise
+        except DatabaseTransactionError:
+            raise LifeViolation("LIFE-DATABASE") from None
+
+    async def admit_internal_work_once(self) -> OpportunityAdmissionOutcome:
+        try:
+            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+                return await self._repository.admit_activity_internal_work(
                     unit_of_work,
                     model_concurrency=self._model_concurrency,
                 )

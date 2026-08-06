@@ -762,5 +762,188 @@ class PostgreSQLLifeOpportunityRepository:
             OpportunityAdmissionStatus.ADMITTED, opportunity_id
         )
 
+    async def admit_activity_internal_work(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        model_concurrency: int,
+    ) -> OpportunityAdmissionOutcome:
+        """Admit one bounded work step for the Activity holding attention."""
+
+        fence = unit_of_work.runtime_fence
+        if fence is None:
+            raise LifeViolation("LIFE-FENCE-REQUIRED")
+        if model_concurrency < 2:
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-BACKPRESSURE-MODEL-CONCURRENCY",
+            )
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        state = await (
+            await connection.execute(
+                """
+                SELECT revision.semantic_payload,
+                       EXISTS (
+                           SELECT 1 FROM armi.opportunities
+                           WHERE subject_id = %s
+                             AND purpose = 'consider_activity_internal_work'
+                             AND current_disposition IN ('open', 'selected')
+                       ),
+                       (SELECT count(*) FROM armi.cognitive_episodes
+                        WHERE status NOT IN (
+                            'completed', 'stale', 'failed', 'cancelled',
+                            'candidate_rejected'
+                        )),
+                       EXISTS (
+                           SELECT 1 FROM armi.maintenance_sessions
+                           WHERE subject_id = %s AND finished_at IS NULL
+                       )
+                FROM armi.subject_component_heads AS head
+                JOIN armi.subject_component_revisions AS revision
+                  ON revision.component_revision_id = head.current_revision_id
+                WHERE head.subject_id = %s AND head.component_kind = 'life_mode'
+                """,
+                (fence.subject_id, fence.subject_id, fence.subject_id),
+            )
+        ).fetchone()
+        if state is None or not isinstance(state[0], dict):
+            raise LifeViolation("LIFE-SCHEDULER-STATE")
+        if bool(state[3]):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-BACKPRESSURE-MAINTENANCE",
+            )
+        if bool(state[1]):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-BACKPRESSURE-INTERNAL-WORK-OUTSTANDING",
+            )
+        if int(state[2]) >= model_concurrency - 1:
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-BACKPRESSURE-COGNITION-CAPACITY",
+            )
+        active_values = cast(dict[str, object], state[0]).get("active_activities")
+        if type(active_values) is not list:
+            raise LifeViolation("LIFE-SCHEDULER-FOCUS")
+        active_list = cast(list[object], active_values)
+        if len(active_list) != 1:
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-SCHEDULER-IDLE",
+            )
+        try:
+            activity_id = ActivityId.from_wire(active_list[0])
+        except Exception:
+            raise LifeViolation("LIFE-SCHEDULER-FOCUS") from None
+        row = await (
+            await connection.execute(
+                """
+                SELECT activity.activity_id, revision.activity_revision_id,
+                       revision.revision_no, revision.status, revision.goal,
+                       revision.progress_summary, revision.next_safe_step
+                FROM armi.activities AS activity
+                JOIN armi.activity_revisions AS revision
+                  ON revision.activity_revision_id = activity.current_revision_id
+                WHERE activity.subject_id = %s AND activity.activity_id = %s
+                  AND revision.status = 'in_progress'
+                """,
+                (fence.subject_id, activity_id.value),
+            )
+        ).fetchone()
+        if row is None:
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-SCHEDULER-IDLE",
+            )
+        source_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.activity-internal-work-source.v1",
+                    "activity_id": str(row[0]),
+                    "activity_revision_id": str(row[1]),
+                    "revision_no": int(row[2]),
+                    "status": str(row[3]),
+                    "goal": str(row[4]),
+                    "progress_summary": row[5],
+                    "next_safe_step": str(row[6]),
+                }
+            )
+        )
+        opportunity_id = uuid7()
+        inserted = await (
+            await connection.execute(
+                """
+                INSERT INTO armi.opportunities (
+                    opportunity_id, evidence_id, subject_id, scene_id,
+                    creator_party_id, purpose, eligibility_status,
+                    current_disposition, root_opportunity_id,
+                    reconsideration_no, source_kind, source_ref,
+                    source_version, source_digest, activity_id, schema_version
+                ) VALUES (
+                    %s, NULL, %s, NULL, NULL,
+                    'consider_activity_internal_work', 'eligible', 'open',
+                    %s, 0, 'activity_revision', %s, %s, %s, %s, 1
+                )
+                ON CONFLICT (
+                    subject_id, source_kind, source_ref, source_version,
+                    purpose, reconsideration_no
+                ) DO NOTHING RETURNING opportunity_id
+                """,
+                (
+                    opportunity_id,
+                    fence.subject_id,
+                    opportunity_id,
+                    row[1],
+                    int(row[2]),
+                    source_digest.value,
+                    row[0],
+                ),
+            )
+        ).fetchone()
+        if inserted is None:
+            existing = await (
+                await connection.execute(
+                    """
+                    SELECT opportunity_id, source_digest
+                    FROM armi.opportunities
+                    WHERE subject_id = %s AND source_kind = 'activity_revision'
+                      AND source_ref = %s AND source_version = %s
+                      AND purpose = 'consider_activity_internal_work'
+                      AND reconsideration_no = 0
+                    """,
+                    (fence.subject_id, row[1], int(row[2])),
+                )
+            ).fetchone()
+            if existing is None or str(existing[1]) != source_digest.value:
+                raise LifeViolation("LIFE-SOURCE-DRIFT")
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.DUPLICATE, existing[0]
+            )
+        await unit_of_work.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", unit_of_work.environment_id),
+                Purpose("life.activity.internal_work"),
+                "life.activity.internal_work.admitted",
+                AuditReference("opportunity", opportunity_id),
+                AuditResultStatus.APPLIED,
+                TraceId(opportunity_id.hex),
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(fence.subject_id),
+                request=AuditReference("activity_revision", row[1]),
+                request_digest=source_digest,
+            )
+        )
+        return OpportunityAdmissionOutcome(
+            OpportunityAdmissionStatus.ADMITTED, opportunity_id
+        )
+
 
 __all__ = ("PostgreSQLLifeOpportunityRepository",)
