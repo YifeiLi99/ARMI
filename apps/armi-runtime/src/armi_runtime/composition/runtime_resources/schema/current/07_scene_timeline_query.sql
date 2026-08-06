@@ -102,3 +102,6 @@ GRANT INSERT (
     current_status,
     schema_version
 ) ON armi.interaction_scenes TO armi_runtime;
+
+GRANT UPDATE (current_status, closed_at, recent_context_boundary)
+ON armi.interaction_scenes TO armi_runtime;

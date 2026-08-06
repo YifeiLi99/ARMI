@@ -55,6 +55,15 @@ class ContextArtifactSource:
 
 
 @dataclass(frozen=True, slots=True)
+class ContextSceneTurnSource:
+    ref: ArtifactRef
+    timeline_item_id: UUID
+    source_version: int
+    speaker: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class ContextMaterialSource:
     ref: ArtifactRef
     material_id: UUID
@@ -140,6 +149,7 @@ class ContextEpisodeSnapshot:
     fixed_prompt: ContextArtifactSource
     creator_prompt: ContextArtifactSource | None = None
     subject_prompt: ContextArtifactSource | None = None
+    recent_scene_sources: tuple[ContextSceneTurnSource, ...] = ()
 
 
 class PostgreSQLContextRepository:
@@ -395,7 +405,8 @@ class PostgreSQLContextRepository:
                     creator_prompt.content_artifact_id,
                     subject_prompt.prompt_revision_id,
                     subject_prompt.revision_no,
-                    subject_prompt.content_artifact_id
+                    subject_prompt.content_artifact_id,
+                    evidence.creator_interaction_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -740,6 +751,72 @@ class PostgreSQLContextRepository:
                 }
             )
         )
+        recent_scene_sources: tuple[ContextSceneTurnSource, ...] = ()
+        if row[3] is not None and row[35] is not None:
+            recent_rows: list[tuple[Any, ...]] = await (
+                await connection.execute(
+                    """
+                    SELECT item.timeline_item_id, item.source_event_no,
+                           item.source_kind, item.occurred_at,
+                           COALESCE(
+                               prior_evidence.artifact_id,
+                               response_revision.response_artifact_id
+                           ) AS artifact_id
+                    FROM armi.scene_timeline_items AS item
+                    JOIN armi.scene_timeline_items AS current_item
+                      ON current_item.scene_id = item.scene_id
+                     AND current_item.source_kind = 'creator_input'
+                     AND current_item.source_ref = %s
+                    LEFT JOIN armi.creator_input_interactions AS prior_input
+                      ON item.source_kind = 'creator_input'
+                     AND prior_input.creator_interaction_id = item.source_ref
+                     AND prior_input.scene_id = item.scene_id
+                     AND prior_input.purpose = 'creator_message'
+                    LEFT JOIN armi.external_evidence AS prior_evidence
+                      ON prior_evidence.creator_interaction_id =
+                         prior_input.creator_interaction_id
+                     AND prior_evidence.scene_id = item.scene_id
+                    LEFT JOIN armi.effects AS response_effect
+                      ON item.source_kind = 'creator_response'
+                     AND response_effect.effect_id = item.source_ref
+                     AND response_effect.interaction_scene_id = item.scene_id
+                    LEFT JOIN armi.action_intent_revisions AS response_revision
+                      ON response_revision.action_intent_revision_id =
+                         response_effect.action_intent_revision_id
+                    WHERE item.scene_id = %s
+                      AND item.source_kind IN (
+                          'creator_input', 'creator_response'
+                      )
+                      AND (
+                          item.occurred_at, item.timeline_item_id
+                      ) < (
+                          current_item.occurred_at,
+                          current_item.timeline_item_id
+                      )
+                      AND COALESCE(
+                          prior_evidence.artifact_id,
+                          response_revision.response_artifact_id
+                      ) IS NOT NULL
+                    ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
+                    LIMIT 8
+                    """,
+                    (row[35], row[3]),
+                )
+            ).fetchall()
+            recent_sources: list[ContextSceneTurnSource] = []
+            for item in reversed(recent_rows):
+                recent_sources.append(
+                    ContextSceneTurnSource(
+                        ref=await self._artifact_ref(connection, item[4]),
+                        timeline_item_id=item[0],
+                        source_version=int(item[1]),
+                        speaker=(
+                            "creator" if str(item[2]) == "creator_input" else "armi"
+                        ),
+                        occurred_at=item[3],
+                    )
+                )
+            recent_scene_sources = tuple(recent_sources)
         evidence = (
             None
             if row[12] is None
@@ -809,6 +886,7 @@ class PostgreSQLContextRepository:
                     "subject_prompt",
                 )
             ),
+            recent_scene_sources=recent_scene_sources,
         )
 
     async def settle_prepared(
@@ -1077,5 +1155,6 @@ __all__ = (
     "ContextArtifactSource",
     "ContextEpisodeSnapshot",
     "ContextMaterialSource",
+    "ContextSceneTurnSource",
     "PostgreSQLContextRepository",
 )

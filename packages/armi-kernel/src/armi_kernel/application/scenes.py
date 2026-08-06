@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Instant, OpaqueCursor
+from armi_kernel.contracts import Instant, OpaqueCursor, TraceId
 
 from .auditing import AuditResultStatus
 
 PROJECTION_VERSION = "scene-timeline.v4"
+SCENE_COLLECTION_PROJECTION_VERSION = "creator-scenes.v1"
 _KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 _KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^(?:CON-SCENE|CON-QUERY|SCENE)-[A-Z0-9-]+$", re.ASCII)
@@ -37,6 +39,11 @@ def _require_uuid7(value: object, code: str) -> None:
         raise SceneQueryViolation(code)
 
 
+class SceneStatus(StrEnum):
+    OPEN = "open"
+    CLOSED = "closed"
+
+
 @dataclass(frozen=True, slots=True)
 class SceneKey:
     value: str
@@ -47,6 +54,103 @@ class SceneKey:
 
     def __str__(self) -> str:
         return self.value
+
+
+@dataclass(frozen=True, slots=True)
+class CreatorSceneView:
+    scene_id: UUID
+    scene_key: SceneKey
+    status: SceneStatus
+    opened_at: Instant
+    closed_at: Instant | None
+    recent_context_boundary: UUID | None
+    is_default: bool
+
+    def __post_init__(self) -> None:
+        _require_uuid7(self.scene_id, "CON-SCENE-ID")
+        if (
+            type(self.scene_key) is not SceneKey
+            or type(self.status) is not SceneStatus
+            or type(self.opened_at) is not Instant
+            or type(self.is_default) is not bool
+        ):
+            raise SceneQueryViolation("CON-SCENE-VIEW")
+        if self.closed_at is not None and type(self.closed_at) is not Instant:
+            raise SceneQueryViolation("CON-SCENE-VIEW")
+        if self.recent_context_boundary is not None:
+            _require_uuid7(
+                self.recent_context_boundary,
+                "CON-SCENE-BOUNDARY",
+            )
+        if (self.status is SceneStatus.OPEN) != (self.closed_at is None):
+            raise SceneQueryViolation("CON-SCENE-VIEW")
+        if self.is_default != (self.scene_key.value == "default"):
+            raise SceneQueryViolation("CON-SCENE-VIEW")
+
+
+@dataclass(frozen=True, slots=True)
+class CreatorSceneCollection:
+    scenes: tuple[CreatorSceneView, ...]
+    projection_version: str = SCENE_COLLECTION_PROJECTION_VERSION
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.scenes) is not tuple
+            or not self.scenes
+            or any(type(scene) is not CreatorSceneView for scene in self.scenes)
+            or self.projection_version != SCENE_COLLECTION_PROJECTION_VERSION
+            or sum(scene.is_default for scene in self.scenes) != 1
+            or tuple(scene.scene_key.value for scene in self.scenes)
+            != tuple(
+                sorted(
+                    (scene.scene_key.value for scene in self.scenes),
+                    key=lambda value: (value != "default", value),
+                )
+            )
+        ):
+            raise SceneQueryViolation("CON-SCENE-COLLECTION")
+
+
+@dataclass(frozen=True, slots=True)
+class CreatorSceneCreateCommand:
+    scene_key: SceneKey
+    trace_id: TraceId
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.scene_key) is not SceneKey
+            or self.scene_key.value == "default"
+            or type(self.trace_id) is not TraceId
+        ):
+            raise SceneQueryViolation("CON-SCENE-COMMAND")
+
+
+@dataclass(frozen=True, slots=True)
+class CreatorSceneStatusCommand:
+    scene_key: SceneKey
+    target_status: SceneStatus
+    trace_id: TraceId
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.scene_key) is not SceneKey
+            or self.scene_key.value == "default"
+            or type(self.target_status) is not SceneStatus
+            or type(self.trace_id) is not TraceId
+        ):
+            raise SceneQueryViolation("CON-SCENE-COMMAND")
+
+
+@runtime_checkable
+class CreatorScenePort(Protocol):
+    async def list(self) -> CreatorSceneCollection: ...
+
+    async def create(self, command: CreatorSceneCreateCommand) -> CreatorSceneView: ...
+
+    async def set_status(
+        self,
+        command: CreatorSceneStatusCommand,
+    ) -> CreatorSceneView: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,8 +249,15 @@ class SceneTimelineQueryPort(Protocol):
 
 __all__ = (
     "PROJECTION_VERSION",
+    "SCENE_COLLECTION_PROJECTION_VERSION",
+    "CreatorSceneCollection",
+    "CreatorSceneCreateCommand",
+    "CreatorScenePort",
+    "CreatorSceneStatusCommand",
+    "CreatorSceneView",
     "SceneKey",
     "SceneQueryViolation",
+    "SceneStatus",
     "SceneTimelineItem",
     "SceneTimelinePage",
     "SceneTimelineQuery",

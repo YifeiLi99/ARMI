@@ -24,6 +24,7 @@ from armi_kernel.application import (
     ModelViolation,
     ResponseViolation,
     RuntimeFence,
+    SceneQueryViolation,
     SubjectCommitViolation,
     WebObservationViolation,
     WebResearchViolation,
@@ -83,6 +84,7 @@ from .creator_input import (
     build_evidence_acceptance_transaction,
 )
 from .creator_prompts import CreatorPromptService, build_creator_prompt_service
+from .creator_scenes import CreatorSceneService, build_creator_scene_service
 from .effect_pipeline import (
     EffectRegistrationPipeline,
     build_effect_registration_pipeline,
@@ -390,6 +392,49 @@ def compose_scene_timeline_query(
             status="unavailable",
             exit_code=3,
         ) from None
+
+
+def compose_creator_scene_service(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+    authority_admission: Callable[[], RuntimeFence],
+) -> CreatorSceneService:
+    """Resolve the Runtime credential for the scene lifecycle owner."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> CreatorSceneService:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
+                config = prepared.effective.config
+                return build_creator_scene_service(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
 
 
 def compose_creator_activity_query(
@@ -1391,6 +1436,7 @@ __all__ = (
     "compose_creator_maintenance_query",
     "compose_creator_prompt_service",
     "compose_creator_relationship_query",
+    "compose_creator_scene_service",
     "compose_effect_registration_pipeline",
     "compose_exact_life_query_pipeline",
     "compose_life_opportunity_pipeline",

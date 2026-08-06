@@ -88,6 +88,7 @@ class PostgreSQLCreatorResponseInbox(ActionAdapterPort):
                     Instant(existing[2]),
                     duplicate=True,
                 )
+            timeline_item_id = uuid7()
             await connection.execute(
                 """
                 INSERT INTO armi.scene_timeline_items (
@@ -95,7 +96,20 @@ class PostgreSQLCreatorResponseInbox(ActionAdapterPort):
                     source_event_no, result_status, occurred_at, schema_version
                 ) VALUES (%s, %s, 'creator_response', %s, 1, 'completed', %s, 1)
                 """,
-                (uuid7(), request.scene_id, request.effect_id.value, row[2]),
+                (
+                    timeline_item_id,
+                    request.scene_id,
+                    request.effect_id.value,
+                    row[2],
+                ),
+            )
+            await connection.execute(
+                """
+                UPDATE armi.interaction_scenes
+                SET recent_context_boundary = %s
+                WHERE scene_id = %s
+                """,
+                (timeline_item_id, request.scene_id),
             )
             await uow.audit.append(
                 AuditDraft(

@@ -94,9 +94,12 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/subject/summary",
                 "/v1/capability-requests",
                 "/v1/capability-requests/{capability_request_id}/decision",
+                "/v1/scenes",
+                "/v1/scenes/{scene_key}/close",
                 "/v1/scenes/{scene_key}/events",
                 "/v1/scenes/{scene_key}/codex-tasks",
                 "/v1/scenes/{scene_key}/messages",
+                "/v1/scenes/{scene_key}/reopen",
                 "/v1/scenes/{scene_key}/timeline",
             },
         )
@@ -141,6 +144,21 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(
             set(timeline["responses"]),
             {"200", "400", "401", "403", "404", "409", "503"},
+        )
+        scenes = paths["/v1/scenes"]
+        self.assertEqual(scenes["get"]["operationId"], "listCreatorScenes")
+        self.assertEqual(scenes["post"]["operationId"], "createCreatorScene")
+        self.assertEqual(
+            set(scenes["post"]["responses"]),
+            {"201", "400", "401", "403", "409", "503"},
+        )
+        self.assertEqual(
+            paths["/v1/scenes/{scene_key}/close"]["post"]["operationId"],
+            "closeCreatorScene",
+        )
+        self.assertEqual(
+            paths["/v1/scenes/{scene_key}/reopen"]["post"]["operationId"],
+            "reopenCreatorScene",
         )
         activities = paths["/v1/activities"]["get"]
         self.assertEqual(activities["operationId"], "listCreatorActivities")

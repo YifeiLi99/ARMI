@@ -225,6 +225,10 @@ class EvidenceAcceptanceTransaction(
         if type(published) is not PublishedArtifact:
             raise CreatorInputViolation("ART-INPUT-PUBLISH")
         async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+            await self._repository.lock_scene(
+                unit_of_work,
+                scene_id=expected_context.scene_id,
+            )
             context = await self._repository.context(
                 unit_of_work,
                 scene_key=command.scene_key,

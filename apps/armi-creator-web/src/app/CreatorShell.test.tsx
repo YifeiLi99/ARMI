@@ -191,6 +191,23 @@ function promptResponse(): object {
 }
 
 function optionalLifeProjectionResponse(url: string): Response | undefined {
+  if (url === "/v1/scenes") {
+    return jsonResponse({
+      contract_version: "1.0",
+      projection_version: "creator-scenes.v1",
+      scenes: [
+        {
+          contract_version: "1.0",
+          projection_version: "creator-scenes.v1",
+          scene_id: ENVIRONMENT_ID,
+          scene_key: "default",
+          status: "open",
+          opened_at: "2026-07-30T09:00:00.000000Z",
+          is_default: true,
+        },
+      ],
+    });
+  }
   if (url.startsWith("/v1/life-records?")) {
     return jsonResponse(lifeRecordPageResponse());
   }

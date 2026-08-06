@@ -48,6 +48,10 @@ from armi_kernel.application import (
     CreatorRelationshipQueryPort,
     CreatorRelationshipRevision,
     CreatorRelationshipViolation,
+    CreatorSceneCreateCommand,
+    CreatorScenePort,
+    CreatorSceneStatusCommand,
+    CreatorSceneView,
     EffectArtifactKind,
     EffectId,
     EffectLedgerPort,
@@ -63,6 +67,7 @@ from armi_kernel.application import (
     PromptKind,
     SceneKey,
     SceneQueryViolation,
+    SceneStatus,
     SceneTimelineQuery,
     SceneTimelineQueryPort,
     SubjectSummary,
@@ -135,6 +140,9 @@ from .creator_contract import (
     CreatorRelationshipItemResponse,
     CreatorRelationshipRevisionResponse,
     CreatorRelationshipTimelineResponse,
+    CreatorSceneCollectionResponse,
+    CreatorSceneCreateRequest,
+    CreatorSceneResponse,
     EffectResponse,
     LifeRecordItemResponse,
     LifeRecordPageResponse,
@@ -384,6 +392,46 @@ async def _creator_input_request(
         return CreatorInputRequest.model_validate(value)
     except UnicodeDecodeError, ValueError, ValidationError:
         raise CreatorInputViolation("INPUT-BODY") from None
+
+
+async def _creator_scene_create_request(
+    request: Request,
+    maximum_bytes: int,
+) -> CreatorSceneCreateRequest:
+    if request.headers.get("content-type") != "application/json":
+        raise SceneQueryViolation("CON-SCENE-CONTENT-TYPE")
+    body = await request.body()
+    if not body or len(body) > min(maximum_bytes, 1024):
+        raise SceneQueryViolation("CON-SCENE-BODY")
+    try:
+        value = json.loads(
+            body.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite JSON")
+            ),
+        )
+        return CreatorSceneCreateRequest.model_validate(value)
+    except UnicodeDecodeError, ValueError, ValidationError:
+        raise SceneQueryViolation("CON-SCENE-BODY") from None
+
+
+def _scene_wire(view: CreatorSceneView) -> CreatorSceneResponse:
+    return CreatorSceneResponse(
+        contract_version="1.0",
+        projection_version="creator-scenes.v1",
+        scene_id=str(view.scene_id),
+        scene_key=view.scene_key.value,
+        status=view.status.value,
+        opened_at=view.opened_at.to_wire(),
+        closed_at=None if view.closed_at is None else view.closed_at.to_wire(),
+        recent_context_boundary=(
+            None
+            if view.recent_context_boundary is None
+            else str(view.recent_context_boundary)
+        ),
+        is_default=view.is_default,
+    )
 
 
 async def _creator_boundary_request(
@@ -1094,6 +1142,7 @@ def create_runtime_app(
     request_body_max_bytes: int,
     on_started: AsyncCallback,
     on_stopping: AsyncCallback,
+    creator_scenes: CreatorScenePort | None = None,
     scene_timeline_query: SceneTimelineQueryPort | None = None,
     creator_activity_query: CreatorActivityQueryPort | None = None,
     life_record_query: LifeRecordQueryPort | None = None,
@@ -2696,6 +2745,179 @@ def create_runtime_app(
         request_creator_emergency_wake,
     )
 
+    @app.get("/v1/scenes")
+    async def list_creator_scenes(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_scenes is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_scenes is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE")
+                ),
+            )
+        try:
+            token = _bearer(request)
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            collection = await creator_scenes.list()
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except SceneQueryViolation:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE"),
+            )
+        response = CreatorSceneCollectionResponse(
+            contract_version="1.0",
+            projection_version="creator-scenes.v1",
+            scenes=[_scene_wire(scene) for scene in collection.scenes],
+        )
+        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
+
+    @app.post("/v1/scenes")
+    async def create_creator_scene(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_scenes is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_scenes is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_SCENE_COMMAND_UNAVAILABLE")
+                ),
+            )
+        try:
+            token = _bearer(request)
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            model = await _creator_scene_create_request(
+                request,
+                request_body_max_bytes,
+            )
+            created = await creator_scenes.create(
+                CreatorSceneCreateCommand(
+                    SceneKey(model.scene_key),
+                    TraceId(secrets.token_hex(16)),
+                )
+            )
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except SceneQueryViolation as error:
+            if error.code == "SCENE-KEY-CONFLICT":
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("CONFLICT_SCENE_KEY"),
+                )
+            if error.code.startswith("CON-SCENE"):
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_SCENE_KEY"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_SCENE_COMMAND_UNAVAILABLE"),
+            )
+        return JSONResponse(
+            status_code=201,
+            content=_scene_wire(created).model_dump(mode="json", exclude_none=True),
+        )
+
+    async def transition_creator_scene(
+        scene_key: str,
+        request: Request,
+        target_status: SceneStatus,
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_scenes is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_scenes is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_SCENE_COMMAND_UNAVAILABLE")
+                ),
+            )
+        try:
+            token = _bearer(request)
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            changed = await creator_scenes.set_status(
+                CreatorSceneStatusCommand(
+                    SceneKey(scene_key),
+                    target_status,
+                    TraceId(secrets.token_hex(16)),
+                )
+            )
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except SceneQueryViolation as error:
+            if error.code == "SCENE-NOT-VISIBLE":
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+                )
+            if error.code.startswith("CON-SCENE"):
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_SCENE_KEY"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_SCENE_COMMAND_UNAVAILABLE"),
+            )
+        return JSONResponse(
+            content=_scene_wire(changed).model_dump(mode="json", exclude_none=True)
+        )
+
+    @app.post("/v1/scenes/{scene_key}/close")
+    async def close_creator_scene(scene_key: str, request: Request) -> JSONResponse:
+        return await transition_creator_scene(scene_key, request, SceneStatus.CLOSED)
+
+    @app.post("/v1/scenes/{scene_key}/reopen")
+    async def reopen_creator_scene(scene_key: str, request: Request) -> JSONResponse:
+        return await transition_creator_scene(scene_key, request, SceneStatus.OPEN)
+
+    del list_creator_scenes, create_creator_scene
+    del close_creator_scene, reopen_creator_scene
+
     @app.get("/v1/scenes/{scene_key}/timeline")
     async def get_scene_timeline(scene_key: str, request: Request) -> JSONResponse:
         if (
@@ -2839,16 +3061,11 @@ def create_runtime_app(
         try:
             if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            metadata = browser_sessions.verify(token)
+            browser_sessions.verify(token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
                 content=_rejected(error.code),
-            )
-        if scene_key != metadata.default_scene_key:
-            return JSONResponse(
-                status_code=404,
-                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
             )
         idempotency_value = _single_header(request, b"idempotency-key")
         if idempotency_value is None:
@@ -2912,16 +3129,11 @@ def create_runtime_app(
         try:
             if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            metadata = browser_sessions.verify(token)
+            browser_sessions.verify(token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
                 content=_rejected(error.code),
-            )
-        if scene_key != metadata.default_scene_key:
-            return JSONResponse(
-                status_code=404,
-                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
             )
         idempotency_value = _single_header(request, b"idempotency-key")
         if idempotency_value is None:
@@ -3203,7 +3415,7 @@ def create_runtime_app(
         try:
             if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            metadata = browser_sessions.verify(token)
+            browser_sessions.verify(token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -3212,11 +3424,6 @@ def create_runtime_app(
         try:
             parsed_scene_key = SceneKey(scene_key)
         except SceneQueryViolation:
-            return JSONResponse(
-                status_code=404,
-                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
-            )
-        if parsed_scene_key.value != metadata.default_scene_key:
             return JSONResponse(
                 status_code=404,
                 content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),

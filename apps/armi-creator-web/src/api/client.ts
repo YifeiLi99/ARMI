@@ -7,6 +7,9 @@ export type BrowserSessionEstablished =
 export type RuntimeStatus = components["schemas"]["RuntimeStatusResponse"];
 export type SceneTimelinePage =
   components["schemas"]["SceneTimelinePageResponse"];
+export type CreatorScene = components["schemas"]["CreatorSceneResponse"];
+export type CreatorSceneCollection =
+  components["schemas"]["CreatorSceneCollectionResponse"];
 export type CreatorActivityPage =
   components["schemas"]["CreatorActivityPageResponse"];
 export type CreatorActivityTimeline =
@@ -153,6 +156,51 @@ export async function getSceneTimeline(
       credentials: "omit",
       headers: { Authorization: `Bearer ${token}` },
       ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
+}
+
+export async function getCreatorScenes(
+  token: string,
+  signal?: AbortSignal,
+): Promise<CreatorSceneCollection> {
+  const response = await fetch("/v1/scenes", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function createCreatorScene(
+  token: string,
+  sceneKey: string,
+): Promise<CreatorScene> {
+  const response = await fetch("/v1/scenes", {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ contract_version: "1.0", scene_key: sceneKey }),
+  });
+  return requireJson(response);
+}
+
+export async function setCreatorSceneOpen(
+  token: string,
+  sceneKey: string,
+  open: boolean,
+): Promise<CreatorScene> {
+  const action = open ? "reopen" : "close";
+  const response = await fetch(
+    `/v1/scenes/${encodeURIComponent(sceneKey)}/${action}`,
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
     },
   );
   return requireJson(response);

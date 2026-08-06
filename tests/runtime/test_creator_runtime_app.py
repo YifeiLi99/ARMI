@@ -41,6 +41,10 @@ from armi_kernel.application import (
     CreatorRelationshipRevision,
     CreatorRelationshipTimeline,
     CreatorRelationshipViolation,
+    CreatorSceneCollection,
+    CreatorSceneCreateCommand,
+    CreatorSceneStatusCommand,
+    CreatorSceneView,
     EffectArtifactKind,
     EvidenceId,
     LifeMaterialKind,
@@ -67,6 +71,8 @@ from armi_kernel.application import (
     RelationshipFactKind,
     RelationshipPartyRole,
     RelationshipStatus,
+    SceneKey,
+    SceneStatus,
     SceneTimelinePage,
     SceneTimelineQuery,
 )
@@ -101,6 +107,65 @@ CREATOR_BEARER = f"creator-v1.{'a' * 43}"
 class _SceneTimelineQuery:
     async def query(self, request: SceneTimelineQuery) -> SceneTimelinePage:
         return SceneTimelinePage(scene_key=request.scene_key, items=())
+
+
+class _CreatorScenes:
+    def __init__(self) -> None:
+        self.opened_at = Instant(datetime(2026, 8, 6, 8, 0, tzinfo=UTC))
+        default = CreatorSceneView(
+            uuid7(),
+            SceneKey("default"),
+            SceneStatus.OPEN,
+            self.opened_at,
+            None,
+            None,
+            True,
+        )
+        self.scenes = {"default": default}
+
+    async def list(self) -> CreatorSceneCollection:
+        return CreatorSceneCollection(
+            tuple(
+                sorted(
+                    self.scenes.values(),
+                    key=lambda scene: (not scene.is_default, scene.scene_key.value),
+                )
+            )
+        )
+
+    async def create(self, command: CreatorSceneCreateCommand) -> CreatorSceneView:
+        created = CreatorSceneView(
+            uuid7(),
+            command.scene_key,
+            SceneStatus.OPEN,
+            self.opened_at,
+            None,
+            None,
+            False,
+        )
+        self.scenes[command.scene_key.value] = created
+        return created
+
+    async def set_status(
+        self,
+        command: CreatorSceneStatusCommand,
+    ) -> CreatorSceneView:
+        current = self.scenes[command.scene_key.value]
+        changed = CreatorSceneView(
+            current.scene_id,
+            current.scene_key,
+            command.target_status,
+            current.opened_at,
+            (
+                None
+                if command.target_status is SceneStatus.OPEN
+                else Instant(datetime(2026, 8, 6, 9, 0, tzinfo=UTC))
+            ),
+            current.recent_context_boundary,
+            False,
+        )
+        self.scenes[command.scene_key.value] = changed
+        return changed
 
 
 class _CreatorActivityQuery:
@@ -573,6 +638,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         )
         self.events = CreatorEventBroker(epoch=b"\x06" * 16)
         self.creator_input = _CreatorInput()
+        self.creator_scenes = _CreatorScenes()
         self.creator_codex_task = _CreatorCodexTask()
         self.capability_policy = _CapabilityPolicy()
         self.creator_prompt = _CreatorPrompt()
@@ -620,6 +686,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             request_body_max_bytes=1024,
             on_started=started,
             on_stopping=stopping,
+            creator_scenes=self.creator_scenes,
             scene_timeline_query=_SceneTimelineQuery(),
             creator_activity_query=self.activity_query,
             life_record_query=self.life_record_query,
@@ -875,6 +942,46 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 400)
         self.assertEqual(unrelated.status_code, 400)
+
+    def test_creator_can_create_select_close_and_reopen_named_scene(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            token = session.json()["browser_session_token"]
+            headers = self._browser_headers(token)
+            created = client.post(
+                "/v1/scenes",
+                headers=headers,
+                json={"contract_version": "1.0", "scene_key": "night-talk"},
+            )
+            listed = client.get("/v1/scenes", headers=headers)
+            closed = client.post("/v1/scenes/night-talk/close", headers=headers)
+            reopened = client.post("/v1/scenes/night-talk/reopen", headers=headers)
+            message = client.post(
+                "/v1/scenes/night-talk/messages",
+                headers={**headers, "Idempotency-Key": "scene-message-1"},
+                json={"contract_version": "1.0", "message": "只属于夜谈场合"},
+            )
+            default_close = client.post("/v1/scenes/default/close", headers=headers)
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.json()["scene_key"], "night-talk")
+        self.assertEqual(
+            [scene["scene_key"] for scene in listed.json()["scenes"]],
+            ["default", "night-talk"],
+        )
+        self.assertEqual(closed.json()["status"], "closed")
+        self.assertEqual(reopened.json()["status"], "open")
+        self.assertEqual(message.status_code, 202)
+        self.assertEqual(self.creator_input.commands[-1].scene_key, "night-talk")
+        self.assertEqual(default_close.status_code, 400)
 
     def test_activity_overview_and_timeline_are_read_only_and_session_bound(
         self,

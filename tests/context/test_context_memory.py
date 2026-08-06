@@ -15,6 +15,7 @@ from armi_runtime.adapters.persistence.capability_context import (
 from armi_runtime.adapters.persistence.context import (
     ContextEpisodeSnapshot,
     ContextMaterialSource,
+    ContextSceneTurnSource,
 )
 from armi_runtime.composition.context_compiler import DeterministicContextCompiler
 from armi_runtime.composition.context_pipeline import _context_request
@@ -571,6 +572,46 @@ def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -
     assert "private-alpha" not in cast(str, commitment_contents[0])
     assert "private-beta" not in cast(str, commitment_contents[0])
     assert scene_contents[0] != scene_contents[1]
+
+
+def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
+    def request(scene_key: str, text: str):
+        payload = rfc8785.dumps({"speaker": "creator", "text": text})
+        source = cast(
+            ContextSceneTurnSource,
+            SimpleNamespace(
+                timeline_item_id=uuid7(),
+                source_version=1,
+                speaker="creator",
+                occurred_at=datetime(2026, 8, 6, 10, tzinfo=UTC),
+                ref=SimpleNamespace(content_digest=Digest.from_bytes(payload)),
+            ),
+        )
+        return _context_request(
+            _snapshot(
+                (),
+                scene_id=uuid7(),
+                scene_bytes=rfc8785.dumps({"scene_key": scene_key}),
+            ),
+            None,
+            b"fixed prompt",
+            recent_scene_payloads=((source, payload),),
+            web_search_active=False,
+        )
+
+    alpha = request("alpha", "alpha only")
+    beta = request("beta", "beta only")
+    alpha_turns = tuple(
+        item.content for item in alpha.items if item.item_kind == "recent_scene_turn"
+    )
+    beta_turns = tuple(
+        item.content for item in beta.items if item.item_kind == "recent_scene_turn"
+    )
+    assert len(alpha_turns) == len(beta_turns) == 1
+    assert "alpha only" in cast(str, alpha_turns[0])
+    assert "beta only" not in cast(str, alpha_turns[0])
+    assert "beta only" in cast(str, beta_turns[0])
+    assert "alpha only" not in cast(str, beta_turns[0])
 
 
 def test_context_hides_forgotten_commitment_but_keeps_open_issue() -> None:

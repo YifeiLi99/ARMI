@@ -235,8 +235,6 @@ class PostgreSQLSceneTimelineQuery:
         await self._pool.close()
 
     async def query(self, request: SceneTimelineQuery) -> SceneTimelinePage:
-        if request.scene_key.value != "default":
-            raise SceneQueryViolation("SCENE-NOT-VISIBLE")
         try:
             async with (
                 self._pool.connection(
@@ -261,8 +259,6 @@ class PostgreSQLSceneTimelineQuery:
                         WHERE scene.scene_key = %s
                           AND scene.scene_kind = 'creator_dialogue'
                           AND scene.audience_scope = 'creator'
-                          AND scene.current_status = 'open'
-                          AND scene.closed_at IS NULL
                           AND creator.party_id = %s
                         """,
                         (request.scene_key.value, self._creator_party_id),

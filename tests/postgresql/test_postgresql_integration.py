@@ -86,7 +86,6 @@ from armi_kernel.application import (
     RuntimeFence,
     RuntimeInstanceId,
     SceneKey,
-    SceneQueryViolation,
     SceneTimelinePage,
     SceneTimelineQuery,
     WebObservationDraft,
@@ -3035,14 +3034,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """,
                 (other_scene_id, first.subject_id, scene[1]),
             )
-        with self.assertRaises(SceneQueryViolation) as other_scene:
-            asyncio.run(
-                read_page(None, "other"),
-                loop_factory=lambda: asyncio.SelectorEventLoop(
-                    selectors.SelectSelector()
-                ),
-            )
-        self.assertEqual(other_scene.exception.code, "SCENE-NOT-VISIBLE")
+        other_scene = asyncio.run(
+            read_page(None, "other"),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
+        self.assertEqual(other_scene.items, ())
         with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
             connection.execute(
                 """
@@ -3053,14 +3049,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """,
                 (scene[0],),
             )
-        with self.assertRaises(SceneQueryViolation) as closed_scene:
-            asyncio.run(
-                read_page(None),
-                loop_factory=lambda: asyncio.SelectorEventLoop(
-                    selectors.SelectSelector()
-                ),
-            )
-        self.assertEqual(closed_scene.exception.code, "SCENE-NOT-VISIBLE")
+        closed_scene = asyncio.run(
+            read_page(None),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
+        self.assertEqual(len(closed_scene.items), 50)
         with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
             connection.execute(
                 """

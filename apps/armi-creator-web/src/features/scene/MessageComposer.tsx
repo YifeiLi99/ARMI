@@ -21,6 +21,7 @@ type SubmissionMode = "input" | "codex";
 type MessageComposerProps = {
   token: string;
   sceneKey: string;
+  sceneOpen: boolean;
   queryClient: QueryClient;
   timelineQueryKey: QueryKey;
   onUnauthorized: () => void;
@@ -40,6 +41,7 @@ function rejectedMessage(error: ApiFailure): string {
 export function MessageComposer({
   token,
   sceneKey,
+  sceneOpen,
   queryClient,
   timelineQueryKey,
   onUnauthorized,
@@ -50,6 +52,13 @@ export function MessageComposer({
   const composing = useRef(false);
 
   async function send(mode: SubmissionMode, key?: string): Promise<void> {
+    if (!sceneOpen) {
+      setState({
+        kind: "rejected",
+        message: "这个场合已关闭，重新打开后才能输入。",
+      });
+      return;
+    }
     const validation = validateCreatorMessage(message);
     if (!validation.valid) {
       setState({ kind: "idle", message: validation.message });
@@ -122,6 +131,7 @@ export function MessageComposer({
   }
 
   const locked =
+    !sceneOpen ||
     state.kind === "sending" ||
     state.kind === "unconfirmed" ||
     state.kind === "accepted";
@@ -149,7 +159,9 @@ export function MessageComposer({
           onCompositionEnd={compositionEnd}
         />
         <p id="composer-note" className="field-note">
-          Enter 发送，Shift+Enter 换行。已接纳正文不会由 timeline 回显。
+          {sceneOpen
+            ? "Enter 发送，Shift+Enter 换行。已接纳正文不会由 timeline 回显。"
+            : "这个场合已关闭；历史 timeline 仍可读取，重新打开后才能继续输入。"}
         </p>
         {state.kind === "unconfirmed" ? (
           <div className="composer-recovery">

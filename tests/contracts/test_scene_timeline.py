@@ -10,14 +10,19 @@ from uuid import uuid7
 import rfc8785
 from armi_kernel.application import (
     AuditResultStatus,
+    CreatorSceneCollection,
+    CreatorSceneCreateCommand,
+    CreatorSceneStatusCommand,
+    CreatorSceneView,
     SceneKey,
     SceneQueryViolation,
+    SceneStatus,
     SceneTimelineItem,
     SceneTimelinePage,
     SceneTimelineQuery,
     TimelineItemId,
 )
-from armi_kernel.contracts import Instant
+from armi_kernel.contracts import Instant, TraceId
 from armi_runtime.adapters.persistence.scene_timeline import (
     SceneTimelineCursorCodec,
 )
@@ -67,6 +72,36 @@ class SceneTimelineContractTests(unittest.TestCase):
         for limit in (0, 101, True):
             with self.subTest(limit=limit), self.assertRaises(SceneQueryViolation):
                 SceneTimelineQuery(SceneKey("default"), limit)
+
+    def test_named_scene_lifecycle_contract_preserves_default_anchor(self) -> None:
+        opened = Instant(datetime(2026, 8, 6, 10, tzinfo=UTC))
+        default = CreatorSceneView(
+            uuid7(),
+            SceneKey("default"),
+            SceneStatus.OPEN,
+            opened,
+            None,
+            None,
+            True,
+        )
+        named = CreatorSceneView(
+            uuid7(),
+            SceneKey("night-talk"),
+            SceneStatus.CLOSED,
+            opened,
+            Instant(datetime(2026, 8, 6, 11, tzinfo=UTC)),
+            uuid7(),
+            False,
+        )
+        self.assertEqual(
+            CreatorSceneCollection((default, named)).scenes,
+            (default, named),
+        )
+        trace = TraceId("a" * 32)
+        CreatorSceneCreateCommand(SceneKey("night-talk"), trace)
+        CreatorSceneStatusCommand(SceneKey("night-talk"), SceneStatus.OPEN, trace)
+        with self.assertRaises(SceneQueryViolation):
+            CreatorSceneStatusCommand(SceneKey("default"), SceneStatus.CLOSED, trace)
 
     def test_creator_input_requires_a_public_operation_reference(self) -> None:
         occurred = Instant(datetime(2026, 7, 30, 10, tzinfo=UTC))

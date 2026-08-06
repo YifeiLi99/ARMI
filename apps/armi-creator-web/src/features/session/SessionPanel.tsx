@@ -27,6 +27,7 @@ import { EffectDetail } from "../effect/EffectDetail";
 import { OperationPanel } from "../operation/OperationPanel";
 import { PromptPanel } from "../prompt/PromptPanel";
 import { TimelinePanel } from "../scene/TimelinePanel";
+import { SceneSelector } from "../scene/SceneSelector";
 import { SubjectSummaryPanel } from "../subject/SubjectSummaryPanel";
 
 type ViewState =
@@ -61,6 +62,10 @@ export function SessionPanel() {
     null,
   );
   const [selectedEffect, setSelectedEffect] = useState<string | null>(null);
+  const [selectedScene, setSelectedScene] = useState<{
+    key: string;
+    status: "open" | "closed";
+  } | null>(null);
   const [view, setView] = useState<ViewState>({
     kind: "loading",
     message: "正在核对浏览器会话",
@@ -86,6 +91,7 @@ export function SessionPanel() {
         queryClient.clear();
         setSelectedOperation(null);
         setSelectedEffect(null);
+        setSelectedScene(null);
         setView({
           kind: "bootstrap",
           message: "运行环境已变化，请重新建立会话。",
@@ -93,6 +99,10 @@ export function SessionPanel() {
         return;
       }
       const runtime = await getRuntimeStatus(stored.token, signal);
+      setSelectedScene(
+        (current) =>
+          current ?? { key: session.default_scene_key, status: "open" },
+      );
       setView({ kind: "authenticated", stored, session, runtime });
     } catch (error) {
       if (signal?.aborted) {
@@ -103,6 +113,7 @@ export function SessionPanel() {
         queryClient.clear();
         setSelectedOperation(null);
         setSelectedEffect(null);
+        setSelectedScene(null);
         setView({ kind: "bootstrap", message: safeMessage(error) });
         return;
       }
@@ -144,6 +155,7 @@ export function SessionPanel() {
       queryClient.clear();
       setSelectedOperation(null);
       setSelectedEffect(null);
+      setSelectedScene(null);
       setView({
         kind: "bootstrap",
         message:
@@ -166,6 +178,7 @@ export function SessionPanel() {
     queryClient.clear();
     setSelectedOperation(null);
     setSelectedEffect(null);
+    setSelectedScene(null);
     setView({ kind: "bootstrap", message: "浏览器会话已注销。" });
     try {
       await deleteCurrentBrowserSession(token);
@@ -180,6 +193,7 @@ export function SessionPanel() {
     queryClient.clear();
     setSelectedOperation(null);
     setSelectedEffect(null);
+    setSelectedScene(null);
     setView({
       kind: "bootstrap",
       message: "会话已失效，请使用新的 bootstrap code。",
@@ -238,6 +252,11 @@ export function SessionPanel() {
     );
   }
 
+  const activeScene = selectedScene ?? {
+    key: view.session.default_scene_key,
+    status: "open" as const,
+  };
+
   return (
     <div className="authenticated-view">
       <section className="session-summary" aria-labelledby="session-heading">
@@ -281,15 +300,30 @@ export function SessionPanel() {
       </section>
       <div className="workspace-grid">
         <div className="scene-column">
-          <MessageComposer
+          <SceneSelector
             token={view.stored.token}
-            sceneKey={view.session.default_scene_key}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
+            selectedSceneKey={activeScene.key}
+            onSelected={(key, status) => {
+              abortStream();
+              setSelectedOperation(null);
+              setSelectedEffect(null);
+              setSelectedScene({ key, status });
+            }}
+            onUnauthorized={unauthorized}
+          />
+          <MessageComposer
+            key={activeScene.key}
+            token={view.stored.token}
+            sceneKey={activeScene.key}
+            sceneOpen={activeScene.status === "open"}
             queryClient={queryClient}
             timelineQueryKey={[
               "scene-timeline",
               view.session.environment_id,
               view.session.creator_party_id,
-              view.session.default_scene_key,
+              activeScene.key,
             ]}
             onUnauthorized={unauthorized}
             onOperationAccepted={(operationRef) => {
@@ -301,7 +335,7 @@ export function SessionPanel() {
             token={view.stored.token}
             environmentId={view.session.environment_id}
             creatorPartyId={view.session.creator_party_id}
-            sceneKey={view.session.default_scene_key}
+            sceneKey={activeScene.key}
             onUnauthorized={unauthorized}
             onOperationSelected={(operationRef) => {
               setSelectedEffect(null);

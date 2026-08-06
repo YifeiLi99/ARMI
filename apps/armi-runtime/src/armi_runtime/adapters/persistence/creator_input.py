@@ -36,6 +36,27 @@ class CreatorInputRepository:
 
     __slots__ = ()
 
+    async def lock_scene(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        scene_id: UUID,
+    ) -> None:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                SELECT scene_id
+                FROM armi.interaction_scenes
+                WHERE scene_id = %s
+                FOR UPDATE
+                """,
+                (scene_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise CreatorInputViolation("SCOPE-SCENE-NOT-VISIBLE")
+
     async def context(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
@@ -241,6 +262,18 @@ class CreatorInputRepository:
             """,
             (timeline_item_id, context.scene_id, interaction_id),
         )
+        boundary = await connection.execute(
+            """
+            UPDATE armi.interaction_scenes
+            SET recent_context_boundary = %s
+            WHERE scene_id = %s
+              AND current_status = 'open'
+              AND closed_at IS NULL
+            """,
+            (timeline_item_id, context.scene_id),
+        )
+        if boundary.rowcount != 1:
+            raise CreatorInputViolation("SCOPE-SCENE-NOT-VISIBLE")
         return CreatorInputAcceptance(
             CreatorInteractionId(interaction_id),
             EvidenceId(evidence_id),

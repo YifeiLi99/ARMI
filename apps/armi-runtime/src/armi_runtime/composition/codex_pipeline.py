@@ -184,6 +184,10 @@ class CodexTaskSourceGateway(
             raise CodexDelegationViolation("CODEX-TASK-ARTIFACT") from None
         try:
             async with self._factory.unit_of_work(LockPlan()) as uow:
+                await self._input_repository.lock_scene(
+                    uow,
+                    scene_id=context.scene_id,
+                )
                 current = await self._input_repository.context(
                     uow,
                     scene_key=command.scene_key,

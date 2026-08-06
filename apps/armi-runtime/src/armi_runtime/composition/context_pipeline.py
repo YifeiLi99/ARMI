@@ -36,7 +36,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
@@ -51,6 +51,7 @@ from armi_runtime.adapters.persistence.context import (
     ContextArtifactSource,
     ContextEpisodeSnapshot,
     ContextMaterialSource,
+    ContextSceneTurnSource,
     PostgreSQLContextRepository,
 )
 from armi_runtime.adapters.persistence.durable_work import (
@@ -195,6 +196,11 @@ class ContextPipeline(OpportunitySelector):
                 material_payloads.append(
                     (source, await self._read_material_source(source, snapshot))
                 )
+            recent_scene_payloads: list[tuple[ContextSceneTurnSource, bytes]] = []
+            for source in snapshot.recent_scene_sources:
+                recent_scene_payloads.append(
+                    (source, await self._read_recent_scene_source(source, snapshot))
+                )
             request = _context_request(
                 snapshot,
                 evidence_bytes,
@@ -202,6 +208,7 @@ class ContextPipeline(OpportunitySelector):
                 tuple(material_payloads),
                 creator_prompt_bytes,
                 subject_prompt_bytes,
+                tuple(recent_scene_payloads),
                 web_search_active=self._web_search_active,
             )
             result = self._compiler.compile(request)
@@ -362,6 +369,40 @@ class ContextPipeline(OpportunitySelector):
             }
         )
 
+    async def _read_recent_scene_source(
+        self,
+        source: ContextSceneTurnSource,
+        snapshot: ContextEpisodeSnapshot,
+    ) -> bytes:
+        expected_kind = (
+            "creator.input.text"
+            if source.speaker == "creator"
+            else "creator.response.text"
+        )
+        if (
+            source.ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
+            or source.ref.media_type != "text/plain"
+            or source.ref.logical_kind != expected_kind
+            or source.ref.privacy_scope is not ArtifactPrivacyScope.CREATOR_VISIBLE
+        ):
+            raise ContextViolation("CTX-SOURCE-READ-FAILED")
+        value = await self._read_source(
+            ContextArtifactSource(
+                source.ref,
+                source.timeline_item_id,
+                source.source_version,
+                "recent_scene_turn",
+            ),
+            snapshot,
+        )
+        return rfc8785.dumps(
+            {
+                "speaker": source.speaker,
+                "text": value.decode("utf-8", errors="strict"),
+                "occurred_at": source.occurred_at.isoformat(),
+            }
+        )
+
     async def _publish(
         self,
         value: bytes,
@@ -402,6 +443,7 @@ def _context_request(
     material_payloads: tuple[tuple[ContextMaterialSource, bytes], ...] = (),
     creator_prompt_bytes: bytes | None = None,
     subject_prompt_bytes: bytes | None = None,
+    recent_scene_payloads: tuple[tuple[ContextSceneTurnSource, bytes], ...] = (),
     *,
     web_search_active: bool,
 ) -> ContextRequest:
@@ -490,6 +532,29 @@ def _context_request(
                 relevance=80,
             )
         )
+        for source, payload in recent_scene_payloads:
+            items.append(
+                ContextItemCandidate(
+                    ContextSection.SCENE,
+                    "recent_scene_turn",
+                    ContextSourceIdentity(
+                        "scene_timeline_item",
+                        source.timeline_item_id,
+                        source.source_version,
+                        source.ref.content_digest,
+                    ),
+                    (
+                        ContextTrustClass.EXTERNAL_CLAIM
+                        if source.speaker == "creator"
+                        else ContextTrustClass.RUNTIME_AUTHORITY
+                    ),
+                    "creator_visible",
+                    payload.decode("utf-8", errors="strict"),
+                    False,
+                    88,
+                    Instant(source.occurred_at),
+                )
+            )
     accessible_memories = tuple(
         item
         for item in snapshot.memory_payloads

@@ -359,6 +359,18 @@ class PostgreSQLCodexDelegationRepository:
             """,
             (timeline_id, context.scene_id, interaction_id),
         )
+        boundary = await connection.execute(
+            """
+            UPDATE armi.interaction_scenes
+            SET recent_context_boundary = %s
+            WHERE scene_id = %s
+              AND current_status = 'open'
+              AND closed_at IS NULL
+            """,
+            (timeline_id, context.scene_id),
+        )
+        if boundary.rowcount != 1:
+            raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
         await uow.audit.append(
             AuditDraft(
                 AuditEventId(uuid7()),

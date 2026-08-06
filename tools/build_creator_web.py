@@ -185,9 +185,12 @@ def validate_openapi(schema: dict[str, object]) -> None:
         "/v1/subject/summary",
         "/v1/capability-requests",
         "/v1/capability-requests/{capability_request_id}/decision",
+        "/v1/scenes",
+        "/v1/scenes/{scene_key}/close",
         "/v1/scenes/{scene_key}/events",
         "/v1/scenes/{scene_key}/codex-tasks",
         "/v1/scenes/{scene_key}/messages",
+        "/v1/scenes/{scene_key}/reopen",
         "/v1/scenes/{scene_key}/timeline",
     }:
         raise CreatorBuildError(
@@ -204,6 +207,7 @@ def validate_openapi(schema: dict[str, object]) -> None:
     if operation_ids != {
         "createBrowserBootstrapCode",
         "createBrowserSession",
+        "createCreatorScene",
         "deleteCurrentBrowserSession",
         "getCurrentBrowserSession",
         "getHealthLive",
@@ -218,6 +222,9 @@ def validate_openapi(schema: dict[str, object]) -> None:
         "getCreatorMemoryTimeline",
         "getCreatorRelationshipCurrent",
         "getCreatorRelationshipTimeline",
+        "listCreatorScenes",
+        "closeCreatorScene",
+        "reopenCreatorScene",
         "getEffect",
         "getEffectArtifact",
         "getSubjectSummary",

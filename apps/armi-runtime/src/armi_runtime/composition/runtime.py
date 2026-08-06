@@ -73,6 +73,7 @@ from .database import (
     compose_creator_maintenance_query,
     compose_creator_prompt_service,
     compose_creator_relationship_query,
+    compose_creator_scene_service,
     compose_effect_registration_pipeline,
     compose_exact_life_query_pipeline,
     compose_life_opportunity_pipeline,
@@ -156,6 +157,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     recovery_reasons: tuple[str, ...] = ()
     browser_sessions: BrowserSessionStore | None = None
     scene_timeline_query = None
+    creator_scenes = None
     creator_activity_query = None
     life_record_query = None
     exact_life_query_pipeline = None
@@ -272,6 +274,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 cursor_key=derive_timeline_cursor_key(prepared),
             )
             await scene_timeline_query.open()
+            creator_scenes = compose_creator_scene_service(
+                prepared,
+                creator_party_id=creator_context.party_id,
+                authority_admission=authority.require_writable,
+            )
+            await creator_scenes.open()
             creator_activity_query = compose_creator_activity_query(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -518,6 +526,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             )
             if scene_timeline_query is not None:
                 await scene_timeline_query.close()
+            if creator_scenes is not None:
+                await creator_scenes.close()
             if creator_activity_query is not None:
                 await creator_activity_query.close()
             if exact_life_query_pipeline is not None:
@@ -728,6 +738,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             )
         if scene_timeline_query is not None:
             await scene_timeline_query.close()
+        if creator_scenes is not None:
+            await creator_scenes.close()
         if creator_activity_query is not None:
             await creator_activity_query.close()
         if creator_maintenance_query is not None:
@@ -912,6 +924,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         runtime_status=runtime_status,
         assets=assets,
         browser_sessions=browser_sessions,
+        creator_scenes=creator_scenes,
         scene_timeline_query=scene_timeline_query,
         creator_activity_query=creator_activity_query,
         life_record_query=life_record_query,
@@ -985,6 +998,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     finally:
         if scene_timeline_query is not None:
             await scene_timeline_query.close()
+        if creator_scenes is not None:
+            await creator_scenes.close()
         if creator_activity_query is not None:
             await creator_activity_query.close()
         if exact_life_query_pipeline is not None:

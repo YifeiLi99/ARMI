@@ -218,6 +218,62 @@ class SceneTimelinePageResponse(_StrictWireModel):
     ) = None
 
 
+class CreatorSceneCreateRequest(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
+
+    @model_validator(mode="after")
+    def reject_reserved_default(self) -> CreatorSceneCreateRequest:
+        if self.scene_key == "default":
+            raise ValueError("CON-SCENE-KEY: default is reserved")
+        return self
+
+
+class CreatorSceneResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-scenes.v1"]
+    scene_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
+    status: Literal["open", "closed"]
+    opened_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    closed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
+    recent_context_boundary: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = (
+        None
+    )
+    is_default: bool
+
+    @field_validator("scene_id", "recent_context_boundary")
+    @classmethod
+    def validate_scene_uuid7(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-SCENE-ID: identity must be canonical UUIDv7")
+        return value
+
+    @field_validator("opened_at", "closed_at")
+    @classmethod
+    def validate_scene_instant(cls, value: str | None) -> str | None:
+        if value is not None and Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-SCENE-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_scene_state(self) -> CreatorSceneResponse:
+        if (self.status == "open") != (self.closed_at is None):
+            raise ValueError("CON-SCENE-STATE: status is inconsistent")
+        if self.is_default != (self.scene_key == "default"):
+            raise ValueError("CON-SCENE-DEFAULT: identity is inconsistent")
+        return self
+
+
+class CreatorSceneCollectionResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-scenes.v1"]
+    scenes: Annotated[list[CreatorSceneResponse], Field(min_length=1)]
+
+
 type ActivityStatusValue = Literal[
     "considering",
     "ready",
@@ -2283,6 +2339,78 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/scenes",
+        operation_id="listCreatorScenes",
+        response_model=CreatorSceneCollectionResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def list_creator_scenes() -> CreatorSceneCollectionResponse:
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/scenes",
+        operation_id="createCreatorScene",
+        status_code=201,
+        response_model=CreatorSceneResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def create_creator_scene(
+        _request: CreatorSceneCreateRequest,
+    ) -> CreatorSceneResponse:
+        del _request
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/scenes/{scene_key}/close",
+        operation_id="closeCreatorScene",
+        response_model=CreatorSceneResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def close_creator_scene(
+        scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)],
+    ) -> CreatorSceneResponse:
+        del scene_key
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/scenes/{scene_key}/reopen",
+        operation_id="reopenCreatorScene",
+        response_model=CreatorSceneResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def reopen_creator_scene(
+        scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)],
+    ) -> CreatorSceneResponse:
+        del scene_key
+        raise NotImplementedError
+
+    @app.get(
         "/v1/scenes/{scene_key}/timeline",
         operation_id="getSceneTimeline",
         response_model=SceneTimelinePageResponse,
@@ -2497,6 +2625,10 @@ def build_creator_openapi() -> dict[str, object]:
         request_creator_emergency_wake,
         list_capability_requests,
         decide_capability_request,
+        list_creator_scenes,
+        create_creator_scene,
+        close_creator_scene,
+        reopen_creator_scene,
         scene_timeline,
         accept_creator_message,
         accept_creator_codex_task,
@@ -2508,6 +2640,13 @@ def build_creator_openapi() -> dict[str, object]:
     del schema_handlers
     schema = app.openapi()
     schema.pop("servers", None)
+    schema["paths"]["/v1/scenes"]["post"]["responses"].pop("422", None)
+    schema["paths"]["/v1/scenes/{scene_key}/close"]["post"]["responses"].pop(
+        "422", None
+    )
+    schema["paths"]["/v1/scenes/{scene_key}/reopen"]["post"]["responses"].pop(
+        "422", None
+    )
     schema["paths"]["/v1/scenes/{scene_key}/timeline"]["get"]["responses"].pop(
         "422", None
     )
@@ -2603,6 +2742,9 @@ __all__ = (
     "CreatorRelationshipItemResponse",
     "CreatorRelationshipRevisionResponse",
     "CreatorRelationshipTimelineResponse",
+    "CreatorSceneCollectionResponse",
+    "CreatorSceneCreateRequest",
+    "CreatorSceneResponse",
     "EffectResponse",
     "ErrorDescriptorResponse",
     "FailedOutcomeResponse",
