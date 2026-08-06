@@ -99,6 +99,10 @@ from .life_opportunity import (
     build_life_opportunity_pipeline,
 )
 from .model_pipeline import ModelPipeline, build_model_pipeline
+from .other_human_input import (
+    OtherHumanInputService,
+    build_other_human_input_service,
+)
 from .response_pipeline import (
     ResponseAdmissionPipeline,
     build_response_admission_pipeline,
@@ -494,7 +498,9 @@ def compose_life_record_query(
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
-                    raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
+                    raise LifeRecordQueryViolation(
+                        "LIFE-QUERY-UNAVAILABLE"
+                    ) from None
                 config = prepared.effective.config
                 return PostgreSQLLifeRecordQuery(
                     conninfo,
@@ -534,9 +540,7 @@ def compose_exact_life_query_pipeline(
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
-                    raise LifeRecordQueryViolation(
-                        "LIFE-QUERY-UNAVAILABLE"
-                    ) from None
+                    raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
                 config = prepared.effective.config
                 return build_exact_life_query_pipeline(
                     conninfo,
@@ -737,6 +741,61 @@ def compose_creator_input(
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                     fault_injector=fault_injector,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise DatabaseViolation(
+            "DB-ROLE-CREDENTIAL-SCOPE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
+
+
+def compose_other_human_input(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    wakeups: WorkWakeupBus | None = None,
+) -> OtherHumanInputService:
+    """Resolve the Runtime credential for the local other-human T-02 owner."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the required database credential locator is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
+    try:
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.runtime")
+        ) as handle:
+
+            def create(value: memoryview) -> OtherHumanInputService:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-CONNECTION-UNAVAILABLE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
+                    ) from None
+                config = prepared.effective.config
+                return build_other_human_input_service(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
+                    wakeups=wakeups,
                 )
 
             return handle.consume(create)

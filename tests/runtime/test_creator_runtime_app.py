@@ -61,9 +61,17 @@ from armi_kernel.application import (
     MaintenanceTriggerKind,
     MaintenanceWorkOutcome,
     OpportunityId,
+    OtherHumanInputAcceptance,
+    OtherHumanInputCommand,
+    OtherHumanInputViolation,
+    OtherHumanInteractionId,
+    OtherHumanPartyView,
+    OtherHumanSceneCommand,
+    OtherHumanSceneView,
     PromptDocumentStatus,
     PromptKind,
     PromptRevisionKind,
+    RegisterOtherHumanPartyCommand,
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
@@ -107,6 +115,74 @@ CREATOR_BEARER = f"creator-v1.{'a' * 43}"
 class _SceneTimelineQuery:
     async def query(self, request: SceneTimelineQuery) -> SceneTimelinePage:
         return SceneTimelinePage(scene_key=request.scene_key, items=())
+
+
+class _OtherHumanInput:
+    def __init__(self) -> None:
+        self.party_id = uuid7()
+        self.scene_id = uuid7()
+        self.commands: list[object] = []
+        self.party_key: str | None = None
+        self.scene_status = SceneStatus.CLOSED
+        self.accepted: dict[str, tuple[str, OtherHumanInputAcceptance]] = {}
+
+    async def register_party(
+        self, command: RegisterOtherHumanPartyCommand
+    ) -> OtherHumanPartyView:
+        self.commands.append(command)
+        self.party_key = command.party_key.value
+        return OtherHumanPartyView(
+            self.party_id, command.party_key, command.display_label
+        )
+
+    async def set_scene(self, command: OtherHumanSceneCommand) -> OtherHumanSceneView:
+        self.commands.append(command)
+        if command.party_key.value != self.party_key:
+            raise OtherHumanInputViolation("SCOPE-OTHER-HUMAN-PARTY-NOT-VISIBLE")
+        self.scene_status = command.target_status
+        return OtherHumanSceneView(
+            self.scene_id, self.party_id, command.scene_key, command.target_status
+        )
+
+    async def accept(
+        self, command: OtherHumanInputCommand
+    ) -> OtherHumanInputAcceptance:
+        self.commands.append(command)
+        if (
+            command.party_key.value != self.party_key
+            or self.scene_status is SceneStatus.CLOSED
+        ):
+            raise OtherHumanInputViolation("SCOPE-OTHER-HUMAN-SCENE-NOT-VISIBLE")
+        prior = self.accepted.get(command.idempotency_key.value)
+        content_digest = Digest.from_bytes(command.message_bytes)
+        if prior is not None:
+            if prior[0] != content_digest.value:
+                raise OtherHumanInputViolation("IDEMPOTENCY-OTHER-HUMAN-INPUT-MISMATCH")
+            return OtherHumanInputAcceptance(
+                prior[1].party_id,
+                prior[1].scene_id,
+                prior[1].interaction_id,
+                prior[1].evidence_id,
+                prior[1].opportunity_id,
+                prior[1].request_digest,
+                prior[1].content_digest,
+                False,
+            )
+        acceptance = OtherHumanInputAcceptance(
+            self.party_id,
+            self.scene_id,
+            OtherHumanInteractionId(uuid7()),
+            EvidenceId(uuid7()),
+            OpportunityId(uuid7()),
+            Digest.from_bytes(b"request"),
+            content_digest,
+            True,
+        )
+        self.accepted[command.idempotency_key.value] = (
+            content_digest.value,
+            acceptance,
+        )
+        return acceptance
 
 
 class _CreatorScenes:
@@ -638,6 +714,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         )
         self.events = CreatorEventBroker(epoch=b"\x06" * 16)
         self.creator_input = _CreatorInput()
+        self.other_human_input = _OtherHumanInput()
         self.creator_scenes = _CreatorScenes()
         self.creator_codex_task = _CreatorCodexTask()
         self.capability_policy = _CapabilityPolicy()
@@ -697,6 +774,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_emergency_wake=self.emergency_wake,
             creator_events=self.events,
             creator_input=self.creator_input,
+            other_human_input=self.other_human_input,
             codex_task_admission=self.creator_codex_task,
             creator_operations=self.creator_input,
             creator_prompt=self.creator_prompt,
@@ -714,6 +792,76 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         if token is not None:
             headers["Authorization"] = f"Bearer {token}"
         return headers
+
+    def test_local_other_human_party_scene_and_input_are_role_scoped(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            wrong_role = client.post(
+                "/v1/local/other-humans/parties",
+                json={
+                    "party_key": "friend-1",
+                    "display_label": "朋友",
+                    "role": "creator",
+                },
+            )
+            self.assertEqual(wrong_role.status_code, 400)
+
+            party = client.post(
+                "/v1/local/other-humans/parties",
+                json={
+                    "party_key": "friend-1",
+                    "display_label": "朋友",
+                    "role": "other_human",
+                },
+            )
+            self.assertEqual(party.status_code, 201)
+            self.assertEqual(party.json()["identity_assurance"], "caller_declared")
+
+            scene = client.put(
+                "/v1/local/other-humans/friend-1/scenes/default",
+                json={"status": "open"},
+            )
+            self.assertEqual(scene.status_code, 200)
+            accepted = client.post(
+                "/v1/local/other-humans/friend-1/scenes/default/messages",
+                headers={"Idempotency-Key": "message-1"},
+                json={"message": "你好"},
+            )
+            self.assertEqual(accepted.status_code, 202)
+            self.assertTrue(accepted.json()["newly_accepted"])
+            self.assertIsInstance(
+                self.other_human_input.commands[-1], OtherHumanInputCommand
+            )
+
+            duplicate = client.post(
+                "/v1/local/other-humans/friend-1/scenes/default/messages",
+                headers={"Idempotency-Key": "message-1"},
+                json={"message": "你好"},
+            )
+            self.assertEqual(duplicate.status_code, 202)
+            self.assertFalse(duplicate.json()["newly_accepted"])
+            mismatch = client.post(
+                "/v1/local/other-humans/friend-1/scenes/default/messages",
+                headers={"Idempotency-Key": "message-1"},
+                json={"message": "不同内容"},
+            )
+            self.assertEqual(mismatch.status_code, 409)
+            cross_party = client.post(
+                "/v1/local/other-humans/stranger/scenes/default/messages",
+                headers={"Idempotency-Key": "message-2"},
+                json={"message": "不应接纳"},
+            )
+            self.assertEqual(cross_party.status_code, 404)
+            closed = client.put(
+                "/v1/local/other-humans/friend-1/scenes/default",
+                json={"status": "closed"},
+            )
+            self.assertEqual(closed.status_code, 200)
+            after_close = client.post(
+                "/v1/local/other-humans/friend-1/scenes/default/messages",
+                headers={"Idempotency-Key": "message-3"},
+                json={"message": "关闭后输入"},
+            )
+            self.assertEqual(after_close.status_code, 404)
 
     def test_health_and_static_surface_are_exact(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

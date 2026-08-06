@@ -79,6 +79,7 @@ from .database import (
     compose_life_opportunity_pipeline,
     compose_life_record_query,
     compose_model_pipeline,
+    compose_other_human_input,
     compose_response_admission_pipeline,
     compose_runtime_authority,
     compose_runtime_observation,
@@ -166,6 +167,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     creator_prompt_service = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
+    other_human_input = None
     life_opportunity_pipeline = None
     context_pipeline = None
     model_pipeline = None
@@ -344,6 +346,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 fault_injector=inject_admin_fault,
             )
             await creator_input.open()
+            other_human_input = compose_other_human_input(
+                prepared,
+                authority_admission=authority.require_writable,
+                wakeups=work_wakeups,
+            )
+            await other_human_input.open()
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
@@ -542,6 +550,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await creator_prompt_service.close()
             if creator_input is not None:
                 await creator_input.close()
+            if other_human_input is not None:
+                await other_human_input.close()
             if context_pipeline is not None:
                 await context_pipeline.close()
             if life_opportunity_pipeline is not None:
@@ -750,6 +760,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_prompt_service.close()
         if creator_input is not None:
             await creator_input.close()
+        if other_human_input is not None:
+            await other_human_input.close()
         if context_pipeline is not None:
             context_pipeline.stop()
         if life_opportunity_pipeline is not None:
@@ -936,6 +948,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         creator_emergency_wake=life_opportunity_pipeline,
         creator_events=creator_events,
         creator_input=creator_input,
+        other_human_input=other_human_input,
         creator_operations=creator_input,
         subject_summary=(
             creator_input.get_subject_summary if creator_input is not None else None
@@ -1014,6 +1027,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_prompt_service.close()
         if creator_input is not None:
             await creator_input.close()
+        if other_human_input is not None:
+            await other_human_input.close()
         if context_pipeline is not None:
             await context_pipeline.close()
         if life_opportunity_pipeline is not None:

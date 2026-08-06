@@ -64,7 +64,13 @@ from armi_kernel.application import (
     LifeRecordRetrievalKind,
     LifeViolation,
     OpportunityId,
+    OtherHumanInputCommand,
+    OtherHumanInputPort,
+    OtherHumanInputViolation,
+    OtherHumanPartyKey,
+    OtherHumanSceneCommand,
     PromptKind,
+    RegisterOtherHumanPartyCommand,
     SceneKey,
     SceneQueryViolation,
     SceneStatus,
@@ -392,6 +398,25 @@ async def _creator_input_request(
         return CreatorInputRequest.model_validate(value)
     except UnicodeDecodeError, ValueError, ValidationError:
         raise CreatorInputViolation("INPUT-BODY") from None
+
+
+async def _local_json_object(request: Request, maximum_bytes: int) -> dict[str, Any]:
+    if request.headers.get("content-type") != "application/json":
+        raise OtherHumanInputViolation("OTHER-HUMAN-INPUT-CONTENT-TYPE")
+    body = await request.body()
+    if not body or len(body) > maximum_bytes:
+        raise OtherHumanInputViolation("OTHER-HUMAN-INPUT-BODY")
+    try:
+        value = json.loads(
+            body.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
+        )
+    except UnicodeDecodeError, ValueError:
+        raise OtherHumanInputViolation("OTHER-HUMAN-INPUT-BODY") from None
+    if type(value) is not dict:
+        raise OtherHumanInputViolation("OTHER-HUMAN-INPUT-BODY")
+    return cast(dict[str, Any], value)
 
 
 async def _creator_scene_create_request(
@@ -1153,6 +1178,7 @@ def create_runtime_app(
     creator_emergency_wake: CreatorEmergencyWakePort | None = None,
     creator_events: CreatorEventBroker | None = None,
     creator_input: CreatorInputAcceptancePort | None = None,
+    other_human_input: OtherHumanInputPort | None = None,
     creator_operations: CreatorOperationQueryPort | None = None,
     subject_summary: SubjectSummaryProvider | None = None,
     creator_prompt: CreatorPromptPort | None = None,
@@ -3037,6 +3063,146 @@ def create_runtime_app(
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
     del get_scene_timeline
+
+    def other_human_failure(error: OtherHumanInputViolation) -> JSONResponse:
+        if error.code.startswith("SCOPE-"):
+            return JSONResponse(
+                status_code=404, content=_rejected("SCOPE_OTHER_HUMAN_NOT_VISIBLE")
+            )
+        if error.code.startswith("IDEMPOTENCY-"):
+            return JSONResponse(
+                status_code=409, content=_rejected("CONFLICT_OTHER_HUMAN_IDEMPOTENCY")
+            )
+        if error.code.startswith(("CON-", "OTHER-HUMAN-INPUT-")):
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_OTHER_HUMAN_REQUEST")
+            )
+        return JSONResponse(
+            status_code=503,
+            content=_unavailable("DEPENDENCY_OTHER_HUMAN_INPUT_UNAVAILABLE"),
+        )
+
+    @app.post("/v1/local/other-humans/parties")
+    async def register_other_human_party(request: Request) -> JSONResponse:
+        if other_human_input is None:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_OTHER_HUMAN_INPUT_UNAVAILABLE"),
+            )
+        try:
+            value = await _local_json_object(request, request_body_max_bytes)
+            if set(value) != {"party_key", "display_label", "role"}:
+                raise OtherHumanInputViolation("OTHER-HUMAN-INPUT-BODY")
+            view = await other_human_input.register_party(
+                RegisterOtherHumanPartyCommand(
+                    OtherHumanPartyKey(value["party_key"]),
+                    value["display_label"],
+                    value["role"],
+                    TraceId(secrets.token_hex(16)),
+                )
+            )
+        except (ContractViolation, OtherHumanInputViolation) as error:
+            if isinstance(error, OtherHumanInputViolation):
+                return other_human_failure(error)
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_OTHER_HUMAN_PARTY")
+            )
+        return JSONResponse(
+            status_code=201,
+            content={
+                "contract_version": "1.0",
+                "party_id": str(view.party_id),
+                "party_key": view.party_key.value,
+                "display_label": view.display_label,
+                "role": "other_human",
+                "identity_assurance": view.identity_assurance,
+            },
+        )
+
+    @app.put("/v1/local/other-humans/{party_key}/scenes/{scene_key}")
+    async def set_other_human_scene(
+        party_key: str, scene_key: str, request: Request
+    ) -> JSONResponse:
+        if other_human_input is None:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_OTHER_HUMAN_INPUT_UNAVAILABLE"),
+            )
+        try:
+            value = await _local_json_object(request, request_body_max_bytes)
+            if set(value) != {"status"}:
+                raise OtherHumanInputViolation("OTHER-HUMAN-INPUT-BODY")
+            view = await other_human_input.set_scene(
+                OtherHumanSceneCommand(
+                    OtherHumanPartyKey(party_key),
+                    SceneKey(scene_key),
+                    SceneStatus(value["status"]),
+                    TraceId(secrets.token_hex(16)),
+                )
+            )
+        except (ValueError, ContractViolation, OtherHumanInputViolation) as error:
+            if isinstance(error, OtherHumanInputViolation):
+                return other_human_failure(error)
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_OTHER_HUMAN_SCENE")
+            )
+        return JSONResponse(
+            content={
+                "contract_version": "1.0",
+                "scene_id": str(view.scene_id),
+                "party_id": str(view.party_id),
+                "scene_key": view.scene_key.value,
+                "status": view.status.value,
+            }
+        )
+
+    @app.post("/v1/local/other-humans/{party_key}/scenes/{scene_key}/messages")
+    async def accept_other_human_message(
+        party_key: str, scene_key: str, request: Request
+    ) -> JSONResponse:
+        if other_human_input is None:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_OTHER_HUMAN_INPUT_UNAVAILABLE"),
+            )
+        idempotency_value = _single_header(request, b"idempotency-key")
+        if idempotency_value is None:
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_IDEMPOTENCY_KEY")
+            )
+        try:
+            value = await _local_json_object(request, request_body_max_bytes)
+            if set(value) != {"message"}:
+                raise OtherHumanInputViolation("OTHER-HUMAN-INPUT-BODY")
+            accepted = await other_human_input.accept(
+                OtherHumanInputCommand(
+                    OtherHumanPartyKey(party_key),
+                    SceneKey(scene_key),
+                    value["message"],
+                    IdempotencyKey(idempotency_value),
+                    TraceId(secrets.token_hex(16)),
+                )
+            )
+        except (ContractViolation, OtherHumanInputViolation) as error:
+            if isinstance(error, OtherHumanInputViolation):
+                return other_human_failure(error)
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_OTHER_HUMAN_MESSAGE")
+            )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "contract_version": "1.0",
+                "party_id": str(accepted.party_id),
+                "scene_id": str(accepted.scene_id),
+                "interaction_id": str(accepted.interaction_id.value),
+                "evidence_id": str(accepted.evidence_id),
+                "opportunity_id": str(accepted.opportunity_id),
+                "newly_accepted": accepted.newly_accepted,
+            },
+        )
+
+    del register_other_human_party, set_other_human_scene, accept_other_human_message
 
     @app.post("/v1/scenes/{scene_key}/messages")
     async def accept_creator_message(

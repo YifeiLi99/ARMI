@@ -217,6 +217,14 @@ class PostgreSQLContextRepository:
                  AND subject.status = 'active'
                 WHERE opportunity.eligibility_status = 'eligible'
                   AND opportunity.current_disposition = 'open'
+                  AND opportunity.purpose IN (
+                      'consider_creator_input', 'consider_web_evidence',
+                      'consider_codex_task', 'consider_codex_result',
+                      'consider_autonomous_life', 'consider_activity_attention',
+                      'consider_activity_internal_work', 'consider_sleep',
+                      'consider_life_query_result', 'maintain_subjective_memory',
+                      'perform_subject_self_check', 'consider_creator_outreach'
+                  )
                   AND opportunity.available_after <= transaction_timestamp()
                   AND (
                       opportunity.expires_at IS NULL
