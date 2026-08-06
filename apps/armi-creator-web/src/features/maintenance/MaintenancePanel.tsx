@@ -39,6 +39,13 @@ const TRANSITION_LABELS: Record<string, string> = {
   system_failed: "维护发生技术故障",
 };
 
+const WORK_OUTCOME_LABELS: Record<string, string> = {
+  memory_changed: "记忆发生维护变化",
+  memory_unchanged: "记忆无需变化",
+  issue_found: "自检发现问题",
+  no_issue: "自检未发现问题",
+};
+
 export function MaintenancePanel({
   token,
   environmentId,
@@ -211,6 +218,17 @@ export function MaintenancePanel({
                       {TRANSITION_LABELS[item.transition_kind] ??
                         item.transition_kind}
                     </span>
+                    {item.work_outcome === null ? null : (
+                      <span>
+                        {WORK_OUTCOME_LABELS[item.work_outcome] ??
+                          item.work_outcome}
+                      </span>
+                    )}
+                    {item.problem_summary === null ? null : (
+                      <p role="alert">
+                        发现需要 Creator 关注的问题：{item.problem_summary}
+                      </p>
+                    )}
                     <time dateTime={item.occurred_at}>{item.occurred_at}</time>
                   </li>
                 ))}

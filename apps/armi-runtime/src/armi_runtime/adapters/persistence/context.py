@@ -211,10 +211,35 @@ class PostgreSQLContextRepository:
                       opportunity.expires_at IS NULL
                       OR opportunity.expires_at > transaction_timestamp()
                   )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM armi.maintenance_sessions AS maintenance
-                      WHERE maintenance.subject_id = opportunity.subject_id
-                        AND maintenance.finished_at IS NULL
+                  AND (
+                      NOT EXISTS (
+                          SELECT 1 FROM armi.maintenance_sessions AS maintenance
+                          WHERE maintenance.subject_id = opportunity.subject_id
+                            AND maintenance.finished_at IS NULL
+                      )
+                      OR EXISTS (
+                          SELECT 1
+                          FROM armi.maintenance_sessions AS maintenance
+                          JOIN armi.maintenance_session_revisions AS revision
+                            ON revision.maintenance_revision_id =
+                               maintenance.current_revision_id
+                          WHERE maintenance.subject_id = opportunity.subject_id
+                            AND maintenance.finished_at IS NULL
+                            AND opportunity.source_kind =
+                                'maintenance_phase_revision'
+                            AND opportunity.source_ref =
+                                maintenance.current_revision_id
+                            AND opportunity.source_version =
+                                maintenance.head_version
+                            AND (
+                                (opportunity.purpose =
+                                    'maintain_subjective_memory'
+                                  AND revision.phase = 'memory_maintenance')
+                                OR (opportunity.purpose =
+                                    'perform_subject_self_check'
+                                  AND revision.phase = 'self_check')
+                            )
+                      )
                   )
                 ORDER BY opportunity.available_after, opportunity.opportunity_id
                 FOR UPDATE OF opportunity SKIP LOCKED
@@ -543,11 +568,16 @@ class PostgreSQLContextRepository:
                      relationship.current_revision_id
                 WHERE relationship.subject_id = %s
                   AND relationship.life_generation_id = %s
-                  AND relationship.other_party_id = %s
-                  AND relationship.scope = 'creator_social'
+                  AND (
+                      %s = 'perform_subject_self_check'
+                      OR (
+                          relationship.other_party_id = %s
+                          AND relationship.scope = 'creator_social'
+                      )
+                  )
                 ORDER BY relationship.relationship_id
                 """,
-                (row[2], row[28], row[4]),
+                (row[2], row[28], row[20], row[4]),
             )
         ).fetchall()
         relationship_payloads = tuple(

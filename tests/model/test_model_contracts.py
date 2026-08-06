@@ -26,6 +26,7 @@ from armi_runtime.composition.model_contract import (
     ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     DIALOGUE_CANDIDATE_VERSION,
+    MAINTENANCE_WORK_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CognitionCandidateV7,
     build_request_bytes,
@@ -143,6 +144,43 @@ def test_activity_internal_work_contract_is_bounded_and_has_no_external_executio
             ).encode(),
             allowed_context_refs=frozenset(),
             expected_version=ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
+        )
+
+
+def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> None:
+    unchanged = parse_candidate(
+        b'{"kind":"memory_unchanged","summary":"No grounded change is needed."}',
+        allowed_context_refs=frozenset(),
+        expected_version=MAINTENANCE_WORK_CANDIDATE_VERSION,
+    )
+    assert getattr(unchanged, "kind", None) == "memory_unchanged"
+    binding = load_purpose_binding("maintain_subjective_memory")
+    assert binding.profile == "memory_maintenance"
+    assert binding.response_contract_version == MAINTENANCE_WORK_CANDIDATE_VERSION
+    assert load_purpose_binding("perform_subject_self_check").profile == (
+        "subject_self_check"
+    )
+
+    schema_text = json.dumps(
+        candidate_schema(MAINTENANCE_WORK_CANDIDATE_VERSION), separators=(",", ":")
+    )
+    assert "consolidate" in schema_text
+    assert "issue_found" in schema_text
+    assert "audit" not in schema_text
+    assert "relationship_change" not in schema_text
+
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-REFERENCE"):
+        parse_candidate(
+            json.dumps(
+                {
+                    "kind": "reinterpret",
+                    "memory_ref": "ctx:2",
+                    "reason": "A current contradiction changes the interpretation.",
+                    "summary": "A revised current understanding.",
+                }
+            ).encode(),
+            allowed_context_refs=frozenset({"ctx:1"}),
+            expected_version=MAINTENANCE_WORK_CANDIDATE_VERSION,
         )
 
 

@@ -49,6 +49,16 @@
       "output_token_limit": 256,
       "profile": "sleep_decision",
       "response_contract_version": "armi.sleep-decision-candidate.v1"
+    },
+    "maintain_subjective_memory": {
+      "output_token_limit": 1024,
+      "profile": "memory_maintenance",
+      "response_contract_version": "armi.maintenance-work-candidate.v1"
+    },
+    "perform_subject_self_check": {
+      "output_token_limit": 1024,
+      "profile": "subject_self_check",
+      "response_contract_version": "armi.maintenance-work-candidate.v1"
     }
   },
   "schema_version": "armi.model-bindings.v1"

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid7
 
+import rfc8785
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -18,7 +20,7 @@ from armi_kernel.application import (
     MaintenanceResultStatus,
     plan_maintenance_checkpoint,
 )
-from armi_kernel.contracts import Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -30,6 +32,8 @@ class MaintenanceProgress:
     result_status: MaintenanceResultStatus
     head_version: int
     reason_code: str
+    opportunity_id: UUID | None = None
+    opportunity_admitted: bool = False
 
 
 class PostgreSQLMaintenanceRepository:
@@ -123,6 +127,135 @@ class PostgreSQLMaintenanceRepository:
         if phase is MaintenancePhase.LIFE_QUIET and quiet_until is None:
             raise LifeViolation("LIFE-MAINTENANCE-STATE")
         next_quiet_until = quiet_until
+        if wake_requested:
+            await connection.execute(
+                """
+                UPDATE armi.opportunities
+                SET current_disposition = 'cancelled',
+                    resolved_at = statement_timestamp()
+                WHERE subject_id = %s
+                  AND source_kind = 'maintenance_phase_revision'
+                  AND source_ref = %s
+                  AND current_disposition = 'open'
+                """,
+                (fence.subject_id, revision_id),
+            )
+        elif phase in {
+            MaintenancePhase.MEMORY_MAINTENANCE,
+            MaintenancePhase.SELF_CHECK,
+        }:
+            completed = await (
+                await connection.execute(
+                    """
+                    SELECT 1
+                    FROM armi.maintenance_phase_results
+                    WHERE maintenance_session_id = %s
+                      AND maintenance_revision_id = %s
+                      AND expected_head_version = %s
+                    """,
+                    (session_id, revision_id, head_version),
+                )
+            ).fetchone()
+            if completed is None:
+                opportunity_id, admitted = await _admit_phase_work(
+                    connection,
+                    subject_id=fence.subject_id,
+                    session_id=session_id,
+                    revision_id=revision_id,
+                    head_version=head_version,
+                    phase=phase,
+                )
+                if opportunity_id is None:
+                    failed_revision_id = uuid7()
+                    await connection.execute(
+                        """
+                        INSERT INTO armi.maintenance_session_revisions (
+                            maintenance_revision_id, maintenance_session_id,
+                            revision_no, previous_revision_id, phase,
+                            result_status, transition_kind, schema_version
+                        ) VALUES (
+                            %s, %s, %s, %s, %s,
+                            'failed', 'system_failed', 1
+                        )
+                        """,
+                        (
+                            failed_revision_id,
+                            session_id,
+                            revision_no + 1,
+                            revision_id,
+                            phase.value,
+                        ),
+                    )
+                    failed_update = await connection.execute(
+                        """
+                        UPDATE armi.maintenance_sessions
+                        SET current_revision_id = %s,
+                            head_version = head_version + 1,
+                            finished_at = statement_timestamp()
+                        WHERE maintenance_session_id = %s
+                          AND current_revision_id = %s
+                          AND head_version = %s
+                          AND finished_at IS NULL
+                        """,
+                        (
+                            failed_revision_id,
+                            session_id,
+                            revision_id,
+                            head_version,
+                        ),
+                    )
+                    if failed_update.rowcount != 1:
+                        raise LifeViolation("LIFE-MAINTENANCE-STALE")
+                    await unit_of_work.audit.append(
+                        AuditDraft(
+                            AuditEventId(uuid7()),
+                            AuditReference("runtime", unit_of_work.environment_id),
+                            Purpose("life.maintenance.work"),
+                            "life.maintenance.work.failed",
+                            AuditReference("maintenance_session", session_id),
+                            AuditResultStatus.FAILED,
+                            TraceId(failed_revision_id.hex),
+                            AuditSensitivity.PRIVATE,
+                            subject_id=SubjectId(fence.subject_id),
+                            request=AuditReference("maintenance_revision", revision_id),
+                        )
+                    )
+                    return MaintenanceProgress(
+                        session_id,
+                        phase,
+                        MaintenanceResultStatus.FAILED,
+                        head_version + 1,
+                        "LIFE-MAINTENANCE-WORK-FAILED",
+                    )
+                if admitted:
+                    await unit_of_work.audit.append(
+                        AuditDraft(
+                            AuditEventId(uuid7()),
+                            AuditReference("runtime", unit_of_work.environment_id),
+                            Purpose("life.maintenance.work"),
+                            "life.maintenance.work.admitted",
+                            AuditReference("opportunity", opportunity_id),
+                            AuditResultStatus.ACCEPTED,
+                            TraceId(opportunity_id.hex),
+                            AuditSensitivity.PRIVATE,
+                            subject_id=SubjectId(fence.subject_id),
+                            request=AuditReference("maintenance_revision", revision_id),
+                        )
+                    )
+                return MaintenanceProgress(
+                    session_id,
+                    phase,
+                    result,
+                    head_version,
+                    (
+                        "LIFE-MAINTENANCE-WORK-ADMITTED"
+                        if admitted
+                        else "LIFE-MAINTENANCE-WORK-PENDING"
+                    ),
+                    opportunity_id,
+                    admitted,
+                )
+
         plan = plan_maintenance_checkpoint(
             MaintenancePhaseState(phase, result),
             wake_requested=wake_requested,
@@ -294,6 +427,122 @@ class PostgreSQLMaintenanceRepository:
             )
         ).fetchone()
         return None if row is None else row[0]
+
+
+async def _admit_phase_work(
+    connection: Any,
+    *,
+    subject_id: UUID,
+    session_id: UUID,
+    revision_id: UUID,
+    head_version: int,
+    phase: MaintenancePhase,
+) -> tuple[UUID | None, bool]:
+    purpose = {
+        MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
+        MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
+    }[phase]
+    source_digest = Digest.from_bytes(
+        rfc8785.dumps(
+            {
+                "schema_version": "armi.maintenance-phase-source.v1",
+                "maintenance_session_id": str(session_id),
+                "maintenance_revision_id": str(revision_id),
+                "head_version": head_version,
+                "phase": phase.value,
+                "purpose": purpose,
+            }
+        )
+    )
+    opportunity_id = uuid7()
+    row = await (
+        await connection.execute(
+            """
+            INSERT INTO armi.opportunities (
+                opportunity_id, evidence_id, subject_id, scene_id,
+                creator_party_id, purpose, eligibility_status,
+                current_disposition, root_opportunity_id, reconsideration_no,
+                source_kind, source_ref, source_version, source_digest,
+                activity_id, schema_version
+            ) VALUES (
+                %s, NULL, %s, NULL, NULL, %s, 'eligible', 'open', %s, 0,
+                'maintenance_phase_revision', %s, %s, %s, NULL, 1
+            )
+            ON CONFLICT (
+                subject_id, source_kind, source_ref, source_version,
+                purpose, reconsideration_no
+            ) DO NOTHING
+            RETURNING opportunity_id
+            """,
+            (
+                opportunity_id,
+                subject_id,
+                purpose,
+                opportunity_id,
+                revision_id,
+                head_version,
+                source_digest.value,
+            ),
+        )
+    ).fetchone()
+    if row is not None:
+        return row[0], True
+    existing = await (
+        await connection.execute(
+            """
+            SELECT opportunity_id, source_digest, current_disposition,
+                   root_opportunity_id, reconsideration_no
+            FROM armi.opportunities
+            WHERE subject_id = %s
+              AND source_kind = 'maintenance_phase_revision'
+              AND source_ref = %s AND source_version = %s
+              AND purpose = %s
+            ORDER BY reconsideration_no DESC
+            LIMIT 1
+            """,
+            (subject_id, revision_id, head_version, purpose),
+        )
+    ).fetchone()
+    if existing is None or str(existing[1]) != source_digest.value:
+        raise LifeViolation("LIFE-MAINTENANCE-SOURCE-DRIFT")
+    if str(existing[2]) in {"open", "selected"}:
+        return existing[0], False
+    if int(existing[4]) == 1:
+        return None, False
+    successor_id = uuid7()
+    successor = await (
+        await connection.execute(
+            """
+            INSERT INTO armi.opportunities (
+                opportunity_id, evidence_id, subject_id, scene_id,
+                creator_party_id, purpose, eligibility_status,
+                current_disposition, root_opportunity_id,
+                predecessor_opportunity_id, reconsideration_no,
+                source_kind, source_ref, source_version, source_digest,
+                activity_id, schema_version
+            ) VALUES (
+                %s, NULL, %s, NULL, NULL, %s, 'eligible', 'open',
+                %s, %s, 1, 'maintenance_phase_revision', %s, %s, %s,
+                NULL, 1
+            )
+            ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+            RETURNING opportunity_id
+            """,
+            (
+                successor_id,
+                subject_id,
+                purpose,
+                existing[3],
+                existing[0],
+                revision_id,
+                head_version,
+                source_digest.value,
+            ),
+        )
+    ).fetchone()
+    if successor is not None:
+        return successor[0], True
+    return None, False
 
 
 __all__ = ("MaintenanceProgress", "PostgreSQLMaintenanceRepository")

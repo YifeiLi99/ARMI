@@ -13,6 +13,7 @@ from armi_runtime.interfaces.creator_contract import (
     CapabilityRequestItemResponse,
     CreatorLifeMaterialResponse,
     CreatorMaintenanceStatusResponse,
+    CreatorMaintenanceTimelineItemResponse,
     CreatorMemoryItemResponse,
     CreatorProjectionEventResponse,
     CreatorRelationshipBoundaryRequest,
@@ -279,7 +280,7 @@ class CreatorContractTests(unittest.TestCase):
         status = CreatorMaintenanceStatusResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "creator-maintenance.v1",
+                "projection_version": "creator-maintenance.v2",
                 "session": {
                     "maintenance_session_id": ENVIRONMENT_ID,
                     "trigger_kind": "system_deadline",
@@ -303,6 +304,28 @@ class CreatorContractTests(unittest.TestCase):
                 {
                     **status.model_dump(),
                     "private_memory": "hidden",
+                }
+            )
+
+    def test_maintenance_timeline_exposes_only_bounded_self_check_problem(self) -> None:
+        issue = CreatorMaintenanceTimelineItemResponse.model_validate(
+            {
+                "revision_id": ENVIRONMENT_ID,
+                "revision_no": 3,
+                "phase": "self_check",
+                "result_status": "running",
+                "transition_kind": "advanced",
+                "occurred_at": INSTANT,
+                "work_outcome": "issue_found",
+                "problem_summary": "有一项内部责任需要后续关注。",
+            }
+        )
+        self.assertEqual(issue.work_outcome, "issue_found")
+        with self.assertRaises(ValidationError):
+            CreatorMaintenanceTimelineItemResponse.model_validate(
+                {
+                    **issue.model_dump(),
+                    "work_outcome": "no_issue",
                 }
             )
 

@@ -45,7 +45,7 @@ describe("Creator maintenance panel", () => {
       if (url === "/v1/maintenance/status") {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-maintenance.v1",
+          projection_version: "creator-maintenance.v2",
           session: {
             maintenance_session_id: SESSION_ID,
             trigger_kind: "system_deadline",
@@ -64,7 +64,7 @@ describe("Creator maintenance panel", () => {
       if (url === `/v1/maintenance/${SESSION_ID}/timeline`) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-maintenance.v1",
+          projection_version: "creator-maintenance.v2",
           maintenance_session_id: SESSION_ID,
           truncated: false,
           items: [
@@ -75,6 +75,8 @@ describe("Creator maintenance panel", () => {
               result_status: "running",
               transition_kind: "advanced",
               occurred_at: "2026-08-04T11:00:00.000000Z",
+              work_outcome: "issue_found",
+              problem_summary: "关系边界存在尚未处理的冲突。",
             },
           ],
         });
@@ -96,6 +98,8 @@ describe("Creator maintenance panel", () => {
     expect(screen.getByText("系统最迟维护期限")).toBeInTheDocument();
     expect(screen.getByText(/当前有 2 条输入等待处理/)).toBeInTheDocument();
     expect(await screen.findByText("进入下一阶段")).toBeInTheDocument();
+    expect(screen.getByText("自检发现问题")).toBeInTheDocument();
+    expect(screen.getByText(/关系边界存在尚未处理的冲突/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "紧急唤醒" }));
     expect(
       await screen.findByText("紧急唤醒已登记，正在等待安全检查点。"),

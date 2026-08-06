@@ -32,6 +32,7 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "CREATE TABLE armi.subjects" in sql
     assert "CREATE TABLE armi.activities" in sql
     assert "CREATE TABLE armi.maintenance_sessions" in sql
+    assert "CREATE TABLE armi.maintenance_phase_results" in sql
     assert "CREATE TABLE armi.subjective_memories" in sql
     assert "CREATE TABLE armi.subjective_memory_revisions" in sql
     assert "CREATE TABLE armi.memory_relations" in sql
@@ -42,6 +43,8 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "CREATE TABLE armi.life_material_revisions" in sql
     assert "CREATE TABLE armi.exact_life_query_intents" in sql
     assert "'consider_life_query_result'" in sql
+    assert "'maintain_subjective_memory'" in sql
+    assert "'perform_subject_self_check'" in sql
     assert "status IN ('pending', 'succeeded', 'empty', 'failed', 'denied')" in sql
     assert "material_kind IN ('diary', 'work', 'collection', 'draft')" in sql
     assert "FOREIGN KEY (owner_party_id, subject_id)" in sql
@@ -63,6 +66,8 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "supports_commitment_event" in sql
     assert "accessibility IN ('available', 'faded', 'forgotten')" in sql
     assert "wake_request_id" in sql
+    assert "sleep-maintenance-v1" in sql
+    assert "creator_visible_problem" in sql
     assert "'birth', 'created', 'revised', 'deactivated'," in sql
     assert "'subject_created', 'subject_revised'" in sql
     assert "prompt_revisions_subject_commit_fk" in sql

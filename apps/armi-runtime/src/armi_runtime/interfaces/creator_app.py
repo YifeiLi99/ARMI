@@ -2531,7 +2531,7 @@ def create_runtime_app(
         session = status.session
         response = CreatorMaintenanceStatusResponse(
             contract_version="1.0",
-            projection_version="creator-maintenance.v1",
+            projection_version="creator-maintenance.v2",
             session=(
                 None
                 if session is None
@@ -2613,7 +2613,7 @@ def create_runtime_app(
             )
         response = CreatorMaintenanceTimelineResponse(
             contract_version="1.0",
-            projection_version="creator-maintenance.v1",
+            projection_version="creator-maintenance.v2",
             maintenance_session_id=str(timeline.session_id),
             items=[
                 CreatorMaintenanceTimelineItemResponse(
@@ -2623,6 +2623,10 @@ def create_runtime_app(
                     result_status=item.result_status.value,
                     transition_kind=item.transition_kind,
                     occurred_at=Instant(item.occurred_at).to_wire(),
+                    work_outcome=(
+                        None if item.work_outcome is None else item.work_outcome.value
+                    ),
+                    problem_summary=item.problem_summary,
                 )
                 for item in timeline.items
             ],

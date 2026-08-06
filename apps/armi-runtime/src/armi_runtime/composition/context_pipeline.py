@@ -468,7 +468,11 @@ def _context_request(
                 ContextTrustClass.SUBJECTIVE_STATE,
                 "private",
                 payload.decode("utf-8"),
-                kind == "self",
+                kind == "self"
+                or (
+                    snapshot.purpose == "perform_subject_self_check"
+                    and kind in {"self", "mind"}
+                ),
                 90,
             )
         )
@@ -487,7 +491,10 @@ def _context_request(
             )
         )
     accessible_memories = tuple(
-        item for item in snapshot.memory_payloads if item[4] in {"available", "faded"}
+        item
+        for item in snapshot.memory_payloads
+        if item[4] in {"available", "faded"}
+        and snapshot.purpose != "perform_subject_self_check"
     )
     if accessible_memories:
         for memory_id, version, payload, digest, accessibility in accessible_memories:
@@ -683,6 +690,32 @@ def _context_request(
             if snapshot.purpose == "consider_sleep"
             else _unavailable(ContextSection.LIFE_MODE, "maintenance_window"),
             _item(
+                ContextSection.LIFE_MODE,
+                "current_maintenance_phase",
+                snapshot.opportunity_source_ref,
+                snapshot.opportunity_source_version,
+                rfc8785.dumps(
+                    {
+                        "source_kind": snapshot.opportunity_source_kind,
+                        "source_ref": str(snapshot.opportunity_source_ref),
+                        "source_version": snapshot.opportunity_source_version,
+                        "source_digest": snapshot.opportunity_source_digest.value,
+                        "purpose": snapshot.purpose,
+                    }
+                ),
+                ContextTrustClass.RUNTIME_AUTHORITY,
+                required=snapshot.purpose
+                in {
+                    "maintain_subjective_memory",
+                    "perform_subject_self_check",
+                },
+                relevance=100,
+                source_kind=snapshot.opportunity_source_kind,
+            )
+            if snapshot.purpose
+            in {"maintain_subjective_memory", "perform_subject_self_check"}
+            else _unavailable(ContextSection.LIFE_MODE, "maintenance_phase"),
+            _item(
                 ContextSection.ACTIVITY,
                 "current_activities",
                 snapshot.subject_id,
@@ -695,6 +728,7 @@ def _context_request(
                     "consider_activity_attention",
                     "consider_activity_internal_work",
                     "consider_sleep",
+                    "perform_subject_self_check",
                 },
                 relevance=95,
                 source_kind="activity_summary",

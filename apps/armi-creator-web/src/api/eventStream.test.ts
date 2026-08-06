@@ -51,7 +51,7 @@ describe("authenticated Creator event stream parser", () => {
       "maintenance.invalidated",
       "maintenance",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",
-      "creator-maintenance.v1",
+      "creator-maintenance.v2",
     ],
     [
       "material.invalidated",

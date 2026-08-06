@@ -38,6 +38,13 @@ class MaintenanceResultStatus(StrEnum):
     FAILED = "failed"
 
 
+class MaintenanceWorkOutcome(StrEnum):
+    MEMORY_CHANGED = "memory_changed"
+    MEMORY_UNCHANGED = "memory_unchanged"
+    ISSUE_FOUND = "issue_found"
+    NO_ISSUE = "no_issue"
+
+
 @dataclass(frozen=True, slots=True)
 class MaintenanceCheckpointPlan:
     following: MaintenancePhaseState
@@ -129,6 +136,7 @@ __all__ = (
     "MaintenanceResultStatus",
     "MaintenanceTriggerKind",
     "MaintenanceViolation",
+    "MaintenanceWorkOutcome",
     "SleepDecisionKind",
     "plan_maintenance_checkpoint",
     "validate_maintenance_advance",

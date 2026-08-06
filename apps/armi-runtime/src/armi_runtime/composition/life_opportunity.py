@@ -82,9 +82,19 @@ class MaintenanceCoordinator:
             if progress is not None:
                 session_id = progress.session_id
                 outcome = OpportunityAdmissionOutcome(
-                    OpportunityAdmissionStatus.REJECTED,
-                    None,
-                    progress.reason_code,
+                    (
+                        OpportunityAdmissionStatus.ADMITTED
+                        if progress.opportunity_admitted
+                        else OpportunityAdmissionStatus.DUPLICATE
+                        if progress.opportunity_id is not None
+                        else OpportunityAdmissionStatus.REJECTED
+                    ),
+                    progress.opportunity_id,
+                    (
+                        None
+                        if progress.opportunity_id is not None
+                        else progress.reason_code
+                    ),
                 )
             else:
                 outcome = await self._opportunities.maintain_sleep_window(
@@ -121,7 +131,7 @@ class MaintenanceCoordinator:
                     CreatorEventResourceKind.MAINTENANCE,
                     str(session_id),
                     Instant(datetime.now(UTC)),
-                    "creator-maintenance.v1",
+                    "creator-maintenance.v2",
                 )
             )
         except CreatorEventViolation:

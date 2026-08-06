@@ -26,6 +26,7 @@ from armi_kernel.application import (
     CandidateDisposition,
     CandidateExactLifeQueryDraft,
     CandidateLifeMaterialDraft,
+    CandidateMaintenanceDecisionDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateSleepDecisionDraft,
@@ -242,9 +243,13 @@ class PostgreSQLSubjectCommitRepository:
                 JOIN armi.maintenance_sessions AS session
                   ON session.sleep_decision_id = decision.sleep_decision_id
                 WHERE decision.candidate_validation_id = %s
-                ORDER BY session.maintenance_session_id
+                UNION
+                SELECT maintenance_session_id
+                FROM armi.maintenance_phase_results
+                WHERE candidate_validation_id = %s
+                ORDER BY maintenance_session_id
                 """,
-                (validation_id,),
+                (validation_id, validation_id),
             )
         ).fetchall()
         return tuple(UUID(str(row[0])) for row in rows)
@@ -518,6 +523,7 @@ class PostgreSQLSubjectCommitRepository:
             )
             or subject_prompt_heads_are_stale(prompt_heads, change_set.prompts)
             or await _sleep_decision_is_stale(connection, snapshot, change_set)
+            or await _maintenance_decision_is_stale(connection, snapshot, change_set)
         )
         if stale:
             return await self._settle_stale(
@@ -583,6 +589,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.materials
             and not change_set.prompts
             and not change_set.exact_life_queries
+            and not change_set.maintenance_decisions
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -955,6 +962,14 @@ class PostgreSQLSubjectCommitRepository:
             application_id=application_id,
             decisions=change_set.sleep_decisions,
             resulting_subject_version=new_version,
+        )
+        await _insert_maintenance_phase_result(
+            connection,
+            snapshot=snapshot,
+            application_id=application_id,
+            commit_id=commit_id,
+            decisions=change_set.maintenance_decisions,
+            memory_revisions=change_set.memory_revisions,
         )
         if snapshot.scene_id is not None:
             timeline_item_id = uuid7()
@@ -2017,6 +2032,57 @@ async def _sleep_decision_is_stale(
     return row is None or not bool(row[0])
 
 
+async def _maintenance_decision_is_stale(
+    connection: Any,
+    snapshot: SubjectCommitSnapshot,
+    change_set: SubjectChangeSet,
+) -> bool:
+    if not change_set.maintenance_decisions:
+        return False
+    if len(change_set.maintenance_decisions) != 1:
+        return True
+    decision = change_set.maintenance_decisions[0]
+    expected_purpose = {
+        "memory_maintenance": "maintain_subjective_memory",
+        "self_check": "perform_subject_self_check",
+    }[decision.phase.value]
+    if (
+        snapshot.opportunity_purpose != expected_purpose
+        or snapshot.source_kind != "maintenance_phase_revision"
+        or snapshot.source_ref != decision.current_revision_id
+        or snapshot.source_version != decision.expected_head_version
+    ):
+        return True
+    row = await (
+        await connection.execute(
+            """
+            SELECT 1
+            FROM armi.maintenance_sessions AS session
+            JOIN armi.maintenance_session_revisions AS revision
+              ON revision.maintenance_revision_id = session.current_revision_id
+             AND revision.maintenance_session_id = session.maintenance_session_id
+            WHERE session.maintenance_session_id = %s
+              AND session.subject_id = %s
+              AND session.life_generation_id = %s
+              AND session.current_revision_id = %s
+              AND session.head_version = %s
+              AND session.finished_at IS NULL
+              AND revision.phase = %s
+              AND revision.result_status = 'running'
+            """,
+            (
+                decision.maintenance_session_id,
+                snapshot.subject_id,
+                snapshot.generation_id,
+                decision.current_revision_id,
+                decision.expected_head_version,
+                decision.phase.value,
+            ),
+        )
+    ).fetchone()
+    return row is None
+
+
 async def _insert_sleep_reconsideration(
     connection: Any,
     *,
@@ -2197,6 +2263,81 @@ async def _insert_activity_attention_decision(
             decision.decision_kind.value,
             result_revision_id,
             review_not_before,
+        ),
+    )
+
+
+async def _insert_maintenance_phase_result(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    application_id: CandidateApplicationId,
+    commit_id: SubjectCommitId,
+    decisions: tuple[CandidateMaintenanceDecisionDraft, ...],
+    memory_revisions: tuple[CandidateMemoryRevisionDraft, ...],
+) -> None:
+    if not decisions:
+        return
+    if len(decisions) != 1 or len(memory_revisions) > 1:
+        raise SubjectCommitViolation("SUBJECT-MAINTENANCE-SHAPE")
+    decision = decisions[0]
+    validation = await (
+        await connection.execute(
+            """
+            SELECT 1
+            FROM armi.cognitive_candidate_validation_items
+            WHERE candidate_validation_id = %s
+              AND proposal_ref = %s
+              AND owner_kind = 'maintenance'
+              AND validation_status = 'accepted'
+            """,
+            (snapshot.validation_id, decision.proposal_ref),
+        )
+    ).fetchone()
+    if validation is None:
+        raise SubjectCommitViolation("SUBJECT-MAINTENANCE-VALIDATION")
+    memory_id = None
+    if decision.memory_proposal_ref is not None:
+        revision = next(
+            (
+                item
+                for item in memory_revisions
+                if item.proposal_ref == decision.memory_proposal_ref
+            ),
+            None,
+        )
+        if revision is None:
+            raise SubjectCommitViolation("SUBJECT-MAINTENANCE-MEMORY")
+        memory_id = revision.memory_id
+    await connection.execute(
+        """
+        INSERT INTO armi.maintenance_phase_results (
+            maintenance_phase_result_id, opportunity_id,
+            cognitive_episode_id, candidate_validation_id,
+            candidate_application_id, subject_commit_id,
+            maintenance_session_id, maintenance_revision_id,
+            expected_head_version, phase, outcome, result_summary,
+            creator_visible_problem, memory_id, schema_version
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, 1
+        )
+        """,
+        (
+            uuid7(),
+            snapshot.opportunity_id,
+            snapshot.episode_id,
+            snapshot.validation_id,
+            application_id.value,
+            commit_id.value,
+            decision.maintenance_session_id,
+            decision.current_revision_id,
+            decision.expected_head_version,
+            decision.phase.value,
+            decision.outcome.value,
+            decision.result_summary,
+            decision.creator_visible_problem,
+            memory_id,
         ),
     )
 

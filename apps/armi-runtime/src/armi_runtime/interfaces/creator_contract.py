@@ -781,6 +781,12 @@ type MaintenanceTransitionValue = Literal[
     "interrupted",
     "system_failed",
 ]
+type MaintenanceWorkOutcomeValue = Literal[
+    "memory_changed",
+    "memory_unchanged",
+    "issue_found",
+    "no_issue",
+]
 
 
 class CreatorMaintenanceSessionResponse(_StrictWireModel):
@@ -821,7 +827,7 @@ class CreatorMaintenanceSessionResponse(_StrictWireModel):
 
 class CreatorMaintenanceStatusResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-maintenance.v1"]
+    projection_version: Literal["creator-maintenance.v2"]
     session: CreatorMaintenanceSessionResponse | None
     waiting_input_count: Annotated[int, Field(ge=0)]
 
@@ -843,6 +849,8 @@ class CreatorMaintenanceTimelineItemResponse(_StrictWireModel):
     result_status: MaintenanceResultValue
     transition_kind: MaintenanceTransitionValue
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    work_outcome: MaintenanceWorkOutcomeValue | None
+    problem_summary: Annotated[str, Field(min_length=1, max_length=512)] | None
 
     @field_validator("revision_id")
     @classmethod
@@ -859,10 +867,33 @@ class CreatorMaintenanceTimelineItemResponse(_StrictWireModel):
             raise ValueError("CON-MAINTENANCE-TIME: instant must be canonical")
         return value
 
+    @model_validator(mode="after")
+    def validate_work_shape(self) -> CreatorMaintenanceTimelineItemResponse:
+        expected = {
+            "memory_maintenance": {"memory_changed", "memory_unchanged"},
+            "self_check": {"issue_found", "no_issue"},
+        }.get(self.phase)
+        if (
+            (expected is None and self.work_outcome is not None)
+            or (
+                expected is not None
+                and self.work_outcome is not None
+                and self.work_outcome not in expected
+            )
+            or (
+                (self.work_outcome == "issue_found")
+                != (self.problem_summary is not None)
+            )
+        ):
+            raise ValueError(
+                "CON-MAINTENANCE-WORK: phase result fields are inconsistent"
+            )
+        return self
+
 
 class CreatorMaintenanceTimelineResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-maintenance.v1"]
+    projection_version: Literal["creator-maintenance.v2"]
     maintenance_session_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[
         list[CreatorMaintenanceTimelineItemResponse], Field(max_length=100)
@@ -901,7 +932,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     projection_version: Literal[
         "creator-activity.v1",
         "creator-memory.v1",
-        "creator-maintenance.v1",
+        "creator-maintenance.v2",
         "life-record-query.v2",
         "creator-relationship.v1",
         "scene-timeline.v4",
@@ -934,7 +965,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             ),
             "maintenance": (
                 "maintenance.invalidated",
-                "creator-maintenance.v1",
+                "creator-maintenance.v2",
                 _UUIDV7_PATTERN,
             ),
             "material": (
@@ -1730,10 +1761,13 @@ class CreatorPromptResponse(_StrictWireModel):
     previous_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
     revision_kind: Literal["created", "revised", "deactivated"] | None
     content: Annotated[str, Field(min_length=1, max_length=65_536)] | None
-    content_digest: Annotated[
-        str,
-        Field(pattern=r"sha256:[0-9a-f]{64}"),
-    ] | None
+    content_digest: (
+        Annotated[
+            str,
+            Field(pattern=r"sha256:[0-9a-f]{64}"),
+        ]
+        | None
+    )
     activated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
 
     @field_validator(
@@ -1775,8 +1809,7 @@ class CreatorPromptResponse(_StrictWireModel):
         if (self.revision_kind == "deactivated") != (self.status == "inactive"):
             raise ValueError("CON-PROMPT-STATUS: status is inconsistent")
         if (self.revision_no == 1) != (
-            self.current_revision_id is not None
-            and self.previous_revision_id is None
+            self.current_revision_id is not None and self.previous_revision_id is None
         ) and self.current_revision_id is not None:
             raise ValueError("CON-PROMPT-REVISION: predecessor is inconsistent")
         if self.content is not None:
@@ -2487,9 +2520,7 @@ def build_creator_openapi() -> dict[str, object]:
     schema["paths"]["/v1/relationships/current/boundaries"]["post"]["responses"].pop(
         "422", None
     )
-    schema["paths"]["/v1/prompts/creator-guidance"]["put"]["responses"].pop(
-        "422", None
-    )
+    schema["paths"]["/v1/prompts/creator-guidance"]["put"]["responses"].pop("422", None)
     schema["paths"]["/v1/prompts/creator-guidance/deactivation"]["post"][
         "responses"
     ].pop("422", None)

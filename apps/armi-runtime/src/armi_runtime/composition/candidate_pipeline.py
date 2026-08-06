@@ -30,6 +30,7 @@ from armi_kernel.application import (
     LifeMaterialStatus,
     LockPlan,
     LockTarget,
+    MaintenancePhase,
     MemoryAccessibility,
     MemorySourceKind,
     RelationshipBoundary,
@@ -268,6 +269,20 @@ class CandidateValidationPipeline:
                         )
                     ),
                     candidate_contract_version=snapshot.candidate_contract_version,
+                    current_maintenance_session_id=(
+                        snapshot.current_maintenance_session_id
+                    ),
+                    current_maintenance_revision_id=(
+                        snapshot.current_maintenance_revision_id
+                    ),
+                    current_maintenance_head_version=(
+                        snapshot.current_maintenance_head_version
+                    ),
+                    current_maintenance_phase=(
+                        None
+                        if snapshot.current_maintenance_phase is None
+                        else MaintenancePhase(snapshot.current_maintenance_phase)
+                    ),
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)

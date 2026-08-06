@@ -64,8 +64,11 @@ from .model_contract import (
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     DIALOGUE_CANDIDATE_VERSION,
     DIALOGUE_INSTRUCTIONS,
+    MAINTENANCE_WORK_CANDIDATE_VERSION,
+    MEMORY_MAINTENANCE_INSTRUCTIONS,
     SLEEP_DECISION_CANDIDATE_VERSION,
     SLEEP_DECISION_INSTRUCTIONS,
+    SUBJECT_SELF_CHECK_INSTRUCTIONS,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_INSTRUCTIONS,
     build_request_bytes,
@@ -147,6 +150,14 @@ class ModelPipeline:
             "consider_sleep",
             expected_dialogue_version=dialogue_version,
         )
+        memory_maintenance_binding = load_purpose_binding(
+            "maintain_subjective_memory",
+            expected_dialogue_version=dialogue_version,
+        )
+        self_check_binding = load_purpose_binding(
+            "perform_subject_self_check",
+            expected_dialogue_version=dialogue_version,
+        )
         self._dialogue_version = dialogue_version
 
         def parse_dialogue(
@@ -202,6 +213,17 @@ class ModelPipeline:
                 value,
                 allowed_context_refs=allowed_context_refs,
                 expected_version=SLEEP_DECISION_CANDIDATE_VERSION,
+            )
+
+        def parse_maintenance_work(
+            value: bytes,
+            *,
+            allowed_context_refs: frozenset[str],
+        ):
+            return parse_candidate(
+                value,
+                allowed_context_refs=allowed_context_refs,
+                expected_version=MAINTENANCE_WORK_CANDIDATE_VERSION,
             )
 
         self._factory = factory
@@ -278,6 +300,28 @@ class ModelPipeline:
                 candidate_parser=parse_sleep,
                 instructions=SLEEP_DECISION_INSTRUCTIONS,
                 schema_name="armi_sleep_decision_candidate_v1",
+            ),
+            "maintain_subjective_memory": VolcengineArkModelAdapter(
+                binding=memory_maintenance_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    memory_maintenance_binding.response_contract_version
+                ),
+                candidate_parser=parse_maintenance_work,
+                instructions=MEMORY_MAINTENANCE_INSTRUCTIONS,
+                schema_name="armi_maintenance_work_candidate_v1",
+            ),
+            "perform_subject_self_check": VolcengineArkModelAdapter(
+                binding=self_check_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    self_check_binding.response_contract_version
+                ),
+                candidate_parser=parse_maintenance_work,
+                instructions=SUBJECT_SELF_CHECK_INSTRUCTIONS,
+                schema_name="armi_maintenance_work_candidate_v1",
             ),
         }
         self._catalog = ArtifactCatalogRepository()

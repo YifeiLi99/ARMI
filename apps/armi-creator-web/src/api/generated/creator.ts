@@ -1009,7 +1009,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-maintenance.v1";
+      projection_version: "creator-maintenance.v2";
       session:
         components["schemas"]["CreatorMaintenanceSessionResponse"] | null;
       /** Waiting Input Count */
@@ -1020,12 +1020,15 @@ export interface components {
       /** Occurred At */
       occurred_at: string;
       phase: components["schemas"]["MaintenancePhaseValue"];
+      /** Problem Summary */
+      problem_summary: string | null;
       result_status: components["schemas"]["MaintenanceResultValue"];
       /** Revision Id */
       revision_id: string;
       /** Revision No */
       revision_no: number;
       transition_kind: components["schemas"]["MaintenanceTransitionValue"];
+      work_outcome: components["schemas"]["MaintenanceWorkOutcomeValue"] | null;
     };
     /** CreatorMaintenanceTimelineResponse */
     CreatorMaintenanceTimelineResponse: {
@@ -1042,7 +1045,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-maintenance.v1";
+      projection_version: "creator-maintenance.v2";
       /** Truncated */
       truncated: boolean;
     };
@@ -1207,7 +1210,7 @@ export interface components {
       projection_version:
         | "creator-activity.v1"
         | "creator-memory.v1"
-        | "creator-maintenance.v1"
+        | "creator-maintenance.v2"
         | "life-record-query.v2"
         | "creator-relationship.v1"
         | "scene-timeline.v4"
@@ -1669,6 +1672,9 @@ export interface components {
     /** @enum {string} */
     MaintenanceTransitionValue:
       "started" | "advanced" | "completed" | "interrupted" | "system_failed";
+    /** @enum {string} */
+    MaintenanceWorkOutcomeValue:
+      "memory_changed" | "memory_unchanged" | "issue_found" | "no_issue";
     /** @enum {string} */
     MemoryAccessibilityValue: "available" | "faded" | "forgotten";
     /** @enum {string} */

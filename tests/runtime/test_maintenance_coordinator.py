@@ -58,6 +58,40 @@ async def test_active_session_checkpoint_precedes_new_sleep_window() -> None:
 
 
 @pytest.mark.asyncio
+async def test_maintenance_phase_work_reports_first_admission_then_pending() -> None:
+    repository = AsyncMock()
+    session_id = uuid7()
+    opportunity_id = uuid7()
+    repository.maintain_active_session.side_effect = (
+        MaintenanceProgress(
+            session_id,
+            MaintenancePhase.MEMORY_MAINTENANCE,
+            MaintenanceResultStatus.RUNNING,
+            2,
+            "LIFE-MAINTENANCE-WORK-ADMITTED",
+            opportunity_id,
+            True,
+        ),
+        MaintenanceProgress(
+            session_id,
+            MaintenancePhase.MEMORY_MAINTENANCE,
+            MaintenanceResultStatus.RUNNING,
+            2,
+            "LIFE-MAINTENANCE-WORK-PENDING",
+            opportunity_id,
+            False,
+        ),
+    )
+    coordinator = _coordinator(repository)
+    admitted = await coordinator.maintain_once()
+    pending = await coordinator.maintain_once()
+    assert admitted.status is OpportunityAdmissionStatus.ADMITTED
+    assert admitted.opportunity_id == opportunity_id
+    assert pending.status is OpportunityAdmissionStatus.DUPLICATE
+    assert pending.opportunity_id == opportunity_id
+
+
+@pytest.mark.asyncio
 async def test_no_active_session_scans_the_objective_window() -> None:
     repository = AsyncMock()
     repository.maintain_active_session.return_value = None

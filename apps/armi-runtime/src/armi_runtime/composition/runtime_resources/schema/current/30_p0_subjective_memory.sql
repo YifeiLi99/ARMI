@@ -66,7 +66,9 @@ CREATE TABLE armi.subjective_memory_revisions (
         )
     ),
     mechanism_config_identity text NOT NULL CHECK (
-        mechanism_config_identity IN ('formation-v1', 'natural-dialogue-v1')
+        mechanism_config_identity IN (
+            'formation-v1', 'natural-dialogue-v1', 'sleep-maintenance-v1'
+        )
     ),
     privacy_scope text NOT NULL CHECK (privacy_scope = 'private'),
     created_at timestamptz(6) NOT NULL DEFAULT statement_timestamp(),
@@ -85,7 +87,9 @@ CREATE TABLE armi.subjective_memory_revisions (
             AND previous_revision_id IS NOT NULL
             AND revision_kind <> 'formed'
             AND mechanism_identity = 'armi.memory-revision.contextual-v1'
-            AND mechanism_config_identity = 'natural-dialogue-v1')
+            AND mechanism_config_identity IN (
+                'natural-dialogue-v1', 'sleep-maintenance-v1'
+            ))
     ),
     CHECK (
         (revision_kind IN ('formed', 'recalled') AND accessibility = 'available')

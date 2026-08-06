@@ -27,6 +27,7 @@ from armi_kernel.application import (
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateLifeMaterialDraft,
+    CandidateMaintenanceDecisionDraft,
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
@@ -139,6 +140,10 @@ class CandidateEpisodeSnapshot:
         ...,
     ] = ()
     current_subject_prompt: tuple[UUID, UUID | None, int, Digest | None] | None = None
+    current_maintenance_session_id: UUID | None = None
+    current_maintenance_revision_id: UUID | None = None
+    current_maintenance_head_version: int | None = None
+    current_maintenance_phase: str | None = None
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -310,6 +315,35 @@ class PostgreSQLCandidateValidationRepository:
                       'consider_activity_internal_work'
                   )
                   AND opportunity.source_ref = activity.current_revision_id
+                """,
+                (row[0],),
+            )
+        ).fetchone()
+        maintenance_row = await (
+            await connection.execute(
+                """
+                SELECT session.maintenance_session_id,
+                       session.current_revision_id,
+                       session.head_version, revision.phase
+                FROM armi.cognitive_episodes AS episode
+                JOIN armi.opportunities AS opportunity
+                  ON opportunity.opportunity_id = episode.opportunity_id
+                JOIN armi.maintenance_session_revisions AS revision
+                  ON revision.maintenance_revision_id = opportunity.source_ref
+                JOIN armi.maintenance_sessions AS session
+                  ON session.maintenance_session_id =
+                     revision.maintenance_session_id
+                 AND session.current_revision_id =
+                     revision.maintenance_revision_id
+                 AND session.head_version = opportunity.source_version
+                 AND session.finished_at IS NULL
+                WHERE episode.cognitive_episode_id = %s
+                  AND episode.purpose IN (
+                      'maintain_subjective_memory',
+                      'perform_subject_self_check'
+                  )
+                  AND opportunity.source_kind =
+                      'maintenance_phase_revision'
                 """,
                 (row[0],),
             )
@@ -569,6 +603,10 @@ class PostgreSQLCandidateValidationRepository:
                     else Digest(str(subject_prompt_row[3]))
                 ),
             ),
+            None if maintenance_row is None else maintenance_row[0],
+            None if maintenance_row is None else maintenance_row[1],
+            None if maintenance_row is None else int(maintenance_row[2]),
+            None if maintenance_row is None else str(maintenance_row[3]),
         )
 
     async def settle(
@@ -836,6 +874,7 @@ def _validation_drafts(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -866,6 +905,7 @@ def _validation_drafts(
         *change_set.activities,
         *change_set.activity_decisions,
         *change_set.sleep_decisions,
+        *change_set.maintenance_decisions,
         *change_set.rejections,
     )
 
@@ -876,6 +916,7 @@ def _item_semantic(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -895,7 +936,19 @@ def _item_semantic(
         "basis_ordinals": list(value.basis_ordinals),
         "fact_class": _implicit_fact_class(value).value,
     }
-    if isinstance(value, CandidateSleepDecisionDraft):
+    if isinstance(value, CandidateMaintenanceDecisionDraft):
+        result.update(
+            {
+                "owner": "maintenance",
+                "maintenance_session_id": str(value.maintenance_session_id),
+                "current_revision_id": str(value.current_revision_id),
+                "expected_head_version": value.expected_head_version,
+                "phase": value.phase.value,
+                "outcome": value.outcome.value,
+                "memory_proposal_ref": value.memory_proposal_ref,
+            }
+        )
+    elif isinstance(value, CandidateSleepDecisionDraft):
         result.update(
             {
                 "owner": "sleep",
@@ -1075,6 +1128,7 @@ def _owner(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -1088,6 +1142,8 @@ def _owner(
     | CandidateSleepDecisionDraft
     | CandidateRejection,
 ) -> CandidateOwner:
+    if isinstance(value, CandidateMaintenanceDecisionDraft):
+        return CandidateOwner.MAINTENANCE
     if isinstance(value, CandidateSleepDecisionDraft):
         return CandidateOwner.SLEEP
     if isinstance(value, (CandidateActivityDraft, CandidateActivityDecisionDraft)):
@@ -1121,6 +1177,7 @@ def _implicit_fact_class(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -1134,6 +1191,8 @@ def _implicit_fact_class(
     | CandidateSleepDecisionDraft
     | CandidateRejection,
 ) -> CandidateFactClass:
+    if isinstance(value, CandidateMaintenanceDecisionDraft):
+        return CandidateFactClass.INFERENCE
     if isinstance(
         value,
         (

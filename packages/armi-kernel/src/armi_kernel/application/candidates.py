@@ -19,7 +19,7 @@ from .life import (
 )
 from .life_materials import CandidateLifeMaterialDraft
 from .life_records import LifeRecordKind
-from .maintenance import SleepDecisionKind
+from .maintenance import MaintenancePhase, MaintenanceWorkOutcome, SleepDecisionKind
 from .response import ResponseChoiceDraft
 from .web_evidence import WebResearchRequestDraft
 
@@ -145,6 +145,7 @@ class CandidateOwner(StrEnum):
     MATERIAL = "material"
     PROMPT = "prompt"
     EXACT_LIFE_QUERY = "exact_life_query"
+    MAINTENANCE = "maintenance"
 
 
 class CandidateValidationStatus(StrEnum):
@@ -321,7 +322,8 @@ class CandidateMemoryRevisionDraft:
             or (self.uncertainty is not None and len(self.uncertainty) > 512)
             or not _optional_text(self.uncertainty, 2048)
             or self.mechanism_identity != "armi.memory-revision.contextual-v1"
-            or self.mechanism_config_identity != "natural-dialogue-v1"
+            or self.mechanism_config_identity
+            not in {"natural-dialogue-v1", "sleep-maintenance-v1"}
             or self.privacy_scope != "private"
         ):
             raise CandidateViolation("CON-CANDIDATE-MEMORY-REVISION")
@@ -882,6 +884,66 @@ class CandidateSleepDecisionDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateMaintenanceDecisionDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    maintenance_session_id: UUID
+    current_revision_id: UUID
+    expected_head_version: int
+    phase: MaintenancePhase
+    outcome: MaintenanceWorkOutcome
+    result_summary: str
+    creator_visible_problem: str | None = None
+    memory_proposal_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        _validate_proposal(
+            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
+        )
+        if (
+            any(
+                type(value) is not UUID or value.version != 7
+                for value in (self.maintenance_session_id, self.current_revision_id)
+            )
+            or type(self.expected_head_version) is not int
+            or self.expected_head_version <= 0
+            or self.phase
+            not in {MaintenancePhase.MEMORY_MAINTENANCE, MaintenancePhase.SELF_CHECK}
+            or type(self.outcome) is not MaintenanceWorkOutcome
+            or not _optional_text(self.result_summary, 2048)
+            or len(self.result_summary) > 512
+            or not _optional_text(self.creator_visible_problem, 2048)
+            or (
+                self.creator_visible_problem is not None
+                and len(self.creator_visible_problem) > 512
+            )
+            or (
+                self.memory_proposal_ref is not None
+                and (
+                    type(self.memory_proposal_ref) is not str
+                    or _REF.fullmatch(self.memory_proposal_ref) is None
+                    or self.memory_proposal_ref == self.proposal_ref
+                )
+            )
+        ):
+            raise CandidateViolation("CON-CANDIDATE-MAINTENANCE")
+        memory_phase = self.phase is MaintenancePhase.MEMORY_MAINTENANCE
+        memory_changed = self.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
+        if memory_phase != (
+            self.outcome
+            in {
+                MaintenanceWorkOutcome.MEMORY_CHANGED,
+                MaintenanceWorkOutcome.MEMORY_UNCHANGED,
+            }
+        ) or memory_changed != (self.memory_proposal_ref is not None):
+            raise CandidateViolation("CON-CANDIDATE-MAINTENANCE-SHAPE")
+        issue_found = self.outcome is MaintenanceWorkOutcome.ISSUE_FOUND
+        if issue_found != (self.creator_visible_problem is not None):
+            raise CandidateViolation("CON-CANDIDATE-MAINTENANCE-SHAPE")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateRejection:
     proposal_ref: str
     atomic_group_ref: str
@@ -936,6 +998,7 @@ class SubjectChangeSet:
     materials: tuple[CandidateLifeMaterialDraft, ...] = ()
     prompts: tuple[CandidateSubjectPromptDraft, ...] = ()
     exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
+    maintenance_decisions: tuple[CandidateMaintenanceDecisionDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -1072,6 +1135,7 @@ __all__ = (
     "CandidateExperienceDraft",
     "CandidateFactClass",
     "CandidateLifeMaterialDraft",
+    "CandidateMaintenanceDecisionDraft",
     "CandidateMemoryDraft",
     "CandidateMemoryRevisionDraft",
     "CandidateOwner",

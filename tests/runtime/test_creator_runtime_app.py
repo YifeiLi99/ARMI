@@ -55,6 +55,7 @@ from armi_kernel.application import (
     MaintenancePhase,
     MaintenanceResultStatus,
     MaintenanceTriggerKind,
+    MaintenanceWorkOutcome,
     OpportunityId,
     PromptDocumentStatus,
     PromptKind,
@@ -239,6 +240,8 @@ class _CreatorMaintenanceQuery:
                     result_status=MaintenanceResultStatus.RUNNING,
                     transition_kind="advanced",
                     occurred_at=self.occurred_at,
+                    work_outcome=MaintenanceWorkOutcome.ISSUE_FOUND,
+                    problem_summary="有一项内部责任需要后续关注。",
                 ),
             ),
             False,
@@ -772,9 +775,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 headers={**headers, "Origin": "http://invalid"},
                 json={
                     "contract_version": "1.0",
-                    "expected_revision_id": deactivated.json()[
-                        "current_revision_id"
-                    ],
+                    "expected_revision_id": deactivated.json()["current_revision_id"],
                     "content": "不能越过浏览器边界。",
                 },
             )
@@ -1135,6 +1136,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertNotIn("memory", status.text)
         self.assertEqual(timeline.status_code, 200)
         self.assertEqual(timeline.json()["items"][0]["phase"], "self_check")
+        self.assertEqual(
+            timeline.json()["items"][0]["problem_summary"],
+            "有一项内部责任需要后续关注。",
+        )
         self.assertEqual(missing.status_code, 404)
         self.assertEqual(wake.status_code, 204)
         self.assertEqual(len(self.emergency_wake.requests), 1)

@@ -209,7 +209,7 @@ function optionalLifeProjectionResponse(url: string): Response | undefined {
 function maintenanceStatusResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "creator-maintenance.v1",
+    projection_version: "creator-maintenance.v2",
     session: null,
     waiting_input_count: 0,
   };
@@ -634,7 +634,7 @@ describe("Creator browser session shell", () => {
       event_kind: "maintenance.invalidated",
       resource_kind: "maintenance",
       resource_ref: ENVIRONMENT_ID,
-      projection_version: "creator-maintenance.v1",
+      projection_version: "creator-maintenance.v2",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     let maintenanceReads = 0;
@@ -678,7 +678,7 @@ describe("Creator browser session shell", () => {
             ? maintenanceStatusResponse()
             : {
                 contract_version: "1.0",
-                projection_version: "creator-maintenance.v1",
+                projection_version: "creator-maintenance.v2",
                 session: {
                   maintenance_session_id: ENVIRONMENT_ID,
                   trigger_kind: "system_deadline",
@@ -698,7 +698,7 @@ describe("Creator browser session shell", () => {
       if (url === `/v1/maintenance/${ENVIRONMENT_ID}/timeline`) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-maintenance.v1",
+          projection_version: "creator-maintenance.v2",
           maintenance_session_id: ENVIRONMENT_ID,
           items: [],
           truncated: false,

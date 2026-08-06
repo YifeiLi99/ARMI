@@ -19,6 +19,7 @@ from armi_kernel.application import (
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateLifeMaterialDraft,
+    CandidateMaintenanceDecisionDraft,
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
@@ -42,6 +43,8 @@ from armi_kernel.application import (
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
     LifeRecordKind,
+    MaintenancePhase,
+    MaintenanceWorkOutcome,
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
@@ -97,6 +100,7 @@ _TOP_KEYS_V15 = _TOP_KEYS_V14
 _TOP_KEYS_V16 = {*_TOP_KEYS_V15, "prompts"}
 _TOP_KEYS_V17 = {*_TOP_KEYS_V16, "exact_life_queries"}
 _TOP_KEYS_V18 = {*_TOP_KEYS_V17, "activities", "activity_decisions"}
+_TOP_KEYS_V19 = {*_TOP_KEYS_V18, "maintenance_decisions"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -124,6 +128,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v16",
             "armi.subject-change-set.v17",
             "armi.subject-change-set.v18",
+            "armi.subject-change-set.v19",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -163,6 +168,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V17
             if version.endswith(".v17")
             else _TOP_KEYS_V18
+            if version.endswith(".v18")
+            else _TOP_KEYS_V19
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -221,7 +228,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             _relationship(
                 item,
                 include_commitments=version.endswith(
-                    (".v13", ".v14", ".v15", ".v16", ".v17", ".v18")
+                    (".v13", ".v14", ".v15", ".v16", ".v17", ".v18", ".v19")
                 ),
             )
             for item in _array(document.get("relationships", []), 1)
@@ -229,7 +236,9 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         materials = tuple(
             _material(
                 item,
-                include_mutation=version.endswith((".v15", ".v16", ".v17", ".v18")),
+                include_mutation=version.endswith(
+                    (".v15", ".v16", ".v17", ".v18", ".v19")
+                ),
             )
             for item in _array(document.get("materials", []), 1)
         )
@@ -239,6 +248,10 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         exact_life_queries = tuple(
             _exact_life_query(item)
             for item in _array(document.get("exact_life_queries", []), 1)
+        )
+        maintenance_decisions = tuple(
+            _maintenance_decision(item)
+            for item in _array(document.get("maintenance_decisions", []), 1)
         )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
@@ -272,6 +285,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             materials,
             prompts,
             exact_life_queries,
+            maintenance_decisions,
         )
         proposal_refs = [
             item.proposal_ref
@@ -291,6 +305,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *materials,
                 *prompts,
                 *exact_life_queries,
+                *maintenance_decisions,
                 *rejections,
             )
         ]
@@ -336,12 +351,49 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.materials
             or result.prompts
             or result.exact_life_queries
+            or result.maintenance_decisions
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
             item for item in action_choices if isinstance(item, FormalNoActionDraft)
         )
-        if version.endswith(".v9"):
+        if version.endswith(".v19"):
+            if (
+                len(maintenance_decisions) != 1
+                or len(memory_revisions) > 1
+                or any(
+                    (
+                        experiences,
+                        components,
+                        capability_requests,
+                        action_choices,
+                        web_research_requests,
+                        codex_delegations,
+                        activities,
+                        activity_decisions,
+                        sleep_decisions,
+                        memories,
+                        relationships,
+                        materials,
+                        prompts,
+                        exact_life_queries,
+                        rejections,
+                    )
+                )
+                or result.disposition is not CandidateDisposition.CHANGE
+            ):
+                raise ValueError
+            decision = maintenance_decisions[0]
+            if decision.memory_proposal_ref is None:
+                if memory_revisions:
+                    raise ValueError
+            elif (
+                len(memory_revisions) != 1
+                or memory_revisions[0].proposal_ref != decision.memory_proposal_ref
+                or memory_revisions[0].atomic_group_ref != decision.atomic_group_ref
+            ):
+                raise ValueError
+        elif version.endswith(".v9"):
             if len(sleep_decisions) != 1 or any(
                 (
                     experiences,
@@ -820,6 +872,38 @@ def _sleep_decision(value: object) -> CandidateSleepDecisionDraft:
         SleepDecisionKind(_text(item["decision_kind"])),
         _uuid7(item["cycle_anchor_ref"]),
         Digest(_text(item["source_digest"])),
+    )
+
+
+def _maintenance_decision(value: object) -> CandidateMaintenanceDecisionDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "maintenance_session_id",
+            "current_revision_id",
+            "expected_head_version",
+            "phase",
+            "outcome",
+            "result_summary",
+            "creator_visible_problem",
+            "memory_proposal_ref",
+        },
+    )
+    return CandidateMaintenanceDecisionDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        _uuid7(item["maintenance_session_id"]),
+        _uuid7(item["current_revision_id"]),
+        _positive(item["expected_head_version"]),
+        MaintenancePhase(_text(item["phase"])),
+        MaintenanceWorkOutcome(_text(item["outcome"])),
+        _text(item["result_summary"]),
+        _optional_text_value(item["creator_visible_problem"]),
+        _optional_text_value(item["memory_proposal_ref"]),
     )
 
 

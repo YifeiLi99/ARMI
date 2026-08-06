@@ -11,9 +11,10 @@ from .maintenance import (
     MaintenancePhase,
     MaintenanceResultStatus,
     MaintenanceTriggerKind,
+    MaintenanceWorkOutcome,
 )
 
-MAINTENANCE_PROJECTION_VERSION: Final = "creator-maintenance.v1"
+MAINTENANCE_PROJECTION_VERSION: Final = "creator-maintenance.v2"
 type MaintenanceTransitionKind = Literal[
     "started",
     "advanced",
@@ -108,6 +109,8 @@ class CreatorMaintenanceTimelineItem:
     result_status: MaintenanceResultStatus
     transition_kind: MaintenanceTransitionKind
     occurred_at: datetime
+    work_outcome: MaintenanceWorkOutcome | None = None
+    problem_summary: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -119,6 +122,47 @@ class CreatorMaintenanceTimelineItem:
             or self.transition_kind
             not in {"started", "advanced", "completed", "interrupted", "system_failed"}
             or not _instant(self.occurred_at)
+            or (
+                self.work_outcome is not None
+                and type(self.work_outcome) is not MaintenanceWorkOutcome
+            )
+            or (
+                self.problem_summary is not None
+                and (
+                    type(self.problem_summary) is not str
+                    or not 1 <= len(self.problem_summary) <= 512
+                )
+            )
+            or (
+                self.phase is MaintenancePhase.MEMORY_MAINTENANCE
+                and self.work_outcome is not None
+                and self.work_outcome
+                not in {
+                    MaintenanceWorkOutcome.MEMORY_CHANGED,
+                    MaintenanceWorkOutcome.MEMORY_UNCHANGED,
+                }
+            )
+            or (
+                self.phase is MaintenancePhase.SELF_CHECK
+                and self.work_outcome is not None
+                and self.work_outcome
+                not in {
+                    MaintenanceWorkOutcome.ISSUE_FOUND,
+                    MaintenanceWorkOutcome.NO_ISSUE,
+                }
+            )
+            or (
+                self.phase
+                not in {
+                    MaintenancePhase.MEMORY_MAINTENANCE,
+                    MaintenancePhase.SELF_CHECK,
+                }
+                and self.work_outcome is not None
+            )
+            or (
+                (self.work_outcome is MaintenanceWorkOutcome.ISSUE_FOUND)
+                != (self.problem_summary is not None)
+            )
         ):
             raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-TIMELINE")
 

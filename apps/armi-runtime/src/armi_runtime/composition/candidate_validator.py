@@ -23,6 +23,7 @@ from armi_kernel.application import (
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateLifeMaterialDraft,
+    CandidateMaintenanceDecisionDraft,
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
@@ -50,6 +51,8 @@ from armi_kernel.application import (
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
     LifeRecordKind,
+    MaintenancePhase,
+    MaintenanceWorkOutcome,
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
@@ -158,6 +161,14 @@ from .dialogue_candidate_contract import (
     DialogueWebResearchDecisionV16,
     DialogueWebResearchDecisionV18,
 )
+from .maintenance_work_candidate_contract import (
+    MAINTENANCE_WORK_CANDIDATE_VERSION,
+    MaintenanceWorkCandidate,
+    MemoryMaintenanceChange,
+    MemoryMaintenanceNoChange,
+    SelfCheckIssueFound,
+    SelfCheckNoIssue,
+)
 from .model_contract import (
     ActionChoiceProposal,
     CodexDelegationPayload,
@@ -197,6 +208,7 @@ RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v13"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
+MAINTENANCE_CHANGE_SET_VERSION = "armi.subject-change-set.v19"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -415,6 +427,10 @@ class CandidateValidationContext:
     current_materials: tuple[CandidateLifeMaterialContext, ...] = ()
     current_subject_prompt: CandidateSubjectPromptContext | None = None
     candidate_contract_version: str | None = None
+    current_maintenance_session_id: UUID | None = None
+    current_maintenance_revision_id: UUID | None = None
+    current_maintenance_head_version: int | None = None
+    current_maintenance_phase: MaintenancePhase | None = None
 
     def __post_init__(self) -> None:
         if any(
@@ -434,6 +450,8 @@ class CandidateValidationContext:
             self.opportunity_id,
             self.current_activity_id,
             self.current_activity_revision_id,
+            self.current_maintenance_session_id,
+            self.current_maintenance_revision_id,
         ):
             if value is not None and (type(value) is not UUID or value.version != 7):
                 raise CandidateViolation("CON-CANDIDATE-CONTEXT")
@@ -461,6 +479,21 @@ class CandidateValidationContext:
             or type(self.resource_snapshot_digest) is not Digest
         ):
             raise CandidateViolation("CON-CANDIDATE-ACTIVITY-CONTEXT")
+        maintenance_values = (
+            self.current_maintenance_session_id,
+            self.current_maintenance_revision_id,
+            self.current_maintenance_head_version,
+            self.current_maintenance_phase,
+        )
+        if any(value is not None for value in maintenance_values) and (
+            self.current_maintenance_session_id is None
+            or self.current_maintenance_revision_id is None
+            or type(self.current_maintenance_head_version) is not int
+            or self.current_maintenance_head_version <= 0
+            or self.current_maintenance_phase
+            not in {MaintenancePhase.MEMORY_MAINTENANCE, MaintenancePhase.SELF_CHECK}
+        ):
+            raise CandidateViolation("CON-CANDIDATE-MAINTENANCE-CONTEXT")
         if type(self.current_memories) is not tuple or any(
             type(value) is not CandidateMemoryContext for value in self.current_memories
         ):
@@ -525,6 +558,9 @@ class DeterministicCandidateValidator:
                     if self._context.purpose == "consider_autonomous_life"
                     else SLEEP_DECISION_CANDIDATE_VERSION
                     if self._context.purpose == "consider_sleep"
+                    else MAINTENANCE_WORK_CANDIDATE_VERSION
+                    if self._context.purpose
+                    in {"maintain_subjective_memory", "perform_subject_self_check"}
                     else self._context.candidate_contract_version
                     if self._context.purpose == "consider_creator_input"
                     else None
@@ -552,6 +588,20 @@ class DeterministicCandidateValidator:
         )
         if isinstance(parsed_candidate, SleepDecisionCandidate):
             return self._validate_sleep(
+                parsed_candidate,
+                bases=bases,
+                candidate_digest=candidate_digest,
+            )
+        if isinstance(
+            parsed_candidate,
+            (
+                MemoryMaintenanceNoChange,
+                MemoryMaintenanceChange,
+                SelfCheckNoIssue,
+                SelfCheckIssueFound,
+            ),
+        ):
+            return self._validate_maintenance(
                 parsed_candidate,
                 bases=bases,
                 candidate_digest=candidate_digest,
@@ -1711,6 +1761,168 @@ class DeterministicCandidateValidator:
             None,
         )
 
+    def _validate_maintenance(
+        self,
+        candidate: MaintenanceWorkCandidate,
+        *,
+        bases: tuple[CandidateBasis, ...],
+        candidate_digest: Digest,
+    ) -> CandidateValidationResult:
+        context = self._context
+        expected_phase = {
+            "maintain_subjective_memory": MaintenancePhase.MEMORY_MAINTENANCE,
+            "perform_subject_self_check": MaintenancePhase.SELF_CHECK,
+        }.get(context.purpose)
+        if (
+            expected_phase is None
+            or context.opportunity_id is None
+            or context.scene_id is not None
+            or context.creator_party_id is not None
+            or context.current_maintenance_session_id is None
+            or context.current_maintenance_revision_id is None
+            or context.current_maintenance_head_version is None
+            or context.current_maintenance_phase is not expected_phase
+        ):
+            return _rejected("CANDIDATE-MAINTENANCE-CONTEXT")
+        source = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_maintenance_phase"
+                and item.trust_class == "runtime_authority"
+                and item.source_ref == context.current_maintenance_revision_id
+                and item.source_version == context.current_maintenance_head_version
+            ),
+            None,
+        )
+        if source is None:
+            return _rejected("CANDIDATE-MAINTENANCE-SOURCE")
+
+        memory_revision: CandidateMemoryRevisionDraft | None = None
+        creator_problem: str | None = None
+        memory_candidate = isinstance(
+            candidate, (MemoryMaintenanceNoChange, MemoryMaintenanceChange)
+        )
+        if memory_candidate != (expected_phase is MaintenancePhase.MEMORY_MAINTENANCE):
+            return _rejected("CANDIDATE-MAINTENANCE-PHASE")
+        if isinstance(candidate, MemoryMaintenanceChange):
+            memory_revision, error = _bind_maintenance_memory_revision(
+                candidate,
+                phase_basis=source,
+                bases=bases,
+                context=context,
+            )
+            if memory_revision is None:
+                return _rejected(error or "CANDIDATE-MAINTENANCE-MEMORY")
+            outcome = MaintenanceWorkOutcome.MEMORY_CHANGED
+            result_summary = candidate.reason
+        elif isinstance(candidate, MemoryMaintenanceNoChange):
+            outcome = MaintenanceWorkOutcome.MEMORY_UNCHANGED
+            result_summary = candidate.summary
+        elif isinstance(candidate, SelfCheckIssueFound):
+            outcome = MaintenanceWorkOutcome.ISSUE_FOUND
+            result_summary = candidate.internal_summary
+            creator_problem = candidate.creator_visible_summary
+        else:
+            outcome = MaintenanceWorkOutcome.NO_ISSUE
+            result_summary = candidate.summary
+
+        supporting = tuple(
+            item.ordinal
+            for item in bases
+            if item.ordinal != source.ordinal
+            and item.item_kind
+            in {
+                "memory",
+                "current_memory",
+                "self",
+                "mind",
+                "current_relationship",
+                "current_relationship_issue",
+                "current_activities",
+            }
+        )[:7]
+        memory_ref = None if memory_revision is None else memory_revision.proposal_ref
+        decision = CandidateMaintenanceDecisionDraft(
+            "proposal:1" if memory_revision is None else "proposal:2",
+            "group:1",
+            (source.ordinal, *supporting),
+            context.current_maintenance_session_id,
+            context.current_maintenance_revision_id,
+            context.current_maintenance_head_version,
+            expected_phase,
+            outcome,
+            result_summary,
+            creator_problem,
+            memory_ref,
+        )
+        value = {
+            "schema_version": MAINTENANCE_CHANGE_SET_VERSION,
+            "subject_id": str(context.subject_id),
+            "generation_id": str(context.generation_id),
+            "episode_id": str(context.episode_id),
+            "model_attempt_id": str(context.model_attempt_id),
+            "base": {
+                "subject_version": context.base_subject_version,
+                "state_epoch": context.base_state_epoch,
+                "bundle_activation_id": str(context.bundle_activation_id),
+                "context_digest": context.context_digest.value,
+            },
+            "candidate_digest": candidate_digest.value,
+            "disposition": CandidateDisposition.CHANGE.value,
+            "experiences": [],
+            "components": [],
+            "capability_requests": [],
+            "action_choices": [],
+            "web_research_requests": [],
+            "codex_delegations": [],
+            "activities": [],
+            "activity_decisions": [],
+            "memories": [],
+            "memory_revisions": (
+                []
+                if memory_revision is None
+                else [_memory_revision_wire(memory_revision)]
+            ),
+            "relationships": [],
+            "materials": [],
+            "prompts": [],
+            "exact_life_queries": [],
+            "maintenance_decisions": [_maintenance_decision_wire(decision)],
+            "rejections": [],
+        }
+        canonical = rfc8785.dumps(cast(Any, value))
+        change_set = SubjectChangeSet(
+            canonical_bytes=canonical,
+            digest=Digest.from_bytes(canonical),
+            subject_id=context.subject_id,
+            generation_id=context.generation_id,
+            episode_id=context.episode_id,
+            model_attempt_id=context.model_attempt_id,
+            base_subject_version=context.base_subject_version,
+            base_state_epoch=context.base_state_epoch,
+            bundle_activation_id=context.bundle_activation_id,
+            context_digest=context.context_digest,
+            candidate_digest=candidate_digest,
+            disposition=CandidateDisposition.CHANGE,
+            experiences=(),
+            components=(),
+            capability_requests=(),
+            action_choices=(),
+            web_research_requests=(),
+            rejections=(),
+            memory_revisions=(() if memory_revision is None else (memory_revision,)),
+            maintenance_decisions=(decision,),
+        )
+        return CandidateValidationResult(
+            CandidateValidationId(uuid7()),
+            CandidateValidationStatus.ACCEPTED,
+            change_set,
+            1 if memory_revision is None else 2,
+            0,
+            None,
+        )
+
     def _base_matches(
         self,
         candidate: (
@@ -2746,6 +2958,7 @@ def _bind_dialogue_memory_revision(
         ),
         None,
     )
+
     if current is None or (
         current.head_version != target_basis.source_version
         or current.context_digest != target_basis.source_digest
@@ -2818,6 +3031,109 @@ def _bind_dialogue_memory_revision(
             uncertainty,
             related_memory_id,
             relation_kind,
+        ),
+        None,
+    )
+
+
+def _bind_maintenance_memory_revision(
+    change: MemoryMaintenanceChange,
+    *,
+    phase_basis: CandidateBasis,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[CandidateMemoryRevisionDraft | None, str | None]:
+    basis_by_ref = {f"ctx:{item.ordinal}": item for item in bases}
+    target_basis = basis_by_ref.get(change.memory_ref)
+    if (
+        target_basis is None
+        or target_basis.section != "memory"
+        or target_basis.item_kind != "current_memory"
+        or target_basis.trust_class != "subjective_state"
+        or target_basis.source_ref is None
+    ):
+        return None, "CANDIDATE-MAINTENANCE-MEMORY-CONTEXT"
+    current = next(
+        (
+            item
+            for item in context.current_memories
+            if item.memory_id == target_basis.source_ref
+        ),
+        None,
+    )
+    if current is None or (
+        current.head_version != target_basis.source_version
+        or current.context_digest != target_basis.source_digest
+    ):
+        return None, "CANDIDATE-MAINTENANCE-MEMORY-STALE"
+
+    related_memory_id: UUID | None = None
+    relation_kind: MemoryRelationKind | None = None
+    related_basis: CandidateBasis | None = None
+    if change.related_memory_ref is not None:
+        related_basis = basis_by_ref.get(change.related_memory_ref)
+        if (
+            related_basis is None
+            or related_basis.section != "memory"
+            or related_basis.item_kind != "current_memory"
+            or related_basis.source_ref is None
+            or not any(
+                item.memory_id == related_basis.source_ref
+                and item.head_version == related_basis.source_version
+                and item.context_digest == related_basis.source_digest
+                for item in context.current_memories
+            )
+        ):
+            return None, "CANDIDATE-MAINTENANCE-MEMORY-RELATION"
+        related_memory_id = related_basis.source_ref
+        assert change.relation_kind is not None
+        relation_kind = MemoryRelationKind(change.relation_kind)
+
+    revision_kind = {
+        "consolidate": MemoryRevisionKind.RECALLED,
+        "fade": MemoryRevisionKind.FADED,
+        "forget": MemoryRevisionKind.FORGOTTEN,
+        "reinterpret": MemoryRevisionKind.REINTERPRETED,
+    }[change.kind]
+    accessibility = {
+        "consolidate": MemoryAccessibility.AVAILABLE,
+        "fade": MemoryAccessibility.FADED,
+        "forget": MemoryAccessibility.FORGOTTEN,
+        "reinterpret": current.accessibility,
+    }[change.kind]
+    summary = change.summary if change.summary is not None else current.summary
+    uncertainty = (
+        change.uncertainty if change.kind == "reinterpret" else current.uncertainty
+    )
+    if change.kind == "fade" and current.accessibility is MemoryAccessibility.FADED:
+        return None, "CANDIDATE-MAINTENANCE-MEMORY-NO-OP"
+    if (
+        change.kind == "reinterpret"
+        and summary == current.summary
+        and uncertainty == current.uncertainty
+        and related_memory_id is None
+    ):
+        return None, "CANDIDATE-MAINTENANCE-MEMORY-NO-OP"
+    basis_ordinals = [phase_basis.ordinal, target_basis.ordinal]
+    if related_basis is not None:
+        basis_ordinals.append(related_basis.ordinal)
+    return (
+        CandidateMemoryRevisionDraft(
+            "proposal:1",
+            "group:1",
+            tuple(dict.fromkeys(basis_ordinals)),
+            current.fact_class,
+            current.memory_id,
+            current.current_revision_id,
+            current.head_version,
+            revision_kind,
+            accessibility,
+            current.source_kind,
+            summary,
+            uncertainty,
+            related_memory_id,
+            relation_kind,
+            mechanism_config_identity="sleep-maintenance-v1",
         ),
         None,
     )
@@ -3823,6 +4139,24 @@ def _sleep_decision_wire(value: CandidateSleepDecisionDraft) -> dict[str, object
         "decision_kind": value.decision_kind.value,
         "cycle_anchor_ref": str(value.cycle_anchor_ref),
         "source_digest": value.source_digest.value,
+    }
+
+
+def _maintenance_decision_wire(
+    value: CandidateMaintenanceDecisionDraft,
+) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "maintenance_session_id": str(value.maintenance_session_id),
+        "current_revision_id": str(value.current_revision_id),
+        "expected_head_version": value.expected_head_version,
+        "phase": value.phase.value,
+        "outcome": value.outcome.value,
+        "result_summary": value.result_summary,
+        "creator_visible_problem": value.creator_visible_problem,
+        "memory_proposal_ref": value.memory_proposal_ref,
     }
 
 

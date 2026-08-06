@@ -26,6 +26,8 @@ from armi_kernel.application import (
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
     LifeRecordKind,
+    MaintenancePhase,
+    MaintenanceWorkOutcome,
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
@@ -205,6 +207,153 @@ def test_sleep_decision_binds_window_authority_into_v9_change_set(
     assert b"armi.subject-change-set.v9" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert reparsed.sleep_decisions == result.change_set.sleep_decisions
+
+
+def _maintenance_fixture(
+    phase: MaintenancePhase,
+) -> tuple[
+    CandidateValidationContext,
+    tuple[CandidateBasis, ...],
+    CandidateMemoryContext,
+]:
+    context, bases = _fixture()
+    session_id, revision_id, opportunity_id, memory_id, memory_revision_id = (
+        uuid7() for _ in range(5)
+    )
+    memory_digest = Digest.from_bytes(b"maintenance-memory")
+    memory = CandidateMemoryContext(
+        memory_id,
+        memory_revision_id,
+        2,
+        memory_digest,
+        CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+        MemorySourceKind.EXPERIENCED,
+        "我曾把一次分歧理解成永久结论。",
+        "这个理解可能过于绝对。",
+        MemoryAccessibility.AVAILABLE,
+    )
+    purpose = (
+        "maintain_subjective_memory"
+        if phase is MaintenancePhase.MEMORY_MAINTENANCE
+        else "perform_subject_self_check"
+    )
+    maintenance = replace(
+        context,
+        purpose=purpose,
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=opportunity_id,
+        current_memories=(memory,),
+        current_maintenance_session_id=session_id,
+        current_maintenance_revision_id=revision_id,
+        current_maintenance_head_version=3,
+        current_maintenance_phase=phase,
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "life_mode",
+            "current_maintenance_phase",
+            revision_id,
+            3,
+            Digest.from_bytes(b"maintenance-phase"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "memory",
+            "current_memory",
+            memory_id,
+            2,
+            memory_digest,
+            "subjective_state",
+            "private",
+        ),
+    )
+    return maintenance, extended, memory
+
+
+def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
+    context, bases, memory = _maintenance_fixture(MaintenancePhase.MEMORY_MAINTENANCE)
+    changed = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reinterpret",
+                "memory_ref": "ctx:5",
+                "reason": "当前理解需要保留不确定性。",
+                "summary": "那次分歧并不足以证明永久结论。",
+                "uncertainty": "仍需未来经历校正。",
+            }
+        ),
+        bases=bases,
+    )
+    assert changed.status is CandidateValidationStatus.ACCEPTED
+    assert changed.change_set is not None
+    assert changed.change_set.memory_revisions[0].memory_id == memory.memory_id
+    assert changed.change_set.memory_revisions[0].mechanism_config_identity == (
+        "sleep-maintenance-v1"
+    )
+    decision = changed.change_set.maintenance_decisions[0]
+    assert decision.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
+    assert decision.memory_proposal_ref == "proposal:1"
+    assert b"armi.subject-change-set.v19" in changed.change_set.canonical_bytes
+    assert parse_subject_change_set(changed.change_set.canonical_bytes) == (
+        changed.change_set
+    )
+
+    unchanged = DeterministicCandidateValidator(context).validate(
+        _bytes({"kind": "memory_unchanged", "summary": "当前无需改变。"}),
+        bases=bases,
+    )
+    assert unchanged.status is CandidateValidationStatus.ACCEPTED
+    assert unchanged.change_set is not None
+    assert unchanged.change_set.memory_revisions == ()
+    assert unchanged.change_set.maintenance_decisions[0].outcome is (
+        MaintenanceWorkOutcome.MEMORY_UNCHANGED
+    )
+
+
+def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> None:
+    context, bases, _ = _maintenance_fixture(MaintenancePhase.SELF_CHECK)
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "issue_found",
+                "issue_kind": "incomplete_internal_responsibility",
+                "internal_summary": "一个内部承诺与当前活动状态不一致。",
+                "creator_visible_summary": "有一项内部责任需要后续关注。",
+            }
+        ),
+        bases=bases,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.relationships == ()
+    assert result.change_set.components == ()
+    decision = result.change_set.maintenance_decisions[0]
+    assert decision.outcome is MaintenanceWorkOutcome.ISSUE_FOUND
+    assert decision.creator_visible_problem == "有一项内部责任需要后续关注。"
+
+    no_issue = DeterministicCandidateValidator(context).validate(
+        _bytes({"kind": "no_issue", "summary": "未发现需要提交的问题。"}),
+        bases=bases,
+    )
+    assert no_issue.status is CandidateValidationStatus.ACCEPTED
+    assert no_issue.change_set is not None
+    assert no_issue.change_set.maintenance_decisions[0].outcome is (
+        MaintenanceWorkOutcome.NO_ISSUE
+    )
+
+    wrong_phase = DeterministicCandidateValidator(
+        replace(context, current_maintenance_phase=MaintenancePhase.MEMORY_MAINTENANCE)
+    ).validate(
+        _bytes({"kind": "no_issue", "summary": "不会提交。"}),
+        bases=bases,
+    )
+    assert wrong_phase.status is CandidateValidationStatus.REJECTED
+    assert wrong_phase.error_code == "CANDIDATE-MAINTENANCE-CONTEXT"
 
 
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:

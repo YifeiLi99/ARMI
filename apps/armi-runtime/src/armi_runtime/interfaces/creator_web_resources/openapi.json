@@ -1279,7 +1279,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "creator-maintenance.v1",
+            "const": "creator-maintenance.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -1319,6 +1319,19 @@
           "phase": {
             "$ref": "#/components/schemas/MaintenancePhaseValue"
           },
+          "problem_summary": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Summary"
+          },
           "result_status": {
             "$ref": "#/components/schemas/MaintenanceResultValue"
           },
@@ -1334,6 +1347,16 @@
           },
           "transition_kind": {
             "$ref": "#/components/schemas/MaintenanceTransitionValue"
+          },
+          "work_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaintenanceWorkOutcomeValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1342,7 +1365,9 @@
           "phase",
           "result_status",
           "transition_kind",
-          "occurred_at"
+          "occurred_at",
+          "work_outcome",
+          "problem_summary"
         ],
         "title": "CreatorMaintenanceTimelineItemResponse",
         "type": "object"
@@ -1369,7 +1394,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "creator-maintenance.v1",
+            "const": "creator-maintenance.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -1782,7 +1807,7 @@
             "enum": [
               "creator-activity.v1",
               "creator-memory.v1",
-              "creator-maintenance.v1",
+              "creator-maintenance.v2",
               "life-record-query.v2",
               "creator-relationship.v1",
               "scene-timeline.v4",
@@ -3088,6 +3113,15 @@
           "completed",
           "interrupted",
           "system_failed"
+        ],
+        "type": "string"
+      },
+      "MaintenanceWorkOutcomeValue": {
+        "enum": [
+          "memory_changed",
+          "memory_unchanged",
+          "issue_found",
+          "no_issue"
         ],
         "type": "string"
       },

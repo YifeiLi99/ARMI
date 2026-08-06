@@ -66,7 +66,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorEventResourceKind.MAINTENANCE,
             resource_ref=str(session_id),
             occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
-            projection_version="creator-maintenance.v1",
+            projection_version="creator-maintenance.v2",
         )
         self.assertEqual(invalidation.resource_ref, str(session_id))
 

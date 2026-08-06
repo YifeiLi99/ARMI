@@ -49,7 +49,7 @@ class CreatorEventResourceKind(StrEnum):
 _PROJECTIONS = {
     CreatorEventResourceKind.ACTIVITY: "creator-activity.v1",
     CreatorEventResourceKind.MEMORY: "creator-memory.v1",
-    CreatorEventResourceKind.MAINTENANCE: "creator-maintenance.v1",
+    CreatorEventResourceKind.MAINTENANCE: "creator-maintenance.v2",
     CreatorEventResourceKind.MATERIAL: "life-record-query.v2",
     CreatorEventResourceKind.RELATIONSHIP: "creator-relationship.v1",
     CreatorEventResourceKind.SCENE_TIMELINE: "scene-timeline.v4",

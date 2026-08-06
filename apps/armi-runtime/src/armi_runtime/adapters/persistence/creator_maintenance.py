@@ -16,6 +16,7 @@ from armi_kernel.application import (
     MaintenanceResultStatus,
     MaintenanceTransitionKind,
     MaintenanceTriggerKind,
+    MaintenanceWorkOutcome,
 )
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
@@ -184,11 +185,17 @@ class PostgreSQLCreatorMaintenanceQuery:
                 rows = await (
                     await connection.execute(
                         """
-                        SELECT maintenance_revision_id, revision_no, phase,
-                               result_status, transition_kind, created_at
-                        FROM armi.maintenance_session_revisions
-                        WHERE maintenance_session_id = %s
-                        ORDER BY revision_no DESC
+                        SELECT revision.maintenance_revision_id,
+                               revision.revision_no, revision.phase,
+                               revision.result_status, revision.transition_kind,
+                               revision.created_at, result.outcome,
+                               result.creator_visible_problem
+                        FROM armi.maintenance_session_revisions AS revision
+                        LEFT JOIN armi.maintenance_phase_results AS result
+                          ON result.maintenance_revision_id
+                            = revision.maintenance_revision_id
+                        WHERE revision.maintenance_session_id = %s
+                        ORDER BY revision.revision_no DESC
                         LIMIT %s
                         """,
                         (session_id, _PAGE_SIZE + 1),
@@ -254,6 +261,10 @@ class PostgreSQLCreatorMaintenanceQuery:
             result_status=MaintenanceResultStatus(str(row[3])),
             transition_kind=cast(MaintenanceTransitionKind, str(row[4])),
             occurred_at=row[5],
+            work_outcome=(
+                None if row[6] is None else MaintenanceWorkOutcome(str(row[6]))
+            ),
+            problem_summary=None if row[7] is None else str(row[7]),
         )
 
 

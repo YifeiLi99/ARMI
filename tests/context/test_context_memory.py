@@ -32,6 +32,8 @@ def _snapshot(
     scene_bytes: bytes | None = None,
     creator_prompt: object | None = None,
     subject_prompt: object | None = None,
+    purpose: str = "consider_creator_input",
+    opportunity_source_kind: str = "external_evidence",
 ) -> ContextEpisodeSnapshot:
     source_ref = uuid7()
     return cast(
@@ -42,7 +44,7 @@ def _snapshot(
             state_epoch=1,
             bundle_activation_id=uuid7(),
             opportunity_id=uuid7(),
-            purpose="consider_creator_input",
+            purpose=purpose,
             component_payloads=(),
             scene_id=scene_id,
             scene_bytes=scene_bytes,
@@ -56,7 +58,7 @@ def _snapshot(
             opportunity_source_ref=source_ref,
             opportunity_source_version=1,
             opportunity_source_digest=Digest.from_bytes(b"opportunity"),
-            opportunity_source_kind="external_evidence",
+            opportunity_source_kind=opportunity_source_kind,
             opportunity_available_after=datetime(2026, 1, 1, tzinfo=UTC),
             opportunity_expires_at=None,
             evidence=None,
@@ -353,6 +355,63 @@ def test_context_includes_only_naturally_accessible_memory_heads() -> None:
         for item in compiled.items
         if item.candidate.item_kind == "current_memory"
     )
+
+
+def test_maintenance_context_separates_memory_work_from_subject_self_check() -> None:
+    memories = (_memory("available"), _memory("forgotten"))
+    memory_request = _context_request(
+        _snapshot(
+            memories,
+            purpose="maintain_subjective_memory",
+            opportunity_source_kind="maintenance_phase_revision",
+        ),
+        None,
+        b"fixed prompt",
+        web_search_active=False,
+    )
+    assert (
+        len(
+            [
+                item
+                for item in memory_request.items
+                if item.item_kind == "current_memory"
+            ]
+        )
+        == 1
+    )
+    memory_phase = next(
+        item
+        for item in memory_request.items
+        if item.item_kind == "current_maintenance_phase"
+    )
+    assert memory_phase.required
+    assert "forgotten memory" not in "".join(
+        item.content or "" for item in memory_request.items
+    )
+
+    self_check_request = _context_request(
+        _snapshot(
+            memories,
+            purpose="perform_subject_self_check",
+            opportunity_source_kind="maintenance_phase_revision",
+        ),
+        None,
+        b"fixed prompt",
+        web_search_active=False,
+    )
+    assert not any(
+        item.item_kind == "current_memory" for item in self_check_request.items
+    )
+    assert next(
+        item
+        for item in self_check_request.items
+        if item.item_kind == "current_maintenance_phase"
+    ).required
+    assert next(
+        item
+        for item in self_check_request.items
+        if item.item_kind == "current_activities"
+    ).required
 
 
 def test_context_distinguishes_no_natural_recall_from_no_database_record() -> None:

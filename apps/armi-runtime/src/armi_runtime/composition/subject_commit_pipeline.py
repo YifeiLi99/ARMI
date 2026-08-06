@@ -624,7 +624,7 @@ class SubjectCommitPipeline:
                     CreatorEventResourceKind.MAINTENANCE,
                     str(session_id),
                     now,
-                    "creator-maintenance.v1",
+                    "creator-maintenance.v2",
                 )
                 for session_id in maintenance_ids
             )
