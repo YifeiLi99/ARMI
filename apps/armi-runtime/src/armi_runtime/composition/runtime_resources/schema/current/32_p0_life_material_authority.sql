@@ -14,6 +14,8 @@ ALTER TABLE armi.cognitive_attempts
             'armi.creator-dialogue-candidate.v10',
             'armi.creator-dialogue-candidate.v11',
             'armi.creator-dialogue-candidate.v12',
+            'armi.creator-dialogue-candidate.v13',
+            'armi.creator-dialogue-candidate.v14',
             'armi.autonomous-activity-candidate.v1',
             'armi.activity-attention-candidate.v1',
             'armi.sleep-decision-candidate.v1'
@@ -36,6 +38,8 @@ ALTER TABLE armi.cognitive_candidate_validations
             'armi.creator-dialogue-candidate.v10',
             'armi.creator-dialogue-candidate.v11',
             'armi.creator-dialogue-candidate.v12',
+            'armi.creator-dialogue-candidate.v13',
+            'armi.creator-dialogue-candidate.v14',
             'armi.autonomous-activity-candidate.v1',
             'armi.activity-attention-candidate.v1',
             'armi.sleep-decision-candidate.v1'

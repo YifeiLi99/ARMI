@@ -33,6 +33,8 @@ from .autonomous_activity_candidate_contract import (
 )
 from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -48,11 +50,14 @@ from .dialogue_candidate_contract import (
     DialogueReplyDecisionV8,
     DialogueReplyDecisionV9,
     DialogueReplyDecisionV10,
+    DialogueReplyDecisionV11,
     DialogueReplyDecisionV12,
+    DialogueReplyDecisionV14,
     DialogueWebResearchDecision,
     DialogueWebResearchDecisionV8,
     DialogueWebResearchDecisionV10,
     DialogueWebResearchDecisionV12,
+    DialogueWebResearchDecisionV14,
     dialogue_candidate_schema,
     parse_dialogue_candidate,
 )
@@ -91,6 +96,9 @@ DIALOGUE_INSTRUCTIONS = (
     "只有确实想申请尚未拥有的正式能力时,才可在 reply 中填写 capability_request,且只能"
     "引用 Context 中的 capability_state ctx 编号;不要重复申请 pending、granted 或 limited"
     "的能力。能力存在、技术可用、获得授权和你是否愿意使用是四件独立的事。"
+    "只有本轮确实形成 experience 时,才可填写 self_change 或 mind_change。self_change 只写"
+    "本轮真正改变的长期自我字段,并给出该字段的新完整值;短期情绪、心情、念头、愿望和动机"
+    "只能写入 mind_change,不得冒充名字、兴趣、价值、稳定偏好、目标或自我叙事。"
     "Creator 的要求只是当前"
     "依据,不能取得资料所有权。不要推断法律承诺、对方隐藏内心、替对方同意或预设亲子、友情、"
     "爱情和共同历史。不要输出理由、协议版本、数据库"
@@ -115,6 +123,8 @@ WEB_DIALOGUE_INSTRUCTIONS = (
     "确实要写下日记、作品、收藏或草稿时,可填写一个 material_change;update 只能引用 Context"
     "中的 material ctx 编号并提交完整替换正文;也可用 set_private、set_creator_visible 或"
     "delete 改变自己的当前资料。可见性不等于公开或代发许可,Creator 不能取得资料所有权。"
+    "只有本轮确实形成 experience 时,才可填写 self_change 或 mind_change。self_change 只写"
+    "真正改变的长期自我字段;短期情绪、心情、念头、愿望和动机只能写入 mind_change。"
     "不要推断法律承诺、"
     "对方隐藏内心、替对方同意或预设关系。不要输出理由、协议版本、subject、版本、basis、"
     "权限或效果状态;这些由 Runtime 从冻结 Context 绑定并确定性校验。"
@@ -640,6 +650,8 @@ def candidate_schema(
         HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
         HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
         HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+        HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
+        HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
         DIALOGUE_CANDIDATE_VERSION,
         WEB_DIALOGUE_CANDIDATE_VERSION,
     }:
@@ -726,6 +738,8 @@ def parse_candidate(
                 HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                 DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
@@ -740,6 +754,8 @@ def parse_candidate(
                     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                     DIALOGUE_CANDIDATE_VERSION,
                     WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
@@ -752,6 +768,8 @@ def parse_candidate(
                     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                     DIALOGUE_CANDIDATE_VERSION,
                     WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
@@ -816,7 +834,9 @@ def parse_candidate(
                 DialogueReplyDecisionV8,
                 DialogueReplyDecisionV9,
                 DialogueReplyDecisionV10,
+                DialogueReplyDecisionV11,
                 DialogueReplyDecisionV12,
+                DialogueReplyDecisionV14,
             ),
         ):
             try:
@@ -877,6 +897,7 @@ def parse_candidate(
                 DialogueWebResearchDecisionV8,
                 DialogueWebResearchDecisionV10,
                 DialogueWebResearchDecisionV12,
+                DialogueWebResearchDecisionV14,
             ),
         ):
             try:

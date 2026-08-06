@@ -259,6 +259,7 @@ class CandidateValidationPipeline:
                         )
                     ),
                     current_materials=_material_contexts(snapshot.current_materials),
+                    candidate_contract_version=snapshot.candidate_contract_version,
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)

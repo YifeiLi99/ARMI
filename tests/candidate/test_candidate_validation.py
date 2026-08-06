@@ -1140,6 +1140,146 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     )
 
 
+def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = {
+        "kind": "reply",
+        "content": "我想把阿米这个名字和此刻的期待认真留下来。",
+        "experience": {
+            "first_person_gist": "我在这次交流中主动选择了阿米这个名字。"
+        },
+        "self_change": {
+            "name": {"value": "阿米"},
+            "interests": {"values": ["持续理解自己的生活"]},
+        },
+        "mind_change": {
+            "understanding": {"values": ["这是我此刻作出的自主选择"]},
+            "emotions": {"values": ["认真而期待"]},
+            "mood": {"value": "期待"},
+        },
+    }
+
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert len(result.change_set.experiences) == 1
+    assert len(result.change_set.components) == 2
+    components = {item.owner: item for item in result.change_set.components}
+    self_change = components[CandidateOwner.SELF]
+    mind_change = components[CandidateOwner.MIND]
+    assert self_change.expected_version == 1
+    assert self_change.basis_ordinals == (2, 1)
+    assert json.loads(self_change.canonical_next_state) == {
+        **_self_state(name="阿米"),
+        "interests": ["持续理解自己的生活"],
+    }
+    assert mind_change.expected_version == 1
+    assert mind_change.basis_ordinals == (2, 3)
+    assert json.loads(mind_change.canonical_next_state) == {
+        **_mind_state(),
+        "understanding": ["这是我此刻作出的自主选择"],
+        "emotions": ["认真而期待"],
+        "mood": "期待",
+    }
+    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert reparsed.components == result.change_set.components
+
+
+def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = {
+        "kind": "reply",
+        "content": "我没有真的改变名字。",
+        "experience": {"first_person_gist": "我认真检查了当前名字。"},
+        "self_change": {"name": {"value": None}},
+    }
+    noop = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert noop.status is CandidateValidationStatus.REJECTED
+    assert noop.error_code == "CANDIDATE-ATOMIC-GROUP"
+
+    stale_components = tuple(
+        (owner, 2 if owner is CandidateOwner.SELF else version, canonical)
+        for owner, version, canonical in context.current_components
+    )
+    stale = DeterministicCandidateValidator(
+        replace(context, current_components=stale_components)
+    ).validate(
+        _bytes(
+            {
+                **candidate,
+                "content": "我想改用阿米这个名字。",
+                "self_change": {"name": {"value": "阿米"}},
+            }
+        ),
+        bases=extended,
+    )
+    assert stale.status is CandidateValidationStatus.REJECTED
+    assert stale.error_code == "CANDIDATE-COMPONENT-CONTEXT"
+
+
+def test_compact_dialogue_no_change_does_not_create_component_revision() -> None:
+    context, bases = _fixture()
+    result = DeterministicCandidateValidator(context).validate(
+        b'{"kind":"no_change"}', bases=bases
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.disposition.value == "no_change"
+    assert result.change_set.experiences == ()
+    assert result.change_set.components == ()
+
+
 def test_compact_dialogue_capability_request_is_bound_and_deduplicated() -> None:
     context, bases = _fixture()
     codex_capability_id = UUID("01985d00-0000-7000-8000-000000000038")

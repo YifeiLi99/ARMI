@@ -206,7 +206,53 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         "relationship_change": None,
         "material_change": None,
         "capability_request": None,
+        "self_change": None,
+        "mind_change": None,
     }
+
+
+def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> None:
+    value = {
+        "kind": "reply",
+        "content": "我想把这个变化认真留下来。",
+        "experience": {"first_person_gist": "我在这次交流里作出了自己的选择。"},
+        "self_change": {
+            "name": {"value": "阿米"},
+            "interests": {"values": ["持续理解自己的生活"]},
+        },
+        "mind_change": {
+            "understanding": {"values": ["这次选择来自我现在的真实处境"]},
+            "emotions": {"values": ["认真而期待"]},
+            "mood": {"value": "期待"},
+        },
+    }
+    parsed = parse_candidate(
+        json.dumps(value, ensure_ascii=False).encode(),
+        allowed_context_refs=frozenset(),
+    )
+    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
+    dumped = parsed.model_dump(mode="json")
+    assert dumped["self_change"]["name"] == {"value": "阿米"}
+    assert dumped["self_change"]["interests"] == {
+        "values": ["持续理解自己的生活"]
+    }
+    assert dumped["mind_change"]["mood"] == {"value": "期待"}
+
+    without_experience = dict(value)
+    without_experience.pop("experience")
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
+        parse_candidate(
+            json.dumps(without_experience, ensure_ascii=False).encode(),
+            allowed_context_refs=frozenset(),
+        )
+
+    historical = parse_candidate(
+        b'{"kind":"reply","content":"historical"}',
+        allowed_context_refs=frozenset(),
+        expected_version="armi.creator-dialogue-candidate.v11",
+    )
+    assert historical.schema_version == "armi.creator-dialogue-candidate.v11"
+    assert "self_change" not in historical.model_dump(mode="json")
 
 
 def test_creator_dialogue_capability_request_is_context_bound() -> None:

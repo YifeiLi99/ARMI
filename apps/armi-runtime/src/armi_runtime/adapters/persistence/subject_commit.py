@@ -480,10 +480,7 @@ class PostgreSQLSubjectCommitRepository:
             or int(subject[1]) != change_set.base_state_epoch
             or subject[2] != change_set.generation_id
             or subject[3] != change_set.bundle_activation_id
-            or any(
-                heads.get(component.owner) != component.expected_version
-                for component in change_set.components
-            )
+            or _component_heads_are_stale(heads, change_set)
             or any(
                 memory_heads.get(memory.memory_id)
                 != (memory.current_revision_id, memory.expected_head_version)
@@ -1283,6 +1280,15 @@ async def _lock_heads(
             raise SubjectCommitViolation("SUBJECT-HEAD-MISSING")
         result[owner] = int(row[0])
     return result
+
+
+def _component_heads_are_stale(
+    heads: dict[CandidateOwner, int], change_set: SubjectChangeSet
+) -> bool:
+    return any(
+        heads.get(component.owner) != component.expected_version
+        for component in change_set.components
+    )
 
 
 async def _lock_memory_heads(

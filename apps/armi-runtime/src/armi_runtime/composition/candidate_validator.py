@@ -88,6 +88,8 @@ from .autonomous_activity_candidate_contract import (
 )
 from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -110,6 +112,7 @@ from .dialogue_candidate_contract import (
     DialogueReplyDecisionV8,
     DialogueReplyDecisionV9,
     DialogueReplyDecisionV10,
+    DialogueReplyDecisionV11,
     DialogueReplyDecisionV12,
     DialogueTerminalDecision,
     DialogueTerminalDecisionV5,
@@ -118,6 +121,7 @@ from .dialogue_candidate_contract import (
     DialogueTerminalDecisionV8,
     DialogueTerminalDecisionV9,
     DialogueTerminalDecisionV10,
+    DialogueTerminalDecisionV11,
     DialogueTerminalDecisionV12,
     DialogueWebResearchDecision,
     DialogueWebResearchDecisionV8,
@@ -137,7 +141,9 @@ from .model_contract import (
     ExperienceProposal,
     FormalNoActionPayload,
     MemoryChangeProposal,
+    MindState,
     RuntimeBoundCreatorReplyPayload,
+    SelfState,
     WebResearchRequestProposal,
     parse_candidate,
 )
@@ -343,6 +349,7 @@ class CandidateValidationContext:
     subject_party_id: UUID | None = None
     current_relationship: CandidateRelationshipContext | None = None
     current_materials: tuple[CandidateLifeMaterialContext, ...] = ()
+    candidate_contract_version: str | None = None
 
     def __post_init__(self) -> None:
         if any(
@@ -409,6 +416,11 @@ class CandidateValidationContext:
             for value in self.current_materials
         ):
             raise CandidateViolation("CON-CANDIDATE-MATERIAL-CONTEXT")
+        if self.candidate_contract_version is not None and (
+            type(self.candidate_contract_version) is not str
+            or not self.candidate_contract_version
+        ):
+            raise CandidateViolation("CON-CANDIDATE-CONTEXT")
 
 
 class DeterministicCandidateValidator:
@@ -441,6 +453,8 @@ class DeterministicCandidateValidator:
                     if self._context.purpose == "consider_autonomous_life"
                     else SLEEP_DECISION_CANDIDATE_VERSION
                     if self._context.purpose == "consider_sleep"
+                    else self._context.candidate_contract_version
+                    if self._context.purpose == "consider_creator_input"
                     else None
                 ),
             )
@@ -901,6 +915,7 @@ class DeterministicCandidateValidator:
                 HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
             and web_research_requests
@@ -914,6 +929,8 @@ class DeterministicCandidateValidator:
                 HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                 DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
@@ -979,6 +996,7 @@ class DeterministicCandidateValidator:
             HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+            HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
             WEB_DIALOGUE_CANDIDATE_VERSION,
         }:
             change_set_value["web_research_requests"] = [
@@ -998,6 +1016,7 @@ class DeterministicCandidateValidator:
                 HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
                 "armi.cognition-candidate.v6",
                 "armi.cognition-candidate.v7",
             }
@@ -1007,6 +1026,7 @@ class DeterministicCandidateValidator:
                     HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                     WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
                 and not web_research_requests
@@ -1467,6 +1487,7 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV8,
             DialogueReplyDecisionV9,
             DialogueReplyDecisionV10,
+            DialogueReplyDecisionV11,
             DialogueReplyDecisionV12,
             DialogueTerminalDecision,
             DialogueTerminalDecisionV5,
@@ -1475,6 +1496,7 @@ def _expand_dialogue_candidate(
             DialogueTerminalDecisionV8,
             DialogueTerminalDecisionV9,
             DialogueTerminalDecisionV10,
+            DialogueTerminalDecisionV11,
             DialogueTerminalDecisionV12,
             DialogueWebResearchDecision,
             DialogueWebResearchDecisionV8,
@@ -1495,6 +1517,7 @@ def _expand_dialogue_candidate(
     }[decision.kind]
     disposition = decision.kind
     experiences: list[dict[str, Any]] = []
+    component_changes: list[dict[str, Any]] = []
     memory_changes: list[dict[str, Any]] = []
     capability_requests: list[dict[str, Any]] = []
     action_choices: list[dict[str, Any]] = []
@@ -1513,6 +1536,7 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV8,
             DialogueReplyDecisionV9,
             DialogueReplyDecisionV10,
+            DialogueReplyDecisionV11,
             DialogueReplyDecisionV12,
         ),
     ):
@@ -1563,6 +1587,29 @@ def _expand_dialogue_candidate(
                     }
                 )
                 proposal_no += 1
+        for owner, change, state_type in (
+            (CandidateOwner.SELF, getattr(decision, "self_change", None), SelfState),
+            (CandidateOwner.MIND, getattr(decision, "mind_change", None), MindState),
+        ):
+            if change is None:
+                continue
+            component_change, component_error = _bind_dialogue_component_change(
+                owner=owner,
+                change=change,
+                state_type=state_type,
+                proposal_ref=f"proposal:{proposal_no}",
+                evidence_ref=evidence_ref,
+                bases=bases,
+                context=context,
+            )
+            if component_change is None:
+                return (
+                    None,
+                    None,
+                    component_error or "CANDIDATE-COMPONENT-CONTEXT",
+                )
+            component_changes.append(component_change)
+            proposal_no += 1
         if decision.memory_change is not None:
             memory_revision, memory_error = _bind_dialogue_memory_revision(
                 decision.memory_change,
@@ -1805,7 +1852,7 @@ def _expand_dialogue_candidate(
                         "basis_refs": understanding_basis_refs,
                     },
                     "experiences": tuple(experiences),
-                    "component_changes": (),
+                    "component_changes": tuple(component_changes),
                     "memory_changes": tuple(memory_changes),
                     "relationship_changes": (),
                     "activity_changes": (),
@@ -1821,6 +1868,71 @@ def _expand_dialogue_candidate(
         )
     except Exception:
         return None, None, "CANDIDATE-CONTRACT"
+
+
+def _bind_dialogue_component_change(
+    *,
+    owner: CandidateOwner,
+    change: Any,
+    state_type: type[SelfState] | type[MindState],
+    proposal_ref: str,
+    evidence_ref: str,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[dict[str, Any] | None, str | None]:
+    current = next(
+        (
+            (version, canonical)
+            for current_owner, version, canonical in context.current_components
+            if current_owner is owner
+        ),
+        None,
+    )
+    basis = next(
+        (
+            item
+            for item in bases
+            if item.item_kind == owner.value
+            and current is not None
+            and item.source_version == current[0]
+            and item.source_digest == Digest.from_bytes(current[1])
+        ),
+        None,
+    )
+    if current is None or basis is None:
+        return None, "CANDIDATE-COMPONENT-CONTEXT"
+    try:
+        current_state = state_type.model_validate_json(current[1], strict=True)
+        next_state = current_state.model_dump(mode="json")
+        for field_name in type(change).model_fields:
+            replacement = getattr(change, field_name)
+            if replacement is None:
+                continue
+            next_state[field_name] = (
+                list(replacement.values)
+                if hasattr(replacement, "values")
+                else replacement.value
+            )
+        validated = state_type.model_validate_json(
+            rfc8785.dumps(cast(Any, next_state)), strict=True
+        )
+    except Exception:
+        return None, "CANDIDATE-COMPONENT-STATE"
+    return (
+        {
+            "proposal_ref": proposal_ref,
+            "atomic_group_ref": "group:1",
+            "basis_refs": (evidence_ref, f"ctx:{basis.ordinal}"),
+            "payload": {
+                "proposal_kind": "component_changes",
+                "fact_class": "subjective_understanding",
+                "owner": owner.value,
+                "expected_version": current[0],
+                "next_state": validated.model_dump(mode="python"),
+            },
+        },
+        None,
+    )
 
 
 def _bind_dialogue_material(
@@ -2510,7 +2622,9 @@ def _component_failure(
     if proposal.payload.expected_version != version:
         return "CANDIDATE-VERSION-MISMATCH"
     if not any(
-        basis.item_kind == owner.value and basis.source_version == version
+        basis.item_kind == owner.value
+        and basis.source_version == version
+        and basis.source_digest == Digest.from_bytes(current_bytes)
         for basis in bases
     ):
         return "CANDIDATE-COMPONENT-BASIS"

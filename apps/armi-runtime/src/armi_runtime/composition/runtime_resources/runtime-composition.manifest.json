@@ -27,7 +27,8 @@
         "M0-S026",
         "P0-S001",
         "P0-S002",
-        "P0-S004"
+        "P0-S004",
+        "P1-S001"
       ],
       "active_binding": "armi.candidate-validator.deterministic-v1",
       "runtime_discovery": false,

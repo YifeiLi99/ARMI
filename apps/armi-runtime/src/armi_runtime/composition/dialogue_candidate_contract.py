@@ -1,7 +1,13 @@
-"""Compact model output contract for ordinary Creator dialogue."""
+"""Compact model output contract for ordinary Creator dialogue.
+
+Historical wire generations stay beside the active union because durable model attempts
+must be parsed by their recorded contract version; splitting them would duplicate the
+strict dispatch table and make compatibility drift easier.
+"""
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -23,8 +29,14 @@ HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate
 HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION = (
     "armi.creator-dialogue-candidate.v10"
 )
-DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v11"
-WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v12"
+HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION = (
+    "armi.creator-dialogue-candidate.v11"
+)
+HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION = (
+    "armi.creator-dialogue-candidate.v12"
+)
+DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v13"
+WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v14"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[
@@ -39,6 +51,74 @@ class _StrictModel(BaseModel):
 
 class DialogueCapabilityRequest(_StrictModel):
     capability_ref: ContextRef
+
+
+class DialogueNameReplacement(_StrictModel):
+    value: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None
+
+    @model_validator(mode="after")
+    def validate_text(self) -> DialogueNameReplacement:
+        if self.value is not None and (
+            not self.value.strip() or "\x00" in self.value
+        ):
+            raise ValueError("name replacement is invalid")
+        return self
+
+
+class DialogueLongTextReplacement(_StrictModel):
+    value: Annotated[str, StringConstraints(min_length=1, max_length=2048)] | None
+
+    @model_validator(mode="after")
+    def validate_text(self) -> DialogueLongTextReplacement:
+        if self.value is not None and (
+            not self.value.strip() or "\x00" in self.value
+        ):
+            raise ValueError("text replacement is invalid")
+        return self
+
+
+class DialogueSummaryListReplacement(_StrictModel):
+    values: tuple[Summary, ...] = Field(max_length=16)
+
+    @model_validator(mode="after")
+    def validate_values(self) -> DialogueSummaryListReplacement:
+        if any(not value.strip() or "\x00" in value for value in self.values):
+            raise ValueError("summary replacement is invalid")
+        if len(self.values) != len(set(self.values)):
+            raise ValueError("summary replacement contains duplicates")
+        return self
+
+
+class DialogueSelfChange(_StrictModel):
+    name: DialogueNameReplacement | None = None
+    self_description: DialogueLongTextReplacement | None = None
+    interests: DialogueSummaryListReplacement | None = None
+    values: DialogueSummaryListReplacement | None = None
+    preferences: DialogueSummaryListReplacement | None = None
+    goals: DialogueSummaryListReplacement | None = None
+    self_narrative: DialogueLongTextReplacement | None = None
+
+    @model_validator(mode="after")
+    def validate_change(self) -> DialogueSelfChange:
+        if all(getattr(self, field) is None for field in type(self).model_fields):
+            raise ValueError("self change is empty")
+        return self
+
+
+class DialogueMindChange(_StrictModel):
+    understanding: DialogueSummaryListReplacement | None = None
+    attention: DialogueSummaryListReplacement | None = None
+    emotions: DialogueSummaryListReplacement | None = None
+    thoughts: DialogueSummaryListReplacement | None = None
+    wishes: DialogueSummaryListReplacement | None = None
+    motivations: DialogueSummaryListReplacement | None = None
+    mood: DialogueNameReplacement | None = None
+
+    @model_validator(mode="after")
+    def validate_change(self) -> DialogueMindChange:
+        if all(getattr(self, field) is None for field in type(self).model_fields):
+            raise ValueError("mind change is empty")
+        return self
 
 
 class DialogueExperience(_StrictModel):
@@ -301,13 +381,13 @@ class _CreatorDialogueCandidateV10(CreatorDialogueCandidate):
 class _CreatorDialogueCandidateV11(CreatorDialogueCandidate):
     @property
     def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION
 
 
 class _CreatorDialogueCandidateV12(CreatorDialogueCandidate):
     @property
     def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION
 
 
 class DialogueReplyDecisionV5(_CreatorDialogueCandidateV5):
@@ -513,7 +593,7 @@ DialogueDecisionV10 = Annotated[
 ]
 
 
-class DialogueReplyDecision(_CreatorDialogueCandidateV11):
+class DialogueReplyDecisionV11(_CreatorDialogueCandidateV11):
     kind: Literal["reply"]
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
     experience: DialogueExperience | None = None
@@ -523,13 +603,13 @@ class DialogueReplyDecision(_CreatorDialogueCandidateV11):
     capability_request: DialogueCapabilityRequest | None = None
 
     @model_validator(mode="after")
-    def validate_relationship_source(self) -> DialogueReplyDecision:
+    def validate_relationship_source(self) -> DialogueReplyDecisionV11:
         if self.relationship_change is not None and self.experience is None:
             raise ValueError("relationship change requires an experience")
         return self
 
 
-class DialogueTerminalDecision(_CreatorDialogueCandidateV11):
+class DialogueTerminalDecisionV11(_CreatorDialogueCandidateV11):
     kind: Literal[
         "decline",
         "no_action",
@@ -537,6 +617,35 @@ class DialogueTerminalDecision(_CreatorDialogueCandidateV11):
         "defer",
         "need_information",
     ]
+
+
+DialogueDecisionV11 = Annotated[
+    DialogueReplyDecisionV11 | DialogueTerminalDecisionV11,
+    Field(discriminator="kind"),
+]
+
+
+class DialogueReplyDecision(DialogueReplyDecisionV11):
+    self_change: DialogueSelfChange | None = None
+    mind_change: DialogueMindChange | None = None
+
+    @property
+    def schema_version(self) -> str:
+        return DIALOGUE_CANDIDATE_VERSION
+
+    @model_validator(mode="after")
+    def validate_growth_source(self) -> DialogueReplyDecision:
+        if (
+            self.self_change is not None or self.mind_change is not None
+        ) and self.experience is None:
+            raise ValueError("subject growth requires an experience")
+        return self
+
+
+class DialogueTerminalDecision(DialogueTerminalDecisionV11):
+    @property
+    def schema_version(self) -> str:
+        return DIALOGUE_CANDIDATE_VERSION
 
 
 DialogueDecision = Annotated[
@@ -583,22 +692,65 @@ DialogueDecisionV12 = Annotated[
     Field(discriminator="kind"),
 ]
 
+
+class DialogueReplyDecisionV14(DialogueReplyDecisionV12):
+    self_change: DialogueSelfChange | None = None
+    mind_change: DialogueMindChange | None = None
+
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+    @model_validator(mode="after")
+    def validate_growth_source(self) -> DialogueReplyDecisionV14:
+        if (
+            self.self_change is not None or self.mind_change is not None
+        ) and self.experience is None:
+            raise ValueError("subject growth requires an experience")
+        return self
+
+
+class DialogueTerminalDecisionV14(DialogueTerminalDecisionV12):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueWebResearchDecisionV14(DialogueWebResearchDecisionV12):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+DialogueDecisionV14 = Annotated[
+    DialogueReplyDecisionV14
+    | DialogueTerminalDecisionV14
+    | DialogueWebResearchDecisionV14,
+    Field(discriminator="kind"),
+]
+
 _ADAPTER_V5: TypeAdapter[DialogueDecisionV5] = TypeAdapter(DialogueDecisionV5)
 _ADAPTER_V6: TypeAdapter[DialogueDecisionV6] = TypeAdapter(DialogueDecisionV6)
 _ADAPTER_V7: TypeAdapter[DialogueDecisionV7] = TypeAdapter(DialogueDecisionV7)
 _ADAPTER_V8: TypeAdapter[DialogueDecisionV8] = TypeAdapter(DialogueDecisionV8)
 _ADAPTER_V9: TypeAdapter[DialogueDecisionV9] = TypeAdapter(DialogueDecisionV9)
 _ADAPTER_V10: TypeAdapter[DialogueDecisionV10] = TypeAdapter(DialogueDecisionV10)
-_ADAPTER_V11: TypeAdapter[DialogueDecision] = TypeAdapter(DialogueDecision)
+_ADAPTER_V11: TypeAdapter[DialogueDecisionV11] = TypeAdapter(DialogueDecisionV11)
 _ADAPTER_V12: TypeAdapter[DialogueDecisionV12] = TypeAdapter(DialogueDecisionV12)
+_ADAPTER_V13: TypeAdapter[DialogueDecision] = TypeAdapter(DialogueDecision)
+_ADAPTER_V14: TypeAdapter[DialogueDecisionV14] = TypeAdapter(DialogueDecisionV14)
 
 
 def dialogue_candidate_schema(
     version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> dict[str, Any]:
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V11.json_schema()
+        return _ADAPTER_V13.json_schema()
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V14.json_schema()
+    if version == HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V11.json_schema()
+    if version == HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V12.json_schema()
     if version == HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V9.json_schema()
@@ -620,27 +772,36 @@ def parse_dialogue_candidate(
     *,
     version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> CreatorDialogueCandidate:
+    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V11.validate_python(value, strict=True)
+        return _ADAPTER_V13.validate_json(encoded, strict=True)
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V12.validate_python(value, strict=True)
+        return _ADAPTER_V14.validate_json(encoded, strict=True)
+    if version == HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V11.validate_json(encoded, strict=True)
+    if version == HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V12.validate_json(encoded, strict=True)
     if version == HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V9.validate_python(value, strict=True)
+        return _ADAPTER_V9.validate_json(encoded, strict=True)
     if version == HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V10.validate_python(value, strict=True)
+        return _ADAPTER_V10.validate_json(encoded, strict=True)
     if version == HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V7.validate_python(value, strict=True)
+        return _ADAPTER_V7.validate_json(encoded, strict=True)
     if version == HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V8.validate_python(value, strict=True)
+        return _ADAPTER_V8.validate_json(encoded, strict=True)
     if version == HISTORICAL_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V5.validate_python(value, strict=True)
+        return _ADAPTER_V5.validate_json(encoded, strict=True)
     if version == HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V6.validate_python(value, strict=True)
+        return _ADAPTER_V6.validate_json(encoded, strict=True)
     raise ValueError("unsupported dialogue candidate version")
 
 
 __all__ = (
     "DIALOGUE_CANDIDATE_VERSION",
+    "HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION",
+    "HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION",
@@ -652,11 +813,14 @@ __all__ = (
     "DialogueCapabilityRequest",
     "DialogueCommitmentChange",
     "DialogueExperience",
+    "DialogueLongTextReplacement",
     "DialogueMaterialChange",
     "DialogueMaterialChangeV7",
     "DialogueMaterialContentChange",
     "DialogueMaterialStateChange",
     "DialogueMemoryChange",
+    "DialogueMindChange",
+    "DialogueNameReplacement",
     "DialogueRelationshipBoundary",
     "DialogueRelationshipChange",
     "DialogueRelationshipFact",
@@ -667,7 +831,11 @@ __all__ = (
     "DialogueReplyDecisionV8",
     "DialogueReplyDecisionV9",
     "DialogueReplyDecisionV10",
+    "DialogueReplyDecisionV11",
     "DialogueReplyDecisionV12",
+    "DialogueReplyDecisionV14",
+    "DialogueSelfChange",
+    "DialogueSummaryListReplacement",
     "DialogueTerminalDecision",
     "DialogueTerminalDecisionV5",
     "DialogueTerminalDecisionV6",
@@ -675,11 +843,14 @@ __all__ = (
     "DialogueTerminalDecisionV8",
     "DialogueTerminalDecisionV9",
     "DialogueTerminalDecisionV10",
+    "DialogueTerminalDecisionV11",
     "DialogueTerminalDecisionV12",
+    "DialogueTerminalDecisionV14",
     "DialogueWebResearchDecision",
     "DialogueWebResearchDecisionV8",
     "DialogueWebResearchDecisionV10",
     "DialogueWebResearchDecisionV12",
+    "DialogueWebResearchDecisionV14",
     "dialogue_candidate_schema",
     "parse_dialogue_candidate",
 )

@@ -18,7 +18,7 @@ _SEAMS: Final = (
     ("M0-SEAM-MODEL", ("M0-S024",)),
     (
         "M0-SEAM-COGNITIVE-CANDIDATE",
-        ("M0-S025", "M0-S026", "P0-S001", "P0-S002", "P0-S004"),
+        ("M0-S025", "M0-S026", "P0-S001", "P0-S002", "P0-S004", "P1-S001"),
     ),
     ("M0-SEAM-WORK-SELECTION", ("M0-S023", "P0-S001")),
     ("P0-SEAM-LIFE-OPPORTUNITY", ("P0-S001", "P0-S004")),

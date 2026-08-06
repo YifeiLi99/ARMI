@@ -19,6 +19,7 @@ from armi_kernel.application import (
     SubjectSummary,
 )
 from armi_kernel.contracts import Digest
+from armi_runtime.adapters.persistence.subject_commit import _component_heads_are_stale
 from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
 
 
@@ -88,6 +89,14 @@ def test_change_set_parser_is_strict_and_deterministic() -> None:
     assert first.base_subject_version == 0
     assert len(first.experiences) == 1
     assert len(first.components) == 1
+
+
+def test_t03_rechecks_component_head_before_any_subject_change() -> None:
+    change_set = parse_subject_change_set(_change_set())
+    owner = change_set.components[0].owner
+    assert not _component_heads_are_stale({owner: 1}, change_set)
+    assert _component_heads_are_stale({owner: 2}, change_set)
+    assert _component_heads_are_stale({}, change_set)
 
 
 @pytest.mark.parametrize(
