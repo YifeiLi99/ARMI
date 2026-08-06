@@ -502,6 +502,8 @@ def _context_request(
         "life_mode": ContextSection.LIFE_MODE,
     }
     for kind, source_id, version, payload, digest in snapshot.component_payloads:
+        if snapshot.purpose == "consider_other_human_input" and kind != "self":
+            continue
         items.append(
             ContextItemCandidate(
                 section_by_component[kind],
@@ -545,10 +547,14 @@ def _context_request(
                     ),
                     (
                         ContextTrustClass.EXTERNAL_CLAIM
-                        if source.speaker == "creator"
+                        if source.speaker in {"creator", "other_human"}
                         else ContextTrustClass.RUNTIME_AUTHORITY
                     ),
-                    "creator_visible",
+                    (
+                        "private"
+                        if snapshot.purpose == "consider_other_human_input"
+                        else "creator_visible"
+                    ),
                     payload.decode("utf-8", errors="strict"),
                     False,
                     88,
@@ -560,6 +566,7 @@ def _context_request(
         for item in snapshot.memory_payloads
         if item[4] in {"available", "faded"}
         and snapshot.purpose != "perform_subject_self_check"
+        and snapshot.purpose != "consider_other_human_input"
     )
     if accessible_memories:
         for memory_id, version, payload, digest, accessibility in accessible_memories:
@@ -589,7 +596,7 @@ def _context_request(
                 ),
             )
         )
-    if material_payloads:
+    if material_payloads and snapshot.purpose != "consider_other_human_input":
         for source, payload in material_payloads:
             items.append(
                 ContextItemCandidate(
@@ -616,7 +623,11 @@ def _context_request(
                 reason="CTX-MATERIAL-NONE",
             )
         )
-    capability_states = snapshot.capability_state_payloads
+    capability_states = (
+        ()
+        if snapshot.purpose == "consider_other_human_input"
+        else snapshot.capability_state_payloads
+    )
     for (
         capability_id,
         version,
@@ -799,7 +810,9 @@ def _context_request(
                 },
                 relevance=95,
                 source_kind="activity_summary",
-            ),
+            )
+            if snapshot.purpose != "consider_other_human_input"
+            else _unavailable(ContextSection.ACTIVITY, "activities"),
             _item(
                 ContextSection.ACTIVITY,
                 "current_activity",
@@ -811,7 +824,9 @@ def _context_request(
                 in {"consider_activity_attention", "consider_activity_internal_work"},
                 relevance=100,
                 source_kind=snapshot.opportunity_source_kind,
-            ),
+            )
+            if snapshot.purpose != "consider_other_human_input"
+            else _unavailable(ContextSection.ACTIVITY, "activity"),
             _item(
                 ContextSection.CAPABILITY,
                 "web_search_availability",

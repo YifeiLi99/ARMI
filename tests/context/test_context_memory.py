@@ -35,6 +35,8 @@ def _snapshot(
     subject_prompt: object | None = None,
     purpose: str = "consider_creator_input",
     opportunity_source_kind: str = "external_evidence",
+    activity_summary_bytes: bytes = b'{"activities":[]}',
+    component_payloads: tuple[tuple[object, ...], ...] = (),
 ) -> ContextEpisodeSnapshot:
     source_ref = uuid7()
     return cast(
@@ -46,7 +48,7 @@ def _snapshot(
             bundle_activation_id=uuid7(),
             opportunity_id=uuid7(),
             purpose=purpose,
-            component_payloads=(),
+            component_payloads=component_payloads,
             scene_id=scene_id,
             scene_bytes=scene_bytes,
             memory_payloads=memory_payloads,
@@ -54,7 +56,7 @@ def _snapshot(
             relationship_payloads=relationship_payloads,
             relationship_commitment_payloads=relationship_commitment_payloads,
             relationship_issue_payloads=relationship_issue_payloads,
-            activity_summary_bytes=b'{"activities":[]}',
+            activity_summary_bytes=activity_summary_bytes,
             capability_state_payloads=capability_state_payloads,
             opportunity_source_ref=source_ref,
             opportunity_source_version=1,
@@ -548,6 +550,81 @@ def test_context_includes_current_life_material_with_revision_identity() -> None
     assert item.trust_class.value == "subjective_state"
     assert "当前完整正文" in cast(str, item.content)
     assert '"privacy_status":"private"' in cast(str, item.content)
+
+
+def test_other_human_context_excludes_unscoped_private_life_content() -> None:
+    relationship_id = uuid7()
+    relationship_payload = rfc8785.dumps(
+        {
+            "scope": "other_human_social",
+            "facts": [
+                {
+                    "kind": "shared_experience",
+                    "summary": "我和当前对方有一段独立交流。",
+                }
+            ],
+            "interpretation": "这是当前精确对方的关系。",
+            "boundaries": [],
+            "status": "active",
+        }
+    )
+    material_source = cast(
+        ContextMaterialSource,
+        SimpleNamespace(
+            material_id=uuid7(),
+            head_version=1,
+            semantic_digest=Digest.from_bytes(b"private-material"),
+        ),
+    )
+    request = _context_request(
+        _snapshot(
+            (_memory("available"),),
+            relationship_payloads=(
+                (
+                    relationship_id,
+                    1,
+                    relationship_payload,
+                    Digest.from_bytes(relationship_payload),
+                ),
+            ),
+            capability_state_payloads=(
+                (
+                    uuid7(),
+                    1,
+                    b'{"secret":"creator-capability"}',
+                    Digest.from_bytes(b'{"secret":"creator-capability"}'),
+                    "authorized",
+                ),
+            ),
+            purpose="consider_other_human_input",
+            activity_summary_bytes=b'{"activities":[{"goal":"private-activity"}]}',
+            component_payloads=(
+                (
+                    "mind",
+                    uuid7(),
+                    1,
+                    b'{"thoughts":["other-relationship-secret"]}',
+                    Digest.from_bytes(b'{"thoughts":["other-relationship-secret"]}'),
+                ),
+            ),
+        ),
+        None,
+        b"fixed prompt",
+        (
+            (
+                material_source,
+                b'{"title":"private-material-title","body":"private-material-body"}',
+            ),
+        ),
+        web_search_active=False,
+    )
+    compiled = DeterministicContextCompiler().compile(request).compiled.canonical_bytes
+    assert b"other_human_social" in compiled
+    assert b"available memory" not in compiled
+    assert b"private-material" not in compiled
+    assert b"private-activity" not in compiled
+    assert b"creator-capability" not in compiled
+    assert b"other-relationship-secret" not in compiled
 
 
 def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -> None:

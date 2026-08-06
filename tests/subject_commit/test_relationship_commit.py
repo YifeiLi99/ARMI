@@ -9,6 +9,7 @@ from armi_kernel.application import (
     RelationshipFact,
     RelationshipFactKind,
     RelationshipStatus,
+    SubjectCommitViolation,
 )
 from armi_runtime.adapters.persistence.relationship_commit import apply_relationships
 
@@ -47,7 +48,10 @@ class _RelationshipConnection:
                 self.creator_party_id,
                 self.subject_party_id,
                 self.subject_id,
+                params[3],
+                params[4],
             )
+            assert params[3] == params[4]
             return _Result((1,))
         if "FROM armi.relationships" in query:
             return _Result()
@@ -102,3 +106,64 @@ async def test_relationship_commit_binds_every_revision_value() -> None:
 
     assert connection.revision_parameters is not None
     assert len(connection.revision_parameters) == 16
+
+
+@pytest.mark.asyncio
+async def test_relationship_commit_accepts_only_episode_bound_other_human_party() -> None:
+    subject_id = uuid7()
+    subject_party_id = uuid7()
+    other_party_id = uuid7()
+    experience_id = uuid7()
+    connection = _RelationshipConnection(
+        subject_id=subject_id,
+        subject_party_id=subject_party_id,
+        creator_party_id=other_party_id,
+    )
+    relationship = CandidateRelationshipDraft(
+        "proposal:2",
+        "group:1",
+        (1,),
+        CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+        uuid7(),
+        subject_party_id,
+        other_party_id,
+        None,
+        0,
+        "proposal:1",
+        (
+            RelationshipFact(
+                RelationshipFactKind.PARTY_EXPRESSION,
+                "对方明确要求不要披露这次交流。",
+            ),
+        ),
+        "我会尊重当前对方的隐私边界。",
+        (),
+        RelationshipStatus.ACTIVE,
+        scope="other_human_social",
+    )
+
+    await apply_relationships(
+        connection,
+        validation_id=uuid7(),
+        subject_id=subject_id,
+        generation_id=uuid7(),
+        creator_party_id=None,
+        episode_other_party_id=other_party_id,
+        commit_id=uuid7(),
+        relationships=(relationship,),
+        experience_ids={"proposal:1": experience_id},
+    )
+    assert connection.revision_parameters is not None
+
+    with pytest.raises(SubjectCommitViolation, match="SUBJECT-RELATIONSHIP-PARTY"):
+        await apply_relationships(
+            connection,
+            validation_id=uuid7(),
+            subject_id=subject_id,
+            generation_id=uuid7(),
+            creator_party_id=None,
+            episode_other_party_id=uuid7(),
+            commit_id=uuid7(),
+            relationships=(relationship,),
+            experience_ids={"proposal:1": experience_id},
+        )

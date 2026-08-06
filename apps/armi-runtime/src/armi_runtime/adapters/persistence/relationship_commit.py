@@ -21,6 +21,7 @@ async def apply_relationships(
     subject_id: UUID,
     generation_id: UUID,
     creator_party_id: UUID | None,
+    episode_other_party_id: UUID | None = None,
     commit_id: UUID,
     relationships: tuple[CandidateRelationshipDraft, ...],
     experience_ids: dict[str, UUID],
@@ -42,7 +43,12 @@ async def apply_relationships(
         source_experience_id = experience_ids.get(relationship.source_experience_ref)
         if validation is None or source_experience_id is None:
             raise SubjectCommitViolation("SUBJECT-RELATIONSHIP-VALIDATION")
-        if creator_party_id != relationship.other_party_id:
+        expected_other_party_id = (
+            creator_party_id
+            if relationship.scope == "creator_social"
+            else episode_other_party_id
+        )
+        if expected_other_party_id != relationship.other_party_id:
             raise SubjectCommitViolation("SUBJECT-RELATIONSHIP-PARTY")
         parties = await (
             await connection.execute(
@@ -53,13 +59,26 @@ async def apply_relationships(
                 WHERE subject_party.party_id = %s
                   AND subject_party.party_kind = 'subject'
                   AND subject_party.represented_subject_id = %s
-                  AND other_party.party_kind = 'creator'
-                  AND other_party.creator_role = 'unique_primary_creator'
+                  AND (
+                      (
+                          %s = 'creator_social'
+                          AND other_party.party_kind = 'creator'
+                          AND other_party.creator_role = 'unique_primary_creator'
+                      )
+                      OR (
+                          %s = 'other_human_social'
+                          AND other_party.party_kind = 'other_human'
+                          AND other_party.creator_role IS NULL
+                          AND other_party.declared_identity_key IS NOT NULL
+                      )
+                  )
                 """,
                 (
                     relationship.other_party_id,
                     relationship.subject_party_id,
                     subject_id,
+                    relationship.scope,
+                    relationship.scope,
                 ),
             )
         ).fetchone()

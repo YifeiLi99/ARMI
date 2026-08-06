@@ -424,6 +424,7 @@ class PostgreSQLCandidateValidationRepository:
                  AND relationship.subject_id = %s
                  AND relationship.life_generation_id = %s
                  AND relationship.other_party_id = %s
+                 AND relationship.scope = %s
                  AND relationship.head_version = item.source_version
                 JOIN armi.relationship_revisions AS revision
                   ON revision.relationship_revision_id =
@@ -434,7 +435,17 @@ class PostgreSQLCandidateValidationRepository:
                   AND item.item_kind = 'current_relationship'
                   AND item.source_kind = 'relationship'
                 """,
-                (row[2], row[3], row[9], row[0]),
+                (
+                    row[2],
+                    row[3],
+                    row[15] if row[13] == "consider_other_human_input" else row[9],
+                    (
+                        "other_human_social"
+                        if row[13] == "consider_other_human_input"
+                        else "creator_social"
+                    ),
+                    row[0],
+                ),
             )
         ).fetchone()
         commitment_context_rows = await (

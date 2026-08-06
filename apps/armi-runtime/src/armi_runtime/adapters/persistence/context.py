@@ -538,6 +538,7 @@ class PostgreSQLContextRepository:
                 WHERE memory.subject_id = %s
                   AND memory.life_generation_id = %s
                   AND revision.accessibility IN ('available', 'faded')
+                  AND %s <> 'consider_other_human_input'
                 ORDER BY
                     CASE revision.accessibility
                         WHEN 'available' THEN 1 ELSE 2
@@ -546,7 +547,7 @@ class PostgreSQLContextRepository:
                     memory.memory_id
                 LIMIT 8
                 """,
-                (row[2], row[28]),
+                (row[2], row[28], row[20]),
             )
         ).fetchall()
         memory_exists = await (
@@ -581,6 +582,14 @@ class PostgreSQLContextRepository:
             )
             for item in memory_rows
         )
+        relationship_party_id = (
+            row[37] if row[20] == "consider_other_human_input" else row[4]
+        )
+        relationship_scope = (
+            "other_human_social"
+            if row[20] == "consider_other_human_input"
+            else "creator_social"
+        )
         relationship_rows = await (
             await connection.execute(
                 """
@@ -603,12 +612,18 @@ class PostgreSQLContextRepository:
                       %s = 'perform_subject_self_check'
                       OR (
                           relationship.other_party_id = %s
-                          AND relationship.scope = 'creator_social'
+                          AND relationship.scope = %s
                       )
                   )
                 ORDER BY relationship.relationship_id
                 """,
-                (row[2], row[28], row[20], row[4]),
+                (
+                    row[2],
+                    row[28],
+                    row[20],
+                    relationship_party_id,
+                    relationship_scope,
+                ),
             )
         ).fetchall()
         relationship_payloads = tuple(
@@ -692,10 +707,11 @@ class PostgreSQLContextRepository:
                 WHERE material.subject_id = %s
                   AND material.life_generation_id = %s
                   AND material.deleted_at IS NULL
+                  AND %s <> 'consider_other_human_input'
                 ORDER BY material.updated_at DESC, material.life_material_id
                 LIMIT 4
                 """,
-                (row[2], row[28]),
+                (row[2], row[28], row[20]),
             )
         ).fetchall()
         material_source_values: list[ContextMaterialSource] = []
@@ -729,9 +745,10 @@ class PostgreSQLContextRepository:
                 JOIN armi.activity_revisions AS revision
                   ON revision.activity_revision_id = activity.current_revision_id
                 WHERE activity.subject_id = %s
+                  AND %s <> 'consider_other_human_input'
                 ORDER BY activity.activity_id
                 """,
-                (row[2],),
+                (row[2], row[20]),
             )
         ).fetchall()
         activity_summary_bytes = rfc8785.dumps(
@@ -755,9 +772,13 @@ class PostgreSQLContextRepository:
                 ],
             }
         )
-        capability_state_payloads = await load_capability_state_payloads(
-            connection,
-            subject_id=row[2],
+        capability_state_payloads = (
+            ()
+            if row[20] == "consider_other_human_input"
+            else await load_capability_state_payloads(
+                connection,
+                subject_id=row[2],
+            )
         )
         scene_bytes = (
             None

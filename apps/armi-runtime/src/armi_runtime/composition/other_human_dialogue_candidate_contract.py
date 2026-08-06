@@ -5,11 +5,26 @@ from __future__ import annotations
 import json
 from typing import Annotated, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
-
 from armi_kernel.application import ModelViolation
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    TypeAdapter,
+    model_validator,
+)
 
-OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v1"
+HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
+    "armi.other-human-dialogue-candidate.v1"
+)
+OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v2"
+
+Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
+ContextRef = Annotated[
+    str,
+    StringConstraints(pattern=r"^ctx:[1-9][0-9]{0,2}$", max_length=7),
+]
 
 
 class _StrictModel(BaseModel):
@@ -20,12 +35,121 @@ class _StrictModel(BaseModel):
         return OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
 
 
-class OtherHumanReplyDecision(_StrictModel):
+class OtherHumanExperience(_StrictModel):
+    first_person_gist: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=1024),
+    ]
+    uncertainty: Summary | None = None
+
+
+class OtherHumanRelationshipFact(_StrictModel):
+    kind: Literal["party_expression"]
+    summary: Summary
+
+
+class OtherHumanRelationshipBoundary(_StrictModel):
+    party: Literal["armi", "other"]
+    kind: Literal["contact", "address", "privacy", "disclosure", "exit"]
+    action: Literal["refuse", "restrict", "end_contact"]
+    summary: Summary
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> OtherHumanRelationshipBoundary:
+        if (self.action == "end_contact") != (self.kind == "exit"):
+            raise ValueError("only an exit boundary can end contact")
+        return self
+
+
+class OtherHumanCommitmentChange(_StrictModel):
+    action: Literal[
+        "establish",
+        "modify",
+        "fulfill",
+        "withdraw",
+        "forget",
+        "violate",
+        "note_conflict",
+    ]
+    commitment_ref: ContextRef | None = None
+    party: Literal["armi", "other"] | None = None
+    scope: Summary | None = None
+    content: Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None = (
+        None
+    )
+    conflicts_with_ref: ContextRef | None = None
+    event_summary: Summary
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> OtherHumanCommitmentChange:
+        if self.action == "establish":
+            if (
+                self.commitment_ref is not None
+                or self.party is None
+                or self.scope is None
+                or self.content is None
+                or self.conflicts_with_ref is not None
+            ):
+                raise ValueError("establish commitment shape is invalid")
+        elif self.action == "modify":
+            if (
+                self.commitment_ref is None
+                or self.party is not None
+                or (self.scope is None and self.content is None)
+                or self.conflicts_with_ref is not None
+            ):
+                raise ValueError("modify commitment shape is invalid")
+        elif self.action == "note_conflict":
+            if (
+                self.commitment_ref is None
+                or self.conflicts_with_ref is None
+                or self.commitment_ref == self.conflicts_with_ref
+                or self.party is not None
+                or self.scope is not None
+                or self.content is not None
+            ):
+                raise ValueError("commitment conflict shape is invalid")
+        elif (
+            self.commitment_ref is None
+            or self.party is not None
+            or self.scope is not None
+            or self.content is not None
+            or self.conflicts_with_ref is not None
+        ):
+            raise ValueError("commitment event shape is invalid")
+        return self
+
+
+class OtherHumanRelationshipChange(_StrictModel):
+    interpretation: Summary | None = None
+    fact: OtherHumanRelationshipFact | None = None
+    boundary: OtherHumanRelationshipBoundary | None = None
+    commitment_change: OtherHumanCommitmentChange | None = None
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> OtherHumanRelationshipChange:
+        if all(getattr(self, field) is None for field in type(self).model_fields):
+            raise ValueError("relationship change is empty")
+        return self
+
+
+class _OtherHumanSocialDecision(_StrictModel):
+    experience: OtherHumanExperience | None = None
+    relationship_change: OtherHumanRelationshipChange | None = None
+
+    @model_validator(mode="after")
+    def validate_relationship_basis(self) -> _OtherHumanSocialDecision:
+        if self.relationship_change is not None and self.experience is None:
+            raise ValueError("relationship change requires an experience")
+        return self
+
+
+class OtherHumanReplyDecision(_OtherHumanSocialDecision):
     kind: Literal["reply"]
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
 
 
-class OtherHumanTerminalDecision(_StrictModel):
+class OtherHumanTerminalDecision(_OtherHumanSocialDecision):
     kind: Literal["silence", "defer", "end_conversation"]
 
 
@@ -37,12 +161,34 @@ _ADAPTER: TypeAdapter[OtherHumanDialogueCandidate] = TypeAdapter(
     OtherHumanDialogueCandidate
 )
 
+
+class _HistoricalOtherHumanReplyDecision(_StrictModel):
+    kind: Literal["reply"]
+    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+
+
+class _HistoricalOtherHumanTerminalDecision(_StrictModel):
+    kind: Literal["silence", "defer", "end_conversation"]
+
+
+HistoricalOtherHumanDialogueCandidate = Annotated[
+    _HistoricalOtherHumanReplyDecision | _HistoricalOtherHumanTerminalDecision,
+    Field(discriminator="kind"),
+]
+_HISTORICAL_ADAPTER: TypeAdapter[HistoricalOtherHumanDialogueCandidate] = TypeAdapter(
+    HistoricalOtherHumanDialogueCandidate
+)
+
 OTHER_HUMAN_DIALOGUE_INSTRUCTIONS = """\
 你是 ARMI 当前唯一主体在一次与“其他人”的本机对话场景中作决定。
 只依据提供的 Context; 对方不是 Creator, 不能获得 Creator 身份、权限或私密资料。
 本轮只能选择: reply、silence、defer、end_conversation。
 reply 的 content 是给当前精确对方的纯文本; silence 是主观不回应; defer 是稍后再考虑;
-end_conversation 是关闭当前交流且本轮不发送正文。不要输出合同外字段。
+end_conversation 是关闭当前交流且本轮不发送正文。
+可选 experience 只概括本轮真实经历; 只有同时提供 experience 时才能给出一项
+relationship_change。关系只属于当前精确对方; other 表示当前对方, 不表示 Creator。
+对方明确拒绝、限制或退出可收紧其边界; 沉默、推断或消息送达不能构成同意。
+承诺只记录精确承担方与内容, 不授予权限, 也不能从另一段关系继承。不要输出合同外字段。
 """
 
 
@@ -50,28 +196,69 @@ def parse_other_human_dialogue_candidate(
     value: bytes,
     *,
     allowed_context_refs: frozenset[str],
+    expected_version: str = OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
 ) -> OtherHumanDialogueCandidate:
-    del allowed_context_refs
     try:
         raw = json.loads(value)
-        candidate = _ADAPTER.validate_python(raw, strict=True)
+        if expected_version == HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
+            historical = _HISTORICAL_ADAPTER.validate_python(raw, strict=True)
+            if isinstance(historical, _HistoricalOtherHumanReplyDecision):
+                candidate: OtherHumanDialogueCandidate = OtherHumanReplyDecision(
+                    kind="reply", content=historical.content
+                )
+            else:
+                candidate = OtherHumanTerminalDecision(kind=historical.kind)
+        elif expected_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
+            candidate = _ADAPTER.validate_python(raw, strict=True)
+        else:
+            raise ValueError("unsupported other-human candidate version")
     except Exception:
         raise ModelViolation("MODEL-RESPONSE-CONTRACT") from None
     if isinstance(candidate, OtherHumanReplyDecision) and (
         not candidate.content.strip() or "\x00" in candidate.content
     ):
         raise ModelViolation("MODEL-RESPONSE-CONTRACT")
+    referenced = {
+        value
+        for value in (
+            (
+                None
+                if candidate.relationship_change is None
+                or candidate.relationship_change.commitment_change is None
+                else candidate.relationship_change.commitment_change.commitment_ref
+            ),
+            (
+                None
+                if candidate.relationship_change is None
+                or candidate.relationship_change.commitment_change is None
+                else candidate.relationship_change.commitment_change.conflicts_with_ref
+            ),
+        )
+        if value is not None
+    }
+    if not referenced.issubset(allowed_context_refs):
+        raise ModelViolation("MODEL-RESPONSE-CONTEXT-REF")
     return candidate
 
 
-def candidate_schema() -> dict[str, object]:
-    return cast(dict[str, object], _ADAPTER.json_schema())
+def candidate_schema(
+    version: str = OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+) -> dict[str, object]:
+    if version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
+        return cast(dict[str, object], _ADAPTER.json_schema())
+    if version == HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
+        return cast(dict[str, object], _HISTORICAL_ADAPTER.json_schema())
+    raise ModelViolation("MODEL-BINDING")
 
 
 __all__ = (
+    "HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION",
     "OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION",
     "OTHER_HUMAN_DIALOGUE_INSTRUCTIONS",
+    "OtherHumanCommitmentChange",
     "OtherHumanDialogueCandidate",
+    "OtherHumanExperience",
+    "OtherHumanRelationshipChange",
     "OtherHumanReplyDecision",
     "OtherHumanTerminalDecision",
     "candidate_schema",

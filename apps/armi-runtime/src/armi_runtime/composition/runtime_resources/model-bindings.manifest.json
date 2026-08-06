@@ -53,7 +53,7 @@
     "consider_other_human_input": {
       "output_token_limit": 1024,
       "profile": "other_human_dialogue",
-      "response_contract_version": "armi.other-human-dialogue-candidate.v1"
+      "response_contract_version": "armi.other-human-dialogue-candidate.v2"
     },
     "consider_sleep": {
       "output_token_limit": 256,

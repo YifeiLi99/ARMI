@@ -239,6 +239,362 @@ def test_other_human_dialogue_uses_party_scoped_v20_change_set(
         assert reparsed.action_choices[0].other_party_id == ids[6]
 
 
+def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
+    ids = tuple(uuid7() for _ in range(10))
+    context = CandidateValidationContext(
+        ids[0],
+        ids[1],
+        ids[2],
+        ids[3],
+        7,
+        2,
+        ids[4],
+        Digest.from_bytes(b"other-human-social-context"),
+        ids[5],
+        None,
+        (),
+        purpose="consider_other_human_input",
+        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        other_party_id=ids[6],
+        subject_party_id=ids[7],
+    )
+    bases = (
+        CandidateBasis(
+            1,
+            "evidence",
+            "current_evidence",
+            ids[8],
+            1,
+            Digest.from_bytes(b"other-human-social-message"),
+            "external_claim",
+            "private",
+        ),
+        CandidateBasis(
+            2,
+            "scene",
+            "current_scene",
+            ids[5],
+            1,
+            Digest.from_bytes(b"other-human-social-scene"),
+            "runtime_authority",
+            "private",
+        ),
+    )
+    candidate = {
+        "kind": "reply",
+        "content": "我会尊重这条边界。",
+        "experience": {
+            "first_person_gist": "对方要求这段交流不要向其他人披露。"
+        },
+        "relationship_change": {
+            "interpretation": "我需要尊重当前对方独立的隐私边界。",
+            "fact": {
+                "kind": "party_expression",
+                "summary": "对方明确要求不向其他人披露本次交流。",
+            },
+            "boundary": {
+                "party": "other",
+                "kind": "privacy",
+                "action": "restrict",
+                "summary": "本次交流不得带入其他关系。",
+            },
+            "commitment_change": {
+                "action": "establish",
+                "party": "other",
+                "scope": "后续交流",
+                "content": "需要更改联系安排时会明确说明。",
+                "event_summary": "对方明确作出一项联系安排承诺。",
+            },
+        },
+    }
+    result = DeterministicCandidateValidator(context).validate(
+        json.dumps(candidate, ensure_ascii=False, separators=(",", ":")).encode(),
+        bases=bases,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert len(result.change_set.experiences) == 1
+    assert len(result.change_set.relationships) == 1
+    relationship = result.change_set.relationships[0]
+    assert relationship.subject_party_id == ids[7]
+    assert relationship.other_party_id == ids[6]
+    assert relationship.scope == "other_human_social"
+    assert relationship.boundaries[0].party_role is RelationshipPartyRole.OTHER
+    assert relationship.commitments[0].party_role is RelationshipPartyRole.OTHER
+    assert isinstance(result.change_set.action_choices[0], OtherHumanReplyDraft)
+    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert reparsed.relationships == result.change_set.relationships
+
+
+def test_two_other_human_relationship_candidates_keep_separate_party_identity() -> None:
+    subject_id = uuid7()
+    generation_id = uuid7()
+    subject_party_id = uuid7()
+
+    def relationship_for(other_party_id: UUID):
+        episode_id = uuid7()
+        model_attempt_id = uuid7()
+        scene_id = uuid7()
+        context = CandidateValidationContext(
+            subject_id,
+            generation_id,
+            episode_id,
+            model_attempt_id,
+            1,
+            0,
+            uuid7(),
+            Digest.from_bytes(other_party_id.bytes),
+            scene_id,
+            None,
+            (),
+            purpose="consider_other_human_input",
+            candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+            other_party_id=other_party_id,
+            subject_party_id=subject_party_id,
+        )
+        bases = (
+            CandidateBasis(
+                1,
+                "evidence",
+                "current_evidence",
+                uuid7(),
+                1,
+                Digest.from_bytes(b"party-message"),
+                "external_claim",
+                "private",
+            ),
+            CandidateBasis(
+                2,
+                "scene",
+                "current_scene",
+                scene_id,
+                1,
+                Digest.from_bytes(scene_id.bytes),
+                "runtime_authority",
+                "private",
+            ),
+        )
+        result = DeterministicCandidateValidator(context).validate(
+            json.dumps(
+                {
+                    "kind": "reply",
+                    "content": "收到。",
+                    "experience": {"first_person_gist": "当前对方发来一条消息。"},
+                    "relationship_change": {
+                        "interpretation": "我正在独立了解当前对方。"
+                    },
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode(),
+            bases=bases,
+        )
+        assert result.change_set is not None
+        return result.change_set.relationships[0]
+
+    first_party = uuid7()
+    second_party = uuid7()
+    first = relationship_for(first_party)
+    second = relationship_for(second_party)
+    assert (first.other_party_id, second.other_party_id) == (
+        first_party,
+        second_party,
+    )
+    assert first.relationship_id != second.relationship_id
+
+
+def test_other_human_reply_is_rejected_after_contact_exit() -> None:
+    ids = tuple(uuid7() for _ in range(12))
+    context = CandidateValidationContext(
+        ids[0],
+        ids[1],
+        ids[2],
+        ids[3],
+        8,
+        2,
+        ids[4],
+        Digest.from_bytes(b"other-human-ended-context"),
+        ids[5],
+        None,
+        (),
+        purpose="consider_other_human_input",
+        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        other_party_id=ids[6],
+        subject_party_id=ids[7],
+        current_relationship=CandidateRelationshipContext(
+            ids[8],
+            ids[9],
+            2,
+            Digest.from_bytes(b"ended-relationship"),
+            (
+                RelationshipFact(
+                    RelationshipFactKind.PARTY_EXPRESSION,
+                    "对方明确结束了联系。",
+                ),
+            ),
+            "这段联系已经结束。",
+            (
+                RelationshipBoundary(
+                    RelationshipPartyRole.OTHER,
+                    RelationshipBoundaryKind.EXIT,
+                    RelationshipBoundaryAction.END_CONTACT,
+                    "对方要求结束联系。",
+                ),
+            ),
+            RelationshipStatus.ENDED,
+        ),
+    )
+    bases = (
+        CandidateBasis(
+            1,
+            "evidence",
+            "current_evidence",
+            ids[10],
+            1,
+            Digest.from_bytes(b"new-message"),
+            "external_claim",
+            "private",
+        ),
+        CandidateBasis(
+            2,
+            "scene",
+            "current_scene",
+            ids[5],
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        b'{"kind":"reply","content":"still replying"}', bases=bases
+    )
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.error_code == "CANDIDATE-RELATIONSHIP-BOUNDARY"
+
+
+def test_other_human_commitment_violation_stays_in_current_relationship() -> None:
+    ids = tuple(uuid7() for _ in range(14))
+    relationship_digest = Digest.from_bytes(b"other-current-relationship")
+    commitment_digest = Digest.from_bytes(b"other-current-commitment")
+    commitment = RelationshipCommitment(
+        ids[10],
+        RelationshipPartyRole.OTHER,
+        "联系安排",
+        "周五前明确回复。",
+        RelationshipCommitmentStatus.ACTIVE,
+        RelationshipCommitmentEventKind.ESTABLISHED,
+        "对方明确承诺周五前回复。",
+    )
+    context = CandidateValidationContext(
+        ids[0],
+        ids[1],
+        ids[2],
+        ids[3],
+        8,
+        2,
+        ids[4],
+        Digest.from_bytes(b"other-commitment-context"),
+        ids[5],
+        None,
+        (),
+        purpose="consider_other_human_input",
+        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        other_party_id=ids[6],
+        subject_party_id=ids[7],
+        current_relationship=CandidateRelationshipContext(
+            ids[8],
+            ids[9],
+            2,
+            relationship_digest,
+            (
+                RelationshipFact(
+                    RelationshipFactKind.SHARED_EXPERIENCE,
+                    "我们约定过回复时间。",
+                ),
+            ),
+            "我仍在等待对方履行回复承诺。",
+            (),
+            RelationshipStatus.ACTIVE,
+            (
+                CandidateRelationshipCommitmentContext(
+                    commitment, commitment_digest
+                ),
+            ),
+        ),
+    )
+    bases = (
+        CandidateBasis(
+            1,
+            "evidence",
+            "current_evidence",
+            ids[11],
+            1,
+            Digest.from_bytes(b"late-message"),
+            "external_claim",
+            "private",
+        ),
+        CandidateBasis(
+            2,
+            "scene",
+            "current_scene",
+            ids[5],
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            3,
+            "relationship",
+            "current_relationship",
+            ids[8],
+            2,
+            relationship_digest,
+            "subjective_state",
+            "private",
+        ),
+        CandidateBasis(
+            4,
+            "relationship",
+            "current_relationship_commitment",
+            ids[10],
+            2,
+            commitment_digest,
+            "subjective_state",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        json.dumps(
+            {
+                "kind": "silence",
+                "experience": {
+                    "first_person_gist": "对方确认没有按承诺的时间回复。"
+                },
+                "relationship_change": {
+                    "commitment_change": {
+                        "action": "violate",
+                        "commitment_ref": "ctx:4",
+                        "event_summary": "对方没有履行约定的回复时间。",
+                    }
+                },
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode(),
+        bases=bases,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    relationship = result.change_set.relationships[0]
+    assert relationship.other_party_id == ids[6]
+    assert relationship.commitments[0].status is RelationshipCommitmentStatus.VIOLATED
+    assert relationship.open_issues[0].kind is RelationshipIssueKind.COMMITMENT_VIOLATION
+    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert reparsed.relationships == result.change_set.relationships
+
+
 @pytest.mark.parametrize(
     ("kind", "disposition"),
     [

@@ -599,7 +599,7 @@ class CandidateRelationshipDraft:
                     )
                 )
             )
-            or self.scope != "creator_social"
+            or self.scope not in {"creator_social", "other_human_social"}
             or self.mechanism_identity != "armi.relationship.contextual-v1"
             or self.privacy_scope != "private"
         ):

@@ -53,6 +53,8 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "CREATE TABLE armi.other_human_effects" in sql
     assert "CREATE TABLE armi.other_human_local_inbox_deliveries" in sql
     assert "'local.other-human-inbox.deliver'" in sql
+    assert "'armi.other-human-dialogue-candidate.v2'" in sql
+    assert "scope IN ('creator_social', 'other_human_social')" in sql
     assert "status IN ('pending', 'succeeded', 'empty', 'failed', 'denied')" in sql
     assert "material_kind IN ('diary', 'work', 'collection', 'draft')" in sql
     assert "FOREIGN KEY (owner_party_id, subject_id)" in sql

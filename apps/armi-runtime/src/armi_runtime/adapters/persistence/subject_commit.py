@@ -758,6 +758,7 @@ class PostgreSQLSubjectCommitRepository:
             subject_id=snapshot.subject_id,
             generation_id=snapshot.generation_id,
             creator_party_id=snapshot.creator_party_id,
+            episode_other_party_id=snapshot.other_party_id,
             commit_id=commit_id.value,
             relationships=change_set.relationships,
             experience_ids={key: value.value for key, value in experience_ids.items()},
@@ -2571,14 +2572,23 @@ async def _insert_response_intent(
         if isinstance(item, OtherHumanEndConversationDraft)
     )
     if snapshot.opportunity_purpose == "consider_other_human_input":
-        await _insert_other_human_action(
-            unit_of_work,
-            snapshot=snapshot,
-            commit_id=commit_id,
-            replies=other_replies,
-            endings=endings,
-            response_artifact_id=response_artifact_id,
-        )
+        if other_replies or endings:
+            await _insert_other_human_action(
+                unit_of_work,
+                snapshot=snapshot,
+                commit_id=commit_id,
+                replies=other_replies,
+                endings=endings,
+                response_artifact_id=response_artifact_id,
+            )
+        else:
+            await _insert_other_human_change_terminal_decision(
+                unit_of_work,
+                snapshot=snapshot,
+                commit_id=commit_id,
+                change_set=change_set,
+                response_artifact_id=response_artifact_id,
+            )
         return
     replies = tuple(
         item
@@ -2639,6 +2649,53 @@ async def _insert_response_intent(
         response_artifact_id=response_artifact_id,
         action_id=action_id,
         revision_id=revision_id,
+    )
+
+
+async def _insert_other_human_change_terminal_decision(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    change_set: SubjectChangeSet,
+    response_artifact_id: ArtifactId | None,
+) -> None:
+    no_actions = tuple(
+        item
+        for item in change_set.action_choices
+        if isinstance(item, FormalNoActionDraft)
+    )
+    if (
+        snapshot.scene_id is None
+        or snapshot.other_party_id is None
+        or snapshot.creator_party_id is not None
+        or response_artifact_id is not None
+        or len(no_actions) > 1
+        or len(no_actions) != len(change_set.action_choices)
+    ):
+        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-TERMINAL")
+    decision_kind = "silence" if no_actions else "defer"
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    await connection.execute(
+        """
+        INSERT INTO armi.other_human_dialogue_decisions (
+            other_human_dialogue_decision_id, opportunity_id,
+            cognitive_episode_id, candidate_validation_id,
+            subject_commit_id, subject_id, scene_id, other_party_id,
+            decision_kind, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+        """,
+        (
+            uuid7(),
+            snapshot.opportunity_id,
+            snapshot.episode_id,
+            snapshot.validation_id,
+            commit_id.value,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.other_party_id,
+            decision_kind,
+        ),
     )
 
 
@@ -2710,6 +2767,35 @@ async def _insert_other_human_action(
     reply = replies[0]
     if response_artifact_id is None:
         raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
+    blocked = await (
+        await connection.execute(
+            """
+            SELECT 1
+            FROM armi.relationships AS relationship
+            JOIN armi.relationship_revisions AS revision
+              ON revision.relationship_revision_id = relationship.current_revision_id
+            WHERE relationship.subject_id = %s
+              AND relationship.life_generation_id = %s
+              AND relationship.other_party_id = %s
+              AND relationship.scope = 'other_human_social'
+              AND (
+                  revision.relationship_status = 'ended'
+                  OR EXISTS (
+                      SELECT 1
+                      FROM jsonb_array_elements(revision.boundaries) AS boundary
+                      WHERE boundary->>'kind' IN ('contact', 'exit')
+                  )
+              )
+            """,
+            (
+                snapshot.subject_id,
+                snapshot.generation_id,
+                snapshot.other_party_id,
+            ),
+        )
+    ).fetchone()
+    if blocked is not None:
+        raise SubjectCommitViolation("SUBJECT-RELATIONSHIP-BOUNDARY")
     action_id = uuid7()
     revision_id = uuid7()
     effect_id = uuid7()

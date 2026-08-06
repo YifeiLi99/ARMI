@@ -191,6 +191,8 @@ from .model_contract import (
     parse_candidate,
 )
 from .other_human_dialogue_candidate_contract import (
+    OtherHumanCommitmentChange,
+    OtherHumanRelationshipChange,
     OtherHumanReplyDecision,
     OtherHumanTerminalDecision,
 )
@@ -515,7 +517,7 @@ class CandidateValidationContext:
         if self.current_relationship is not None and (
             type(self.current_relationship) is not CandidateRelationshipContext
             or self.subject_party_id is None
-            or self.creator_party_id is None
+            or (self.creator_party_id is None) == (self.other_party_id is None)
         ):
             raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-CONTEXT")
         if type(self.current_materials) is not tuple or any(
@@ -1352,6 +1354,37 @@ class DeterministicCandidateValidator:
         if evidence is None or scene is None:
             return _rejected("CANDIDATE-OTHER-HUMAN-BASIS")
         basis_ordinals = (evidence.ordinal, scene.ordinal)
+        experience: CandidateExperienceDraft | None = None
+        relationship: CandidateRelationshipDraft | None = None
+        proposal_no = 1
+        if candidate.experience is not None:
+            experience = CandidateExperienceDraft(
+                f"proposal:{proposal_no}",
+                "group:1",
+                (evidence.ordinal,),
+                CandidateFactClass.EXTERNAL_CLAIM,
+                candidate.experience.first_person_gist,
+                candidate.experience.uncertainty,
+                "private",
+            )
+            proposal_no += 1
+        if candidate.relationship_change is not None:
+            assert candidate.experience is not None
+            assert experience is not None
+            relationship, relationship_error = _bind_dialogue_relationship(
+                candidate.relationship_change,
+                experience=candidate.experience,
+                source_experience_ref=experience.proposal_ref,
+                proposal_ref=f"proposal:{proposal_no}",
+                evidence=evidence,
+                bases=bases,
+                context=self._context,
+            )
+            if relationship is None:
+                return _rejected(
+                    relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT"
+                )
+            proposal_no += 1
         action_choices: tuple[
             OtherHumanReplyDraft
             | OtherHumanEndConversationDraft
@@ -1360,10 +1393,15 @@ class DeterministicCandidateValidator:
         ] = ()
         disposition = CandidateDisposition.CHANGE
         if isinstance(candidate, OtherHumanReplyDecision):
+            boundary_failure = _other_human_reply_boundary_failure(
+                self._context, proposed=relationship
+            )
+            if boundary_failure is not None:
+                return _rejected(boundary_failure)
             content = candidate.content.encode("utf-8")
             action_choices = (
                 OtherHumanReplyDraft(
-                    "proposal:1",
+                    f"proposal:{proposal_no}",
                     "group:1",
                     basis_ordinals,
                     self._context.subject_id,
@@ -1374,10 +1412,14 @@ class DeterministicCandidateValidator:
                 ),
             )
         elif candidate.kind == "silence":
-            disposition = CandidateDisposition.NO_ACTION
+            disposition = (
+                CandidateDisposition.CHANGE
+                if experience is not None or relationship is not None
+                else CandidateDisposition.NO_ACTION
+            )
             action_choices = (
                 FormalNoActionDraft(
-                    "proposal:1",
+                    f"proposal:{proposal_no}",
                     "group:1",
                     basis_ordinals,
                     FormalNoActionKind.NO_ACTION,
@@ -1385,11 +1427,15 @@ class DeterministicCandidateValidator:
                 ),
             )
         elif candidate.kind == "defer":
-            disposition = CandidateDisposition.DEFER
+            disposition = (
+                CandidateDisposition.CHANGE
+                if experience is not None or relationship is not None
+                else CandidateDisposition.DEFER
+            )
         else:
             action_choices = (
                 OtherHumanEndConversationDraft(
-                    "proposal:1",
+                    f"proposal:{proposal_no}",
                     "group:1",
                     basis_ordinals,
                     self._context.subject_id,
@@ -1411,7 +1457,7 @@ class DeterministicCandidateValidator:
             },
             "candidate_digest": candidate_digest.value,
             "disposition": disposition.value,
-            "experiences": [],
+            "experiences": [] if experience is None else [_experience_wire(experience)],
             "components": [],
             "capability_requests": [],
             "action_choices": [_action_wire(item) for item in action_choices],
@@ -1421,7 +1467,9 @@ class DeterministicCandidateValidator:
             "activity_decisions": [],
             "memories": [],
             "memory_revisions": [],
-            "relationships": [],
+            "relationships": (
+                [] if relationship is None else [_relationship_wire(relationship)]
+            ),
             "materials": [],
             "prompts": [],
             "exact_life_queries": [],
@@ -1442,18 +1490,21 @@ class DeterministicCandidateValidator:
             self._context.context_digest,
             candidate_digest,
             disposition,
-            (),
+            () if experience is None else (experience,),
             (),
             (),
             action_choices,
             (),
             (),
+            relationships=() if relationship is None else (relationship,),
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
             CandidateValidationStatus.ACCEPTED,
             change_set,
-            len(action_choices),
+            len(action_choices)
+            + (1 if experience is not None else 0)
+            + (1 if relationship is not None else 0),
             0,
             None,
         )
@@ -3324,8 +3375,25 @@ def _bind_maintenance_memory_revision(
     )
 
 
+def _other_human_reply_boundary_failure(
+    context: CandidateValidationContext,
+    *,
+    proposed: CandidateRelationshipDraft | None,
+) -> str | None:
+    relationship = proposed if proposed is not None else context.current_relationship
+    if relationship is None:
+        return None
+    if relationship.status is RelationshipStatus.ENDED or any(
+        boundary.kind
+        in {RelationshipBoundaryKind.CONTACT, RelationshipBoundaryKind.EXIT}
+        for boundary in relationship.boundaries
+    ):
+        return "CANDIDATE-RELATIONSHIP-BOUNDARY"
+    return None
+
+
 def _bind_dialogue_relationship(
-    change: DialogueRelationshipChange,
+    change: DialogueRelationshipChange | OtherHumanRelationshipChange,
     *,
     experience: Any,
     source_experience_ref: str | None,
@@ -3334,10 +3402,22 @@ def _bind_dialogue_relationship(
     bases: tuple[CandidateBasis, ...],
     context: CandidateValidationContext,
 ) -> tuple[CandidateRelationshipDraft | None, str | None]:
+    other_party_id = (
+        context.creator_party_id
+        if context.purpose == "consider_creator_input"
+        else context.other_party_id
+        if context.purpose == "consider_other_human_input"
+        else None
+    )
+    scope = (
+        "creator_social"
+        if context.purpose == "consider_creator_input"
+        else "other_human_social"
+    )
     if (
         source_experience_ref is None
         or context.subject_party_id is None
-        or context.creator_party_id is None
+        or other_party_id is None
     ):
         return None, "CANDIDATE-RELATIONSHIP-CONTEXT"
     current = context.current_relationship
@@ -3467,12 +3547,15 @@ def _bind_dialogue_relationship(
             tuple(basis_ordinals),
             CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
             (
-                _derived_relationship_id(context.model_attempt_id)
+                _derived_relationship_id(
+                    context.model_attempt_id,
+                    other_human=context.purpose == "consider_other_human_input",
+                )
                 if current is None
                 else current.relationship_id
             ),
             context.subject_party_id,
-            context.creator_party_id,
+            other_party_id,
             None if current is None else current.current_revision_id,
             0 if current is None else current.head_version,
             source_experience_ref,
@@ -3483,13 +3566,14 @@ def _bind_dialogue_relationship(
             tuple(commitments),
             tuple(open_issues),
             commitment_event,
+            scope=scope,
         ),
         None,
     )
 
 
 def _bind_dialogue_commitment(
-    change: DialogueCommitmentChange,
+    change: DialogueCommitmentChange | OtherHumanCommitmentChange,
     *,
     commitments: list[RelationshipCommitment],
     open_issues: list[RelationshipIssue],
@@ -3544,7 +3628,11 @@ def _bind_dialogue_commitment(
     if change.action == "establish":
         commitment_id = _derived_uuid7(
             context.model_attempt_id,
-            b"creator-relationship-commitment",
+            (
+                b"other-human-relationship-commitment"
+                if context.purpose == "consider_other_human_input"
+                else b"creator-relationship-commitment"
+            ),
         )
         assert change.party is not None
         assert change.scope is not None
@@ -3618,7 +3706,11 @@ def _bind_dialogue_commitment(
             RelationshipIssue(
                 _derived_uuid7(
                     context.model_attempt_id,
-                    b"creator-relationship-issue\0"
+                    (
+                        b"other-human-relationship-issue\0"
+                        if context.purpose == "consider_other_human_input"
+                        else b"creator-relationship-issue\0"
+                    )
                     + issue_kind.value.encode("ascii")
                     + b"\0"
                     + b"".join(value.bytes for value in conflict_ids),
@@ -3675,10 +3767,15 @@ def _commitment_context(
     return commitment, basis if commitment is not None else None
 
 
-def _derived_relationship_id(model_attempt_id: UUID) -> UUID:
+def _derived_relationship_id(
+    model_attempt_id: UUID, *, other_human: bool = False
+) -> UUID:
     """Bind a stable UUIDv7 identity without giving the model identity authority."""
 
-    return _derived_uuid7(model_attempt_id, b"creator-relationship")
+    return _derived_uuid7(
+        model_attempt_id,
+        b"other-human-relationship" if other_human else b"creator-relationship",
+    )
 
 
 def _derived_material_id(model_attempt_id: UUID) -> UUID:

@@ -36,8 +36,61 @@ from armi_runtime.composition.model_contract import (
     load_purpose_binding,
     parse_candidate,
 )
+from armi_runtime.composition.other_human_dialogue_candidate_contract import (
+    HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+    OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+)
 
 _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
+
+
+def test_other_human_social_contract_versions_relationship_context_refs() -> None:
+    current = parse_candidate(
+        json.dumps(
+            {
+                "kind": "silence",
+                "experience": {"first_person_gist": "对方明确改变了承诺。"},
+                "relationship_change": {
+                    "commitment_change": {
+                        "action": "violate",
+                        "commitment_ref": "ctx:3",
+                        "event_summary": "对方确认没有履行承诺。",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset({"ctx:3"}),
+        expected_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+    )
+    assert getattr(current, "relationship_change", None) is not None
+    with pytest.raises(ModelViolation):
+        parse_candidate(
+            json.dumps(
+                {
+                    "kind": "silence",
+                    "experience": {"first_person_gist": "对方改变了承诺。"},
+                    "relationship_change": {
+                        "commitment_change": {
+                            "action": "violate",
+                            "commitment_ref": "ctx:4",
+                            "event_summary": "对方没有履行承诺。",
+                        }
+                    },
+                },
+                ensure_ascii=False,
+            ).encode(),
+            allowed_context_refs=frozenset({"ctx:3"}),
+            expected_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        )
+
+    historical = parse_candidate(
+        b'{"kind":"reply","content":"historical"}',
+        allowed_context_refs=frozenset(),
+        expected_version=HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+    )
+    assert getattr(historical, "content", None) == "historical"
+    assert "relationship_change" in historical.model_dump(mode="json")
 
 
 def test_autonomous_activity_contract_is_compact_strict_and_byte_bounded() -> None:

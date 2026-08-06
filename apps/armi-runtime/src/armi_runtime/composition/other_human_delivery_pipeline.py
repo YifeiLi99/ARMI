@@ -17,8 +17,8 @@ from armi_kernel.application import (
     LockPlan,
     LockTarget,
     RuntimeFence,
-    WorkResultRef,
     WorkLease,
+    WorkResultRef,
     WorkViolation,
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
@@ -102,7 +102,30 @@ class OtherHumanDeliveryPipeline:
                         SELECT effect.other_human_effect_id, effect.subject_id,
                                effect.scene_id, effect.other_party_id,
                                effect.payload_artifact_id, effect.payload_digest,
-                               effect.registration_digest, work.trace_id
+                               effect.registration_digest, work.trace_id,
+                               EXISTS (
+                                   SELECT 1
+                                   FROM armi.relationships AS relationship
+                                   JOIN armi.relationship_revisions AS revision
+                                     ON revision.relationship_revision_id =
+                                        relationship.current_revision_id
+                                   WHERE relationship.subject_id = effect.subject_id
+                                     AND relationship.other_party_id =
+                                         effect.other_party_id
+                                     AND relationship.scope = 'other_human_social'
+                                     AND (
+                                         revision.relationship_status = 'ended'
+                                         OR EXISTS (
+                                             SELECT 1
+                                             FROM jsonb_array_elements(
+                                                 revision.boundaries
+                                             ) AS boundary
+                                             WHERE boundary->>'kind' IN (
+                                                 'contact', 'exit'
+                                             )
+                                         )
+                                     )
+                               ) AS contact_blocked
                         FROM armi.durable_work AS work
                         JOIN armi.other_human_effects AS effect
                           ON effect.other_human_effect_id = work.owner_ref
@@ -127,6 +150,56 @@ class OtherHumanDeliveryPipeline:
                     )
                 ).fetchone()
                 if row is None:
+                    return True
+                if bool(row[8]):
+                    settlement = Digest.from_bytes(
+                        rfc8785.dumps(
+                            {
+                                "effect_id": str(row[0]),
+                                "registration_digest": str(row[6]),
+                                "status": "failed",
+                                "reason": "relationship_boundary",
+                            }
+                        )
+                    )
+                    await connection.execute(
+                        """
+                        UPDATE armi.other_human_effects
+                        SET status = 'failed', settlement_digest = %s,
+                            settled_at = statement_timestamp()
+                        WHERE other_human_effect_id = %s AND status = 'registered'
+                        """,
+                        (settlement.value, row[0]),
+                    )
+                    await connection.execute(
+                        """
+                        INSERT INTO armi.scene_timeline_items (
+                            timeline_item_id, scene_id, source_kind, source_ref,
+                            source_event_no, result_status, occurred_at, schema_version
+                        ) VALUES (%s, %s, 'other_human_response', %s, 1,
+                                  'failed', statement_timestamp(), 1)
+                        """,
+                        (uuid7(), row[2], row[0]),
+                    )
+                    await unit.work.complete(
+                        lease,
+                        WorkResultRef("other_human_effect", row[0]),
+                    )
+                    await unit.audit.append(
+                        AuditDraft(
+                            AuditEventId(uuid7()),
+                            AuditReference("runtime", unit.environment_id),
+                            Purpose("other_human.local_delivery"),
+                            "other_human.delivery.relationship_boundary",
+                            AuditReference("other_human_effect", row[0]),
+                            AuditResultStatus.REJECTED,
+                            TraceId(str(row[7])),
+                            AuditSensitivity.PRIVATE,
+                            subject_id=SubjectId(row[1]),
+                            request_digest=Digest(str(row[6])),
+                            response_digest=settlement,
+                        )
+                    )
                     return True
                 self._fault_injector("before_local_delivery")
                 receipt_digest = Digest.from_bytes(

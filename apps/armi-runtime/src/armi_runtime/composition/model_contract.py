@@ -91,6 +91,7 @@ from .maintenance_work_candidate_contract import (
     parse_maintenance_work_candidate,
 )
 from .other_human_dialogue_candidate_contract import (
+    HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OtherHumanDialogueCandidate,
     OtherHumanReplyDecision,
@@ -733,8 +734,11 @@ def candidate_schema(
         return sleep_decision_candidate_schema()
     if version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION:
         return autonomous_activity_candidate_schema()
-    if version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
-        return other_human_candidate_schema()
+    if version in {
+        HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+    }:
+        return other_human_candidate_schema(version)
     if version in {
         HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
         HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -843,7 +847,11 @@ def parse_candidate(
             candidate = parse_autonomous_activity_candidate(autonomous_value)
         elif (
             candidate_object is not None
-            and expected_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+            and expected_version
+            in {
+                HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+                OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+            }
         ):
             other_human_value = dict(candidate_object)
             other_human_value.pop("schema_version", None)
@@ -854,6 +862,7 @@ def parse_candidate(
                     separators=(",", ":"),
                 ).encode("utf-8"),
                 allowed_context_refs=allowed_context_refs,
+                expected_version=expected_version,
             )
         elif candidate_object is not None and (
             (version is None and "kind" in candidate_object)

@@ -231,7 +231,16 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             _relationship(
                 item,
                 include_commitments=version.endswith(
-                    (".v13", ".v14", ".v15", ".v16", ".v17", ".v18", ".v19")
+                    (
+                        ".v13",
+                        ".v14",
+                        ".v15",
+                        ".v16",
+                        ".v17",
+                        ".v18",
+                        ".v19",
+                        ".v20",
+                    )
                 ),
             )
             for item in _array(document.get("relationships", []), 1)
@@ -374,7 +383,6 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             )
             if any(
                 (
-                    experiences,
                     components,
                     capability_requests,
                     web_research_requests,
@@ -384,7 +392,6 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                     sleep_decisions,
                     memories,
                     memory_revisions,
-                    relationships,
                     materials,
                     prompts,
                     exact_life_queries,
@@ -393,8 +400,20 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 )
             ):
                 raise ValueError
+            if relationships and (
+                len(relationships) != 1
+                or len(experiences) != 1
+                or relationships[0].source_experience_ref
+                != experiences[0].proposal_ref
+            ):
+                raise ValueError
             if result.disposition is CandidateDisposition.CHANGE:
-                if len(other_actions) != 1 or len(action_choices) != 1:
+                valid_action_shape = (
+                    len(other_actions) == 1 and len(action_choices) == 1
+                ) or (
+                    len(no_action) == 1 and len(action_choices) == 1
+                ) or not action_choices
+                if not valid_action_shape or not (change_material or other_actions):
                     raise ValueError
             elif result.disposition is CandidateDisposition.NO_ACTION:
                 if len(no_action) != 1 or len(action_choices) != 1:
