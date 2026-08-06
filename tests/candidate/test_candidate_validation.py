@@ -1198,6 +1198,72 @@ def test_compact_dialogue_exact_life_query_is_typed_and_rejects_audit_scope() ->
     assert rejected.error_code == "CANDIDATE-CONTRACT"
 
 
+def test_creator_outreach_reply_stays_action_only() -> None:
+    context, bases = _fixture()
+    context = replace(
+        context,
+        purpose="consider_creator_outreach",
+        candidate_contract_version="armi.creator-dialogue-candidate.v17",
+    )
+    outreach_bases = (
+        replace(bases[1], ordinal=1, trust_class="runtime_authority"),
+        CandidateBasis(
+            2,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            3,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+        CandidateBasis(
+            4,
+            "capability",
+            "capability_state_granted",
+            UUID("01985d00-0000-7000-8000-000000000027"),
+            2,
+            Digest.from_bytes(b"active grant"),
+            "runtime_authority",
+            "private",
+        ),
+    )
+    accepted = DeterministicCandidateValidator(context).validate(
+        _bytes({"kind": "reply", "content": "我刚做完那件事,想来告诉你。"}),
+        bases=outreach_bases,
+    )
+
+    assert accepted.status is CandidateValidationStatus.ACCEPTED
+    assert accepted.change_set is not None
+    assert len(accepted.change_set.capability_requests) == 1
+    assert len(accepted.change_set.action_choices) == 1
+    assert accepted.change_set.experiences == ()
+    assert accepted.change_set.memories == ()
+
+    rejected = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "这条候选越过了主动联系的窄边界。",
+                "experience": {"first_person_gist": "不应同时形成经历。"},
+            }
+        ),
+        bases=outreach_bases,
+    )
+    assert rejected.status is CandidateValidationStatus.REJECTED
+    assert rejected.error_code == "CANDIDATE-CREATOR-OUTREACH-SCOPE"
+
+
 def test_exact_life_query_result_supports_reply_without_becoming_memory() -> None:
     context, bases = _fixture()
     context = replace(context, purpose="consider_life_query_result")

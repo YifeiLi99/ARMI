@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid7
 
+import pytest
 from armi_kernel.application import (
+    CreatorOutreachPolicy,
     OpportunityAdmissionStatus,
     RuntimeFence,
     RuntimeInstanceId,
@@ -194,3 +197,122 @@ def test_active_in_progress_activity_admits_one_durable_internal_work_step() -> 
     assert replay.status is OpportunityAdmissionStatus.DUPLICATE
     assert replay.opportunity_id == first.opportunity_id
     assert len(unit_of_work.audit.events) == 1
+
+
+class _OutreachConnection:
+    def __init__(self, *, boundary: bool = False, awaiting: bool = False) -> None:
+        self.now = datetime(2026, 8, 6, 12, tzinfo=UTC)
+        self.scene_id = uuid7()
+        self.creator_party_id = uuid7()
+        self.interaction_id = uuid7()
+        self.generation_id = uuid7()
+        self._opportunity_id: UUID | None = None
+        self._source_digest: str | None = None
+        self.boundary = boundary
+        self.awaiting = awaiting
+
+    async def execute(
+        self,
+        statement: str,
+        parameters: tuple[object, ...] = (),
+    ) -> _Cursor:
+        if "FROM armi.interaction_scenes AS scene" in statement:
+            return _Cursor(
+                (
+                    self.scene_id,
+                    self.creator_party_id,
+                    self.interaction_id,
+                    self.now - timedelta(days=4),
+                    self.generation_id,
+                    1,
+                    self.now - timedelta(days=30),
+                    self.now,
+                )
+            )
+        if "FROM armi.relationships AS relationship" in statement and (
+            "SELECT EXISTS" in statement
+        ):
+            return _Cursor((self.boundary,))
+        if "FROM armi.opportunities AS opportunity" in statement and (
+            "max(episode.created_at)" in statement
+        ):
+            return _Cursor((self.awaiting, None, self.now - timedelta(days=4)))
+        if "SELECT 'creator_outreach_relationship'" in statement:
+            return _Cursor(None)
+        if "SELECT 'creator_outreach_activity'" in statement:
+            return _Cursor(None)
+        if "INSERT INTO armi.opportunities" in statement:
+            self._source_digest = cast(str, parameters[9])
+            if self._opportunity_id is None:
+                self._opportunity_id = cast(UUID, parameters[0])
+                return _Cursor((self._opportunity_id,))
+            return _Cursor(None)
+        if "SELECT opportunity_id, source_digest" in statement:
+            assert self._opportunity_id is not None
+            assert self._source_digest is not None
+            return _Cursor((self._opportunity_id, self._source_digest))
+        raise AssertionError(statement)
+
+
+def test_long_absence_admits_one_scene_bound_creator_outreach_condition() -> None:
+    connection = _OutreachConnection()
+    unit_of_work = _UnitOfWork(cast(_Connection, connection))
+    unit_of_work.runtime_fence = RuntimeFence(
+        unit_of_work.runtime_fence.runtime_instance_id,
+        unit_of_work.runtime_fence.subject_id,
+        connection.generation_id,
+        unit_of_work.runtime_fence.bundle_activation_id,
+        1,
+    )
+    repository = PostgreSQLLifeOpportunityRepository()
+    policy = CreatorOutreachPolicy(259_200, 86_400)
+
+    first = asyncio.run(
+        repository.admit_creator_outreach(
+            cast(PostgreSQLUnitOfWork, unit_of_work), policy=policy
+        )
+    )
+    replay = asyncio.run(
+        repository.admit_creator_outreach(
+            cast(PostgreSQLUnitOfWork, unit_of_work), policy=policy
+        )
+    )
+
+    assert first.status is OpportunityAdmissionStatus.ADMITTED
+    assert replay.status is OpportunityAdmissionStatus.DUPLICATE
+    assert replay.opportunity_id == first.opportunity_id
+    assert len(unit_of_work.audit.events) == 1
+
+
+@pytest.mark.parametrize(
+    ("boundary", "awaiting", "reason"),
+    [
+        (True, False, "LIFE-OUTREACH-RELATIONSHIP-BOUNDARY"),
+        (False, True, "LIFE-OUTREACH-AWAITING-CREATOR"),
+    ],
+)
+def test_creator_outreach_stops_at_relationship_and_unanswered_boundaries(
+    boundary: bool,
+    awaiting: bool,
+    reason: str,
+) -> None:
+    connection = _OutreachConnection(boundary=boundary, awaiting=awaiting)
+    unit_of_work = _UnitOfWork(cast(_Connection, connection))
+    unit_of_work.runtime_fence = RuntimeFence(
+        unit_of_work.runtime_fence.runtime_instance_id,
+        unit_of_work.runtime_fence.subject_id,
+        connection.generation_id,
+        unit_of_work.runtime_fence.bundle_activation_id,
+        1,
+    )
+
+    result = asyncio.run(
+        PostgreSQLLifeOpportunityRepository().admit_creator_outreach(
+            cast(PostgreSQLUnitOfWork, unit_of_work),
+            policy=CreatorOutreachPolicy(259_200, 86_400),
+        )
+    )
+
+    assert result.status is OpportunityAdmissionStatus.REJECTED
+    assert result.reason_code == reason
+    assert unit_of_work.audit.events == []

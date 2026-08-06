@@ -16,6 +16,7 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CreatorOutreachPolicy,
     LifeOpportunitySourceKind,
     LifeSchedulingDisposition,
     LifeSchedulingSnapshot,
@@ -938,6 +939,369 @@ class PostgreSQLLifeOpportunityRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(fence.subject_id),
                 request=AuditReference("activity_revision", row[1]),
+                request_digest=source_digest,
+            )
+        )
+        return OpportunityAdmissionOutcome(
+            OpportunityAdmissionStatus.ADMITTED, opportunity_id
+        )
+
+    async def admit_creator_outreach(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        policy: CreatorOutreachPolicy,
+    ) -> OpportunityAdmissionOutcome:
+        """Admit one objective condition for a subjective outreach decision."""
+
+        fence = unit_of_work.runtime_fence
+        if fence is None:
+            raise LifeViolation("LIFE-FENCE-REQUIRED")
+        if type(policy) is not CreatorOutreachPolicy:
+            raise LifeViolation("LIFE-OUTREACH-POLICY")
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        scene = await (
+            await connection.execute(
+                """
+                SELECT scene.scene_id, scene.primary_party_id,
+                       latest.creator_interaction_id, latest.received_at,
+                       generation.life_generation_id, generation.generation_no,
+                       generation.created_at, statement_timestamp()
+                FROM armi.interaction_scenes AS scene
+                JOIN armi.life_generations AS generation
+                  ON generation.subject_id = scene.subject_id
+                 AND generation.life_generation_id = %s
+                 AND generation.status = 'active'
+                LEFT JOIN LATERAL (
+                    SELECT interaction.creator_interaction_id,
+                           interaction.received_at
+                    FROM armi.creator_input_interactions AS interaction
+                    WHERE interaction.subject_id = scene.subject_id
+                      AND interaction.scene_id = scene.scene_id
+                      AND interaction.creator_party_id = scene.primary_party_id
+                    ORDER BY interaction.received_at DESC,
+                             interaction.creator_interaction_id DESC
+                    LIMIT 1
+                ) AS latest ON true
+                WHERE scene.subject_id = %s
+                  AND scene.current_status = 'open'
+                ORDER BY
+                    EXISTS (
+                        SELECT 1
+                        FROM armi.permission_grants AS permission
+                        JOIN armi.capabilities AS capability
+                          ON capability.capability_id = permission.capability_id
+                        WHERE permission.subject_id = scene.subject_id
+                          AND permission.interaction_scene_id = scene.scene_id
+                          AND permission.creator_party_id = scene.primary_party_id
+                          AND permission.status = 'active'
+                          AND permission.valid_from <= statement_timestamp()
+                          AND statement_timestamp() < permission.valid_until
+                          AND permission.consumed_uses < permission.max_uses
+                          AND capability.capability_kind = 'creator.scene.reply'
+                          AND capability.operation_class = 'send'
+                          AND capability.availability_status = 'available'
+                    ) DESC,
+                    latest.received_at DESC NULLS LAST,
+                    (scene.scene_key = 'default') DESC,
+                    scene.scene_id
+                LIMIT 1
+                """,
+                (fence.life_generation_id, fence.subject_id),
+            )
+        ).fetchone()
+        if scene is None:
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-OUTREACH-SCENE-UNAVAILABLE",
+            )
+        scene_id = scene[0]
+        creator_party_id = scene[1]
+        latest_input_at = scene[3]
+        now = scene[7]
+        boundary = await (
+            await connection.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM armi.relationships AS relationship
+                    JOIN armi.relationship_revisions AS revision
+                      ON revision.relationship_revision_id =
+                         relationship.current_revision_id
+                    WHERE relationship.subject_id = %s
+                      AND relationship.life_generation_id = %s
+                      AND relationship.other_party_id = %s
+                      AND relationship.scope = 'creator_social'
+                      AND (
+                          revision.relationship_status = 'ended'
+                          OR EXISTS (
+                              SELECT 1
+                              FROM jsonb_array_elements(revision.boundaries) AS item
+                              WHERE item->>'kind' IN ('contact', 'exit')
+                                AND item->>'action' IN (
+                                    'refuse', 'restrict', 'end_contact'
+                                )
+                          )
+                      )
+                )
+                """,
+                (fence.subject_id, fence.life_generation_id, creator_party_id),
+            )
+        ).fetchone()
+        if boundary is not None and bool(boundary[0]):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-OUTREACH-RELATIONSHIP-BOUNDARY",
+            )
+        gate = await (
+            await connection.execute(
+                """
+                SELECT
+                    EXISTS (
+                        SELECT 1
+                        FROM armi.opportunities AS opportunity
+                        JOIN armi.action_intents AS intent
+                          ON intent.root_opportunity_id = opportunity.opportunity_id
+                        JOIN armi.creator_response_operations AS operation
+                          ON operation.root_opportunity_id = opportunity.opportunity_id
+                        WHERE opportunity.subject_id = %s
+                          AND opportunity.scene_id = %s
+                          AND opportunity.creator_party_id = %s
+                          AND opportunity.purpose = 'consider_creator_outreach'
+                          AND operation.current_status IN (
+                              'pending', 'accepted', 'effect_registered',
+                              'effect_dispatching', 'effect_completed',
+                              'effect_unknown'
+                          )
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM armi.creator_input_interactions AS reply
+                              WHERE reply.scene_id = intent.interaction_scene_id
+                                AND reply.creator_party_id = intent.creator_party_id
+                                AND reply.received_at > intent.created_at
+                          )
+                    ),
+                    (
+                        SELECT max(episode.created_at)
+                        FROM armi.cognitive_episodes AS episode
+                        WHERE episode.subject_id = %s
+                          AND episode.purpose = 'consider_creator_outreach'
+                    ),
+                    (
+                        SELECT max(item.occurred_at)
+                        FROM armi.scene_timeline_items AS item
+                        WHERE item.scene_id = %s
+                          AND item.source_kind IN (
+                              'creator_input', 'creator_response'
+                          )
+                    )
+                """,
+                (
+                    fence.subject_id,
+                    scene_id,
+                    creator_party_id,
+                    fence.subject_id,
+                    scene_id,
+                ),
+            )
+        ).fetchone()
+        if gate is None:
+            raise LifeViolation("LIFE-OUTREACH-GATE")
+        if bool(gate[0]):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-OUTREACH-AWAITING-CREATOR",
+            )
+        if gate[1] is not None and now < gate[1] + timedelta(
+            seconds=policy.minimum_interval_seconds
+        ):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-OUTREACH-COOLDOWN",
+            )
+        if gate[2] is not None and now < gate[2] + timedelta(
+            seconds=policy.minimum_interval_seconds
+        ):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-OUTREACH-COOLDOWN",
+            )
+        source = await (
+            await connection.execute(
+                """
+                SELECT 'creator_outreach_relationship',
+                       revision.relationship_revision_id,
+                       relationship.head_version, NULL::uuid, revision.created_at
+                FROM armi.relationships AS relationship
+                JOIN armi.relationship_revisions AS revision
+                  ON revision.relationship_revision_id =
+                     relationship.current_revision_id
+                WHERE relationship.subject_id = %s
+                  AND relationship.life_generation_id = %s
+                  AND relationship.other_party_id = %s
+                  AND relationship.scope = 'creator_social'
+                  AND revision.relationship_status = 'active'
+                  AND revision.created_at > %s
+                  AND EXISTS (
+                      SELECT 1
+                      FROM jsonb_array_elements(revision.commitments) AS item
+                      WHERE item->>'party_role' = 'subject'
+                        AND item->>'status' = 'active'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM armi.opportunities AS existing
+                      WHERE existing.subject_id = relationship.subject_id
+                        AND existing.source_kind =
+                            'creator_outreach_relationship'
+                        AND existing.source_ref =
+                            revision.relationship_revision_id
+                        AND existing.source_version = relationship.head_version
+                        AND existing.purpose = 'consider_creator_outreach'
+                  )
+                ORDER BY revision.created_at DESC,
+                         revision.relationship_revision_id DESC
+                LIMIT 1
+                """,
+                (
+                    fence.subject_id,
+                    fence.life_generation_id,
+                    creator_party_id,
+                    latest_input_at or scene[6],
+                ),
+            )
+        ).fetchone()
+        if source is None:
+            source = await (
+                await connection.execute(
+                    """
+                    SELECT 'creator_outreach_activity',
+                           revision.activity_revision_id,
+                           activity.head_version, activity.activity_id,
+                           revision.created_at
+                    FROM armi.activities AS activity
+                    JOIN armi.activity_revisions AS revision
+                      ON revision.activity_revision_id =
+                         activity.current_revision_id
+                    WHERE activity.subject_id = %s
+                      AND revision.status = 'completed'
+                      AND revision.created_at > %s
+                      AND NOT EXISTS (
+                          SELECT 1 FROM armi.opportunities AS existing
+                          WHERE existing.subject_id = activity.subject_id
+                            AND existing.source_kind =
+                                'creator_outreach_activity'
+                            AND existing.source_ref =
+                                revision.activity_revision_id
+                            AND existing.source_version = activity.head_version
+                            AND existing.purpose = 'consider_creator_outreach'
+                      )
+                    ORDER BY revision.created_at DESC,
+                             revision.activity_revision_id DESC
+                    LIMIT 1
+                    """,
+                    (fence.subject_id, latest_input_at or scene[6]),
+                )
+            ).fetchone()
+        if source is None:
+            anchor_at = latest_input_at or scene[6]
+            available_after = anchor_at + timedelta(
+                seconds=policy.absence_after_seconds
+            )
+            if now < available_after:
+                return OpportunityAdmissionOutcome(
+                    OpportunityAdmissionStatus.REJECTED,
+                    None,
+                    "LIFE-OUTREACH-IDLE",
+                )
+            source = (
+                LifeOpportunitySourceKind.CREATOR_OUTREACH_ABSENCE.value,
+                scene[2] or scene[4],
+                1 if scene[2] is not None else int(scene[5]),
+                None,
+                available_after,
+            )
+        source_bytes = rfc8785.dumps(
+            {
+                "schema_version": "armi.creator-outreach-trigger.v1",
+                "kind": str(source[0]),
+                "source_ref": str(source[1]),
+                "source_version": int(source[2]),
+                "available_after": source[4].isoformat(),
+                "scene_id": str(scene_id),
+            }
+        )
+        source_digest = Digest.from_bytes(source_bytes)
+        opportunity_id = uuid7()
+        inserted = await (
+            await connection.execute(
+                """
+                INSERT INTO armi.opportunities (
+                    opportunity_id, evidence_id, subject_id, scene_id,
+                    creator_party_id, purpose, eligibility_status,
+                    current_disposition, root_opportunity_id,
+                    reconsideration_no, available_after, source_kind,
+                    source_ref, source_version, source_digest, activity_id,
+                    schema_version
+                ) VALUES (
+                    %s, NULL, %s, %s, %s, 'consider_creator_outreach',
+                    'eligible', 'open', %s, 0, %s, %s, %s, %s, %s, %s, 1
+                )
+                ON CONFLICT (
+                    subject_id, source_kind, source_ref, source_version,
+                    purpose, reconsideration_no
+                ) DO NOTHING RETURNING opportunity_id
+                """,
+                (
+                    opportunity_id,
+                    fence.subject_id,
+                    scene_id,
+                    creator_party_id,
+                    opportunity_id,
+                    source[4],
+                    str(source[0]),
+                    source[1],
+                    int(source[2]),
+                    source_digest.value,
+                    source[3],
+                ),
+            )
+        ).fetchone()
+        if inserted is None:
+            existing = await (
+                await connection.execute(
+                    """
+                    SELECT opportunity_id, source_digest
+                    FROM armi.opportunities
+                    WHERE subject_id = %s AND source_kind = %s
+                      AND source_ref = %s AND source_version = %s
+                      AND purpose = 'consider_creator_outreach'
+                      AND reconsideration_no = 0
+                    """,
+                    (fence.subject_id, str(source[0]), source[1], int(source[2])),
+                )
+            ).fetchone()
+            if existing is None or str(existing[1]) != source_digest.value:
+                raise LifeViolation("LIFE-SOURCE-DRIFT")
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.DUPLICATE, existing[0]
+            )
+        await unit_of_work.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", unit_of_work.environment_id),
+                Purpose("life.creator_outreach"),
+                "life.creator_outreach.admitted",
+                AuditReference("opportunity", opportunity_id),
+                AuditResultStatus.APPLIED,
+                TraceId(opportunity_id.hex),
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(fence.subject_id),
+                request=AuditReference(str(source[0]), source[1]),
                 request_digest=source_digest,
             )
         )

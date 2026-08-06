@@ -63,6 +63,7 @@ def _snapshot(
             opportunity_available_after=datetime(2026, 1, 1, tzinfo=UTC),
             opportunity_expires_at=None,
             evidence=None,
+            outreach_trigger_bytes=None,
             fixed_prompt=SimpleNamespace(source_id=uuid7(), source_version=1),
             creator_prompt=creator_prompt,
             subject_prompt=subject_prompt,
@@ -177,6 +178,36 @@ def test_exact_life_query_result_is_current_runtime_evidence() -> None:
     assert evidence.source.reference == source_id
     assert evidence.source.kind == "life_query_result"
     assert evidence.trust_class.value == "runtime_authority"
+
+
+def test_creator_outreach_trigger_is_required_runtime_evidence() -> None:
+    scene_id = uuid7()
+    trigger = b'{"kind":"creator_outreach_absence"}'
+    snapshot = _snapshot(
+        (),
+        scene_id=scene_id,
+        scene_bytes=b'{"status":"open"}',
+        purpose="consider_creator_outreach",
+        opportunity_source_kind="creator_outreach_absence",
+    )
+    snapshot = cast(
+        ContextEpisodeSnapshot,
+        SimpleNamespace(**{**vars(snapshot), "outreach_trigger_bytes": trigger}),
+    )
+    request = _context_request(
+        snapshot,
+        None,
+        b"fixed prompt",
+        web_search_active=False,
+    )
+
+    evidence = next(
+        item for item in request.items if item.item_kind == "current_evidence"
+    )
+    scene = next(item for item in request.items if item.item_kind == "current_scene")
+    assert evidence.required
+    assert evidence.trust_class.value == "runtime_authority"
+    assert scene.required
 
 
 def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> None:

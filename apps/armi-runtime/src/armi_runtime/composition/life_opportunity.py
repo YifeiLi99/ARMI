@@ -12,6 +12,7 @@ from uuid import UUID
 from armi_kernel.application import (
     CreatorEventResourceKind,
     CreatorEventViolation,
+    CreatorOutreachPolicy,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     LifeOpportunitySourcePort,
@@ -143,6 +144,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         "_factory",
         "_maintenance",
         "_model_concurrency",
+        "_outreach_policy",
         "_repository",
         "_stop",
         "_wakeups",
@@ -156,6 +158,8 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         model_concurrency: int = 2,
         maintenance_consideration_seconds: int = 57_600,
         maintenance_deadline_seconds: int = 86_400,
+        creator_outreach_absence_seconds: int = 259_200,
+        creator_outreach_minimum_interval_seconds: int = 86_400,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._factory = factory
@@ -165,6 +169,10 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         if type(model_concurrency) is not int or model_concurrency < 1:
             raise LifeViolation("LIFE-SCHEDULER-CONFIG")
         self._model_concurrency = model_concurrency
+        self._outreach_policy = CreatorOutreachPolicy(
+            creator_outreach_absence_seconds,
+            creator_outreach_minimum_interval_seconds,
+        )
         self._maintenance = MaintenanceCoordinator(
             factory=factory,
             repository=PostgreSQLMaintenanceRepository(),
@@ -209,6 +217,9 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
                 material = await self.admit_life_material_once()
                 if material.status is OpportunityAdmissionStatus.ADMITTED:
                     self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+                outreach = await self.admit_creator_outreach_once()
+                if outreach.status is OpportunityAdmissionStatus.ADMITTED:
+                    self._wakeups.notify(OPPORTUNITY_AVAILABLE)
                 internal_work = await self.admit_internal_work_once()
                 if internal_work.status is OpportunityAdmissionStatus.ADMITTED:
                     self._wakeups.notify(OPPORTUNITY_AVAILABLE)
@@ -219,6 +230,11 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
                 if not exc.code.startswith("LIFE-BACKPRESSURE-") and exc.code not in {
                     "LIFE-SCHEDULER-IDLE",
                     "LIFE-SCHEDULER-COOLDOWN",
+                    "LIFE-OUTREACH-IDLE",
+                    "LIFE-OUTREACH-COOLDOWN",
+                    "LIFE-OUTREACH-AWAITING-CREATOR",
+                    "LIFE-OUTREACH-RELATIONSHIP-BOUNDARY",
+                    "LIFE-OUTREACH-SCENE-UNAVAILABLE",
                 }:
                     raise
             with contextlib.suppress(TimeoutError):
@@ -236,6 +252,18 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 return await self._repository.admit_life_material_revision(unit_of_work)
+        except LifeViolation:
+            raise
+        except DatabaseTransactionError:
+            raise LifeViolation("LIFE-DATABASE") from None
+
+    async def admit_creator_outreach_once(self) -> OpportunityAdmissionOutcome:
+        try:
+            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+                return await self._repository.admit_creator_outreach(
+                    unit_of_work,
+                    policy=self._outreach_policy,
+                )
         except LifeViolation:
             raise
         except DatabaseTransactionError:
@@ -288,6 +316,8 @@ def compose_life_opportunity_pipeline(
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
     maintenance_deadline_seconds: int = 86_400,
+    creator_outreach_absence_seconds: int = 259_200,
+    creator_outreach_minimum_interval_seconds: int = 86_400,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
     return LifeOpportunityPipeline(
@@ -296,6 +326,10 @@ def compose_life_opportunity_pipeline(
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,
         maintenance_deadline_seconds=maintenance_deadline_seconds,
+        creator_outreach_absence_seconds=creator_outreach_absence_seconds,
+        creator_outreach_minimum_interval_seconds=(
+            creator_outreach_minimum_interval_seconds
+        ),
         notifier=notifier,
     )
 
@@ -313,6 +347,8 @@ def build_life_opportunity_pipeline(
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
     maintenance_deadline_seconds: int = 86_400,
+    creator_outreach_absence_seconds: int = 259_200,
+    creator_outreach_minimum_interval_seconds: int = 86_400,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
@@ -335,6 +371,10 @@ def build_life_opportunity_pipeline(
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,
         maintenance_deadline_seconds=maintenance_deadline_seconds,
+        creator_outreach_absence_seconds=creator_outreach_absence_seconds,
+        creator_outreach_minimum_interval_seconds=(
+            creator_outreach_minimum_interval_seconds
+        ),
         notifier=notifier,
     )
 

@@ -528,7 +528,7 @@ def _context_request(
                 1,
                 snapshot.scene_bytes,
                 ContextTrustClass.RUNTIME_AUTHORITY,
-                required=False,
+                required=snapshot.purpose == "consider_creator_outreach",
                 relevance=80,
             )
         )
@@ -634,7 +634,8 @@ def _context_request(
                 ContextTrustClass.RUNTIME_AUTHORITY,
                 "private",
                 payload.decode("utf-8", errors="strict"),
-                snapshot.purpose == "consider_creator_input",
+                snapshot.purpose
+                in {"consider_creator_input", "consider_creator_outreach"},
                 100 if authorization_status == "pending" else 96,
             )
         )
@@ -773,6 +774,7 @@ def _context_request(
                 in {
                     "maintain_subjective_memory",
                     "perform_subject_self_check",
+                    "consider_creator_outreach",
                 },
                 relevance=100,
                 source_kind=snapshot.opportunity_source_kind,
@@ -901,6 +903,20 @@ def _context_request(
                 required=True,
                 relevance=100,
                 source_kind=snapshot.evidence.source_kind,
+            )
+        )
+    if snapshot.outreach_trigger_bytes is not None:
+        items.append(
+            _item(
+                ContextSection.EVIDENCE,
+                "current_evidence",
+                snapshot.opportunity_source_ref,
+                snapshot.opportunity_source_version,
+                snapshot.outreach_trigger_bytes,
+                ContextTrustClass.RUNTIME_AUTHORITY,
+                required=True,
+                relevance=100,
+                source_kind=snapshot.opportunity_source_kind,
             )
         )
     return ContextRequest(

@@ -62,6 +62,7 @@ from .model_contract import (
     ACTIVITY_INTERNAL_WORK_INSTRUCTIONS,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
+    CREATOR_OUTREACH_INSTRUCTIONS,
     DIALOGUE_CANDIDATE_VERSION,
     DIALOGUE_INSTRUCTIONS,
     MAINTENANCE_WORK_CANDIDATE_VERSION,
@@ -134,6 +135,10 @@ class ModelPipeline:
             "consider_creator_input",
             expected_dialogue_version=dialogue_version,
         )
+        outreach_binding = load_purpose_binding(
+            "consider_creator_outreach",
+            expected_dialogue_version=dialogue_version,
+        )
         autonomous_binding = load_purpose_binding(
             "consider_autonomous_life",
             expected_dialogue_version=dialogue_version,
@@ -180,6 +185,17 @@ class ModelPipeline:
                 value,
                 allowed_context_refs=allowed_context_refs,
                 expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+            )
+
+        def parse_outreach(
+            value: bytes,
+            *,
+            allowed_context_refs: frozenset[str],
+        ):
+            return parse_candidate(
+                value,
+                allowed_context_refs=allowed_context_refs,
+                expected_version=DIALOGUE_CANDIDATE_VERSION,
             )
 
         def parse_attention(
@@ -256,6 +272,15 @@ class ModelPipeline:
                     if web_search_active
                     else "armi_creator_dialogue_candidate_v13"
                 ),
+            ),
+            "consider_creator_outreach": VolcengineArkModelAdapter(
+                binding=outreach_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(DIALOGUE_CANDIDATE_VERSION),
+                candidate_parser=parse_outreach,
+                instructions=CREATOR_OUTREACH_INSTRUCTIONS,
+                schema_name="armi_creator_outreach_candidate_v1",
             ),
             "consider_autonomous_life": VolcengineArkModelAdapter(
                 binding=autonomous_binding,
@@ -595,6 +620,11 @@ class ModelPipeline:
         if (
             purpose == "consider_creator_input"
             and adapter.binding.response_contract_version != self._dialogue_version
+        ):
+            raise ModelViolation("MODEL-BINDING")
+        if (
+            purpose == "consider_creator_outreach"
+            and adapter.binding.response_contract_version != DIALOGUE_CANDIDATE_VERSION
         ):
             raise ModelViolation("MODEL-BINDING")
         return adapter

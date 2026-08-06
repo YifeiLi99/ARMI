@@ -290,6 +290,13 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     }
 
 
+def test_creator_outreach_has_a_narrow_compact_purpose_profile() -> None:
+    outreach = load_purpose_binding("consider_creator_outreach")
+    assert outreach.profile == "creator_outreach"
+    assert outreach.response_contract_version == DIALOGUE_CANDIDATE_VERSION
+    assert outreach.output_token_limit == 512
+
+
 def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> None:
     value = {
         "kind": "reply",

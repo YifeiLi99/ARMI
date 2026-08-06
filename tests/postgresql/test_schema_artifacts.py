@@ -45,6 +45,8 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "'consider_life_query_result'" in sql
     assert "'maintain_subjective_memory'" in sql
     assert "'perform_subject_self_check'" in sql
+    assert "'consider_creator_outreach'" in sql
+    assert "'creator_outreach_absence'" in sql
     assert "status IN ('pending', 'succeeded', 'empty', 'failed', 'denied')" in sql
     assert "material_kind IN ('diary', 'work', 'collection', 'draft')" in sql
     assert "FOREIGN KEY (owner_party_id, subject_id)" in sql

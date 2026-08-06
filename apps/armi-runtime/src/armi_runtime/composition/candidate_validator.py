@@ -562,7 +562,8 @@ class DeterministicCandidateValidator:
                     if self._context.purpose
                     in {"maintain_subjective_memory", "perform_subject_self_check"}
                     else self._context.candidate_contract_version
-                    if self._context.purpose == "consider_creator_input"
+                    if self._context.purpose
+                    in {"consider_creator_input", "consider_creator_outreach"}
                     else None
                 ),
             )
@@ -1959,7 +1960,11 @@ def _expand_dialogue_candidate(
             and (
                 item.trust_class == "external_claim"
                 or (
-                    context.purpose == "consider_life_query_result"
+                    context.purpose
+                    in {
+                        "consider_life_query_result",
+                        "consider_creator_outreach",
+                    }
                     and item.trust_class == "runtime_authority"
                 )
             )
@@ -2022,6 +2027,23 @@ def _expand_dialogue_candidate(
     ):
         return None, None, "CANDIDATE-CONTRACT"
     decision = source
+    if context.purpose == "consider_creator_outreach":
+        if not isinstance(decision, (DialogueReplyDecision, DialogueTerminalDecision)):
+            return None, None, "CANDIDATE-CREATOR-OUTREACH-SCOPE"
+        if isinstance(decision, DialogueReplyDecision) and any(
+            value is not None
+            for value in (
+                decision.experience,
+                decision.self_change,
+                decision.mind_change,
+                decision.memory_change,
+                decision.relationship_change,
+                decision.material_change,
+                decision.subject_prompt_change,
+                decision.capability_request,
+            )
+        ):
+            return None, None, "CANDIDATE-CREATOR-OUTREACH-SCOPE"
     if context.purpose == "consider_life_query_result" and not isinstance(
         decision,
         (
@@ -3643,7 +3665,8 @@ def _capability_failure(
         and (
             basis.trust_class == "external_claim"
             or (
-                context.purpose == "consider_life_query_result"
+                context.purpose
+                in {"consider_life_query_result", "consider_creator_outreach"}
                 and basis.trust_class == "runtime_authority"
             )
         )
@@ -3698,7 +3721,8 @@ def _action_failure(
         and (
             basis.trust_class == "external_claim"
             or (
-                context.purpose == "consider_life_query_result"
+                context.purpose
+                in {"consider_life_query_result", "consider_creator_outreach"}
                 and basis.trust_class == "runtime_authority"
             )
         )
@@ -3709,6 +3733,15 @@ def _action_failure(
         if (
             context.current_relationship is not None
             and context.current_relationship.status is RelationshipStatus.ENDED
+        ):
+            return "CANDIDATE-RELATIONSHIP-BOUNDARY"
+        if context.purpose == "consider_creator_outreach" and (
+            context.current_relationship is not None
+            and any(
+                boundary.kind
+                in {RelationshipBoundaryKind.CONTACT, RelationshipBoundaryKind.EXIT}
+                for boundary in context.current_relationship.boundaries
+            )
         ):
             return "CANDIDATE-RELATIONSHIP-BOUNDARY"
         if not any(

@@ -10,6 +10,7 @@ from armi_kernel.application import (
     ActivityHeadSnapshot,
     ActivityStatus,
     ActivityWaitingKind,
+    CreatorOutreachPolicy,
     LifeOpportunitySourceKind,
     LifeOpportunitySourceSnapshot,
     LifeSchedulingDisposition,
@@ -83,6 +84,20 @@ def test_activity_revision_source_requires_activity_authority() -> None:
 
     with pytest.raises(LifeViolation, match="LIFE-SOURCE-ACTIVITY"):
         _source(activity_id=activity_id)
+
+
+def test_creator_outreach_policy_and_activity_source_are_explicit() -> None:
+    policy = CreatorOutreachPolicy(259_200, 86_400)
+    assert policy.absence_after_seconds == 259_200
+    activity_id = ActivityId(uuid7())
+    source = _source(
+        kind=LifeOpportunitySourceKind.CREATOR_OUTREACH_ACTIVITY,
+        activity_id=activity_id,
+    )
+    assert source.activity_id == activity_id
+
+    with pytest.raises(LifeViolation, match="LIFE-OUTREACH-POLICY"):
+        CreatorOutreachPolicy(3_599, 86_400)
 
 
 def test_admission_outcome_preserves_duplicate_identity_and_rejection_reason() -> None:

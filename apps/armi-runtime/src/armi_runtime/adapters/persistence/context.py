@@ -140,6 +140,7 @@ class ContextEpisodeSnapshot:
     scene_bytes: bytes | None
     scene_digest: Digest | None
     evidence: ContextArtifactSource | None
+    outreach_trigger_bytes: bytes | None
     opportunity_source_kind: str
     opportunity_source_ref: UUID
     opportunity_source_version: int
@@ -803,6 +804,51 @@ class PostgreSQLContextRepository:
                     (row[35], row[3]),
                 )
             ).fetchall()
+        elif row[3] is not None and str(row[20]) == "consider_creator_outreach":
+            recent_rows = await (
+                await connection.execute(
+                    """
+                    SELECT item.timeline_item_id, item.source_event_no,
+                           item.source_kind, item.occurred_at,
+                           COALESCE(
+                               prior_evidence.artifact_id,
+                               response_revision.response_artifact_id
+                           ) AS artifact_id
+                    FROM armi.scene_timeline_items AS item
+                    LEFT JOIN armi.creator_input_interactions AS prior_input
+                      ON item.source_kind = 'creator_input'
+                     AND prior_input.creator_interaction_id = item.source_ref
+                     AND prior_input.scene_id = item.scene_id
+                     AND prior_input.purpose = 'creator_message'
+                    LEFT JOIN armi.external_evidence AS prior_evidence
+                      ON prior_evidence.creator_interaction_id =
+                         prior_input.creator_interaction_id
+                     AND prior_evidence.scene_id = item.scene_id
+                    LEFT JOIN armi.effects AS response_effect
+                      ON item.source_kind = 'creator_response'
+                     AND response_effect.effect_id = item.source_ref
+                     AND response_effect.interaction_scene_id = item.scene_id
+                    LEFT JOIN armi.action_intent_revisions AS response_revision
+                      ON response_revision.action_intent_revision_id =
+                         response_effect.action_intent_revision_id
+                    WHERE item.scene_id = %s
+                      AND item.source_kind IN (
+                          'creator_input', 'creator_response'
+                      )
+                      AND item.occurred_at <= %s
+                      AND COALESCE(
+                          prior_evidence.artifact_id,
+                          response_revision.response_artifact_id
+                      ) IS NOT NULL
+                    ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
+                    LIMIT 8
+                    """,
+                    (row[3], row[26]),
+                )
+            ).fetchall()
+        else:
+            recent_rows = []
+        if recent_rows:
             recent_sources: list[ContextSceneTurnSource] = []
             for item in reversed(recent_rows):
                 recent_sources.append(
@@ -827,6 +873,24 @@ class PostgreSQLContextRepository:
                 str(row[21]),
             )
         )
+        outreach_trigger_bytes = (
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.creator-outreach-trigger.v1",
+                    "kind": str(row[22]),
+                    "source_ref": str(row[23]),
+                    "source_version": int(row[24]),
+                    "available_after": row[26].isoformat(),
+                    "scene_id": str(row[3]),
+                }
+            )
+            if str(row[20]) == "consider_creator_outreach"
+            else None
+        )
+        if outreach_trigger_bytes is not None and Digest.from_bytes(
+            outreach_trigger_bytes
+        ).value != str(row[25]):
+            raise ContextViolation("CTX-SOURCE-DRIFT")
         return ContextEpisodeSnapshot(
             episode_id=row[0],
             opportunity_id=row[1],
@@ -854,6 +918,7 @@ class PostgreSQLContextRepository:
                 None if scene_bytes is None else Digest.from_bytes(scene_bytes)
             ),
             evidence=evidence,
+            outreach_trigger_bytes=outreach_trigger_bytes,
             opportunity_source_kind=str(row[22]),
             opportunity_source_ref=row[23],
             opportunity_source_version=int(row[24]),

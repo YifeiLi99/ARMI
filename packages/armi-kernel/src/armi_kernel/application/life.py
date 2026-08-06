@@ -34,6 +34,9 @@ class LifeOpportunitySourceKind(StrEnum):
     SUBJECT_COMPONENT_REVISION = "subject_component_revision"
     ACTIVITY_REVISION = "activity_revision"
     MAINTENANCE_WINDOW = "maintenance_window"
+    CREATOR_OUTREACH_ABSENCE = "creator_outreach_absence"
+    CREATOR_OUTREACH_ACTIVITY = "creator_outreach_activity"
+    CREATOR_OUTREACH_RELATIONSHIP = "creator_outreach_relationship"
 
 
 class OpportunityAdmissionStatus(StrEnum):
@@ -91,6 +94,23 @@ class LifeSchedulingDisposition(StrEnum):
     DEFER = "defer"
     BACKPRESSURE = "backpressure"
     IDLE = "idle"
+
+
+@dataclass(frozen=True, slots=True)
+class CreatorOutreachPolicy:
+    """Frozen frequency boundaries for considering proactive Creator contact."""
+
+    absence_after_seconds: int
+    minimum_interval_seconds: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.absence_after_seconds) is not int
+            or self.absence_after_seconds < 3_600
+            or type(self.minimum_interval_seconds) is not int
+            or self.minimum_interval_seconds < 3_600
+        ):
+            raise LifeViolation("LIFE-OUTREACH-POLICY")
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,7 +250,10 @@ class LifeOpportunitySourceSnapshot:
             )
         ):
             raise LifeViolation("LIFE-SOURCE")
-        activity_source = self.kind is LifeOpportunitySourceKind.ACTIVITY_REVISION
+        activity_source = self.kind in {
+            LifeOpportunitySourceKind.ACTIVITY_REVISION,
+            LifeOpportunitySourceKind.CREATOR_OUTREACH_ACTIVITY,
+        }
         if activity_source != (self.activity_id is not None):
             raise LifeViolation("LIFE-SOURCE-ACTIVITY")
 
@@ -279,6 +302,7 @@ __all__ = (
     "ActivityStatus",
     "ActivityTransition",
     "ActivityWaitingKind",
+    "CreatorOutreachPolicy",
     "LifeOpportunitySourceKind",
     "LifeOpportunitySourcePort",
     "LifeOpportunitySourceSnapshot",
