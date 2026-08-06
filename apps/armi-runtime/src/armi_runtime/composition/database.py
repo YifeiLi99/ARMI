@@ -99,6 +99,10 @@ from .life_opportunity import (
     build_life_opportunity_pipeline,
 )
 from .model_pipeline import ModelPipeline, build_model_pipeline
+from .other_human_delivery_pipeline import (
+    OtherHumanDeliveryPipeline,
+    build_other_human_delivery_pipeline,
+)
 from .other_human_input import (
     OtherHumanInputService,
     build_other_human_input_service,
@@ -564,6 +568,49 @@ def compose_exact_life_query_pipeline(
             return handle.consume(create)
     except ConfigurationViolation:
         raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
+
+
+def compose_other_human_delivery_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    wakeups: WorkWakeupBus | None = None,
+    diagnostic: Callable[[str], None] | None = None,
+) -> OtherHumanDeliveryPipeline:
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise CandidateViolation("CANDIDATE-DATABASE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> OtherHumanDeliveryPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise CandidateViolation("CANDIDATE-DATABASE") from None
+                config = prepared.effective.config
+                return build_other_human_delivery_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    wakeups=wakeups,
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise CandidateViolation("CANDIDATE-DATABASE") from None
 
 
 def compose_creator_relationship_query(
@@ -1501,6 +1548,7 @@ __all__ = (
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",
     "compose_model_pipeline",
+    "compose_other_human_delivery_pipeline",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",
     "compose_runtime_observation",

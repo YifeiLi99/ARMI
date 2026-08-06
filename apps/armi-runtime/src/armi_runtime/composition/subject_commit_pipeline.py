@@ -27,6 +27,7 @@ from armi_kernel.application import (
     CreatorReplyDraft,
     LockPlan,
     LockTarget,
+    OtherHumanReplyDraft,
     PublishedArtifact,
     RuntimeFence,
     SceneKey,
@@ -58,6 +59,7 @@ from .subject_commit_contract import parse_subject_change_set
 from .work_wakeup import (
     EXACT_LIFE_QUERY,
     OPPORTUNITY_AVAILABLE,
+    OTHER_HUMAN_DELIVER,
     RESPONSE_ADMIT,
     SUBJECT_COMMIT,
     WorkWakeupBus,
@@ -149,7 +151,7 @@ class SubjectCommitPipeline:
             replies = tuple(
                 item
                 for item in change_set.action_choices
-                if isinstance(item, CreatorReplyDraft)
+                if isinstance(item, (CreatorReplyDraft, OtherHumanReplyDraft))
             )
             if len(replies) > 1:
                 raise SubjectCommitViolation("SUBJECT-RESPONSE-COUNT")
@@ -343,6 +345,7 @@ class SubjectCommitPipeline:
         self._wakeups.notify(RESPONSE_ADMIT)
         self._wakeups.notify(OPPORTUNITY_AVAILABLE)
         self._wakeups.notify(EXACT_LIFE_QUERY)
+        self._wakeups.notify(OTHER_HUMAN_DELIVER)
 
     async def _snapshot(self, lease: WorkLease) -> SubjectCommitSnapshot:
         try:
@@ -402,14 +405,18 @@ class SubjectCommitPipeline:
 
     async def _publish_response(
         self,
-        reply: CreatorReplyDraft,
+        reply: CreatorReplyDraft | OtherHumanReplyDraft,
         snapshot: SubjectCommitSnapshot,
     ):
         staged = await self._storage.stage(
             _one_chunk(reply.content_bytes),
             ArtifactPolicy(
                 "text/plain",
-                "creator.response.text",
+                (
+                    "other-human.response.text"
+                    if isinstance(reply, OtherHumanReplyDraft)
+                    else "creator.response.text"
+                ),
                 "subject.commit",
                 snapshot.trace_id,
                 ArtifactPrivacyScope.PRIVATE,

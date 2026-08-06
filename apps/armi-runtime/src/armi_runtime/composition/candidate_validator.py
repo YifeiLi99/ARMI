@@ -58,6 +58,8 @@ from armi_kernel.application import (
     MemoryRevisionKind,
     MemorySourceKind,
     ModelViolation,
+    OtherHumanEndConversationDraft,
+    OtherHumanReplyDraft,
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
@@ -188,6 +190,10 @@ from .model_contract import (
     WebResearchRequestProposal,
     parse_candidate,
 )
+from .other_human_dialogue_candidate_contract import (
+    OtherHumanReplyDecision,
+    OtherHumanTerminalDecision,
+)
 from .sleep_decision_candidate_contract import (
     SLEEP_DECISION_CANDIDATE_VERSION,
     SleepDecisionCandidate,
@@ -209,6 +215,7 @@ MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
 MAINTENANCE_CHANGE_SET_VERSION = "armi.subject-change-set.v19"
+OTHER_HUMAN_CHANGE_SET_VERSION = "armi.subject-change-set.v20"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -431,6 +438,7 @@ class CandidateValidationContext:
     current_maintenance_revision_id: UUID | None = None
     current_maintenance_head_version: int | None = None
     current_maintenance_phase: MaintenancePhase | None = None
+    other_party_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if any(
@@ -447,6 +455,7 @@ class CandidateValidationContext:
         for value in (
             self.scene_id,
             self.creator_party_id,
+            self.other_party_id,
             self.opportunity_id,
             self.current_activity_id,
             self.current_activity_revision_id,
@@ -563,7 +572,11 @@ class DeterministicCandidateValidator:
                     in {"maintain_subjective_memory", "perform_subject_self_check"}
                     else self._context.candidate_contract_version
                     if self._context.purpose
-                    in {"consider_creator_input", "consider_creator_outreach"}
+                    in {
+                        "consider_creator_input",
+                        "consider_creator_outreach",
+                        "consider_other_human_input",
+                    }
                     else None
                 ),
             )
@@ -589,6 +602,15 @@ class DeterministicCandidateValidator:
         )
         if isinstance(parsed_candidate, SleepDecisionCandidate):
             return self._validate_sleep(
+                parsed_candidate,
+                bases=bases,
+                candidate_digest=candidate_digest,
+            )
+        if isinstance(
+            parsed_candidate,
+            (OtherHumanReplyDecision, OtherHumanTerminalDecision),
+        ):
+            return self._validate_other_human(
                 parsed_candidate,
                 bases=bases,
                 candidate_digest=candidate_digest,
@@ -1292,6 +1314,147 @@ class DeterministicCandidateValidator:
             change_set,
             len(accepted),
             len(rejected),
+            None,
+        )
+
+    def _validate_other_human(
+        self,
+        candidate: OtherHumanReplyDecision | OtherHumanTerminalDecision,
+        *,
+        bases: tuple[CandidateBasis, ...],
+        candidate_digest: Digest,
+    ) -> CandidateValidationResult:
+        if (
+            self._context.purpose != "consider_other_human_input"
+            or self._context.scene_id is None
+            or self._context.creator_party_id is not None
+            or self._context.other_party_id is None
+        ):
+            return _rejected("CANDIDATE-OTHER-HUMAN-CONTEXT")
+        evidence = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_evidence"
+                and item.trust_class == "external_claim"
+            ),
+            None,
+        )
+        scene = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_scene"
+                and item.trust_class == "runtime_authority"
+            ),
+            None,
+        )
+        if evidence is None or scene is None:
+            return _rejected("CANDIDATE-OTHER-HUMAN-BASIS")
+        basis_ordinals = (evidence.ordinal, scene.ordinal)
+        action_choices: tuple[
+            OtherHumanReplyDraft
+            | OtherHumanEndConversationDraft
+            | FormalNoActionDraft,
+            ...,
+        ] = ()
+        disposition = CandidateDisposition.CHANGE
+        if isinstance(candidate, OtherHumanReplyDecision):
+            content = candidate.content.encode("utf-8")
+            action_choices = (
+                OtherHumanReplyDraft(
+                    "proposal:1",
+                    "group:1",
+                    basis_ordinals,
+                    self._context.subject_id,
+                    self._context.scene_id,
+                    self._context.other_party_id,
+                    content,
+                    Digest.from_bytes(content),
+                ),
+            )
+        elif candidate.kind == "silence":
+            disposition = CandidateDisposition.NO_ACTION
+            action_choices = (
+                FormalNoActionDraft(
+                    "proposal:1",
+                    "group:1",
+                    basis_ordinals,
+                    FormalNoActionKind.NO_ACTION,
+                    FormalNoActionReason.SUBJECTIVE_SILENCE,
+                ),
+            )
+        elif candidate.kind == "defer":
+            disposition = CandidateDisposition.DEFER
+        else:
+            action_choices = (
+                OtherHumanEndConversationDraft(
+                    "proposal:1",
+                    "group:1",
+                    basis_ordinals,
+                    self._context.subject_id,
+                    self._context.scene_id,
+                    self._context.other_party_id,
+                ),
+            )
+        value = {
+            "schema_version": OTHER_HUMAN_CHANGE_SET_VERSION,
+            "subject_id": str(self._context.subject_id),
+            "generation_id": str(self._context.generation_id),
+            "episode_id": str(self._context.episode_id),
+            "model_attempt_id": str(self._context.model_attempt_id),
+            "base": {
+                "subject_version": self._context.base_subject_version,
+                "state_epoch": self._context.base_state_epoch,
+                "bundle_activation_id": str(self._context.bundle_activation_id),
+                "context_digest": self._context.context_digest.value,
+            },
+            "candidate_digest": candidate_digest.value,
+            "disposition": disposition.value,
+            "experiences": [],
+            "components": [],
+            "capability_requests": [],
+            "action_choices": [_action_wire(item) for item in action_choices],
+            "web_research_requests": [],
+            "codex_delegations": [],
+            "activities": [],
+            "activity_decisions": [],
+            "memories": [],
+            "memory_revisions": [],
+            "relationships": [],
+            "materials": [],
+            "prompts": [],
+            "exact_life_queries": [],
+            "maintenance_decisions": [],
+            "rejections": [],
+        }
+        canonical = rfc8785.dumps(cast(Any, value))
+        change_set = SubjectChangeSet(
+            canonical,
+            Digest.from_bytes(canonical),
+            self._context.subject_id,
+            self._context.generation_id,
+            self._context.episode_id,
+            self._context.model_attempt_id,
+            self._context.base_subject_version,
+            self._context.base_state_epoch,
+            self._context.bundle_activation_id,
+            self._context.context_digest,
+            candidate_digest,
+            disposition,
+            (),
+            (),
+            (),
+            action_choices,
+            (),
+            (),
+        )
+        return CandidateValidationResult(
+            CandidateValidationId(uuid7()),
+            CandidateValidationStatus.ACCEPTED,
+            change_set,
+            len(action_choices),
+            0,
             None,
         )
 
@@ -4307,7 +4470,12 @@ def _rejection_wire(value: CandidateRejection) -> dict[str, object]:
     }
 
 
-def _action_wire(value: CreatorReplyDraft | FormalNoActionDraft) -> dict[str, object]:
+def _action_wire(
+    value: CreatorReplyDraft
+    | OtherHumanReplyDraft
+    | OtherHumanEndConversationDraft
+    | FormalNoActionDraft,
+) -> dict[str, object]:
     common: dict[str, object] = {
         "proposal_ref": value.proposal_ref,
         "atomic_group_ref": value.atomic_group_ref,
@@ -4328,6 +4496,30 @@ def _action_wire(value: CreatorReplyDraft | FormalNoActionDraft) -> dict[str, ob
             "media_type": value.media_type,
             "content": value.content_bytes.decode("utf-8"),
             "content_digest": value.content_digest.value,
+        }
+    if isinstance(value, OtherHumanReplyDraft):
+        return {
+            **common,
+            "action_kind": "other_human_reply",
+            "subject_id": str(value.subject_id),
+            "scene_id": str(value.scene_id),
+            "other_party_id": str(value.other_party_id),
+            "capability_kind": value.capability_kind,
+            "operation": value.operation,
+            "audience_scope": value.audience_scope,
+            "data_scope": value.data_scope,
+            "purpose": value.purpose,
+            "media_type": value.media_type,
+            "content": value.content_bytes.decode("utf-8"),
+            "content_digest": value.content_digest.value,
+        }
+    if isinstance(value, OtherHumanEndConversationDraft):
+        return {
+            **common,
+            "action_kind": "other_human_end_conversation",
+            "subject_id": str(value.subject_id),
+            "scene_id": str(value.scene_id),
+            "other_party_id": str(value.other_party_id),
         }
     return {
         **common,

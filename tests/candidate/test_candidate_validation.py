@@ -32,6 +32,8 @@ from armi_kernel.application import (
     MemoryRelationKind,
     MemoryRevisionKind,
     MemorySourceKind,
+    OtherHumanEndConversationDraft,
+    OtherHumanReplyDraft,
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
@@ -58,6 +60,9 @@ from armi_runtime.composition.candidate_validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
     _memory_source_kind,
+)
+from armi_runtime.composition.other_human_dialogue_candidate_contract import (
+    OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
 )
 from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
 
@@ -156,6 +161,82 @@ def _fixture():
         ),
     )
     return context, bases
+
+
+@pytest.mark.parametrize(
+    ("candidate", "disposition", "draft_type"),
+    [
+        (
+            {"kind": "reply", "content": "Hello, I am listening."},
+            "change",
+            OtherHumanReplyDraft,
+        ),
+        ({"kind": "silence"}, "no_action", None),
+        ({"kind": "defer"}, "defer", None),
+        (
+            {"kind": "end_conversation"},
+            "change",
+            OtherHumanEndConversationDraft,
+        ),
+    ],
+)
+def test_other_human_dialogue_uses_party_scoped_v20_change_set(
+    candidate: dict[str, str],
+    disposition: str,
+    draft_type: type[OtherHumanReplyDraft | OtherHumanEndConversationDraft] | None,
+) -> None:
+    ids = tuple(uuid7() for _ in range(10))
+    context = CandidateValidationContext(
+        ids[0],
+        ids[1],
+        ids[2],
+        ids[3],
+        7,
+        2,
+        ids[4],
+        Digest.from_bytes(b"other-human-context"),
+        ids[5],
+        None,
+        (),
+        purpose="consider_other_human_input",
+        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        other_party_id=ids[6],
+    )
+    bases = (
+        CandidateBasis(
+            1,
+            "evidence",
+            "current_evidence",
+            ids[7],
+            1,
+            Digest.from_bytes(b"other-human-message"),
+            "external_claim",
+            "private",
+        ),
+        CandidateBasis(
+            2,
+            "scene",
+            "current_scene",
+            ids[5],
+            1,
+            Digest.from_bytes(b"other-human-scene"),
+            "runtime_authority",
+            "private",
+        ),
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        json.dumps(candidate, ensure_ascii=False, separators=(",", ":")).encode(),
+        bases=bases,
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.disposition.value == disposition
+    assert b"armi.subject-change-set.v20" in result.change_set.canonical_bytes
+    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
+    assert reparsed.disposition.value == disposition
+    if draft_type is not None:
+        assert isinstance(reparsed.action_choices[0], draft_type)
+        assert reparsed.action_choices[0].other_party_id == ids[6]
 
 
 @pytest.mark.parametrize(
@@ -1352,7 +1433,9 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
     assert result.change_set.memories == ()
     assert result.change_set.memory_revisions == ()
     assert len(result.change_set.action_choices) == 1
-    assert result.change_set.action_choices[0].content_bytes.decode("utf-8") == (
+    reply = result.change_set.action_choices[0]
+    assert isinstance(reply, CreatorReplyDraft)
+    assert reply.content_bytes.decode("utf-8") == (
         "我刚查到那次约定的记录。"
     )
 
@@ -1959,13 +2042,15 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
     assert duplicate.status is CandidateValidationStatus.REJECTED
     assert duplicate.error_code == "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
 
+    current_prompt = context.current_subject_prompt
+    assert current_prompt is not None
     prompt_basis = CandidateBasis(
         6,
         "prompt",
         "subject_prompt",
-        context.current_subject_prompt.current_revision_id,
+        current_prompt.current_revision_id,
         2,
-        context.current_subject_prompt.content_digest,
+        current_prompt.content_digest,
         "policy",
         "private",
     )

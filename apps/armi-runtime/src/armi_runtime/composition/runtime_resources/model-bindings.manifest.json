@@ -50,6 +50,11 @@
       "profile": "creator_outreach",
       "response_contract_version": "armi.creator-dialogue-candidate.v17"
     },
+    "consider_other_human_input": {
+      "output_token_limit": 1024,
+      "profile": "other_human_dialogue",
+      "response_contract_version": "armi.other-human-dialogue-candidate.v1"
+    },
     "consider_sleep": {
       "output_token_limit": 256,
       "profile": "sleep_decision",

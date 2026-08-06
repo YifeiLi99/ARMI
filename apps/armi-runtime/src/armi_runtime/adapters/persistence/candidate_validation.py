@@ -42,6 +42,8 @@ from armi_kernel.application import (
     CodexDelegationDraft,
     CreatorReplyDraft,
     FormalNoActionDraft,
+    OtherHumanEndConversationDraft,
+    OtherHumanReplyDraft,
     SubjectChangeSet,
     WebResearchRequestDraft,
     WorkDraft,
@@ -78,6 +80,7 @@ class CandidateEpisodeSnapshot:
     context_digest: Digest
     scene_id: UUID | None
     creator_party_id: UUID | None
+    other_party_id: UUID | None
     response_artifact: ArtifactRef
     candidate_contract_version: str
     trace_id: TraceId
@@ -175,7 +178,8 @@ class PostgreSQLCandidateValidationRepository:
                     attempt.candidate_schema_version,
                     episode.trace_id,
                     episode.purpose,
-                    episode.opportunity_id
+                    episode.opportunity_id,
+                    episode.other_party_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -532,6 +536,7 @@ class PostgreSQLCandidateValidationRepository:
             Digest(str(row[7])),
             row[8],
             row[9],
+            row[15],
             await _artifact_ref(connection, row[10]),
             str(row[11]),
             TraceId(str(row[12])),
@@ -880,6 +885,8 @@ def _validation_drafts(
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
+    | OtherHumanReplyDraft
+    | OtherHumanEndConversationDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
@@ -922,6 +929,8 @@ def _item_semantic(
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
+    | OtherHumanReplyDraft
+    | OtherHumanEndConversationDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
@@ -1134,6 +1143,8 @@ def _owner(
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
+    | OtherHumanReplyDraft
+    | OtherHumanEndConversationDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
@@ -1162,7 +1173,15 @@ def _owner(
         return CandidateOwner.EXACT_LIFE_QUERY
     if isinstance(value, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
-    if isinstance(value, (CreatorReplyDraft, FormalNoActionDraft)):
+    if isinstance(
+        value,
+        (
+            CreatorReplyDraft,
+            OtherHumanReplyDraft,
+            OtherHumanEndConversationDraft,
+            FormalNoActionDraft,
+        ),
+    ):
         return CandidateOwner.ACTION
     if isinstance(value, WebResearchRequestDraft):
         return CandidateOwner.WEB_RESEARCH
@@ -1183,6 +1202,8 @@ def _implicit_fact_class(
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
+    | OtherHumanReplyDraft
+    | OtherHumanEndConversationDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft

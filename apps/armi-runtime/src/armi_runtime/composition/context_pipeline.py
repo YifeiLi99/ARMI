@@ -853,7 +853,9 @@ def _context_request(
             ),
             (
                 _unavailable(ContextSection.PROMPT, "creator_prompt")
-                if snapshot.creator_prompt is None or creator_prompt_bytes is None
+                if snapshot.purpose == "consider_other_human_input"
+                or snapshot.creator_prompt is None
+                or creator_prompt_bytes is None
                 else _item(
                     ContextSection.PROMPT,
                     "creator_prompt",

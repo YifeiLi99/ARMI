@@ -117,6 +117,64 @@ class CreatorReplyDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class OtherHumanReplyDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    subject_id: UUID
+    scene_id: UUID
+    other_party_id: UUID
+    content_bytes: bytes
+    content_digest: Digest
+    capability_kind: str = "local.other-human-inbox.deliver"
+    operation: str = "deliver_local"
+    audience_scope: str = "other_human"
+    data_scope: str = "declared_party_response"
+    purpose: str = "respond_to_other_human"
+    media_type: str = "text/plain"
+
+    def __post_init__(self) -> None:
+        _proposal(self.proposal_ref, self.atomic_group_ref, self.basis_ordinals)
+        for value in (self.subject_id, self.scene_id, self.other_party_id):
+            _uuid7(value, "CON-RESPONSE-OTHER-HUMAN-REPLY")
+        if (
+            type(self.content_bytes) is not bytes
+            or not 1 <= len(self.content_bytes) <= 65536
+            or b"\x00" in self.content_bytes
+            or type(self.content_digest) is not Digest
+            or Digest.from_bytes(self.content_bytes) != self.content_digest
+            or self.capability_kind != "local.other-human-inbox.deliver"
+            or self.operation != "deliver_local"
+            or self.audience_scope != "other_human"
+            or self.data_scope != "declared_party_response"
+            or self.purpose != "respond_to_other_human"
+            or self.media_type != "text/plain"
+        ):
+            raise ResponseViolation("CON-RESPONSE-OTHER-HUMAN-REPLY")
+        try:
+            text = self.content_bytes.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            raise ResponseViolation("CON-RESPONSE-OTHER-HUMAN-REPLY") from None
+        if not text.strip():
+            raise ResponseViolation("CON-RESPONSE-OTHER-HUMAN-REPLY")
+
+
+@dataclass(frozen=True, slots=True)
+class OtherHumanEndConversationDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    subject_id: UUID
+    scene_id: UUID
+    other_party_id: UUID
+
+    def __post_init__(self) -> None:
+        _proposal(self.proposal_ref, self.atomic_group_ref, self.basis_ordinals)
+        for value in (self.subject_id, self.scene_id, self.other_party_id):
+            _uuid7(value, "CON-RESPONSE-OTHER-HUMAN-END")
+
+
+@dataclass(frozen=True, slots=True)
 class FormalNoActionDraft:
     proposal_ref: str
     atomic_group_ref: str
@@ -137,7 +195,12 @@ class FormalNoActionDraft:
             raise ResponseViolation("CON-RESPONSE-NO-ACTION")
 
 
-type ResponseChoiceDraft = CreatorReplyDraft | FormalNoActionDraft
+type ResponseChoiceDraft = (
+    CreatorReplyDraft
+    | OtherHumanReplyDraft
+    | OtherHumanEndConversationDraft
+    | FormalNoActionDraft
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +273,8 @@ __all__ = (
     "FormalNoActionId",
     "FormalNoActionKind",
     "FormalNoActionReason",
+    "OtherHumanEndConversationDraft",
+    "OtherHumanReplyDraft",
     "ResponseAdmissionPort",
     "ResponseAdmissionResult",
     "ResponseAdmissionStatus",

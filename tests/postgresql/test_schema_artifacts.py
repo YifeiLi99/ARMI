@@ -47,6 +47,12 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "'perform_subject_self_check'" in sql
     assert "'consider_creator_outreach'" in sql
     assert "'creator_outreach_absence'" in sql
+    assert "'consider_other_human_input'" in sql
+    assert "CREATE TABLE armi.other_human_dialogue_decisions" in sql
+    assert "CREATE TABLE armi.other_human_action_intents" in sql
+    assert "CREATE TABLE armi.other_human_effects" in sql
+    assert "CREATE TABLE armi.other_human_local_inbox_deliveries" in sql
+    assert "'local.other-human-inbox.deliver'" in sql
     assert "status IN ('pending', 'succeeded', 'empty', 'failed', 'denied')" in sql
     assert "material_kind IN ('diary', 'work', 'collection', 'draft')" in sql
     assert "FOREIGN KEY (owner_party_id, subject_id)" in sql

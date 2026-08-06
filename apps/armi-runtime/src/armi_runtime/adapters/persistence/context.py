@@ -121,6 +121,7 @@ class ContextEpisodeSnapshot:
     subject_id: UUID
     scene_id: UUID | None
     creator_party_id: UUID | None
+    other_party_id: UUID | None
     purpose: str
     subject_version: int
     state_epoch: int
@@ -179,6 +180,7 @@ class PostgreSQLContextRepository:
                     opportunity.creator_party_id,
                     COALESCE(
                         interaction.trace_id,
+                        other_interaction.trace_id,
                         intent.trace_id,
                         task_source.trace_id,
                         result_task_source.trace_id,
@@ -188,13 +190,17 @@ class PostgreSQLContextRepository:
                     subject.state_epoch,
                     subject.current_bundle_activation_id,
                     transaction_timestamp(),
-                    opportunity.purpose
+                    opportunity.purpose,
+                    opportunity.other_party_id
                 FROM armi.opportunities AS opportunity
                 LEFT JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = opportunity.evidence_id
                 LEFT JOIN armi.creator_input_interactions AS interaction
                   ON interaction.creator_interaction_id
                     = evidence.creator_interaction_id
+                LEFT JOIN armi.other_human_input_interactions AS other_interaction
+                  ON other_interaction.other_human_interaction_id
+                    = evidence.other_human_interaction_id
                 LEFT JOIN armi.web_observation_requests AS observation
                   ON observation.web_observation_request_id
                     = evidence.web_observation_request_id
@@ -224,6 +230,7 @@ class PostgreSQLContextRepository:
                       'consider_activity_internal_work', 'consider_sleep',
                       'consider_life_query_result', 'maintain_subjective_memory',
                       'perform_subject_self_check', 'consider_creator_outreach'
+                      , 'consider_other_human_input'
                   )
                   AND opportunity.available_after <= transaction_timestamp()
                   AND (
@@ -291,6 +298,7 @@ class PostgreSQLContextRepository:
                 subject_id,
                 scene_id,
                 creator_party_id,
+                other_party_id,
                 purpose,
                 status,
                 base_subject_version,
@@ -303,7 +311,7 @@ class PostgreSQLContextRepository:
                 schema_version
             )
             VALUES (
-                %s, %s, %s, %s, %s, %s, 'preparing',
+                %s, %s, %s, %s, %s, %s, %s, 'preparing',
                 %s, %s, %s, %s, %s, %s, %s, 1
             )
             """,
@@ -313,6 +321,7 @@ class PostgreSQLContextRepository:
                 row[1],
                 row[2],
                 row[3],
+                row[10],
                 row[9],
                 row[5],
                 row[6],
@@ -415,7 +424,9 @@ class PostgreSQLContextRepository:
                     subject_prompt.prompt_revision_id,
                     subject_prompt.revision_no,
                     subject_prompt.content_artifact_id,
-                    evidence.creator_interaction_id
+                    evidence.creator_interaction_id,
+                    evidence.other_human_interaction_id,
+                    episode.other_party_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -757,11 +768,60 @@ class PostgreSQLContextRepository:
                     "scene_kind": str(row[16]),
                     "audience_scope": str(row[17]),
                     "status": str(row[18]),
+                    "primary_party_id": str(
+                        row[37] if row[37] is not None else row[4]
+                    ),
                 }
             )
         )
         recent_scene_sources: tuple[ContextSceneTurnSource, ...] = ()
-        if row[3] is not None and row[35] is not None:
+        if row[3] is not None and row[36] is not None:
+            recent_rows = await (
+                await connection.execute(
+                    """
+                    SELECT item.timeline_item_id, item.source_event_no,
+                           item.source_kind, item.occurred_at,
+                           COALESCE(
+                               prior_evidence.artifact_id,
+                               response_revision.response_artifact_id
+                           ) AS artifact_id
+                    FROM armi.scene_timeline_items AS item
+                    JOIN armi.scene_timeline_items AS current_item
+                      ON current_item.scene_id = item.scene_id
+                     AND current_item.source_kind = 'other_human_input'
+                     AND current_item.source_ref = %s
+                    LEFT JOIN armi.other_human_input_interactions AS prior_input
+                      ON item.source_kind = 'other_human_input'
+                     AND prior_input.other_human_interaction_id = item.source_ref
+                     AND prior_input.scene_id = item.scene_id
+                    LEFT JOIN armi.external_evidence AS prior_evidence
+                      ON prior_evidence.other_human_interaction_id =
+                         prior_input.other_human_interaction_id
+                     AND prior_evidence.scene_id = item.scene_id
+                    LEFT JOIN armi.other_human_effects AS response_effect
+                      ON item.source_kind = 'other_human_response'
+                     AND response_effect.other_human_effect_id = item.source_ref
+                     AND response_effect.scene_id = item.scene_id
+                    LEFT JOIN armi.other_human_action_intent_revisions AS response_revision
+                      ON response_revision.other_human_action_intent_revision_id =
+                         response_effect.action_intent_revision_id
+                    WHERE item.scene_id = %s
+                      AND item.source_kind IN (
+                          'other_human_input', 'other_human_response'
+                      )
+                      AND (item.occurred_at, item.timeline_item_id) <
+                          (current_item.occurred_at, current_item.timeline_item_id)
+                      AND COALESCE(
+                          prior_evidence.artifact_id,
+                          response_revision.response_artifact_id
+                      ) IS NOT NULL
+                    ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
+                    LIMIT 8
+                    """,
+                    (row[36], row[3]),
+                )
+            ).fetchall()
+        elif row[3] is not None and row[35] is not None:
             recent_rows: list[tuple[Any, ...]] = await (
                 await connection.execute(
                     """
@@ -865,7 +925,11 @@ class PostgreSQLContextRepository:
                         timeline_item_id=item[0],
                         source_version=int(item[1]),
                         speaker=(
-                            "creator" if str(item[2]) == "creator_input" else "armi"
+                            "other_human"
+                            if str(item[2]) == "other_human_input"
+                            else "creator"
+                            if str(item[2]) == "creator_input"
+                            else "armi"
                         ),
                         occurred_at=item[3],
                     )
@@ -905,6 +969,7 @@ class PostgreSQLContextRepository:
             subject_id=row[2],
             scene_id=row[3],
             creator_party_id=row[4],
+            other_party_id=row[37],
             purpose=str(row[20]),
             subject_version=int(row[5]),
             state_epoch=int(row[6]),

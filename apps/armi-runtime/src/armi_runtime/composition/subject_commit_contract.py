@@ -49,6 +49,8 @@ from armi_kernel.application import (
     MemoryRelationKind,
     MemoryRevisionKind,
     MemorySourceKind,
+    OtherHumanEndConversationDraft,
+    OtherHumanReplyDraft,
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
@@ -129,6 +131,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v17",
             "armi.subject-change-set.v18",
             "armi.subject-change-set.v19",
+            "armi.subject-change-set.v20",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -353,11 +356,55 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.exact_life_queries
             or result.maintenance_decisions
         )
-        reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
+        reply = any(
+            isinstance(item, (CreatorReplyDraft, OtherHumanReplyDraft))
+            for item in action_choices
+        )
         no_action = tuple(
             item for item in action_choices if isinstance(item, FormalNoActionDraft)
         )
-        if version.endswith(".v19"):
+        if version.endswith(".v20"):
+            other_actions = tuple(
+                item
+                for item in action_choices
+                if isinstance(
+                    item,
+                    (OtherHumanReplyDraft, OtherHumanEndConversationDraft),
+                )
+            )
+            if any(
+                (
+                    experiences,
+                    components,
+                    capability_requests,
+                    web_research_requests,
+                    codex_delegations,
+                    activities,
+                    activity_decisions,
+                    sleep_decisions,
+                    memories,
+                    memory_revisions,
+                    relationships,
+                    materials,
+                    prompts,
+                    exact_life_queries,
+                    maintenance_decisions,
+                    rejections,
+                )
+            ):
+                raise ValueError
+            if result.disposition is CandidateDisposition.CHANGE:
+                if len(other_actions) != 1 or len(action_choices) != 1:
+                    raise ValueError
+            elif result.disposition is CandidateDisposition.NO_ACTION:
+                if len(no_action) != 1 or len(action_choices) != 1:
+                    raise ValueError
+            elif result.disposition is CandidateDisposition.DEFER:
+                if action_choices:
+                    raise ValueError
+            else:
+                raise ValueError
+        elif version.endswith(".v19"):
             if (
                 len(maintenance_decisions) != 1
                 or len(memory_revisions) > 1
@@ -1157,7 +1204,14 @@ def _rejection(value: object) -> CandidateRejection:
     )
 
 
-def _action(value: object) -> CreatorReplyDraft | FormalNoActionDraft:
+def _action(
+    value: object,
+) -> (
+    CreatorReplyDraft
+    | OtherHumanReplyDraft
+    | OtherHumanEndConversationDraft
+    | FormalNoActionDraft
+):
     if type(value) is not dict:
         raise ValueError
     action_object = cast(dict[str, Any], value)
@@ -1199,6 +1253,54 @@ def _action(value: object) -> CreatorReplyDraft | FormalNoActionDraft:
             _text(item["media_type"]),
         )
         return draft
+    if action_kind == "other_human_reply":
+        item = _object(
+            action_object,
+            common
+            | {
+                "subject_id",
+                "scene_id",
+                "other_party_id",
+                "capability_kind",
+                "operation",
+                "audience_scope",
+                "data_scope",
+                "purpose",
+                "media_type",
+                "content",
+                "content_digest",
+            },
+        )
+        content = _text(item["content"]).encode("utf-8", errors="strict")
+        return OtherHumanReplyDraft(
+            _text(item["proposal_ref"]),
+            _text(item["atomic_group_ref"]),
+            _ordinals(item["basis_ordinals"]),
+            _uuid7(item["subject_id"]),
+            _uuid7(item["scene_id"]),
+            _uuid7(item["other_party_id"]),
+            content,
+            Digest(_text(item["content_digest"])),
+            _text(item["capability_kind"]),
+            _text(item["operation"]),
+            _text(item["audience_scope"]),
+            _text(item["data_scope"]),
+            _text(item["purpose"]),
+            _text(item["media_type"]),
+        )
+    if action_kind == "other_human_end_conversation":
+        item = _object(
+            action_object,
+            common | {"subject_id", "scene_id", "other_party_id"},
+        )
+        return OtherHumanEndConversationDraft(
+            _text(item["proposal_ref"]),
+            _text(item["atomic_group_ref"]),
+            _ordinals(item["basis_ordinals"]),
+            _uuid7(item["subject_id"]),
+            _uuid7(item["scene_id"]),
+            _uuid7(item["other_party_id"]),
+        )
     item = _object(action_object, common | {"decision", "reason_class"})
     return FormalNoActionDraft(
         _text(item["proposal_ref"]),

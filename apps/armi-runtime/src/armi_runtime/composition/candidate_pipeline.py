@@ -283,6 +283,7 @@ class CandidateValidationPipeline:
                         if snapshot.current_maintenance_phase is None
                         else MaintenancePhase(snapshot.current_maintenance_phase)
                     ),
+                    other_party_id=snapshot.other_party_id,
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)

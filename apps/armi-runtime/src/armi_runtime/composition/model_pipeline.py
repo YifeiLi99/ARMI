@@ -79,6 +79,11 @@ from .model_contract import (
     load_purpose_binding,
     parse_candidate,
 )
+from .other_human_dialogue_candidate_contract import (
+    OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+    OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
+    parse_other_human_dialogue_candidate,
+)
 from .work_wakeup import CANDIDATE_VALIDATE, MODEL_INVOKE, WorkWakeupBus
 
 _WORK_KIND = "cognition.model.invoke"
@@ -139,6 +144,10 @@ class ModelPipeline:
             "consider_creator_outreach",
             expected_dialogue_version=dialogue_version,
         )
+        other_human_binding = load_purpose_binding(
+            "consider_other_human_input",
+            expected_dialogue_version=dialogue_version,
+        )
         autonomous_binding = load_purpose_binding(
             "consider_autonomous_life",
             expected_dialogue_version=dialogue_version,
@@ -196,6 +205,16 @@ class ModelPipeline:
                 value,
                 allowed_context_refs=allowed_context_refs,
                 expected_version=DIALOGUE_CANDIDATE_VERSION,
+            )
+
+        def parse_other_human(
+            value: bytes,
+            *,
+            allowed_context_refs: frozenset[str],
+        ):
+            return parse_other_human_dialogue_candidate(
+                value,
+                allowed_context_refs=allowed_context_refs,
             )
 
         def parse_attention(
@@ -281,6 +300,17 @@ class ModelPipeline:
                 candidate_parser=parse_outreach,
                 instructions=CREATOR_OUTREACH_INSTRUCTIONS,
                 schema_name="armi_creator_outreach_candidate_v1",
+            ),
+            "consider_other_human_input": VolcengineArkModelAdapter(
+                binding=other_human_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+                ),
+                candidate_parser=parse_other_human,
+                instructions=OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
+                schema_name="armi_other_human_dialogue_candidate_v1",
             ),
             "consider_autonomous_life": VolcengineArkModelAdapter(
                 binding=autonomous_binding,
@@ -625,6 +655,12 @@ class ModelPipeline:
         if (
             purpose == "consider_creator_outreach"
             and adapter.binding.response_contract_version != DIALOGUE_CANDIDATE_VERSION
+        ):
+            raise ModelViolation("MODEL-BINDING")
+        if (
+            purpose == "consider_other_human_input"
+            and adapter.binding.response_contract_version
+            != OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
         ):
             raise ModelViolation("MODEL-BINDING")
         return adapter

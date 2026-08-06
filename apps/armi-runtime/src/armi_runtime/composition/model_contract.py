@@ -90,6 +90,16 @@ from .maintenance_work_candidate_contract import (
     maintenance_work_candidate_schema,
     parse_maintenance_work_candidate,
 )
+from .other_human_dialogue_candidate_contract import (
+    OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+    OtherHumanDialogueCandidate,
+    OtherHumanReplyDecision,
+    OtherHumanTerminalDecision,
+    parse_other_human_dialogue_candidate,
+)
+from .other_human_dialogue_candidate_contract import (
+    candidate_schema as other_human_candidate_schema,
+)
 from .sleep_decision_candidate_contract import (
     SLEEP_DECISION_CANDIDATE_VERSION,
     SleepDecisionCandidate,
@@ -723,6 +733,8 @@ def candidate_schema(
         return sleep_decision_candidate_schema()
     if version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION:
         return autonomous_activity_candidate_schema()
+    if version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
+        return other_human_candidate_schema()
     if version in {
         HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
         HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -767,6 +779,7 @@ def parse_candidate(
     | AutonomousActivityCandidate
     | SleepDecisionCandidate
     | CreatorDialogueCandidate
+    | OtherHumanDialogueCandidate
     | CognitionCandidate
     | CognitionCandidateV5
     | CognitionCandidateV6
@@ -828,6 +841,20 @@ def parse_candidate(
             autonomous_value = dict(candidate_object)
             autonomous_value.pop("schema_version", None)
             candidate = parse_autonomous_activity_candidate(autonomous_value)
+        elif (
+            candidate_object is not None
+            and expected_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+        ):
+            other_human_value = dict(candidate_object)
+            other_human_value.pop("schema_version", None)
+            candidate = parse_other_human_dialogue_candidate(
+                json.dumps(
+                    other_human_value,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8"),
+                allowed_context_refs=allowed_context_refs,
+            )
         elif candidate_object is not None and (
             (version is None and "kind" in candidate_object)
             or version
@@ -914,6 +941,11 @@ def parse_candidate(
     if isinstance(
         candidate,
         AttentionSimpleDecision,
+    ):
+        return candidate
+    if isinstance(
+        candidate,
+        (OtherHumanReplyDecision, OtherHumanTerminalDecision),
     ):
         return candidate
     if isinstance(
@@ -1170,6 +1202,11 @@ def load_active_binding(
                 "profile": "creator_outreach",
                 "response_contract_version": DIALOGUE_CANDIDATE_VERSION,
                 "output_token_limit": 512,
+            },
+            "consider_other_human_input": {
+                "profile": "other_human_dialogue",
+                "response_contract_version": OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+                "output_token_limit": 1024,
             },
             "consider_autonomous_life": {
                 "profile": "autonomous_activity",

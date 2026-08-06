@@ -37,6 +37,8 @@ from armi_kernel.application import (
     CreatorSceneReplyScope,
     ExperienceId,
     FormalNoActionDraft,
+    OtherHumanEndConversationDraft,
+    OtherHumanReplyDraft,
     SleepDecisionKind,
     SubjectChangeSet,
     SubjectCommitId,
@@ -86,6 +88,7 @@ class SubjectCommitSnapshot:
     scene_id: UUID | None
     scene_key: str | None
     creator_party_id: UUID | None
+    other_party_id: UUID | None
     change_set_artifact: ArtifactRef
     change_set_digest: Digest
     base_subject_version: int
@@ -344,7 +347,8 @@ class PostgreSQLSubjectCommitRepository:
                     opportunity.source_ref,
                     opportunity.source_version,
                     opportunity.source_digest,
-                    opportunity.activity_id
+                    opportunity.activity_id,
+                    opportunity.other_party_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -394,6 +398,7 @@ class PostgreSQLSubjectCommitRepository:
             row[9],
             None if row[10] is None else str(row[10]),
             row[11],
+            row[24],
             await _artifact_ref(connection, row[12]),
             Digest(str(row[13])),
             int(row[14]),
@@ -1026,13 +1031,13 @@ class PostgreSQLSubjectCommitRepository:
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
+                    creator_party_id, other_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     predecessor_opportunity_id, reconsideration_no,
                     source_kind, source_ref, source_version, source_digest,
                     activity_id, schema_version
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
                     'eligible', 'open', %s, %s, 1,
                     %s, %s, %s, %s, %s, 1
                 )
@@ -1043,6 +1048,7 @@ class PostgreSQLSubjectCommitRepository:
                     snapshot.subject_id,
                     snapshot.scene_id,
                     snapshot.creator_party_id,
+                    snapshot.other_party_id,
                     snapshot.opportunity_purpose,
                     snapshot.root_opportunity_id,
                     snapshot.opportunity_id,
@@ -1154,6 +1160,13 @@ async def _settle_without_commit(
         completion_digest=completion,
         successor_id=successor_id,
     )
+    if snapshot.opportunity_purpose == "consider_other_human_input":
+        await _insert_other_human_terminal_decision(
+            connection,
+            snapshot=snapshot,
+            application_id=application_id,
+            status=status,
+        )
     await _insert_activity_attention_decision(
         connection,
         snapshot=snapshot,
@@ -1168,10 +1181,14 @@ async def _settle_without_commit(
         decisions=change_set.sleep_decisions,
         resulting_subject_version=observed_version,
     )
-    if not change_set.activity_decisions and status in {
+    if (
+        snapshot.opportunity_purpose != "consider_other_human_input"
+        and not change_set.activity_decisions
+        and status in {
         CandidateApplicationStatus.DECLINED,
         CandidateApplicationStatus.NO_ACTION,
-    }:
+        }
+    ):
         await _insert_formal_no_action(
             unit_of_work,
             snapshot=snapshot,
@@ -2543,6 +2560,26 @@ async def _insert_response_intent(
     change_set: SubjectChangeSet,
     response_artifact_id: ArtifactId | None,
 ) -> None:
+    other_replies = tuple(
+        item
+        for item in change_set.action_choices
+        if isinstance(item, OtherHumanReplyDraft)
+    )
+    endings = tuple(
+        item
+        for item in change_set.action_choices
+        if isinstance(item, OtherHumanEndConversationDraft)
+    )
+    if snapshot.opportunity_purpose == "consider_other_human_input":
+        await _insert_other_human_action(
+            unit_of_work,
+            snapshot=snapshot,
+            commit_id=commit_id,
+            replies=other_replies,
+            endings=endings,
+            response_artifact_id=response_artifact_id,
+        )
+        return
     replies = tuple(
         item
         for item in change_set.action_choices
@@ -2593,6 +2630,221 @@ async def _insert_response_intent(
             snapshot.root_opportunity_id,
         ),
     )
+    await _finish_creator_response_intent(
+        unit_of_work,
+        connection=connection,
+        snapshot=snapshot,
+        commit_id=commit_id,
+        reply=reply,
+        response_artifact_id=response_artifact_id,
+        action_id=action_id,
+        revision_id=revision_id,
+    )
+
+
+async def _insert_other_human_action(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    replies: tuple[OtherHumanReplyDraft, ...],
+    endings: tuple[OtherHumanEndConversationDraft, ...],
+    response_artifact_id: ArtifactId | None,
+) -> None:
+    if (
+        snapshot.scene_id is None
+        or snapshot.other_party_id is None
+        or snapshot.creator_party_id is not None
+        or len(replies) + len(endings) != 1
+    ):
+        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCOPE")
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    action = replies[0] if replies else endings[0]
+    if (
+        action.subject_id != snapshot.subject_id
+        or action.scene_id != snapshot.scene_id
+        or action.other_party_id != snapshot.other_party_id
+    ):
+        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCOPE")
+    decision_id = uuid7()
+    if endings:
+        if response_artifact_id is not None:
+            raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
+        updated = await (
+            await connection.execute(
+                """
+                UPDATE armi.interaction_scenes
+                SET current_status = 'closed', closed_at = statement_timestamp()
+                WHERE scene_id = %s AND subject_id = %s
+                  AND primary_party_id = %s
+                  AND scene_kind = 'other_human_dialogue'
+                  AND current_status = 'open'
+                RETURNING scene_id
+                """,
+                (snapshot.scene_id, snapshot.subject_id, snapshot.other_party_id),
+            )
+        ).fetchone()
+        if updated is None:
+            raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
+        await connection.execute(
+            """
+            INSERT INTO armi.other_human_dialogue_decisions (
+                other_human_dialogue_decision_id, opportunity_id,
+                cognitive_episode_id, candidate_validation_id,
+                subject_commit_id, subject_id, scene_id, other_party_id,
+                decision_kind, schema_version
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'end_conversation', 1)
+            """,
+            (
+                decision_id,
+                snapshot.opportunity_id,
+                snapshot.episode_id,
+                snapshot.validation_id,
+                commit_id.value,
+                snapshot.subject_id,
+                snapshot.scene_id,
+                snapshot.other_party_id,
+            ),
+        )
+        return
+    reply = replies[0]
+    if response_artifact_id is None:
+        raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
+    action_id = uuid7()
+    revision_id = uuid7()
+    effect_id = uuid7()
+    await connection.execute(
+        """
+        INSERT INTO armi.other_human_action_intents (
+            other_human_action_intent_id, subject_id, scene_id, other_party_id,
+            root_opportunity_id, purpose, current_revision_id, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, 'respond_to_other_human', NULL, 1)
+        """,
+        (
+            action_id,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.other_party_id,
+            snapshot.root_opportunity_id,
+        ),
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.other_human_action_intent_revisions (
+            other_human_action_intent_revision_id, other_human_action_intent_id,
+            revision_no, response_artifact_id, response_digest, response_bytes,
+            media_type, capability_kind, operation_class, audience_scope,
+            data_scope, purpose, candidate_validation_id, proposal_ref,
+            subject_commit_id, schema_version
+        ) VALUES (%s, %s, 1, %s, %s, %s, 'text/plain',
+            'local.other-human-inbox.deliver', 'deliver_local', 'other_human',
+            'declared_party_response', 'respond_to_other_human', %s, %s, %s, 1)
+        """,
+        (
+            revision_id,
+            action_id,
+            response_artifact_id.value,
+            reply.content_digest.value,
+            len(reply.content_bytes),
+            snapshot.validation_id,
+            reply.proposal_ref,
+            commit_id.value,
+        ),
+    )
+    await connection.execute(
+        """UPDATE armi.other_human_action_intents
+           SET current_revision_id = %s
+           WHERE other_human_action_intent_id = %s""",
+        (revision_id, action_id),
+    )
+    registration_digest = Digest.from_bytes(
+        rfc8785.dumps(
+            {
+                "effect_id": str(effect_id),
+                "revision_id": str(revision_id),
+                "scene_id": str(snapshot.scene_id),
+                "other_party_id": str(snapshot.other_party_id),
+                "response_digest": reply.content_digest.value,
+            }
+        )
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.other_human_effects (
+            other_human_effect_id, action_intent_revision_id, subject_id,
+            scene_id, other_party_id, payload_artifact_id, payload_digest,
+            payload_bytes, status, registration_digest, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'registered', %s, 1)
+        """,
+        (
+            effect_id,
+            revision_id,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.other_party_id,
+            response_artifact_id.value,
+            reply.content_digest.value,
+            len(reply.content_bytes),
+            registration_digest.value,
+        ),
+    )
+    now_row = await (
+        await connection.execute("SELECT statement_timestamp()")
+    ).fetchone()
+    if now_row is None:
+        raise SubjectCommitViolation("SUBJECT-DATABASE")
+    work_id = WorkId(uuid7())
+    await unit_of_work.work.enqueue(
+        WorkDraft(
+            work_id,
+            "effect.other-human-local.deliver",
+            WorkOwner("other_human_effect", effect_id),
+            IdempotencyKey(f"other-human-deliver:{effect_id}"),
+            registration_digest,
+            50,
+            Instant(now_row[0]),
+            Instant(now_row[0] + timedelta(seconds=3600)),
+            2,
+            snapshot.trace_id,
+            SubjectId(snapshot.subject_id),
+            WorkPayloadRef("other_human_effect", effect_id),
+        )
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.other_human_dialogue_decisions (
+            other_human_dialogue_decision_id, opportunity_id,
+            cognitive_episode_id, candidate_validation_id,
+            subject_commit_id, subject_id, scene_id, other_party_id,
+            decision_kind, action_intent_id, effect_id, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, %s, 1)
+        """,
+        (
+            decision_id,
+            snapshot.opportunity_id,
+            snapshot.episode_id,
+            snapshot.validation_id,
+            commit_id.value,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.other_party_id,
+            action_id,
+            effect_id,
+        ),
+    )
+
+
+async def _finish_creator_response_intent(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    connection: Any,
+    snapshot: SubjectCommitSnapshot,
+    commit_id: SubjectCommitId,
+    reply: CreatorReplyDraft,
+    response_artifact_id: ArtifactId,
+    action_id: UUID,
+    revision_id: UUID,
+) -> None:
     await connection.execute(
         """
         INSERT INTO armi.action_intent_revisions (
@@ -2988,6 +3240,49 @@ async def _insert_codex_delegation_intent(
             AuditResultStatus.ACCEPTED,
             draft.task_manifest_digest,
         )
+    )
+
+
+async def _insert_other_human_terminal_decision(
+    connection: Any,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    application_id: CandidateApplicationId,
+    status: CandidateApplicationStatus,
+) -> None:
+    if (
+        snapshot.scene_id is None
+        or snapshot.other_party_id is None
+        or snapshot.creator_party_id is not None
+        or status
+        not in {
+            CandidateApplicationStatus.NO_ACTION,
+            CandidateApplicationStatus.DEFERRED,
+        }
+    ):
+        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-TERMINAL")
+    await connection.execute(
+        """
+        INSERT INTO armi.other_human_dialogue_decisions (
+            other_human_dialogue_decision_id, opportunity_id,
+            cognitive_episode_id, candidate_validation_id,
+            candidate_application_id, subject_id, scene_id, other_party_id,
+            decision_kind, schema_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+        """,
+        (
+            uuid7(),
+            snapshot.opportunity_id,
+            snapshot.episode_id,
+            snapshot.validation_id,
+            application_id.value,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.other_party_id,
+            "silence"
+            if status is CandidateApplicationStatus.NO_ACTION
+            else "defer",
+        ),
     )
 
 
