@@ -16,6 +16,8 @@ ALTER TABLE armi.cognitive_attempts
             'armi.creator-dialogue-candidate.v12',
             'armi.creator-dialogue-candidate.v13',
             'armi.creator-dialogue-candidate.v14',
+            'armi.creator-dialogue-candidate.v15',
+            'armi.creator-dialogue-candidate.v16',
             'armi.autonomous-activity-candidate.v1',
             'armi.activity-attention-candidate.v1',
             'armi.sleep-decision-candidate.v1'
@@ -40,6 +42,8 @@ ALTER TABLE armi.cognitive_candidate_validations
             'armi.creator-dialogue-candidate.v12',
             'armi.creator-dialogue-candidate.v13',
             'armi.creator-dialogue-candidate.v14',
+            'armi.creator-dialogue-candidate.v15',
+            'armi.creator-dialogue-candidate.v16',
             'armi.autonomous-activity-candidate.v1',
             'armi.activity-attention-candidate.v1',
             'armi.sleep-decision-candidate.v1'
@@ -52,7 +56,7 @@ ALTER TABLE armi.cognitive_candidate_validation_items
         owner_kind IN (
             'experience', 'self', 'mind', 'life_mode', 'memory',
             'relationship', 'activity', 'capability', 'action',
-            'web_research', 'codex_delegation', 'sleep', 'material'
+            'web_research', 'codex_delegation', 'sleep', 'material', 'prompt'
         )
     );
 

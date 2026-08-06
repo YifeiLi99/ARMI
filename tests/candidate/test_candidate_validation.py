@@ -51,6 +51,7 @@ from armi_runtime.composition.candidate_validator import (
     CandidateMemoryContext,
     CandidateRelationshipCommitmentContext,
     CandidateRelationshipContext,
+    CandidateSubjectPromptContext,
     CandidateValidationContext,
     DeterministicCandidateValidator,
     _memory_source_kind,
@@ -1168,9 +1169,7 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
     candidate = {
         "kind": "reply",
         "content": "我想把阿米这个名字和此刻的期待认真留下来。",
-        "experience": {
-            "first_person_gist": "我在这次交流中主动选择了阿米这个名字。"
-        },
+        "experience": {"first_person_gist": "我在这次交流中主动选择了阿米这个名字。"},
         "self_change": {
             "name": {"value": "阿米"},
             "interests": {"values": ["持续理解自己的生活"]},
@@ -1209,6 +1208,185 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
     }
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert reparsed.components == result.change_set.components
+
+
+def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -> None:
+    context, bases = _fixture()
+    document_id = uuid7()
+    context = replace(
+        context,
+        current_subject_prompt=CandidateSubjectPromptContext(
+            document_id, None, 0, None
+        ),
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = {
+        "kind": "reply",
+        "content": "这次经历让我想调整以后理解和表达的方式。",
+        "experience": {"first_person_gist": "我认真反思了这次交流。"},
+        "subject_prompt_change": {
+            "cognition_method": "先区分观察、对方主张和自己的推断",
+            "expression_method": "直接说明结论并保留真实的不确定性",
+            "reflection_method": "回看经历如何改变了自己的理解方式",
+        },
+    }
+    created = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert created.status is CandidateValidationStatus.ACCEPTED
+    assert created.change_set is not None
+    assert b"armi.subject-change-set.v16" in created.change_set.canonical_bytes
+    prompt = created.change_set.prompts[0]
+    assert prompt.prompt_document_id == document_id
+    assert prompt.current_revision_id is None
+    assert prompt.expected_revision_no == 0
+    assert prompt.basis_ordinals == (2, 1)
+    assert json.loads(prompt.content_bytes) == {
+        "schema_version": "armi.subject-prompt.v1",
+        "cognition_method": "先区分观察、对方主张和自己的推断",
+        "expression_method": "直接说明结论并保留真实的不确定性",
+        "reflection_method": "回看经历如何改变了自己的理解方式",
+    }
+    assert parse_subject_change_set(created.change_set.canonical_bytes).prompts == (
+        prompt,
+    )
+
+    revision_id = uuid7()
+    revised_context = replace(
+        context,
+        current_subject_prompt=CandidateSubjectPromptContext(
+            document_id,
+            revision_id,
+            1,
+            prompt.content_digest,
+        ),
+    )
+    revised_bases = (
+        *extended,
+        CandidateBasis(
+            6,
+            "prompt",
+            "subject_prompt",
+            revision_id,
+            1,
+            prompt.content_digest,
+            "policy",
+            "private",
+        ),
+    )
+    revised_candidate = cast(dict[str, object], {**candidate})
+    revised_candidate["subject_prompt_change"] = {
+        "cognition_method": "先核对经历证据,再形成自己的理解",
+        "expression_method": "表达时区分确定结论与仍未确定的部分",
+        "reflection_method": "在新经历出现后检查旧方法是否仍然合适",
+    }
+    revised = DeterministicCandidateValidator(revised_context).validate(
+        _bytes(revised_candidate), bases=revised_bases
+    )
+    assert revised.status is CandidateValidationStatus.ACCEPTED
+    assert revised.change_set is not None
+    next_prompt = revised.change_set.prompts[0]
+    assert next_prompt.current_revision_id == revision_id
+    assert next_prompt.expected_revision_no == 1
+    assert next_prompt.basis_ordinals == (2, 1, 6)
+
+
+def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis() -> (
+    None
+):
+    context, bases = _fixture()
+    named_self = rfc8785.dumps(cast(Any, _self_state(name="阿米")))
+    context = replace(
+        context,
+        current_components=tuple(
+            (
+                owner,
+                version,
+                named_self if owner is CandidateOwner.SELF else canonical,
+            )
+            for owner, version, canonical in context.current_components
+        ),
+        current_subject_prompt=CandidateSubjectPromptContext(
+            uuid7(), uuid7(), 2, Digest.from_bytes(b"current-prompt")
+        ),
+    )
+    bases = (
+        replace(bases[0], source_digest=Digest.from_bytes(named_self)),
+        *bases[1:],
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = {
+        "kind": "reply",
+        "content": "我检查了自己的方法。",
+        "experience": {"first_person_gist": "我经历了一次方法反思。"},
+        "subject_prompt_change": {
+            "cognition_method": "阿米",
+            "expression_method": "清楚表达",
+            "reflection_method": "事后复盘",
+        },
+    }
+    duplicate = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=bases
+    )
+    assert duplicate.status is CandidateValidationStatus.REJECTED
+    assert duplicate.error_code == "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
+
+    prompt_basis = CandidateBasis(
+        6,
+        "prompt",
+        "subject_prompt",
+        context.current_subject_prompt.current_revision_id,
+        2,
+        context.current_subject_prompt.content_digest,
+        "policy",
+        "private",
+    )
+    duplicate = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=(*bases, prompt_basis)
+    )
+    assert duplicate.status is CandidateValidationStatus.REJECTED
+    assert duplicate.error_code == "CANDIDATE-SUBJECT-PROMPT-SELF-DUPLICATE"
 
 
 def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> None:

@@ -32,6 +32,7 @@ from armi_kernel.application import (
     CandidateRejection,
     CandidateRelationshipDraft,
     CandidateSleepDecisionDraft,
+    CandidateSubjectPromptDraft,
     CandidateValidationResult,
     CandidateValidationStatus,
     CandidateViolation,
@@ -136,6 +137,7 @@ class CandidateEpisodeSnapshot:
         ],
         ...,
     ] = ()
+    current_subject_prompt: tuple[UUID, UUID | None, int, Digest | None] | None = None
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -444,6 +446,42 @@ class PostgreSQLCandidateValidationRepository:
                 (row[2], row[3], row[0]),
             )
         ).fetchall()
+        subject_prompt_row = await (
+            await connection.execute(
+                """
+                SELECT document.prompt_document_id,
+                       document.current_revision_id,
+                       COALESCE(revision.revision_no, 0),
+                       revision.content_digest
+                FROM armi.prompt_documents AS document
+                LEFT JOIN armi.prompt_revisions AS revision
+                  ON revision.prompt_revision_id = document.current_revision_id
+                 AND revision.prompt_document_id = document.prompt_document_id
+                WHERE document.subject_id = %s
+                  AND document.prompt_kind = 'subject_guidance'
+                  AND document.write_authority = 'subject'
+                  AND document.status = 'active'
+                  AND (
+                      document.current_revision_id IS NULL
+                      OR EXISTS (
+                          SELECT 1
+                          FROM armi.cognitive_context_items AS item
+                          WHERE item.cognitive_episode_id = %s
+                            AND item.disposition = 'included'
+                            AND item.section = 'prompt'
+                            AND item.item_kind = 'subject_prompt'
+                            AND item.source_kind = 'subject_prompt'
+                            AND item.source_ref = document.current_revision_id
+                            AND item.source_version = revision.revision_no
+                            AND item.source_digest = revision.content_digest
+                      )
+                  )
+                """,
+                (row[2], row[0]),
+            )
+        ).fetchone()
+        if subject_prompt_row is None:
+            raise CandidateViolation("CANDIDATE-SUBJECT-PROMPT-CONTEXT")
         return CandidateEpisodeSnapshot(
             row[0],
             row[1],
@@ -515,6 +553,16 @@ class PostgreSQLCandidateValidationRepository:
                     str(item[10]),
                 )
                 for item in material_rows
+            ),
+            (
+                subject_prompt_row[0],
+                subject_prompt_row[1],
+                int(subject_prompt_row[2]),
+                (
+                    None
+                    if subject_prompt_row[3] is None
+                    else Digest(str(subject_prompt_row[3]))
+                ),
             ),
         )
 
@@ -783,6 +831,7 @@ def _validation_drafts(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateSubjectPromptDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -801,6 +850,7 @@ def _validation_drafts(
         *change_set.memory_revisions,
         *change_set.relationships,
         *change_set.materials,
+        *change_set.prompts,
         *change_set.components,
         *change_set.capability_requests,
         *change_set.action_choices,
@@ -819,6 +869,7 @@ def _item_semantic(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateSubjectPromptDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -954,6 +1005,20 @@ def _item_semantic(
                 "privacy_status": value.privacy_status,
             }
         )
+    elif isinstance(value, CandidateSubjectPromptDraft):
+        result.update(
+            {
+                "owner": "prompt",
+                "prompt_document_id": str(value.prompt_document_id),
+                "current_revision_id": (
+                    None
+                    if value.current_revision_id is None
+                    else str(value.current_revision_id)
+                ),
+                "expected_revision_no": value.expected_revision_no,
+                "content_digest": value.content_digest.value,
+            }
+        )
     elif isinstance(value, CandidateComponentDraft):
         result.update(
             {
@@ -993,6 +1058,7 @@ def _owner(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateSubjectPromptDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1016,6 +1082,8 @@ def _owner(
         return CandidateOwner.RELATIONSHIP
     if isinstance(value, CandidateLifeMaterialDraft):
         return CandidateOwner.MATERIAL
+    if isinstance(value, CandidateSubjectPromptDraft):
+        return CandidateOwner.PROMPT
     if isinstance(value, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
     if isinstance(value, (CreatorReplyDraft, FormalNoActionDraft)):
@@ -1033,6 +1101,7 @@ def _implicit_fact_class(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateSubjectPromptDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1052,6 +1121,7 @@ def _implicit_fact_class(
             CandidateMemoryRevisionDraft,
             CandidateRelationshipDraft,
             CandidateComponentDraft,
+            CandidateSubjectPromptDraft,
             CandidateActivityDraft,
             CandidateRejection,
         ),

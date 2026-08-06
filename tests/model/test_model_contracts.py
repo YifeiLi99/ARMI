@@ -208,6 +208,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         "capability_request": None,
         "self_change": None,
         "mind_change": None,
+        "subject_prompt_change": None,
     }
 
 
@@ -233,9 +234,7 @@ def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> Non
     assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
     dumped = parsed.model_dump(mode="json")
     assert dumped["self_change"]["name"] == {"value": "阿米"}
-    assert dumped["self_change"]["interests"] == {
-        "values": ["持续理解自己的生活"]
-    }
+    assert dumped["self_change"]["interests"] == {"values": ["持续理解自己的生活"]}
     assert dumped["mind_change"]["mood"] == {"value": "期待"}
 
     without_experience = dict(value)

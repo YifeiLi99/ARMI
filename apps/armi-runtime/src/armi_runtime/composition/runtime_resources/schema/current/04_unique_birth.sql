@@ -148,7 +148,12 @@ CREATE TABLE armi.prompt_revisions (
     author_party_id uuid NOT NULL REFERENCES armi.parties(party_id),
     subject_commit_id uuid,
     change_reason text NOT NULL
-        CHECK (change_reason IN ('birth', 'created', 'revised', 'deactivated')),
+        CHECK (
+            change_reason IN (
+                'birth', 'created', 'revised', 'deactivated',
+                'subject_created', 'subject_revised'
+            )
+        ),
     activated_at timestamptz(6) NOT NULL DEFAULT clock_timestamp(),
     UNIQUE (prompt_document_id, revision_no),
     CHECK (
@@ -159,7 +164,10 @@ CREATE TABLE armi.prompt_revisions (
         (change_reason = 'birth' AND revision_no = 1)
         OR change_reason <> 'birth'
     ),
-    CHECK (subject_commit_id IS NULL)
+    CHECK (
+        (change_reason IN ('subject_created', 'subject_revised') AND subject_commit_id IS NOT NULL)
+        OR (change_reason NOT IN ('subject_created', 'subject_revised') AND subject_commit_id IS NULL)
+    )
 );
 
 CREATE TABLE armi.subject_component_revisions (
@@ -288,6 +296,7 @@ GRANT INSERT (
     content_artifact_id,
     content_digest,
     author_party_id,
+    subject_commit_id,
     change_reason
 ) ON armi.prompt_revisions TO armi_runtime;
 

@@ -142,6 +142,7 @@ class CandidateOwner(StrEnum):
     CODEX_DELEGATION = "codex_delegation"
     SLEEP = "sleep"
     MATERIAL = "material"
+    PROMPT = "prompt"
 
 
 class CandidateValidationStatus(StrEnum):
@@ -631,6 +632,45 @@ class CandidateComponentDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateSubjectPromptDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    fact_class: CandidateFactClass
+    prompt_document_id: UUID
+    current_revision_id: UUID | None
+    expected_revision_no: int
+    content_bytes: bytes
+    content_digest: Digest
+
+    def __post_init__(self) -> None:
+        _validate_proposal(
+            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
+        )
+        if (
+            self.fact_class is not CandidateFactClass.SUBJECTIVE_UNDERSTANDING
+            or type(self.prompt_document_id) is not UUID
+            or self.prompt_document_id.version != 7
+            or (
+                self.current_revision_id is not None
+                and (
+                    type(self.current_revision_id) is not UUID
+                    or self.current_revision_id.version != 7
+                )
+            )
+            or type(self.expected_revision_no) is not int
+            or self.expected_revision_no < 0
+            or (self.current_revision_id is None) != (self.expected_revision_no == 0)
+            or type(self.content_bytes) is not bytes
+            or not self.content_bytes
+            or len(self.content_bytes) > 16_384
+            or type(self.content_digest) is not Digest
+            or Digest.from_bytes(self.content_bytes) != self.content_digest
+        ):
+            raise CandidateViolation("CON-CANDIDATE-SUBJECT-PROMPT")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateActivityDraft:
     proposal_ref: str
     atomic_group_ref: str
@@ -868,6 +908,7 @@ class SubjectChangeSet:
     memory_revisions: tuple[CandidateMemoryRevisionDraft, ...] = ()
     relationships: tuple[CandidateRelationshipDraft, ...] = ()
     materials: tuple[CandidateLifeMaterialDraft, ...] = ()
+    prompts: tuple[CandidateSubjectPromptDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -1009,6 +1050,7 @@ __all__ = (
     "CandidateRejection",
     "CandidateRelationshipDraft",
     "CandidateSleepDecisionDraft",
+    "CandidateSubjectPromptDraft",
     "CandidateValidationId",
     "CandidateValidationResult",
     "CandidateValidationStatus",

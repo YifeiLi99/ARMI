@@ -173,10 +173,18 @@ class SubjectCommitPipeline:
                         await self._publish_material(material.body_bytes, snapshot),
                     )
                 )
+            published_prompts = [
+                (
+                    prompt.proposal_ref,
+                    await self._publish_prompt(prompt.content_bytes, snapshot),
+                )
+                for prompt in change_set.prompts
+            ]
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 response_artifact_id = None
                 research_artifact_id = None
                 material_artifact_ids: dict[str, ArtifactId] = {}
+                prompt_artifact_ids: dict[str, ArtifactId] = {}
                 if published_reply is not None:
                     registration = await self._catalog.register(
                         unit_of_work,
@@ -229,6 +237,28 @@ class SubjectCommitPipeline:
                                 snapshot,
                             )
                         )
+                for proposal_ref, published_prompt in published_prompts:
+                    try:
+                        prompt_registration = await self._catalog.register(
+                            unit_of_work,
+                            ArtifactId(uuid7()),
+                            published_prompt,
+                        )
+                    except ArtifactViolation:
+                        raise SubjectCommitViolation(
+                            "SUBJECT-PROMPT-ARTIFACT"
+                        ) from None
+                    prompt_artifact_ids[proposal_ref] = (
+                        prompt_registration.ref.artifact_id
+                    )
+                    if prompt_registration.inserted:
+                        await unit_of_work.audit.append(
+                            _prompt_artifact_audit(
+                                unit_of_work,
+                                prompt_registration.ref,
+                                snapshot,
+                            )
+                        )
                 self._fault_injector("subject_before_cas")
                 result = await self._repository.settle(
                     unit_of_work,
@@ -238,6 +268,7 @@ class SubjectCommitPipeline:
                     response_artifact_id=response_artifact_id,
                     research_artifact_id=research_artifact_id,
                     material_artifact_ids=material_artifact_ids,
+                    prompt_artifact_ids=prompt_artifact_ids,
                 )
             self._wake_downstream()
             await self._notify(snapshot, result)
@@ -419,6 +450,24 @@ class SubjectCommitPipeline:
             return await self._storage.publish(staged)
         except ValueError, ArtifactViolation:
             raise SubjectCommitViolation("SUBJECT-MATERIAL-ARTIFACT") from None
+
+    async def _publish_prompt(
+        self, content_bytes: bytes, snapshot: SubjectCommitSnapshot
+    ) -> PublishedArtifact:
+        try:
+            staged = await self._storage.stage(
+                _one_chunk(content_bytes),
+                ArtifactPolicy(
+                    "application/json",
+                    "subject.prompt.content",
+                    "subject.commit",
+                    snapshot.trace_id,
+                    ArtifactPrivacyScope.PRIVATE,
+                ),
+            )
+            return await self._storage.publish(staged)
+        except ArtifactViolation:
+            raise SubjectCommitViolation("SUBJECT-PROMPT-ARTIFACT") from None
 
     async def _recover_committed(
         self, snapshot: SubjectCommitSnapshot
@@ -680,6 +729,26 @@ def _material_artifact_audit(
         AuditEventId(uuid7()),
         AuditReference("runtime", unit_of_work.environment_id),
         Purpose("life.material.write"),
+        "artifact.catalog.registered",
+        AuditReference("artifact", ref.artifact_id.value),
+        AuditResultStatus.APPLIED,
+        snapshot.trace_id,
+        AuditSensitivity.RESTRICTED,
+        subject_id=SubjectId(snapshot.subject_id),
+        request=AuditReference("cognitive_episode", snapshot.episode_id),
+        artifact_digest=ref.content_digest,
+    )
+
+
+def _prompt_artifact_audit(
+    unit_of_work: PostgreSQLUnitOfWork,
+    ref: ArtifactRef,
+    snapshot: SubjectCommitSnapshot,
+) -> AuditDraft:
+    return AuditDraft(
+        AuditEventId(uuid7()),
+        AuditReference("runtime", unit_of_work.environment_id),
+        Purpose("subject.prompt.write"),
         "artifact.catalog.registered",
         AuditReference("artifact", ref.artifact_id.value),
         AuditResultStatus.APPLIED,

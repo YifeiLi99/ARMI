@@ -28,6 +28,7 @@ from armi_kernel.application import (
     CandidateRejection,
     CandidateRelationshipDraft,
     CandidateSleepDecisionDraft,
+    CandidateSubjectPromptDraft,
     CandidateValidationId,
     CandidateValidationResult,
     CandidateValidationStatus,
@@ -91,6 +92,8 @@ from .dialogue_candidate_contract import (
     HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
@@ -114,6 +117,9 @@ from .dialogue_candidate_contract import (
     DialogueReplyDecisionV10,
     DialogueReplyDecisionV11,
     DialogueReplyDecisionV12,
+    DialogueReplyDecisionV13,
+    DialogueReplyDecisionV14,
+    DialogueReplyDecisionV16,
     DialogueTerminalDecision,
     DialogueTerminalDecisionV5,
     DialogueTerminalDecisionV6,
@@ -123,10 +129,15 @@ from .dialogue_candidate_contract import (
     DialogueTerminalDecisionV10,
     DialogueTerminalDecisionV11,
     DialogueTerminalDecisionV12,
+    DialogueTerminalDecisionV13,
+    DialogueTerminalDecisionV14,
+    DialogueTerminalDecisionV16,
     DialogueWebResearchDecision,
     DialogueWebResearchDecisionV8,
     DialogueWebResearchDecisionV10,
     DialogueWebResearchDecisionV12,
+    DialogueWebResearchDecisionV14,
+    DialogueWebResearchDecisionV16,
 )
 from .model_contract import (
     ActionChoiceProposal,
@@ -165,6 +176,7 @@ MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v13"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
+PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -320,6 +332,37 @@ class DialogueBoundChanges:
     memory_revision: CandidateMemoryRevisionDraft | None = None
     relationship: CandidateRelationshipDraft | None = None
     material: CandidateLifeMaterialDraft | None = None
+    prompt: CandidateSubjectPromptDraft | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSubjectPromptContext:
+    prompt_document_id: UUID
+    current_revision_id: UUID | None
+    revision_no: int
+    content_digest: Digest | None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.prompt_document_id) is not UUID
+            or self.prompt_document_id.version != 7
+            or (
+                self.current_revision_id is not None
+                and (
+                    type(self.current_revision_id) is not UUID
+                    or self.current_revision_id.version != 7
+                )
+            )
+            or type(self.revision_no) is not int
+            or self.revision_no < 0
+            or (self.current_revision_id is None) != (self.revision_no == 0)
+            or (self.current_revision_id is None) != (self.content_digest is None)
+            or (
+                self.content_digest is not None
+                and type(self.content_digest) is not Digest
+            )
+        ):
+            raise CandidateViolation("CON-CANDIDATE-SUBJECT-PROMPT-CONTEXT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +392,7 @@ class CandidateValidationContext:
     subject_party_id: UUID | None = None
     current_relationship: CandidateRelationshipContext | None = None
     current_materials: tuple[CandidateLifeMaterialContext, ...] = ()
+    current_subject_prompt: CandidateSubjectPromptContext | None = None
     candidate_contract_version: str | None = None
 
     def __post_init__(self) -> None:
@@ -416,6 +460,11 @@ class CandidateValidationContext:
             for value in self.current_materials
         ):
             raise CandidateViolation("CON-CANDIDATE-MATERIAL-CONTEXT")
+        if (
+            self.current_subject_prompt is not None
+            and type(self.current_subject_prompt) is not CandidateSubjectPromptContext
+        ):
+            raise CandidateViolation("CON-CANDIDATE-SUBJECT-PROMPT-CONTEXT")
         if self.candidate_contract_version is not None and (
             type(self.candidate_contract_version) is not str
             or not self.candidate_contract_version
@@ -567,6 +616,7 @@ class DeterministicCandidateValidator:
             | CandidateMemoryRevisionDraft
             | CandidateRelationshipDraft
             | CandidateLifeMaterialDraft
+            | CandidateSubjectPromptDraft
             | CandidateComponentDraft
             | CapabilityRequestDraft
             | CreatorReplyDraft
@@ -791,10 +841,19 @@ class DeterministicCandidateValidator:
             material = dialogue_bound_changes.material
             group_members[material.atomic_group_ref].append(material.proposal_ref)
             accepted[material.proposal_ref] = material
+        if (
+            dialogue_bound_changes is not None
+            and dialogue_bound_changes.prompt is not None
+        ):
+            prompt = dialogue_bound_changes.prompt
+            group_members[prompt.atomic_group_ref].append(prompt.proposal_ref)
+            accepted[prompt.proposal_ref] = prompt
 
         for proposal_ref, draft in tuple(accepted.items()):
             if (
-                isinstance(draft, CandidateComponentDraft)
+                isinstance(
+                    draft, (CandidateComponentDraft, CandidateSubjectPromptDraft)
+                )
                 and draft.atomic_group_ref not in group_experiences
             ):
                 rejected[proposal_ref] = CandidateRejection(
@@ -802,7 +861,7 @@ class DeterministicCandidateValidator:
                     draft.atomic_group_ref,
                     draft.basis_ordinals,
                     draft.fact_class,
-                    draft.owner,
+                    _draft_owner(draft),
                     "CANDIDATE-EXPERIENCE-REQUIRED",
                 )
                 accepted.pop(proposal_ref)
@@ -878,6 +937,11 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateLifeMaterialDraft)
         )
+        prompts = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, CandidateSubjectPromptDraft)
+        )
         capability_requests = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -901,7 +965,9 @@ class DeterministicCandidateValidator:
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
         change_set_version = (
-            MATERIAL_CHANGE_SET_VERSION
+            PROMPT_CHANGE_SET_VERSION
+            if prompts
+            else MATERIAL_CHANGE_SET_VERSION
             if materials
             else RELATIONSHIP_CHANGE_SET_VERSION
             if relationships
@@ -916,6 +982,7 @@ class DeterministicCandidateValidator:
                 HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
             and web_research_requests
@@ -931,6 +998,8 @@ class DeterministicCandidateValidator:
                 HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
                 DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
@@ -967,12 +1036,14 @@ class DeterministicCandidateValidator:
             MEMORY_REVISION_CHANGE_SET_VERSION,
             RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
+            PROMPT_CHANGE_SET_VERSION,
         }:
             change_set_value["memories"] = [_memory_wire(item) for item in memories]
         if change_set_version in {
             MEMORY_REVISION_CHANGE_SET_VERSION,
             RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
+            PROMPT_CHANGE_SET_VERSION,
         }:
             change_set_value["memory_revisions"] = [
                 _memory_revision_wire(item) for item in memory_revisions
@@ -980,23 +1051,31 @@ class DeterministicCandidateValidator:
         if change_set_version in {
             RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
+            PROMPT_CHANGE_SET_VERSION,
         }:
             change_set_value["relationships"] = [
                 _relationship_wire(item) for item in relationships
             ]
-        if change_set_version == MATERIAL_CHANGE_SET_VERSION:
+        if change_set_version in {
+            MATERIAL_CHANGE_SET_VERSION,
+            PROMPT_CHANGE_SET_VERSION,
+        }:
             change_set_value["materials"] = [_material_wire(item) for item in materials]
+        if change_set_version == PROMPT_CHANGE_SET_VERSION:
+            change_set_value["prompts"] = [_prompt_wire(item) for item in prompts]
         if change_set_version in {
             MEMORY_CHANGE_SET_VERSION,
             MEMORY_REVISION_CHANGE_SET_VERSION,
             RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
+            PROMPT_CHANGE_SET_VERSION,
         } or source_version in {
             "armi.cognition-candidate.v5",
             HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
+            HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
             WEB_DIALOGUE_CANDIDATE_VERSION,
         }:
             change_set_value["web_research_requests"] = [
@@ -1009,6 +1088,7 @@ class DeterministicCandidateValidator:
                 MEMORY_REVISION_CHANGE_SET_VERSION,
                 RELATIONSHIP_CHANGE_SET_VERSION,
                 MATERIAL_CHANGE_SET_VERSION,
+                PROMPT_CHANGE_SET_VERSION,
             }
             or source_version
             in {
@@ -1017,6 +1097,7 @@ class DeterministicCandidateValidator:
                 HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION,
                 "armi.cognition-candidate.v6",
                 "armi.cognition-candidate.v7",
             }
@@ -1027,6 +1108,7 @@ class DeterministicCandidateValidator:
                     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
                     WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
                 and not web_research_requests
@@ -1060,6 +1142,7 @@ class DeterministicCandidateValidator:
             memory_revisions=memory_revisions,
             relationships=relationships,
             materials=materials,
+            prompts=prompts,
         )
         status = (
             CandidateValidationStatus.PARTIALLY_ACCEPTED
@@ -1489,6 +1572,9 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV10,
             DialogueReplyDecisionV11,
             DialogueReplyDecisionV12,
+            DialogueReplyDecisionV13,
+            DialogueReplyDecisionV14,
+            DialogueReplyDecisionV16,
             DialogueTerminalDecision,
             DialogueTerminalDecisionV5,
             DialogueTerminalDecisionV6,
@@ -1498,10 +1584,15 @@ def _expand_dialogue_candidate(
             DialogueTerminalDecisionV10,
             DialogueTerminalDecisionV11,
             DialogueTerminalDecisionV12,
+            DialogueTerminalDecisionV13,
+            DialogueTerminalDecisionV14,
+            DialogueTerminalDecisionV16,
             DialogueWebResearchDecision,
             DialogueWebResearchDecisionV8,
             DialogueWebResearchDecisionV10,
             DialogueWebResearchDecisionV12,
+            DialogueWebResearchDecisionV14,
+            DialogueWebResearchDecisionV16,
         ),
     ):
         return None, None, "CANDIDATE-CONTRACT"
@@ -1524,6 +1615,7 @@ def _expand_dialogue_candidate(
     memory_revision: CandidateMemoryRevisionDraft | None = None
     relationship: CandidateRelationshipDraft | None = None
     material: CandidateLifeMaterialDraft | None = None
+    prompt: CandidateSubjectPromptDraft | None = None
     experience_ref: str | None = None
     understanding_basis_refs = (evidence_ref,)
     if isinstance(
@@ -1538,6 +1630,9 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV10,
             DialogueReplyDecisionV11,
             DialogueReplyDecisionV12,
+            DialogueReplyDecisionV13,
+            DialogueReplyDecisionV14,
+            DialogueReplyDecisionV16,
         ),
     ):
         catalog = next(
@@ -1652,6 +1747,18 @@ def _expand_dialogue_candidate(
             if material is None:
                 return None, None, material_error or "CANDIDATE-MATERIAL-CONTEXT"
             proposal_no += 1
+        subject_prompt_change = getattr(decision, "subject_prompt_change", None)
+        if subject_prompt_change is not None:
+            prompt, prompt_error = _bind_dialogue_subject_prompt(
+                subject_prompt_change,
+                proposal_ref=f"proposal:{proposal_no}",
+                evidence=evidence,
+                bases=bases,
+                context=context,
+            )
+            if prompt is None:
+                return None, None, prompt_error or "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
+            proposal_no += 1
         shared_bases = (evidence_ref, scene_ref, catalog_ref)
         capability_requests.append(
             {
@@ -1758,6 +1865,8 @@ def _expand_dialogue_candidate(
             DialogueWebResearchDecisionV8,
             DialogueWebResearchDecisionV10,
             DialogueWebResearchDecisionV12,
+            DialogueWebResearchDecisionV14,
+            DialogueWebResearchDecisionV16,
         ),
     ):
         purpose = next(
@@ -1863,7 +1972,7 @@ def _expand_dialogue_candidate(
                 },
                 strict=True,
             ),
-            DialogueBoundChanges(memory_revision, relationship, material),
+            DialogueBoundChanges(memory_revision, relationship, material, prompt),
             None,
         )
     except Exception:
@@ -1904,8 +2013,29 @@ def _bind_dialogue_component_change(
     try:
         current_state = state_type.model_validate_json(current[1], strict=True)
         next_state = current_state.model_dump(mode="json")
-        for field_name in type(change).model_fields:
-            replacement = getattr(change, field_name)
+        field_names = (
+            (
+                "name",
+                "self_description",
+                "interests",
+                "values",
+                "preferences",
+                "goals",
+                "self_narrative",
+            )
+            if owner is CandidateOwner.SELF
+            else (
+                "understanding",
+                "attention",
+                "emotions",
+                "thoughts",
+                "wishes",
+                "motivations",
+                "mood",
+            )
+        )
+        for field_name in field_names:
+            replacement = getattr(change, field_name, None)
             if replacement is None:
                 continue
             next_state[field_name] = (
@@ -1933,6 +2063,133 @@ def _bind_dialogue_component_change(
         },
         None,
     )
+
+
+def _bind_dialogue_subject_prompt(
+    change: Any,
+    *,
+    proposal_ref: str,
+    evidence: CandidateBasis,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[CandidateSubjectPromptDraft | None, str | None]:
+    current = context.current_subject_prompt
+    self_component = next(
+        (
+            (version, canonical)
+            for owner, version, canonical in context.current_components
+            if owner is CandidateOwner.SELF
+        ),
+        None,
+    )
+    self_basis = next(
+        (
+            item
+            for item in bases
+            if item.item_kind == "self"
+            and self_component is not None
+            and item.source_version == self_component[0]
+            and item.source_digest == Digest.from_bytes(self_component[1])
+        ),
+        None,
+    )
+    if current is None or self_component is None or self_basis is None:
+        return None, "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
+    prompt_basis = None
+    if current.current_revision_id is not None:
+        prompt_basis = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "subject_prompt"
+                and item.source_ref == current.current_revision_id
+                and item.source_version == current.revision_no
+                and item.source_digest == current.content_digest
+                and item.trust_class == "policy"
+            ),
+            None,
+        )
+        if prompt_basis is None:
+            return None, "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
+    methods = {
+        "cognition_method": change.cognition_method,
+        "expression_method": change.expression_method,
+        "reflection_method": change.reflection_method,
+    }
+    try:
+        self_state = SelfState.model_validate_json(self_component[1], strict=True)
+        self_document = self_state.model_dump(mode="python")
+        self_values = {
+            value.strip().casefold()
+            for field_name in (
+                "name",
+                "self_description",
+                "interests",
+                "values",
+                "preferences",
+                "goals",
+                "self_narrative",
+            )
+            for value in _nested_text_values(self_document.get(field_name))
+            if value.strip()
+        }
+    except Exception:
+        return None, "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
+    if any(
+        self_value in method.strip().casefold()
+        for method in methods.values()
+        for self_value in self_values
+    ):
+        return None, "CANDIDATE-SUBJECT-PROMPT-SELF-DUPLICATE"
+    content = rfc8785.dumps(
+        cast(
+            Any,
+            {
+                "schema_version": "armi.subject-prompt.v1",
+                **methods,
+            },
+        )
+    )
+    digest = Digest.from_bytes(content)
+    if digest == current.content_digest:
+        return None, "CANDIDATE-SUBJECT-PROMPT-UNCHANGED"
+    basis_ordinals = (
+        evidence.ordinal,
+        self_basis.ordinal,
+        *((prompt_basis.ordinal,) if prompt_basis is not None else ()),
+    )
+    return (
+        CandidateSubjectPromptDraft(
+            proposal_ref,
+            "group:1",
+            basis_ordinals,
+            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+            current.prompt_document_id,
+            current.current_revision_id,
+            current.revision_no,
+            content,
+            digest,
+        ),
+        None,
+    )
+
+
+def _nested_text_values(value: object) -> tuple[str, ...]:
+    if type(value) is str:
+        return (value,)
+    if type(value) is list:
+        return tuple(
+            text
+            for item in cast(list[object], value)
+            for text in _nested_text_values(item)
+        )
+    if type(value) is dict:
+        return tuple(
+            text
+            for item in cast(dict[object, object], value).values()
+            for text in _nested_text_values(item)
+        )
+    return ()
 
 
 def _bind_dialogue_material(
@@ -2877,6 +3134,7 @@ def _draft_owner(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateSubjectPromptDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -2892,6 +3150,8 @@ def _draft_owner(
         return CandidateOwner.RELATIONSHIP
     if isinstance(draft, CandidateLifeMaterialDraft):
         return CandidateOwner.MATERIAL
+    if isinstance(draft, CandidateSubjectPromptDraft):
+        return CandidateOwner.PROMPT
     if isinstance(draft, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
     if isinstance(draft, (CreatorReplyDraft, FormalNoActionDraft)):
@@ -2909,6 +3169,7 @@ def _draft_fact_class(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
+    | CandidateSubjectPromptDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -2924,6 +3185,8 @@ def _draft_fact_class(
         return CandidateFactClass.INFERENCE
     if isinstance(draft, CandidateLifeMaterialDraft):
         return CandidateFactClass.SUBJECTIVE_UNDERSTANDING
+    if isinstance(draft, CandidateSubjectPromptDraft):
+        return draft.fact_class
     return draft.fact_class
 
 
@@ -3187,6 +3450,24 @@ def _component_wire(value: CandidateComponentDraft) -> dict[str, object]:
     }
 
 
+def _prompt_wire(value: CandidateSubjectPromptDraft) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "fact_class": value.fact_class.value,
+        "prompt_document_id": str(value.prompt_document_id),
+        "current_revision_id": (
+            None
+            if value.current_revision_id is None
+            else str(value.current_revision_id)
+        ),
+        "expected_revision_no": value.expected_revision_no,
+        "content": json.loads(value.content_bytes),
+        "content_digest": value.content_digest.value,
+    }
+
+
 def _capability_wire(value: CapabilityRequestDraft) -> dict[str, object]:
     scope = value.scope
     if isinstance(scope, CreatorSceneReplyScope):
@@ -3267,10 +3548,12 @@ __all__ = (
     "CHANGE_SET_VERSION",
     "CODEX_CHANGE_SET_VERSION",
     "MATERIAL_CHANGE_SET_VERSION",
+    "PROMPT_CHANGE_SET_VERSION",
     "RUNTIME_BOUND_CHANGE_SET_VERSION",
     "CandidateLifeMaterialContext",
     "CandidateMemoryContext",
     "CandidateRelationshipContext",
+    "CandidateSubjectPromptContext",
     "CandidateValidationContext",
     "DeterministicCandidateValidator",
 )

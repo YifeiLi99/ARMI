@@ -31,6 +31,7 @@ def _snapshot(
     scene_id: object | None = None,
     scene_bytes: bytes | None = None,
     creator_prompt: object | None = None,
+    subject_prompt: object | None = None,
 ) -> ContextEpisodeSnapshot:
     source_ref = uuid7()
     return cast(
@@ -61,6 +62,7 @@ def _snapshot(
             evidence=None,
             fixed_prompt=SimpleNamespace(source_id=uuid7(), source_version=1),
             creator_prompt=creator_prompt,
+            subject_prompt=subject_prompt,
             policy_digest=Digest.from_bytes(b"policy"),
             mechanism_config_digest=Digest.from_bytes(b"context-config"),
             trace_id=TraceId("1" * 32),
@@ -134,9 +136,62 @@ def test_active_creator_prompt_is_frozen_by_revision_in_future_context() -> None
     assert item.content == "distinguish facts from guesses"
     assert next_item.source.reference == next_revision_id
     assert next_item.source.version == 4
-    assert old_compiled.manifest_digest != DeterministicContextCompiler().compile(
-        next_request
-    ).manifest_digest
+    assert (
+        old_compiled.manifest_digest
+        != DeterministicContextCompiler().compile(next_request).manifest_digest
+    )
+
+
+def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> None:
+    revision_id = uuid7()
+    snapshot = _snapshot(
+        (),
+        subject_prompt=SimpleNamespace(source_id=revision_id, source_version=1),
+    )
+    first = _context_request(
+        snapshot,
+        None,
+        b"fixed prompt",
+        (),
+        None,
+        b'{"schema_version":"armi.subject-prompt.v1"}',
+        web_search_active=False,
+    )
+    item = next(value for value in first.items if value.item_kind == "subject_prompt")
+    assert item.source.reference == revision_id
+    assert item.source.version == 1
+    assert item.source.kind == "subject_prompt"
+
+    next_revision_id = uuid7()
+    next_snapshot = cast(
+        ContextEpisodeSnapshot,
+        SimpleNamespace(
+            **{
+                **vars(snapshot),
+                "subject_prompt": SimpleNamespace(
+                    source_id=next_revision_id,
+                    source_version=2,
+                ),
+            }
+        ),
+    )
+    second = _context_request(
+        next_snapshot,
+        None,
+        b"fixed prompt",
+        (),
+        None,
+        b'{"schema_version":"armi.subject-prompt.v1","revision":2}',
+        web_search_active=False,
+    )
+    next_item = next(
+        value for value in second.items if value.item_kind == "subject_prompt"
+    )
+    assert item.source.reference == revision_id
+    assert next_item.source.reference == next_revision_id
+    assert DeterministicContextCompiler().compile(first).manifest_digest != (
+        DeterministicContextCompiler().compile(second).manifest_digest
+    )
 
 
 def test_capability_state_separates_availability_authorization_and_desire() -> None:

@@ -24,6 +24,7 @@ from armi_kernel.application import (
     CandidateRejection,
     CandidateRelationshipDraft,
     CandidateSleepDecisionDraft,
+    CandidateSubjectPromptDraft,
     CandidateViolation,
     CapabilityKind,
     CapabilityOperation,
@@ -91,6 +92,7 @@ _TOP_KEYS_V12 = {*_TOP_KEYS_V11, "relationships"}
 _TOP_KEYS_V13 = _TOP_KEYS_V12
 _TOP_KEYS_V14 = {*_TOP_KEYS_V13, "materials"}
 _TOP_KEYS_V15 = _TOP_KEYS_V14
+_TOP_KEYS_V16 = {*_TOP_KEYS_V15, "prompts"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -115,6 +117,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v13",
             "armi.subject-change-set.v14",
             "armi.subject-change-set.v15",
+            "armi.subject-change-set.v16",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -148,6 +151,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V14
             if version.endswith(".v14")
             else _TOP_KEYS_V15
+            if version.endswith(".v15")
+            else _TOP_KEYS_V16
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -205,13 +210,19 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         relationships = tuple(
             _relationship(
                 item,
-                include_commitments=version.endswith((".v13", ".v14", ".v15")),
+                include_commitments=version.endswith((".v13", ".v14", ".v15", ".v16")),
             )
             for item in _array(document.get("relationships", []), 1)
         )
         materials = tuple(
-            _material(item, include_mutation=version.endswith(".v15"))
+            _material(
+                item,
+                include_mutation=version.endswith((".v15", ".v16")),
+            )
             for item in _array(document.get("materials", []), 1)
+        )
+        prompts = tuple(
+            _prompt(item) for item in _array(document.get("prompts", []), 1)
         )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
@@ -243,6 +254,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             memory_revisions,
             relationships,
             materials,
+            prompts,
         )
         proposal_refs = [
             item.proposal_ref
@@ -260,6 +272,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *memory_revisions,
                 *relationships,
                 *materials,
+                *prompts,
                 *rejections,
             )
         ]
@@ -282,6 +295,14 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             for relationship in relationships
         ):
             raise ValueError
+        if any(
+            not any(
+                experience.atomic_group_ref == prompt.atomic_group_ref
+                for experience in experiences
+            )
+            for prompt in prompts
+        ):
+            raise ValueError
         change_material = (
             result.experiences
             or result.components
@@ -295,6 +316,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.memory_revisions
             or result.relationships
             or result.materials
+            or result.prompts
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
@@ -806,6 +828,54 @@ def _component(value: object) -> CandidateComponentDraft:
         _positive(item["expected_version"]),
         next_state,
         Digest(_text(item["next_state_digest"])),
+    )
+
+
+def _prompt(value: object) -> CandidateSubjectPromptDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "fact_class",
+            "prompt_document_id",
+            "current_revision_id",
+            "expected_revision_no",
+            "content",
+            "content_digest",
+        },
+    )
+    content = _object(
+        item["content"],
+        {
+            "schema_version",
+            "cognition_method",
+            "expression_method",
+            "reflection_method",
+        },
+    )
+    if content["schema_version"] != "armi.subject-prompt.v1":
+        raise ValueError
+    for key in ("cognition_method", "expression_method", "reflection_method"):
+        text = _text(content[key])
+        if not 1 <= len(text) <= 512 or not text.strip() or "\x00" in text:
+            raise ValueError
+    content_bytes = rfc8785.dumps(cast(Any, content))
+    return CandidateSubjectPromptDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        CandidateFactClass(_text(item["fact_class"])),
+        _uuid7(item["prompt_document_id"]),
+        (
+            None
+            if item["current_revision_id"] is None
+            else _uuid7(item["current_revision_id"])
+        ),
+        _nonnegative(item["expected_revision_no"]),
+        content_bytes,
+        Digest(_text(item["content_digest"])),
     )
 
 

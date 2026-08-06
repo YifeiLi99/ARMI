@@ -185,6 +185,11 @@ class ContextPipeline(OpportunitySelector):
                 if snapshot.creator_prompt is None
                 else await self._read_source(snapshot.creator_prompt, snapshot)
             )
+            subject_prompt_bytes = (
+                None
+                if snapshot.subject_prompt is None
+                else await self._read_source(snapshot.subject_prompt, snapshot)
+            )
             material_payloads: list[tuple[ContextMaterialSource, bytes]] = []
             for source in snapshot.material_sources:
                 material_payloads.append(
@@ -196,6 +201,7 @@ class ContextPipeline(OpportunitySelector):
                 prompt_bytes,
                 tuple(material_payloads),
                 creator_prompt_bytes,
+                subject_prompt_bytes,
                 web_search_active=self._web_search_active,
             )
             result = self._compiler.compile(request)
@@ -395,6 +401,7 @@ def _context_request(
     prompt_bytes: bytes,
     material_payloads: tuple[tuple[ContextMaterialSource, bytes], ...] = (),
     creator_prompt_bytes: bytes | None = None,
+    subject_prompt_bytes: bytes | None = None,
     *,
     web_search_active: bool,
 ) -> ContextRequest:
@@ -754,7 +761,21 @@ def _context_request(
                     relevance=90,
                 )
             ),
-            _unavailable(ContextSection.PROMPT, "subject_prompt"),
+            (
+                _unavailable(ContextSection.PROMPT, "subject_prompt")
+                if snapshot.subject_prompt is None or subject_prompt_bytes is None
+                else _item(
+                    ContextSection.PROMPT,
+                    "subject_prompt",
+                    snapshot.subject_prompt.source_id,
+                    snapshot.subject_prompt.source_version,
+                    subject_prompt_bytes,
+                    ContextTrustClass.POLICY,
+                    required=False,
+                    relevance=95,
+                    source_kind="subject_prompt",
+                )
+            ),
         )
     )
     if snapshot.evidence is not None:

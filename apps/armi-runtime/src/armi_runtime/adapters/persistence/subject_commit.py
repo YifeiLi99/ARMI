@@ -58,6 +58,11 @@ from armi_kernel.contracts import (
 
 from .life_material_commit import apply_life_materials
 from .relationship_commit import apply_relationships
+from .subject_prompt_commit import (
+    apply_subject_prompts,
+    lock_subject_prompt_heads,
+    subject_prompt_heads_are_stale,
+)
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.subject.commit"
@@ -438,6 +443,7 @@ class PostgreSQLSubjectCommitRepository:
         response_artifact_id: ArtifactId | None = None,
         research_artifact_id: ArtifactId | None = None,
         material_artifact_ids: dict[str, ArtifactId] | None = None,
+        prompt_artifact_ids: dict[str, ArtifactId] | None = None,
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await _assert_lease(connection, lease, snapshot.episode_id)
@@ -475,6 +481,11 @@ class PostgreSQLSubjectCommitRepository:
             connection, snapshot.subject_id, change_set
         )
         material_heads = await _lock_material_heads(connection, change_set)
+        prompt_heads = await lock_subject_prompt_heads(
+            connection,
+            subject_id=snapshot.subject_id,
+            prompts=change_set.prompts,
+        )
         stale = (
             int(subject[0]) != change_set.base_subject_version
             or int(subject[1]) != change_set.base_state_epoch
@@ -503,6 +514,7 @@ class PostgreSQLSubjectCommitRepository:
                 )
                 for material in change_set.materials
             )
+            or subject_prompt_heads_are_stale(prompt_heads, change_set.prompts)
             or await _sleep_decision_is_stale(connection, snapshot, change_set)
         )
         if stale:
@@ -520,6 +532,7 @@ class PostgreSQLSubjectCommitRepository:
             response_artifact_id=response_artifact_id,
             research_artifact_id=research_artifact_id,
             material_artifact_ids=material_artifact_ids or {},
+            prompt_artifact_ids=prompt_artifact_ids or {},
         )
 
     async def _settle_current(
@@ -532,6 +545,7 @@ class PostgreSQLSubjectCommitRepository:
         response_artifact_id: ArtifactId | None,
         research_artifact_id: ArtifactId | None,
         material_artifact_ids: dict[str, ArtifactId],
+        prompt_artifact_ids: dict[str, ArtifactId],
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         disposition_map = {
@@ -565,6 +579,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.memory_revisions
             and not change_set.relationships
             and not change_set.materials
+            and not change_set.prompts
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
 
@@ -817,6 +832,27 @@ class PostgreSQLSubjectCommitRepository:
             ).fetchone()
             if updated is None:
                 raise SubjectCommitViolation("SUBJECT-HEAD-STALE")
+
+        await apply_subject_prompts(
+            connection,
+            validation_id=snapshot.validation_id,
+            subject_id=snapshot.subject_id,
+            commit_id=commit_id.value,
+            prompts=change_set.prompts,
+            artifact_ids=prompt_artifact_ids,
+        )
+        for prompt in change_set.prompts:
+            await unit_of_work.audit.append(
+                _audit(
+                    unit_of_work,
+                    snapshot,
+                    "subject_prompt.revised",
+                    "prompt_document",
+                    prompt.prompt_document_id,
+                    AuditResultStatus.APPLIED,
+                    prompt.content_digest,
+                )
+            )
 
         await _insert_activities(
             connection,

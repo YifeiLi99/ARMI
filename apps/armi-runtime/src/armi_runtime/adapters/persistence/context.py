@@ -139,6 +139,7 @@ class ContextEpisodeSnapshot:
     opportunity_expires_at: datetime | None
     fixed_prompt: ContextArtifactSource
     creator_prompt: ContextArtifactSource | None = None
+    subject_prompt: ContextArtifactSource | None = None
 
 
 class PostgreSQLContextRepository:
@@ -362,7 +363,10 @@ class PostgreSQLContextRepository:
                     subject.current_generation_id,
                     creator_prompt.prompt_revision_id,
                     creator_prompt.revision_no,
-                    creator_prompt.content_artifact_id
+                    creator_prompt.content_artifact_id,
+                    subject_prompt.prompt_revision_id,
+                    subject_prompt.revision_no,
+                    subject_prompt.content_artifact_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -394,6 +398,17 @@ class PostgreSQLContextRepository:
                      creator_document.current_revision_id
                  AND creator_prompt.prompt_document_id =
                      creator_document.prompt_document_id
+                LEFT JOIN armi.prompt_documents AS subject_document
+                  ON subject_document.subject_id = episode.subject_id
+                 AND subject_document.prompt_kind = 'subject_guidance'
+                 AND subject_document.write_authority = 'subject'
+                 AND subject_document.status = 'active'
+                 AND subject_document.current_revision_id IS NOT NULL
+                LEFT JOIN armi.prompt_revisions AS subject_prompt
+                  ON subject_prompt.prompt_revision_id =
+                     subject_document.current_revision_id
+                 AND subject_prompt.prompt_document_id =
+                     subject_document.prompt_document_id
                 WHERE work.work_id = %s
                   AND work.status = 'leased'
                   AND work.current_attempt_id = %s
@@ -744,6 +759,16 @@ class PostgreSQLContextRepository:
                     row[29],
                     int(row[30]),
                     "creator_prompt",
+                )
+            ),
+            subject_prompt=(
+                None
+                if row[32] is None
+                else ContextArtifactSource(
+                    await self._artifact_ref(connection, row[34]),
+                    row[32],
+                    int(row[33]),
+                    "subject_prompt",
                 )
             ),
         )

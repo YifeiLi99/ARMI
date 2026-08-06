@@ -76,6 +76,7 @@ from .candidate_validator import (
     CandidateMemoryContext,
     CandidateRelationshipCommitmentContext,
     CandidateRelationshipContext,
+    CandidateSubjectPromptContext,
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
@@ -259,6 +260,13 @@ class CandidateValidationPipeline:
                         )
                     ),
                     current_materials=_material_contexts(snapshot.current_materials),
+                    current_subject_prompt=(
+                        None
+                        if snapshot.current_subject_prompt is None
+                        else CandidateSubjectPromptContext(
+                            *snapshot.current_subject_prompt
+                        )
+                    ),
                     candidate_contract_version=snapshot.candidate_contract_version,
                 )
             )

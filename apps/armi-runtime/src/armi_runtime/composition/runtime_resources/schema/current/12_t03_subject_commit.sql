@@ -105,6 +105,11 @@ CREATE TABLE armi.subject_commits (
     CHECK (new_subject_version = base_subject_version + 1)
 );
 
+ALTER TABLE armi.prompt_revisions
+    ADD CONSTRAINT prompt_revisions_subject_commit_fk
+    FOREIGN KEY (subject_commit_id)
+    REFERENCES armi.subject_commits(subject_commit_id);
+
 ALTER TABLE armi.subject_component_revisions
     DROP CONSTRAINT subject_component_revisions_component_version_check,
     DROP CONSTRAINT subject_component_revisions_origin_kind_check,
