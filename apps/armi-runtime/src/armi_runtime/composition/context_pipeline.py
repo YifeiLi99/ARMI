@@ -791,7 +791,11 @@ def _context_request(
                 snapshot.evidence.source_id,
                 snapshot.evidence.source_version,
                 evidence_bytes,
-                ContextTrustClass.EXTERNAL_CLAIM,
+                (
+                    ContextTrustClass.RUNTIME_AUTHORITY
+                    if snapshot.evidence.source_kind == "life_query_result"
+                    else ContextTrustClass.EXTERNAL_CLAIM
+                ),
                 required=True,
                 relevance=100,
                 source_kind=snapshot.evidence.source_kind,

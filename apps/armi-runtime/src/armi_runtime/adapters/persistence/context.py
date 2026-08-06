@@ -343,8 +343,12 @@ class PostgreSQLContextRepository:
                     episode.policy_digest,
                     episode.mechanism_config_digest,
                     episode.trace_id,
-                    COALESCE(evidence.codex_task_source_id, evidence.evidence_id),
-                    evidence.artifact_id,
+                    COALESCE(
+                        evidence.codex_task_source_id,
+                        evidence.evidence_id,
+                        life_query.exact_life_query_intent_id
+                    ),
+                    COALESCE(evidence.artifact_id, life_query.result_artifact_id),
                     prompt.prompt_revision_id,
                     prompt.content_artifact_id,
                     scene.scene_key,
@@ -353,7 +357,7 @@ class PostgreSQLContextRepository:
                     scene.current_status,
                     scene.schema_version,
                     episode.purpose,
-                    evidence.source_kind,
+                    COALESCE(evidence.source_kind, opportunity.source_kind),
                     opportunity.source_kind,
                     opportunity.source_ref,
                     opportunity.source_version,
@@ -378,6 +382,10 @@ class PostgreSQLContextRepository:
                   ON subject.subject_id = episode.subject_id
                 LEFT JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = opportunity.evidence_id
+                LEFT JOIN armi.exact_life_query_intents AS life_query
+                  ON opportunity.source_kind = 'life_query_result'
+                 AND life_query.exact_life_query_intent_id = opportunity.source_ref
+                 AND life_query.result_opportunity_id = opportunity.opportunity_id
                 LEFT JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = episode.scene_id
                 JOIN armi.prompt_documents AS document

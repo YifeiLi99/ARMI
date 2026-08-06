@@ -18,6 +18,7 @@ from armi_kernel.application import (
     CreatorRelationshipViolation,
     CredentialPort,
     CredentialPurpose,
+    LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeViolation,
     ModelViolation,
@@ -87,6 +88,10 @@ from .effect_pipeline import (
     build_effect_registration_pipeline,
 )
 from .environment import PreparedEnvironment
+from .exact_life_query_pipeline import (
+    ExactLifeQueryPipeline,
+    build_exact_life_query_pipeline,
+)
 from .life_opportunity import (
     LifeOpportunityPipeline,
     build_life_opportunity_pipeline,
@@ -454,6 +459,57 @@ def compose_life_record_query(
                     data_root=prepared.data_root,
                     max_object_bytes=config.artifacts.max_object_bytes,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
+
+
+def compose_exact_life_query_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    query: LifeRecordQueryPort,
+    wakeups: WorkWakeupBus | None = None,
+    diagnostic: Callable[[str], None] | None = None,
+) -> ExactLifeQueryPipeline:
+    database_locator = prepared.effective.config.secret_locators.get(
+        RUNTIME_LOCATOR_NAME
+    )
+    if database_locator is None:
+        raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            database_locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> ExactLifeQueryPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise LifeRecordQueryViolation(
+                        "LIFE-QUERY-UNAVAILABLE"
+                    ) from None
+                config = prepared.effective.config
+                return build_exact_life_query_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    query=query,
+                    wakeups=wakeups,
+                    diagnostic=diagnostic,
                 )
 
             return handle.consume(create)
@@ -1336,6 +1392,7 @@ __all__ = (
     "compose_creator_prompt_service",
     "compose_creator_relationship_query",
     "compose_effect_registration_pipeline",
+    "compose_exact_life_query_pipeline",
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",
     "compose_model_pipeline",

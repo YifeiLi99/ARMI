@@ -35,8 +35,10 @@ HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION = (
 )
 HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v13"
 HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v14"
-DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v15"
-WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v16"
+HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v15"
+HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v16"
+DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v17"
+WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v18"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[
@@ -743,28 +745,28 @@ DialogueDecisionV14 = Annotated[
 ]
 
 
-class DialogueReplyDecision(DialogueReplyDecisionV13):
+class DialogueReplyDecisionV15(DialogueReplyDecisionV13):
     subject_prompt_change: DialogueSubjectPromptChange | None = None
 
     @property
     def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION
 
     @model_validator(mode="after")
-    def validate_prompt_source(self) -> DialogueReplyDecision:
+    def validate_prompt_source(self) -> DialogueReplyDecisionV15:
         if self.subject_prompt_change is not None and self.experience is None:
             raise ValueError("subject prompt change requires an experience")
         return self
 
 
-class DialogueTerminalDecision(DialogueTerminalDecisionV13):
+class DialogueTerminalDecisionV15(DialogueTerminalDecisionV13):
     @property
     def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION
 
 
-DialogueDecision = Annotated[
-    DialogueReplyDecision | DialogueTerminalDecision,
+DialogueDecisionV15 = Annotated[
+    DialogueReplyDecisionV15 | DialogueTerminalDecisionV15,
     Field(discriminator="kind"),
 ]
 
@@ -774,7 +776,7 @@ class DialogueReplyDecisionV16(DialogueReplyDecisionV14):
 
     @property
     def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION
 
     @model_validator(mode="after")
     def validate_prompt_source(self) -> DialogueReplyDecisionV16:
@@ -786,19 +788,99 @@ class DialogueReplyDecisionV16(DialogueReplyDecisionV14):
 class DialogueTerminalDecisionV16(DialogueTerminalDecisionV14):
     @property
     def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION
 
 
 class DialogueWebResearchDecisionV16(DialogueWebResearchDecisionV14):
     @property
     def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION
 
 
 DialogueDecisionV16 = Annotated[
     DialogueReplyDecisionV16
     | DialogueTerminalDecisionV16
     | DialogueWebResearchDecisionV16,
+    Field(discriminator="kind"),
+]
+
+
+class DialogueExactLifeQueryDecision(CreatorDialogueCandidate):
+    kind: Literal["exact_life_query"]
+    record_kind: Literal[
+        "activity",
+        "conversation",
+        "material",
+        "memory",
+        "relationship",
+        "self_change",
+    ]
+    query_text: Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None = (
+        None
+    )
+
+    @property
+    def schema_version(self) -> str:
+        return DIALOGUE_CANDIDATE_VERSION
+
+    @model_validator(mode="after")
+    def validate_query_text(self) -> DialogueExactLifeQueryDecision:
+        if self.query_text is not None and (
+            not self.query_text.strip() or "\x00" in self.query_text
+        ):
+            raise ValueError("exact life query text is invalid")
+        return self
+
+
+class DialogueReplyDecision(DialogueReplyDecisionV15):
+    @property
+    def schema_version(self) -> str:
+        return DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueTerminalDecision(DialogueTerminalDecisionV15):
+    @property
+    def schema_version(self) -> str:
+        return DIALOGUE_CANDIDATE_VERSION
+
+
+DialogueDecision = Annotated[
+    DialogueReplyDecision
+    | DialogueTerminalDecision
+    | DialogueExactLifeQueryDecision,
+    Field(discriminator="kind"),
+]
+
+
+class DialogueReplyDecisionV18(DialogueReplyDecisionV16):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueTerminalDecisionV18(DialogueTerminalDecisionV16):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueWebResearchDecisionV18(DialogueWebResearchDecisionV16):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueExactLifeQueryDecisionV18(DialogueExactLifeQueryDecision):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+DialogueDecisionV18 = Annotated[
+    DialogueReplyDecisionV18
+    | DialogueTerminalDecisionV18
+    | DialogueWebResearchDecisionV18
+    | DialogueExactLifeQueryDecisionV18,
     Field(discriminator="kind"),
 ]
 
@@ -812,16 +894,22 @@ _ADAPTER_V11: TypeAdapter[DialogueDecisionV11] = TypeAdapter(DialogueDecisionV11
 _ADAPTER_V12: TypeAdapter[DialogueDecisionV12] = TypeAdapter(DialogueDecisionV12)
 _ADAPTER_V13: TypeAdapter[DialogueDecisionV13] = TypeAdapter(DialogueDecisionV13)
 _ADAPTER_V14: TypeAdapter[DialogueDecisionV14] = TypeAdapter(DialogueDecisionV14)
-_ADAPTER_V15: TypeAdapter[DialogueDecision] = TypeAdapter(DialogueDecision)
+_ADAPTER_V15: TypeAdapter[DialogueDecisionV15] = TypeAdapter(DialogueDecisionV15)
 _ADAPTER_V16: TypeAdapter[DialogueDecisionV16] = TypeAdapter(DialogueDecisionV16)
+_ADAPTER_V17: TypeAdapter[DialogueDecision] = TypeAdapter(DialogueDecision)
+_ADAPTER_V18: TypeAdapter[DialogueDecisionV18] = TypeAdapter(DialogueDecisionV18)
 
 
 def dialogue_candidate_schema(
     version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> dict[str, Any]:
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V15.json_schema()
+        return _ADAPTER_V17.json_schema()
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V18.json_schema()
+    if version == HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V15.json_schema()
+    if version == HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V16.json_schema()
     if version == HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V13.json_schema()
@@ -855,8 +943,12 @@ def parse_dialogue_candidate(
         "utf-8"
     )
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V15.validate_json(encoded, strict=True)
+        return _ADAPTER_V17.validate_json(encoded, strict=True)
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V18.validate_json(encoded, strict=True)
+    if version == HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V15.validate_json(encoded, strict=True)
+    if version == HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V16.validate_json(encoded, strict=True)
     if version == HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V13.validate_json(encoded, strict=True)
@@ -892,11 +984,15 @@ __all__ = (
     "HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION",
+    "HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION",
+    "HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION",
     "WEB_DIALOGUE_CANDIDATE_VERSION",
     "CreatorDialogueCandidate",
     "DialogueCapabilityRequest",
     "DialogueCommitmentChange",
+    "DialogueExactLifeQueryDecision",
+    "DialogueExactLifeQueryDecisionV18",
     "DialogueExperience",
     "DialogueLongTextReplacement",
     "DialogueMaterialChange",
@@ -920,7 +1016,9 @@ __all__ = (
     "DialogueReplyDecisionV12",
     "DialogueReplyDecisionV13",
     "DialogueReplyDecisionV14",
+    "DialogueReplyDecisionV15",
     "DialogueReplyDecisionV16",
+    "DialogueReplyDecisionV18",
     "DialogueSelfChange",
     "DialogueSubjectPromptChange",
     "DialogueSummaryListReplacement",
@@ -935,13 +1033,16 @@ __all__ = (
     "DialogueTerminalDecisionV12",
     "DialogueTerminalDecisionV13",
     "DialogueTerminalDecisionV14",
+    "DialogueTerminalDecisionV15",
     "DialogueTerminalDecisionV16",
+    "DialogueTerminalDecisionV18",
     "DialogueWebResearchDecision",
     "DialogueWebResearchDecisionV8",
     "DialogueWebResearchDecisionV10",
     "DialogueWebResearchDecisionV12",
     "DialogueWebResearchDecisionV14",
     "DialogueWebResearchDecisionV16",
+    "DialogueWebResearchDecisionV18",
     "dialogue_candidate_schema",
     "parse_dialogue_candidate",
 )

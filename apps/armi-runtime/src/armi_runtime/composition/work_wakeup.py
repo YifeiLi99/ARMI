@@ -12,6 +12,7 @@ CANDIDATE_VALIDATE = "cognition.candidate.validate"
 SUBJECT_COMMIT = "cognition.subject.commit"
 RESPONSE_ADMIT = "cognition.response.admit"
 EFFECT_REGISTER = "effect.register"
+EXACT_LIFE_QUERY = "life.query.execute"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +82,7 @@ __all__ = (
     "CANDIDATE_VALIDATE",
     "CONTEXT_PREPARE",
     "EFFECT_REGISTER",
+    "EXACT_LIFE_QUERY",
     "MODEL_INVOKE",
     "OPPORTUNITY_AVAILABLE",
     "RESPONSE_ADMIT",

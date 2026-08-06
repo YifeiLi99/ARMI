@@ -18,6 +18,7 @@ from .life import (
     ActivityWaitingKind,
 )
 from .life_materials import CandidateLifeMaterialDraft
+from .life_records import LifeRecordKind
 from .maintenance import SleepDecisionKind
 from .response import ResponseChoiceDraft
 from .web_evidence import WebResearchRequestDraft
@@ -143,6 +144,7 @@ class CandidateOwner(StrEnum):
     SLEEP = "sleep"
     MATERIAL = "material"
     PROMPT = "prompt"
+    EXACT_LIFE_QUERY = "exact_life_query"
 
 
 class CandidateValidationStatus(StrEnum):
@@ -671,6 +673,30 @@ class CandidateSubjectPromptDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateExactLifeQueryDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    fact_class: CandidateFactClass
+    record_kind: LifeRecordKind
+    query_text: str | None
+    limit: int = 20
+
+    def __post_init__(self) -> None:
+        _validate_proposal(
+            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
+        )
+        if (
+            self.fact_class is not CandidateFactClass.SUBJECTIVE_UNDERSTANDING
+            or type(self.record_kind) is not LifeRecordKind
+            or not _optional_text(self.query_text, 1024)
+            or type(self.limit) is not int
+            or not 1 <= self.limit <= 20
+        ):
+            raise CandidateViolation("CON-CANDIDATE-EXACT-LIFE-QUERY")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateActivityDraft:
     proposal_ref: str
     atomic_group_ref: str
@@ -909,6 +935,7 @@ class SubjectChangeSet:
     relationships: tuple[CandidateRelationshipDraft, ...] = ()
     materials: tuple[CandidateLifeMaterialDraft, ...] = ()
     prompts: tuple[CandidateSubjectPromptDraft, ...] = ()
+    exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -1041,6 +1068,7 @@ __all__ = (
     "CandidateBasis",
     "CandidateComponentDraft",
     "CandidateDisposition",
+    "CandidateExactLifeQueryDraft",
     "CandidateExperienceDraft",
     "CandidateFactClass",
     "CandidateLifeMaterialDraft",

@@ -25,6 +25,7 @@ from armi_kernel.application import (
     LifeMaterialPrivacyStatus,
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
+    LifeRecordKind,
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
@@ -789,6 +790,175 @@ def test_compact_dialogue_v4_web_research_binds_authority_deterministically() ->
         first.change_set.web_research_requests[0].query_bytes.decode("utf-8")
         == candidate["query"]
     )
+
+
+def test_compact_dialogue_exact_life_query_is_typed_and_rejects_audit_scope() -> None:
+    context, bases = _fixture()
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "purpose",
+            "current_purpose",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"purpose"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = {
+        "kind": "exact_life_query",
+        "record_kind": "memory",
+        "query_text": "那次已经忘记的约定",
+    }
+    first = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    second = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+
+    assert first.status is CandidateValidationStatus.ACCEPTED
+    assert first.change_set is not None and second.change_set is not None
+    assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v17" in first.change_set.canonical_bytes
+    assert len(first.change_set.exact_life_queries) == 1
+    query = first.change_set.exact_life_queries[0]
+    assert query.record_kind is LifeRecordKind.MEMORY
+    assert query.query_text == candidate["query_text"]
+    assert query.limit == 20
+    assert (
+        parse_subject_change_set(first.change_set.canonical_bytes).exact_life_queries
+        == first.change_set.exact_life_queries
+    )
+
+    rejected = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "exact_life_query",
+                "record_kind": "audit",
+                "query_text": "运行日志",
+            }
+        ),
+        bases=extended,
+    )
+    assert rejected.status is CandidateValidationStatus.REJECTED
+    assert rejected.error_code == "CANDIDATE-CONTRACT"
+
+
+def test_exact_life_query_result_supports_reply_without_becoming_memory() -> None:
+    context, bases = _fixture()
+    context = replace(context, purpose="consider_life_query_result")
+    queried_evidence = replace(bases[1], trust_class="runtime_authority")
+    extended = (
+        bases[0],
+        queried_evidence,
+        bases[2],
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            Digest.from_bytes(b"scene"),
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            Digest.from_bytes(b"catalog"),
+            "policy",
+            "private",
+        ),
+    )
+    candidate = _candidate(context)
+    candidate["schema_version"] = "armi.cognition-candidate.v7"
+    candidate["understanding"] = {
+        "text": "我刚查到一条相关记录。",
+        "fact_class": "objective_fact",
+        "basis_refs": ["ctx:2"],
+    }
+    candidate["experiences"] = []
+    candidate["component_changes"] = []
+    candidate["capability_requests"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2", "ctx:4", "ctx:5"],
+            "payload": {
+                "proposal_kind": "capability_requests",
+                "fact_class": "inference",
+                "capability_kind": "creator.scene.reply",
+                "operation": "send",
+                "audience_scope": "creator",
+                "data_scope": "creator_visible_response",
+                "purpose": "respond_to_creator",
+                "valid_for_seconds": 60,
+                "max_uses": 1,
+                "max_payload_bytes": 1024,
+            },
+        }
+    ]
+    candidate["action_choices"] = [
+        {
+            "proposal_ref": "proposal:2",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2", "ctx:4", "ctx:5"],
+            "payload": {
+                "proposal_kind": "action_choices",
+                "action_kind": "creator_reply",
+                "fact_class": "subjective_understanding",
+                "capability_kind": "creator.scene.reply",
+                "operation": "send",
+                "audience_scope": "creator",
+                "data_scope": "creator_visible_response",
+                "purpose": "respond_to_creator",
+                "media_type": "text/plain",
+                "content": "我刚查到那次约定的记录。",
+            },
+        }
+    ]
+    del candidate["action_intents"]
+
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.experiences == ()
+    assert result.change_set.memories == ()
+    assert result.change_set.memory_revisions == ()
+    assert len(result.change_set.action_choices) == 1
+    assert result.change_set.action_choices[0].content_bytes.decode("utf-8") == (
+        "我刚查到那次约定的记录。"
+    )
+
+    candidate["experiences"] = [
+        {
+            "proposal_ref": "proposal:3",
+            "atomic_group_ref": "group:2",
+            "basis_refs": ["ctx:2"],
+            "payload": {
+                "proposal_kind": "experiences",
+                "fact_class": "objective_fact",
+                "first_person_gist": "我查询到了那次约定。",
+                "source_perspective": "creator_claim",
+                "uncertainty": None,
+                "privacy_scope": "private",
+            },
+        }
+    ]
+    rejected = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=extended
+    )
+    assert rejected.status is CandidateValidationStatus.REJECTED
+    assert rejected.error_code == "CANDIDATE-LIFE-QUERY-RESULT-SCOPE"
 
 
 def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis() -> (
@@ -2760,6 +2930,11 @@ def test_memory_fact_class_cannot_drift_from_its_source_experience() -> None:
         (
             CandidateFactClass.EXTERNAL_CLAIM,
             "consider_web_evidence",
+            MemorySourceKind.QUERIED,
+        ),
+        (
+            CandidateFactClass.OBJECTIVE_FACT,
+            "consider_life_query_result",
             MemorySourceKind.QUERIED,
         ),
         (

@@ -56,6 +56,7 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .subject_commit_contract import parse_subject_change_set
 from .work_wakeup import (
+    EXACT_LIFE_QUERY,
     OPPORTUNITY_AVAILABLE,
     RESPONSE_ADMIT,
     SUBJECT_COMMIT,
@@ -341,6 +342,7 @@ class SubjectCommitPipeline:
     def _wake_downstream(self) -> None:
         self._wakeups.notify(RESPONSE_ADMIT)
         self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+        self._wakeups.notify(EXACT_LIFE_QUERY)
 
     async def _snapshot(self, lease: WorkLease) -> SubjectCommitSnapshot:
         try:

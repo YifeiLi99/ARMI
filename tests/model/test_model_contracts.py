@@ -688,6 +688,40 @@ def test_web_dialogue_v6_is_compact_versioned_and_rejects_urls() -> None:
         )
 
 
+def test_dialogue_exact_life_query_schema_excludes_logs_and_admin_data() -> None:
+    schema_text = json.dumps(candidate_schema(DIALOGUE_CANDIDATE_VERSION))
+    assert '"exact_life_query"' in schema_text
+    assert '"self_change"' in schema_text
+    assert '"audit"' not in schema_text
+    assert '"credential"' not in schema_text
+
+    parsed = parse_candidate(
+        json.dumps(
+            {
+                "kind": "exact_life_query",
+                "record_kind": "material",
+                "query_text": "我的私人草稿",
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset(),
+        expected_version=DIALOGUE_CANDIDATE_VERSION,
+    )
+    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
+    assert parsed.model_dump(mode="json") == {
+        "kind": "exact_life_query",
+        "record_kind": "material",
+        "query_text": "我的私人草稿",
+    }
+
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
+        parse_candidate(
+            b'{"kind":"exact_life_query","record_kind":"audit","query_text":"logs"}',
+            allowed_context_refs=frozenset(),
+            expected_version=DIALOGUE_CANDIDATE_VERSION,
+        )
+
+
 def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:
     manifest = json.loads(
         Path(

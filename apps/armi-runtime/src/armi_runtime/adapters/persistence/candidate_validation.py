@@ -23,6 +23,7 @@ from armi_kernel.application import (
     CandidateActivityDraft,
     CandidateBasis,
     CandidateComponentDraft,
+    CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateLifeMaterialDraft,
@@ -832,6 +833,7 @@ def _validation_drafts(
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
+    | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -851,6 +853,7 @@ def _validation_drafts(
         *change_set.relationships,
         *change_set.materials,
         *change_set.prompts,
+        *change_set.exact_life_queries,
         *change_set.components,
         *change_set.capability_requests,
         *change_set.action_choices,
@@ -870,6 +873,7 @@ def _item_semantic(
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
+    | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1019,6 +1023,15 @@ def _item_semantic(
                 "content_digest": value.content_digest.value,
             }
         )
+    elif isinstance(value, CandidateExactLifeQueryDraft):
+        result.update(
+            {
+                "owner": "exact_life_query",
+                "record_kind": value.record_kind.value,
+                "query_text": value.query_text,
+                "limit": value.limit,
+            }
+        )
     elif isinstance(value, CandidateComponentDraft):
         result.update(
             {
@@ -1059,6 +1072,7 @@ def _owner(
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
+    | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1084,6 +1098,8 @@ def _owner(
         return CandidateOwner.MATERIAL
     if isinstance(value, CandidateSubjectPromptDraft):
         return CandidateOwner.PROMPT
+    if isinstance(value, CandidateExactLifeQueryDraft):
+        return CandidateOwner.EXACT_LIFE_QUERY
     if isinstance(value, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
     if isinstance(value, (CreatorReplyDraft, FormalNoActionDraft)):
@@ -1102,6 +1118,7 @@ def _implicit_fact_class(
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
+    | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -1122,6 +1139,7 @@ def _implicit_fact_class(
             CandidateRelationshipDraft,
             CandidateComponentDraft,
             CandidateSubjectPromptDraft,
+            CandidateExactLifeQueryDraft,
             CandidateActivityDraft,
             CandidateRejection,
         ),

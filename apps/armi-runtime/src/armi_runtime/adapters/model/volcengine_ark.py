@@ -64,6 +64,10 @@ _INSTRUCTIONS = (
     "生成 formal_no_action。consider_codex_result 中只有具备 current_evidence basis 的真实"
     "runner 结果才可形成一项 source_perspective=codex_observation 的 private Experience;"
     "此时 disposition 必须为 change,其他 proposal 数组保持为空。申请不是 grant 或执行结果;"
+    "consider_life_query_result 的 current_evidence 是本轮刚取得的精确生活查询结果;只能据此"
+    "回应为刚查到、当前为空或当前查不到,不得声称此前一直记得,也不得改变 Memory accessibility。"
+    "该 purpose 下 experiences、component_changes、memory_changes、relationship_changes 和"
+    "activity_changes 保持为空,可据真实结果选择 creator_reply 或 formal_no_action。"
     "委托不是已执行事实;验证结果也不得被扩大为未观察到的事实。Memory、Relationship、"
     "Activity 数组保持为空。"
 )

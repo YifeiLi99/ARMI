@@ -15,6 +15,7 @@ from armi_kernel.application import (
     CandidateActivityDraft,
     CandidateComponentDraft,
     CandidateDisposition,
+    CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateLifeMaterialDraft,
@@ -40,6 +41,7 @@ from armi_kernel.application import (
     LifeMaterialKind,
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
+    LifeRecordKind,
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
@@ -93,6 +95,7 @@ _TOP_KEYS_V13 = _TOP_KEYS_V12
 _TOP_KEYS_V14 = {*_TOP_KEYS_V13, "materials"}
 _TOP_KEYS_V15 = _TOP_KEYS_V14
 _TOP_KEYS_V16 = {*_TOP_KEYS_V15, "prompts"}
+_TOP_KEYS_V17 = {*_TOP_KEYS_V16, "exact_life_queries"}
 
 
 def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
@@ -118,6 +121,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v14",
             "armi.subject-change-set.v15",
             "armi.subject-change-set.v16",
+            "armi.subject-change-set.v17",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -153,6 +157,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             else _TOP_KEYS_V15
             if version.endswith(".v15")
             else _TOP_KEYS_V16
+            if version.endswith(".v16")
+            else _TOP_KEYS_V17
         )
         if set(document) != expected_keys:
             raise ValueError
@@ -224,6 +230,10 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         prompts = tuple(
             _prompt(item) for item in _array(document.get("prompts", []), 1)
         )
+        exact_life_queries = tuple(
+            _exact_life_query(item)
+            for item in _array(document.get("exact_life_queries", []), 1)
+        )
         rejections = tuple(
             _rejection(item) for item in _array(document["rejections"], 16)
         )
@@ -255,6 +265,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             relationships,
             materials,
             prompts,
+            exact_life_queries,
         )
         proposal_refs = [
             item.proposal_ref
@@ -273,6 +284,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *relationships,
                 *materials,
                 *prompts,
+                *exact_life_queries,
                 *rejections,
             )
         ]
@@ -317,6 +329,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.relationships
             or result.materials
             or result.prompts
+            or result.exact_life_queries
         )
         reply = any(isinstance(item, CreatorReplyDraft) for item in action_choices)
         no_action = tuple(
@@ -901,6 +914,33 @@ def _web_research(value: object) -> WebResearchRequestDraft:
         Digest(_text(item["query_digest"])),
         _text(item["purpose"]),
         _text(item["operation_class"]),
+    )
+
+
+def _exact_life_query(value: object) -> CandidateExactLifeQueryDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "fact_class",
+            "record_kind",
+            "query_text",
+            "limit",
+        },
+    )
+    query_text = item["query_text"]
+    if query_text is not None:
+        query_text = _text(query_text)
+    return CandidateExactLifeQueryDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        CandidateFactClass(_text(item["fact_class"])),
+        LifeRecordKind(_text(item["record_kind"])),
+        query_text,
+        _positive(item["limit"]),
     )
 
 

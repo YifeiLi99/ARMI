@@ -40,6 +40,9 @@ def test_current_schema_has_no_migration_ledger() -> None:
     assert "CREATE TABLE armi.relationship_experience_links" in sql
     assert "CREATE TABLE armi.life_materials" in sql
     assert "CREATE TABLE armi.life_material_revisions" in sql
+    assert "CREATE TABLE armi.exact_life_query_intents" in sql
+    assert "'consider_life_query_result'" in sql
+    assert "status IN ('pending', 'succeeded', 'empty', 'failed', 'denied')" in sql
     assert "material_kind IN ('diary', 'work', 'collection', 'draft')" in sql
     assert "FOREIGN KEY (owner_party_id, subject_id)" in sql
     assert "UNIQUE (subject_commit_id, proposal_ref)" in sql

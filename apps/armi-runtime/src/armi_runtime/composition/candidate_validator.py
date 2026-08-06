@@ -19,6 +19,7 @@ from armi_kernel.application import (
     CandidateBasis,
     CandidateComponentDraft,
     CandidateDisposition,
+    CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateLifeMaterialDraft,
@@ -48,6 +49,7 @@ from armi_kernel.application import (
     LifeMaterialPrivacyStatus,
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
+    LifeRecordKind,
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
@@ -98,10 +100,14 @@ from .dialogue_candidate_contract import (
     HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueCommitmentChange,
+    DialogueExactLifeQueryDecision,
+    DialogueExactLifeQueryDecisionV18,
     DialogueMaterialChange,
     DialogueMaterialChangeV7,
     DialogueMaterialContentChange,
@@ -119,7 +125,9 @@ from .dialogue_candidate_contract import (
     DialogueReplyDecisionV12,
     DialogueReplyDecisionV13,
     DialogueReplyDecisionV14,
+    DialogueReplyDecisionV15,
     DialogueReplyDecisionV16,
+    DialogueReplyDecisionV18,
     DialogueTerminalDecision,
     DialogueTerminalDecisionV5,
     DialogueTerminalDecisionV6,
@@ -131,13 +139,16 @@ from .dialogue_candidate_contract import (
     DialogueTerminalDecisionV12,
     DialogueTerminalDecisionV13,
     DialogueTerminalDecisionV14,
+    DialogueTerminalDecisionV15,
     DialogueTerminalDecisionV16,
+    DialogueTerminalDecisionV18,
     DialogueWebResearchDecision,
     DialogueWebResearchDecisionV8,
     DialogueWebResearchDecisionV10,
     DialogueWebResearchDecisionV12,
     DialogueWebResearchDecisionV14,
     DialogueWebResearchDecisionV16,
+    DialogueWebResearchDecisionV18,
 )
 from .model_contract import (
     ActionChoiceProposal,
@@ -177,6 +188,7 @@ MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v13"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
+EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -333,6 +345,7 @@ class DialogueBoundChanges:
     relationship: CandidateRelationshipDraft | None = None
     material: CandidateLifeMaterialDraft | None = None
     prompt: CandidateSubjectPromptDraft | None = None
+    exact_life_query: CandidateExactLifeQueryDraft | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -582,6 +595,25 @@ class DeterministicCandidateValidator:
             return _rejected("CANDIDATE-FACT-CLASS")
 
         proposals = _all_proposals(candidate)
+        if self._context.purpose == "consider_life_query_result" and any(
+            not (
+                owner is CandidateOwner.CAPABILITY
+                and proposal.payload.capability_kind == "creator.scene.reply"
+            )
+            and not (
+                owner is CandidateOwner.ACTION
+                and isinstance(
+                    proposal.payload,
+                    (
+                        CreatorReplyPayload,
+                        RuntimeBoundCreatorReplyPayload,
+                        FormalNoActionPayload,
+                    ),
+                )
+            )
+            for owner, proposal in proposals
+        ):
+            return _rejected("CANDIDATE-LIFE-QUERY-RESULT-SCOPE")
         formal_no_action = tuple(
             proposal
             for owner, proposal in proposals
@@ -617,6 +649,7 @@ class DeterministicCandidateValidator:
             | CandidateRelationshipDraft
             | CandidateLifeMaterialDraft
             | CandidateSubjectPromptDraft
+            | CandidateExactLifeQueryDraft
             | CandidateComponentDraft
             | CapabilityRequestDraft
             | CreatorReplyDraft
@@ -848,6 +881,13 @@ class DeterministicCandidateValidator:
             prompt = dialogue_bound_changes.prompt
             group_members[prompt.atomic_group_ref].append(prompt.proposal_ref)
             accepted[prompt.proposal_ref] = prompt
+        if (
+            dialogue_bound_changes is not None
+            and dialogue_bound_changes.exact_life_query is not None
+        ):
+            exact_query = dialogue_bound_changes.exact_life_query
+            group_members[exact_query.atomic_group_ref].append(exact_query.proposal_ref)
+            accepted[exact_query.proposal_ref] = exact_query
 
         for proposal_ref, draft in tuple(accepted.items()):
             if (
@@ -942,6 +982,11 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateSubjectPromptDraft)
         )
+        exact_life_queries = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, CandidateExactLifeQueryDraft)
+        )
         capability_requests = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -965,7 +1010,9 @@ class DeterministicCandidateValidator:
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
         change_set_version = (
-            PROMPT_CHANGE_SET_VERSION
+            EXACT_LIFE_QUERY_CHANGE_SET_VERSION
+            if exact_life_queries
+            else PROMPT_CHANGE_SET_VERSION
             if prompts
             else MATERIAL_CHANGE_SET_VERSION
             if materials
@@ -983,6 +1030,7 @@ class DeterministicCandidateValidator:
                 HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
             and web_research_requests
@@ -1000,6 +1048,8 @@ class DeterministicCandidateValidator:
                 HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
                 DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
@@ -1037,6 +1087,7 @@ class DeterministicCandidateValidator:
             RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
+            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
         }:
             change_set_value["memories"] = [_memory_wire(item) for item in memories]
         if change_set_version in {
@@ -1044,6 +1095,7 @@ class DeterministicCandidateValidator:
             RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
+            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
         }:
             change_set_value["memory_revisions"] = [
                 _memory_revision_wire(item) for item in memory_revisions
@@ -1052,6 +1104,7 @@ class DeterministicCandidateValidator:
             RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
+            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
         }:
             change_set_value["relationships"] = [
                 _relationship_wire(item) for item in relationships
@@ -1059,16 +1112,25 @@ class DeterministicCandidateValidator:
         if change_set_version in {
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
+            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
         }:
             change_set_value["materials"] = [_material_wire(item) for item in materials]
-        if change_set_version == PROMPT_CHANGE_SET_VERSION:
+        if change_set_version in {
+            PROMPT_CHANGE_SET_VERSION,
+            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
+        }:
             change_set_value["prompts"] = [_prompt_wire(item) for item in prompts]
+        if change_set_version == EXACT_LIFE_QUERY_CHANGE_SET_VERSION:
+            change_set_value["exact_life_queries"] = [
+                _exact_life_query_wire(item) for item in exact_life_queries
+            ]
         if change_set_version in {
             MEMORY_CHANGE_SET_VERSION,
             MEMORY_REVISION_CHANGE_SET_VERSION,
             RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
+            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
         } or source_version in {
             "armi.cognition-candidate.v5",
             HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -1076,6 +1138,7 @@ class DeterministicCandidateValidator:
             HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
+            HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
             WEB_DIALOGUE_CANDIDATE_VERSION,
         }:
             change_set_value["web_research_requests"] = [
@@ -1089,6 +1152,7 @@ class DeterministicCandidateValidator:
                 RELATIONSHIP_CHANGE_SET_VERSION,
                 MATERIAL_CHANGE_SET_VERSION,
                 PROMPT_CHANGE_SET_VERSION,
+                EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
             }
             or source_version
             in {
@@ -1098,6 +1162,7 @@ class DeterministicCandidateValidator:
                 HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION,
                 "armi.cognition-candidate.v6",
                 "armi.cognition-candidate.v7",
             }
@@ -1109,6 +1174,7 @@ class DeterministicCandidateValidator:
                     HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
                     WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
                 and not web_research_requests
@@ -1143,6 +1209,7 @@ class DeterministicCandidateValidator:
             relationships=relationships,
             materials=materials,
             prompts=prompts,
+            exact_life_queries=exact_life_queries,
         )
         status = (
             CandidateValidationStatus.PARTIALLY_ACCEPTED
@@ -1544,7 +1611,13 @@ def _expand_dialogue_candidate(
             item
             for item in bases
             if item.item_kind == "current_evidence"
-            and item.trust_class == "external_claim"
+            and (
+                item.trust_class == "external_claim"
+                or (
+                    context.purpose == "consider_life_query_result"
+                    and item.trust_class == "runtime_authority"
+                )
+            )
         ),
         None,
     )
@@ -1574,7 +1647,9 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV12,
             DialogueReplyDecisionV13,
             DialogueReplyDecisionV14,
+            DialogueReplyDecisionV15,
             DialogueReplyDecisionV16,
+            DialogueReplyDecisionV18,
             DialogueTerminalDecision,
             DialogueTerminalDecisionV5,
             DialogueTerminalDecisionV6,
@@ -1586,17 +1661,53 @@ def _expand_dialogue_candidate(
             DialogueTerminalDecisionV12,
             DialogueTerminalDecisionV13,
             DialogueTerminalDecisionV14,
+            DialogueTerminalDecisionV15,
             DialogueTerminalDecisionV16,
+            DialogueTerminalDecisionV18,
+            DialogueExactLifeQueryDecision,
+            DialogueExactLifeQueryDecisionV18,
             DialogueWebResearchDecision,
             DialogueWebResearchDecisionV8,
             DialogueWebResearchDecisionV10,
             DialogueWebResearchDecisionV12,
             DialogueWebResearchDecisionV14,
             DialogueWebResearchDecisionV16,
+            DialogueWebResearchDecisionV18,
         ),
     ):
         return None, None, "CANDIDATE-CONTRACT"
     decision = source
+    if context.purpose == "consider_life_query_result" and not isinstance(
+        decision,
+        (
+            DialogueReplyDecision,
+            DialogueReplyDecisionV18,
+            DialogueTerminalDecision,
+            DialogueTerminalDecisionV18,
+        ),
+    ):
+        return None, None, "CANDIDATE-LIFE-QUERY-RESULT-SCOPE"
+    if (
+        context.purpose == "consider_life_query_result"
+        and isinstance(
+            decision,
+            (DialogueReplyDecision, DialogueReplyDecisionV18),
+        )
+        and any(
+            value is not None
+            for value in (
+                decision.experience,
+                decision.self_change,
+                decision.mind_change,
+                decision.memory_change,
+                decision.relationship_change,
+                decision.material_change,
+                decision.subject_prompt_change,
+                decision.capability_request,
+            )
+        )
+    ):
+        return None, None, "CANDIDATE-LIFE-QUERY-RESULT-SCOPE"
     summary = {
         "reply": "Creator dialogue reply selected.",
         "decline": "Creator dialogue decline selected.",
@@ -1605,6 +1716,7 @@ def _expand_dialogue_candidate(
         "defer": "Creator dialogue defer selected.",
         "need_information": "Creator dialogue needs information.",
         "web_research": "Creator dialogue selected public Web research.",
+        "exact_life_query": "ARMI selected an exact life-record query.",
     }[decision.kind]
     disposition = decision.kind
     experiences: list[dict[str, Any]] = []
@@ -1632,7 +1744,9 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV12,
             DialogueReplyDecisionV13,
             DialogueReplyDecisionV14,
+            DialogueReplyDecisionV15,
             DialogueReplyDecisionV16,
+            DialogueReplyDecisionV18,
         ),
     ):
         catalog = next(
@@ -1858,6 +1972,64 @@ def _expand_dialogue_candidate(
                 },
             }
         )
+    elif isinstance(
+        decision,
+        (DialogueExactLifeQueryDecision, DialogueExactLifeQueryDecisionV18),
+    ):
+        purpose = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_purpose" and item.trust_class == "policy"
+            ),
+            None,
+        )
+        if purpose is None:
+            return None, None, "CANDIDATE-EXACT-LIFE-QUERY-PURPOSE-BASIS"
+        query_bases = (evidence.ordinal, purpose.ordinal)
+        exact_query = CandidateExactLifeQueryDraft(
+            "proposal:1",
+            "group:1",
+            query_bases,
+            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+            LifeRecordKind(decision.record_kind),
+            decision.query_text,
+        )
+        understanding_basis_refs = tuple(f"ctx:{ordinal}" for ordinal in query_bases)
+        try:
+            return (
+                CognitionCandidateV7.model_validate(
+                    {
+                        "schema_version": "armi.cognition-candidate.v7",
+                        "base": {
+                            "subject_version": context.base_subject_version,
+                            "state_epoch": context.base_state_epoch,
+                            "bundle_activation_id": str(context.bundle_activation_id),
+                            "context_digest": context.context_digest.value,
+                        },
+                        "disposition": "change",
+                        "understanding": {
+                            "text": summary,
+                            "fact_class": "inference",
+                            "basis_refs": understanding_basis_refs,
+                        },
+                        "experiences": (),
+                        "component_changes": (),
+                        "memory_changes": (),
+                        "relationship_changes": (),
+                        "activity_changes": (),
+                        "capability_requests": (),
+                        "action_choices": (),
+                        "uncertainties": (),
+                        "reason_summary": summary,
+                    },
+                    strict=True,
+                ),
+                DialogueBoundChanges(exact_life_query=exact_query),
+                None,
+            )
+        except Exception:
+            return None, None, "CANDIDATE-CONTRACT"
     elif isinstance(
         decision,
         (
@@ -2842,7 +3014,8 @@ def _basis_failure(
     if not _fact_supported(fact_class, bases):
         return "CANDIDATE-FACT-CLASS"
     if owner is CandidateOwner.EXPERIENCE and not any(
-        basis.item_kind == "current_evidence" and basis.trust_class == "external_claim"
+        basis.item_kind == "current_evidence"
+        and basis.trust_class in {"external_claim", "runtime_authority"}
         for basis in bases
     ):
         return "CANDIDATE-EVIDENCE-REQUIRED"
@@ -2860,7 +3033,9 @@ def _fact_supported(fact_class: str, bases: tuple[CandidateBasis, ...]) -> bool:
     if fact_class == "external_claim":
         return "external_claim" in trusts
     if fact_class == "subjective_understanding":
-        return bool(trusts & {"subjective_state", "external_claim"})
+        return bool(
+            trusts & {"subjective_state", "external_claim", "runtime_authority"}
+        )
     if fact_class == "inference":
         return bool(trusts)
     return fact_class == "unknown"
@@ -2924,7 +3099,13 @@ def _capability_failure(
         return "CANDIDATE-CAPABILITY-SCENE-BASIS"
     if not any(
         basis.item_kind in {"current_evidence", "codex_task_source"}
-        and basis.trust_class == "external_claim"
+        and (
+            basis.trust_class == "external_claim"
+            or (
+                context.purpose == "consider_life_query_result"
+                and basis.trust_class == "runtime_authority"
+            )
+        )
         for basis in bases
     ):
         return "CANDIDATE-CAPABILITY-EVIDENCE-BASIS"
@@ -2972,7 +3153,14 @@ def _action_failure(
     ):
         return "CANDIDATE-ACTION-SCENE-BASIS"
     if not any(
-        basis.item_kind == "current_evidence" and basis.trust_class == "external_claim"
+        basis.item_kind == "current_evidence"
+        and (
+            basis.trust_class == "external_claim"
+            or (
+                context.purpose == "consider_life_query_result"
+                and basis.trust_class == "runtime_authority"
+            )
+        )
         for basis in bases
     ):
         return "CANDIDATE-ACTION-EVIDENCE-BASIS"
@@ -3135,6 +3323,7 @@ def _draft_owner(
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
+    | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -3152,6 +3341,8 @@ def _draft_owner(
         return CandidateOwner.MATERIAL
     if isinstance(draft, CandidateSubjectPromptDraft):
         return CandidateOwner.PROMPT
+    if isinstance(draft, CandidateExactLifeQueryDraft):
+        return CandidateOwner.EXACT_LIFE_QUERY
     if isinstance(draft, CapabilityRequestDraft):
         return CandidateOwner.CAPABILITY
     if isinstance(draft, (CreatorReplyDraft, FormalNoActionDraft)):
@@ -3170,6 +3361,7 @@ def _draft_fact_class(
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
+    | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -3354,7 +3546,11 @@ def _memory_source_kind(
         return MemorySourceKind.INFERRED
     if fact_class is CandidateFactClass.UNKNOWN:
         return MemorySourceKind.UNKNOWN
-    if purpose in {"consider_web_evidence", "consider_codex_result"}:
+    if purpose in {
+        "consider_web_evidence",
+        "consider_codex_result",
+        "consider_life_query_result",
+    }:
         return MemorySourceKind.QUERIED
     if fact_class is CandidateFactClass.EXTERNAL_CLAIM:
         return MemorySourceKind.REPORTED
@@ -3420,6 +3616,20 @@ def _web_research_wire(value: WebResearchRequestDraft) -> dict[str, object]:
         "operation_class": value.operation_class,
         "query": value.query_bytes.decode("utf-8", errors="strict"),
         "query_digest": value.query_digest.value,
+    }
+
+
+def _exact_life_query_wire(
+    value: CandidateExactLifeQueryDraft,
+) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "fact_class": value.fact_class.value,
+        "record_kind": value.record_kind.value,
+        "query_text": value.query_text,
+        "limit": value.limit,
     }
 
 

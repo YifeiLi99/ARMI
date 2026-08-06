@@ -74,6 +74,7 @@ from .database import (
     compose_creator_prompt_service,
     compose_creator_relationship_query,
     compose_effect_registration_pipeline,
+    compose_exact_life_query_pipeline,
     compose_life_opportunity_pipeline,
     compose_life_record_query,
     compose_model_pipeline,
@@ -157,6 +158,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     scene_timeline_query = None
     creator_activity_query = None
     life_record_query = None
+    exact_life_query_pipeline = None
     creator_maintenance_query = None
     creator_relationship_query = None
     creator_prompt_service = None
@@ -281,6 +283,17 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 cursor_key=derive_timeline_cursor_key(prepared),
             )
             await life_record_query.open()
+            exact_life_query_pipeline = compose_exact_life_query_pipeline(
+                prepared,
+                authority_admission=authority.require_writable,
+                query=life_record_query,
+                wakeups=work_wakeups,
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="EXACT_LIFE_QUERY",
+                ),
+            )
+            await exact_life_query_pipeline.open()
             creator_maintenance_query = compose_creator_maintenance_query(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -507,6 +520,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await scene_timeline_query.close()
             if creator_activity_query is not None:
                 await creator_activity_query.close()
+            if exact_life_query_pipeline is not None:
+                await exact_life_query_pipeline.close()
             if life_record_query is not None:
                 await life_record_query.close()
             if creator_maintenance_query is not None:
@@ -640,6 +655,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 life_opportunity_pipeline.run(),
                 name="life-opportunity-source",
             )
+        if exact_life_query_pipeline is not None:
+            supervisor.start(
+                exact_life_query_pipeline.run_worker(),
+                name="exact-life-query-worker",
+            )
         if model_pipeline is not None:
             for index in range(config.model.concurrency):
                 supervisor.start(
@@ -710,8 +730,6 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await scene_timeline_query.close()
         if creator_activity_query is not None:
             await creator_activity_query.close()
-        if life_record_query is not None:
-            await life_record_query.close()
         if creator_maintenance_query is not None:
             await creator_maintenance_query.close()
         if creator_relationship_query is not None:
@@ -724,6 +742,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             context_pipeline.stop()
         if life_opportunity_pipeline is not None:
             life_opportunity_pipeline.stop()
+        if exact_life_query_pipeline is not None:
+            exact_life_query_pipeline.stop()
         if model_pipeline is not None:
             model_pipeline.stop()
         if web_search_pipeline is not None:
@@ -749,6 +769,10 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await context_pipeline.close()
         if life_opportunity_pipeline is not None:
             await life_opportunity_pipeline.close()
+        if exact_life_query_pipeline is not None:
+            await exact_life_query_pipeline.close()
+        if life_record_query is not None:
+            await life_record_query.close()
         if model_pipeline is not None:
             await model_pipeline.close()
         if web_research_pipeline is not None:
@@ -841,6 +865,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             authority.begin_drain()
         for pipeline in (
             life_opportunity_pipeline,
+            exact_life_query_pipeline,
             context_pipeline,
             model_pipeline,
             web_search_pipeline,
@@ -962,6 +987,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await scene_timeline_query.close()
         if creator_activity_query is not None:
             await creator_activity_query.close()
+        if exact_life_query_pipeline is not None:
+            await exact_life_query_pipeline.close()
         if life_record_query is not None:
             await life_record_query.close()
         if creator_maintenance_query is not None:

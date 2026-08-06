@@ -142,6 +142,40 @@ def test_active_creator_prompt_is_frozen_by_revision_in_future_context() -> None
     )
 
 
+def test_exact_life_query_result_is_current_runtime_evidence() -> None:
+    source_id = uuid7()
+    snapshot = _snapshot(())
+    snapshot = cast(
+        ContextEpisodeSnapshot,
+        SimpleNamespace(
+            **{
+                **vars(snapshot),
+                "purpose": "consider_life_query_result",
+                "opportunity_source_kind": "life_query_result",
+                "opportunity_source_ref": source_id,
+                "evidence": SimpleNamespace(
+                    source_id=source_id,
+                    source_version=1,
+                    source_kind="life_query_result",
+                ),
+            }
+        ),
+    )
+    request = _context_request(
+        snapshot,
+        b'{"status":"succeeded","retrieval_kind":"exact_query"}',
+        b"fixed prompt",
+        web_search_active=False,
+    )
+
+    evidence = next(
+        item for item in request.items if item.item_kind == "current_evidence"
+    )
+    assert evidence.source.reference == source_id
+    assert evidence.source.kind == "life_query_result"
+    assert evidence.trust_class.value == "runtime_authority"
+
+
 def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> None:
     revision_id = uuid7()
     snapshot = _snapshot(
