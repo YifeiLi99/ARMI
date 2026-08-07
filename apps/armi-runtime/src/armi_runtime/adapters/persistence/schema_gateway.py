@@ -20,6 +20,8 @@ _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 _CURRENT_SCHEMA_RESOURCE = "schema/current"
 _ADVISORY_LOCK: Final = 4_701_932_009
 _EXPECTED_POSTGRESQL: Final = 180004
+_EXPECTED_PGVECTOR: Final = "0.8.6"
+_EXPECTED_PGVECTOR_SCHEMA: Final = "armi_extensions"
 _EXPECTED_ENCODING: Final = "UTF8"
 _EXPECTED_TIMEZONE: Final = "UTC"
 _EXPECTED_LOCALE: Final = "C.UTF-8"
@@ -184,12 +186,28 @@ class PostgreSQLSchemaGateway:
                 WHERE datname = current_database()
                 """
             ).fetchone()
-            if None in (version_row, encoding_row, timezone_row, locale_row):
+            vector_row = connection.execute(
+                """
+                SELECT extension.extversion, namespace.nspname
+                FROM pg_catalog.pg_extension AS extension
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = extension.extnamespace
+                WHERE extension.extname = 'vector'
+                """
+            ).fetchone()
+            if None in (
+                version_row,
+                encoding_row,
+                timezone_row,
+                locale_row,
+                vector_row,
+            ):
                 raise ValueError
             version = int(str(cast(tuple[object, ...], version_row)[0]))
             encoding = str(cast(tuple[object, ...], encoding_row)[0])
             timezone = str(cast(tuple[object, ...], timezone_row)[0])
             provider, locale = cast(tuple[object, object], locale_row)
+            vector_version, vector_schema = cast(tuple[object, object], vector_row)
         except psycopg.Error, TypeError, ValueError:
             raise DatabaseViolation(
                 "DB-DATABASE-IDENTITY",
@@ -199,6 +217,14 @@ class PostgreSQLSchemaGateway:
             raise DatabaseViolation(
                 "DB-PG-VERSION",
                 "PostgreSQL must be exactly version 18.4",
+            )
+        if (
+            vector_version != _EXPECTED_PGVECTOR
+            or vector_schema != _EXPECTED_PGVECTOR_SCHEMA
+        ):
+            raise DatabaseViolation(
+                "DB-PGVECTOR-IDENTITY",
+                "pgvector must be exactly version 0.8.6 in armi_extensions",
             )
         if (
             encoding != _EXPECTED_ENCODING

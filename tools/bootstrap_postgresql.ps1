@@ -75,10 +75,10 @@ if (-not (Test-Path -LiteralPath $psqlPath -PathType Leaf)) {
 
 $version = (& $psqlPath --version 2>$null)
 if ($LASTEXITCODE -ne 0 -or $version -ne 'psql (PostgreSQL) 18.4') {
-    throw 'PG-VERSION: isolated PostgreSQL must be exactly 18.4'
+    throw 'PG-VERSION: isolated PostgreSQL client tools must be exactly 18.4'
 }
 if (-not (Test-Path -LiteralPath (Join-Path $installRoot 'pgsql/share/timezonesets') -PathType Container)) {
-    throw 'PG-INSTALL-INCOMPLETE: isolated PostgreSQL share resources are missing'
+    throw 'PG-INSTALL-INCOMPLETE: isolated PostgreSQL client resources are missing'
 }
 
 $digestBuilder = [Text.StringBuilder]::new()
@@ -107,7 +107,7 @@ $installSha = [Convert]::ToHexString(
     )
 ).ToLowerInvariant()
 if ($installSha -ne $expectedInstallSha) {
-    throw 'PG-INSTALL-HASH: isolated PostgreSQL installation digest does not match'
+    throw 'PG-INSTALL-HASH: isolated PostgreSQL client installation digest does not match'
 }
 
 [pscustomobject]@{

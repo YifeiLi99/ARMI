@@ -35,7 +35,7 @@ def _config(root: Path) -> AdminConfig:
     (environment / "environment.toml").write_text("fixture = true\n", encoding="utf-8")
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v3",
+            "schema_version": "armi.admin-config.v4",
             "environment_kind": "system_test",
             "environment_id": ENVIRONMENT_ID,
             "environment_incarnation": 3,
@@ -44,7 +44,7 @@ def _config(root: Path) -> AdminConfig:
             "environment_root": environment,
             "experiment_root": root,
             "template_manifest": template,
-            "postgresql_tool_root": root / "postgresql",
+            "postgresql_client_root": root / "postgresql",
             "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
             "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
             "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",

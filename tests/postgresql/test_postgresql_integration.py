@@ -388,6 +388,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status.status, "current")
         self.assertEqual(status.table_count, installed.table_count)
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            extension = connection.execute(
+                """
+                SELECT extension.extversion, namespace.nspname,
+                       has_schema_privilege(%s, namespace.nspname, 'USAGE')
+                FROM pg_catalog.pg_extension AS extension
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = extension.extnamespace
+                WHERE extension.extname = 'vector'
+                """,
+                (fixture.runtime_role,),
+            ).fetchone()
+        self.assertEqual(extension, ("0.8.6", "armi_extensions", True))
         with self.assertRaises(DatabaseViolation) as repeated:
             PostgreSQLSchemaGateway().install(
                 fixture.migrator_dsn,
@@ -1351,7 +1364,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v3",
+                "schema_version": "armi.admin-config.v4",
                 "environment_kind": "acceptance",
                 "environment_id": str(fixture.environment_id),
                 "environment_incarnation": 1,
@@ -1360,10 +1373,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "environment_root": Path.cwd(),
                 "experiment_root": Path.cwd(),
                 "template_manifest": Path.cwd() / "README.md",
-                "postgresql_tool_root": Path(
-                    os.environ.get("S003_TOOL_ROOT", Path.cwd() / ".armi-tools")
-                )
-                / "installs/postgresql/18.4/pgsql",
+                "postgresql_client_root": Path(
+                    os.environ.get(
+                        "S003_POSTGRESQL_CLIENT_ROOT",
+                        Path.cwd() / ".armi-tools/installs/postgresql/18.4/pgsql",
+                    )
+                ),
                 "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
                 "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                 "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
@@ -1500,7 +1515,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v3",
+                    "schema_version": "armi.admin-config.v4",
                     "environment_kind": "acceptance",
                     "environment_id": str(fixture.environment_id),
                     "environment_incarnation": 1,
@@ -1509,10 +1524,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "environment_root": environment_root,
                     "experiment_root": experiment_root,
                     "template_manifest": template_manifest,
-                    "postgresql_tool_root": Path(
-                        os.environ.get("S003_TOOL_ROOT", Path.cwd() / ".armi-tools")
-                    )
-                    / "installs/postgresql/18.4/pgsql",
+                    "postgresql_client_root": Path(
+                        os.environ.get(
+                            "S003_POSTGRESQL_CLIENT_ROOT",
+                            Path.cwd() / ".armi-tools/installs/postgresql/18.4/pgsql",
+                        )
+                    ),
                     "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                     "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
@@ -1676,7 +1693,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v3",
+                    "schema_version": "armi.admin-config.v4",
                     "environment_kind": "system_test",
                     "environment_id": str(fixture.environment_id),
                     "environment_incarnation": 1,
@@ -1685,7 +1702,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "environment_root": environment_root,
                     "experiment_root": experiment_root,
                     "template_manifest": template,
-                    "postgresql_tool_root": Path.cwd()
+                    "postgresql_client_root": Path.cwd()
                     / ".armi-tools/installs/postgresql/18.4/pgsql",
                     "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",

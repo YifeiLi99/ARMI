@@ -88,9 +88,9 @@
       "title": "Migrator Database Locator",
       "type": "string"
     },
-    "postgresql_tool_root": {
+    "postgresql_client_root": {
       "format": "path",
-      "title": "Postgresql Tool Root",
+      "title": "Postgresql Client Root",
       "type": "string"
     },
     "postgresql_version": {
@@ -108,7 +108,7 @@
       "type": "boolean"
     },
     "schema_version": {
-      "const": "armi.admin-config.v3",
+      "const": "armi.admin-config.v4",
       "title": "Schema Version",
       "type": "string"
     },
@@ -132,7 +132,7 @@
     "environment_root",
     "experiment_root",
     "template_manifest",
-    "postgresql_tool_root",
+    "postgresql_client_root",
     "database_locator",
     "migrator_database_locator",
     "preview_key_locator",

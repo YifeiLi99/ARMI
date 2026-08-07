@@ -105,7 +105,7 @@
   "offline_scope": {
     "cold_machine": "unsupported",
     "warm_cache": "Python and npm locked dependencies can be reinstalled after their exact archives have populated the isolated cache.",
-    "tool_artifacts": "uv, CPython, Node/npm, Chromium and PostgreSQL 18.4 must already exist in the isolated tool root.",
+    "tool_artifacts": "uv, CPython, Node/npm, Chromium and the PostgreSQL 18.4 client tools must already exist in the isolated tool root; the database server image is managed by Docker.",
     "missing_artifact": "fail_without_network_fallback"
   }
 }

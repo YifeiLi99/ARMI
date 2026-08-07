@@ -344,7 +344,7 @@ class AdminControlPlane:
 
     def _pg_dump(self, output: Path) -> None:
         executable = (
-            self._config.postgresql_tool_root
+            self._config.postgresql_client_root
             / "bin"
             / ("pg_dump.exe" if os.name == "nt" else "pg_dump")
         )

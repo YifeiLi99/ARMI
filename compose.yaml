@@ -1,0 +1,39 @@
+name: armi
+
+services:
+  postgresql:
+    image: pgvector/pgvector:0.8.6-pg18-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${ARMI_POSTGRES_DATABASE:-armi}
+      POSTGRES_USER: ${ARMI_POSTGRES_BOOTSTRAP_USER:-armi_bootstrap}
+      POSTGRES_PASSWORD: ${ARMI_POSTGRES_BOOTSTRAP_PASSWORD:?set ARMI_POSTGRES_BOOTSTRAP_PASSWORD}
+      POSTGRES_INITDB_ARGS: >-
+        --encoding=UTF8
+        --locale-provider=builtin
+        --builtin-locale=C.UTF-8
+        --data-checksums
+      TZ: UTC
+    command:
+      - postgres
+      - -c
+      - timezone=UTC
+      - -c
+      - password_encryption=scram-sha-256
+    ports:
+      - "127.0.0.1:${ARMI_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - armi-postgresql-data:/var/lib/postgresql
+      - ./tools/docker/postgresql/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    stop_grace_period: 30s
+
+volumes:
+  armi-postgresql-data:

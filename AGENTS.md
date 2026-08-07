@@ -47,7 +47,7 @@
 - M0 按真实纵向场景实施：耐久接纳 → 机会 → 认知 → 领域校验 → 主体提交 → 回应、行动或不行动 → 外部效果 → 记录 → 重启恢复。
 - M0 必须走正式权威路径，不以脚本、模拟数据或事后补写制造通过；只建设当前纵切真实使用的最小能力。
 - 首版不预建多租户、多 ARMI、跨设备多活、微服务、通用插件市场、运行时热加载或通用多 Agent 编排。
-- PostgreSQL 是唯一权威关系数据库。当前开发数据库全部可丢弃、可重建，唯一建表真源是 `apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema/current/`。修改表结构时直接修改这里的当前 DDL，重置数据库后执行 `armi db install`；不得新增 numbered migration、`schema_migrations`、目标版本、迁移摘要或升级兼容代码。只有首次启用需要保留真实用户数据的环境时，才另立任务设计迁移基线。
+- PostgreSQL 是唯一权威关系数据库。开发与测试服务端固定使用 Docker 中的 PostgreSQL 18.4 + pgvector 0.8.6；容器不是第二事实源，Runtime 仍只通过 DSN 连接。当前开发数据库全部可丢弃、可重建，唯一建表真源是 `apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema/current/`。修改表结构时直接修改这里的当前 DDL，重置数据库后执行 `armi db install`；不得新增 numbered migration、`schema_migrations`、目标版本、迁移摘要或升级兼容代码。只有首次启用需要保留真实用户数据的环境时，才另立任务设计迁移基线。
 - 新能力通过端口和适配器接入。可替换策略返回候选，不取得领域 current state 的所有权；只有跨模块语义改变时才修改公共契约及其消费者。
 - 当前处于快速开发期。默认禁止为内部策略、实现选择、阶段状态、摘要传播或“看起来完整”新增 JSON manifest、inventory、evidence contract 或跨 distribution 镜像；这些事实优先放在代码常量、类型、当前 DDL、测试和简短 Markdown 记录中。
 - 只有产品当前直接读取的机器合同才保留 JSON：外部 wire/schema、实际 provider/model binding、静态前端资源索引和包管理锁文件。数据库 schema/权限、阶段完成状态、候选身份和验收结果不维护 JSON 副本；没有产品消费者、只被测试反向验证存在的治理 JSON 直接删除。

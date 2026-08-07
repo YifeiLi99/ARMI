@@ -63,7 +63,24 @@ Windows 服务，也不提供开机自启；正式安装、服务身份和无人
 
 ## 空环境安装与重启 smoke
 
-首次准备锁定工具链时，优先复用本机缓存；缓存缺失时必须显式允许从已确认的官方来源下载：
+开发数据库使用 Docker Desktop 中固定的 PostgreSQL 18.4 + pgvector 0.8.6
+镜像。首次启动会在 `.tmp/docker-postgresql/compose.env` 生成本机 bootstrap
+凭据，并把数据库保存在命名 volume 中：
+
+```powershell
+.\tools\manage_postgresql.ps1 Start
+.\tools\manage_postgresql.ps1 Status
+```
+
+数据库只监听 `127.0.0.1:5432`，DBeaver、DataGrip 或 pgAdmin 可使用脚本输出的
+database、bootstrap user 和凭据文件连接。停止容器不会删除 volume：
+
+```powershell
+.\tools\manage_postgresql.ps1 Stop
+```
+
+首次准备其他锁定工具链时优先复用本机缓存；缓存缺失时必须显式允许从已确认的官方来源下载。
+Admin 实验重置仍单独使用锁定的本机 PostgreSQL 18.4 `pg_dump` 客户端，不启动其中的服务端：
 
 ```powershell
 .\tools\bootstrap_toolchain.ps1 -Offline
@@ -90,7 +107,8 @@ armi creator-session issue --environment-root C:\path\to\environment
 armi stop --environment-root C:\path\to\environment
 ```
 
-仓库提供可重复、可丢弃的 P0-S021 smoke。它自动创建隔离 PostgreSQL 18.4 集群、空数据库、
+仓库提供可重复、可丢弃的 P0-S021 smoke。它自动创建隔离 PostgreSQL 18.4 + pgvector 0.8.6
+容器、空数据库、
 角色、环境根和出生资料，经真实 CLI 启动 Creator，接纳一条输入，再停止并重启，核对主体
 identity、life generation 和未完成耐久责任不变；测试完成后清理隔离环境，不调用外部模型或
 Codex。Codex 的基本启动只做零模型调用预检：

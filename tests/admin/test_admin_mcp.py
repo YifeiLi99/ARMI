@@ -35,7 +35,7 @@ def _config() -> AdminConfig:
     root = Path.cwd().resolve()
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v3",
+            "schema_version": "armi.admin-config.v4",
             "environment_kind": "system_test",
             "environment_id": ENVIRONMENT_ID,
             "environment_incarnation": 1,
@@ -44,7 +44,8 @@ def _config() -> AdminConfig:
             "environment_root": root,
             "experiment_root": root,
             "template_manifest": root / "README.md",
-            "postgresql_tool_root": root / ".armi-tools/installs/postgresql/18.4/pgsql",
+            "postgresql_client_root": root
+            / ".armi-tools/installs/postgresql/18.4/pgsql",
             "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
             "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
             "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
@@ -115,7 +116,7 @@ class AdminConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(
             schema["properties"]["schema_version"]["const"],
-            "armi.admin-config.v3",
+            "armi.admin-config.v4",
         )
 
     def test_artifacts_have_no_drift(self) -> None:
@@ -257,7 +258,7 @@ class AdminProtocolTests(unittest.TestCase):
             config_path.write_text(
                 "\n".join(
                     (
-                        'schema_version = "armi.admin-config.v3"',
+                        'schema_version = "armi.admin-config.v4"',
                         'environment_kind = "system_test"',
                         f'environment_id = "{ENVIRONMENT_ID}"',
                         "environment_incarnation = 1",
@@ -266,7 +267,7 @@ class AdminProtocolTests(unittest.TestCase):
                         f'environment_root = "{root.as_posix()}"',
                         f'experiment_root = "{root.as_posix()}"',
                         f'template_manifest = "{(Path.cwd() / "README.md").as_posix()}"',
-                        f'postgresql_tool_root = "{(Path.cwd() / ".armi-tools/installs/postgresql/18.4").as_posix()}"',
+                        f'postgresql_client_root = "{(Path.cwd() / ".armi-tools/installs/postgresql/18.4").as_posix()}"',
                         'database_locator = "env:ARMI_SECRET_ADMIN_DATABASE"',
                         'migrator_database_locator = "env:ARMI_SECRET_MIGRATOR_DATABASE"',
                         'preview_key_locator = "env:ARMI_SECRET_ADMIN_PREVIEW_KEY"',

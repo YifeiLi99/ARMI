@@ -66,7 +66,7 @@ class AdminConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal["armi.admin-config.v3"]
+    schema_version: Literal["armi.admin-config.v4"]
     environment_kind: AdminEnvironmentKind
     environment_id: str
     environment_incarnation: int
@@ -75,7 +75,7 @@ class AdminConfig(BaseModel):
     environment_root: Path
     experiment_root: Path
     template_manifest: Path
-    postgresql_tool_root: Path
+    postgresql_client_root: Path
     postgresql_version: Literal["18.4"] = "18.4"
     database_locator: str
     migrator_database_locator: str
@@ -123,7 +123,7 @@ class AdminConfig(BaseModel):
         "environment_root",
         "experiment_root",
         "template_manifest",
-        "postgresql_tool_root",
+        "postgresql_client_root",
         mode="before",
     )
     @classmethod
@@ -179,7 +179,9 @@ class AdminConfig(BaseModel):
             "environment_root_identity": _path_identity(self.environment_root),
             "experiment_root_identity": _path_identity(self.experiment_root),
             "template_manifest_identity": _path_identity(self.template_manifest),
-            "postgresql_tool_root_identity": _path_identity(self.postgresql_tool_root),
+            "postgresql_client_root_identity": _path_identity(
+                self.postgresql_client_root
+            ),
             "postgresql_version": self.postgresql_version,
             "database_locator_identity": self.locator.identity(),
             "migrator_locator_identity": self.migrator_locator.identity(),

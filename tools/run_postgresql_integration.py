@@ -1,4 +1,4 @@
-"""Run the real PostgreSQL 18.4 integration suite in an isolated cluster."""
+"""Run the PostgreSQL 18.4 + pgvector 0.8.6 suite in an isolated container."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+_IMAGE = "pgvector/pgvector:0.8.6-pg18-trixie"
+
 
 def _port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -20,81 +22,53 @@ def _port() -> int:
         return int(probe.getsockname()[1])
 
 
-def _run(command: list[str], *, environment: dict[str, str] | None = None) -> None:
-    completed = subprocess.run(
+def _run(
+    command: list[str], *, capture: bool = True
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         command,
         check=False,
         stdin=subprocess.DEVNULL,
-        env=environment,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        capture_output=capture,
+        text=True,
+        encoding="utf-8",
     )
-    if completed.returncode != 0:
-        raise RuntimeError("PG-INTEGRATION-PROCESS")
 
 
-def _start_postgres(
-    postgres: Path,
-    *,
-    data: Path,
-    log_file: Path,
-    port: int,
-) -> subprocess.Popen[bytes]:
-    """Start postgres directly so Windows does not retain a cmd.exe wrapper."""
-
-    log_handle = log_file.open("ab", buffering=0)
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    try:
-        return subprocess.Popen(
-            (
-                str(postgres),
-                "-D",
-                str(data),
-                "-h",
-                "127.0.0.1",
-                "-p",
-                str(port),
-            ),
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            close_fds=True,
-            creationflags=creationflags,
-        )
-    finally:
-        log_handle.close()
-
-
-def _wait_for_postgres(
-    pg_isready: Path,
-    process: subprocess.Popen[bytes],
-    *,
-    port: int,
-    timeout_seconds: float = 30.0,
-) -> None:
+def _wait_for_postgres(container: str, *, timeout_seconds: float = 60.0) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if process.poll() is not None:
-            raise RuntimeError("PG-INTEGRATION-PROCESS")
-        completed = subprocess.run(
-            (
-                str(pg_isready),
-                "-h",
-                "127.0.0.1",
-                "-p",
-                str(port),
-                "-d",
-                "postgres",
-            ),
-            check=False,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+        state = _run(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                "{{.State.Running}}",
+                container,
+            ]
         )
-        if completed.returncode == 0:
+        if state.returncode != 0 or state.stdout.strip() != "true":
+            raise RuntimeError("PG-INTEGRATION-CONTAINER")
+        ready = _run(
+            [
+                "docker",
+                "exec",
+                container,
+                "pg_isready",
+                "--username=s009_admin",
+                "--dbname=postgres",
+            ]
+        )
+        if ready.returncode == 0:
             return
-        time.sleep(0.05)
-    raise RuntimeError("PG-INTEGRATION-PROCESS")
+        time.sleep(0.25)
+    raise RuntimeError("PG-INTEGRATION-READY")
+
+
+def _remove_container(container: str) -> None:
+    if not container.startswith("armi-postgresql-test-"):
+        raise RuntimeError("PG-INTEGRATION-CONTAINER-IDENTITY")
+    _run(["docker", "rm", "--force", container])
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -102,7 +76,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--root", type=Path, default=Path(__file__).resolve().parents[1]
     )
-    parser.add_argument("--tool-root", type=Path, default=Path(".armi-tools"))
+    parser.add_argument(
+        "--postgresql-client-root",
+        type=Path,
+        default=Path(".armi-tools/installs/postgresql/18.4/pgsql"),
+    )
     parser.add_argument("--s026-live-env-file", type=Path)
     parser.add_argument("--s027-live-env-file", type=Path)
     parser.add_argument("--s028-live-env-file", type=Path)
@@ -110,58 +88,71 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--test-expression")
     args = parser.parse_args(argv)
     root = args.root.resolve()
-    tool_root = (root / args.tool_root).resolve()
-    pg_bin = tool_root / "installs/postgresql/18.4/pgsql/bin"
-    initdb = pg_bin / "initdb.exe"
-    pg_ctl = pg_bin / "pg_ctl.exe"
-    pg_isready = pg_bin / "pg_isready.exe"
-    postgres = pg_bin / "postgres.exe"
-    if not all(path.is_file() for path in (initdb, pg_ctl, pg_isready, postgres)):
-        print("PG-CACHE-INCOMPLETE: PostgreSQL 18.4 is unavailable", file=sys.stderr)
+    client_root = (root / args.postgresql_client_root).resolve()
+    init_script = root / "tools/docker/postgresql/initdb/00-vector.sql"
+    if not init_script.is_file():
+        print("PG-INTEGRATION-INIT: vector bootstrap is unavailable", file=sys.stderr)
         return 2
+    if _run(["docker", "info", "--format", "{{.ServerVersion}}"]).returncode != 0:
+        print("PG-DOCKER-ENGINE: Docker Engine is unavailable", file=sys.stderr)
+        return 2
+
     temporary_root = root / ".tmp"
     temporary_root.mkdir(exist_ok=True)
     password = secrets.token_urlsafe(32)
     port = _port()
+    container = f"armi-postgresql-test-{os.getpid()}-{secrets.token_hex(4)}"
+    started = False
     with tempfile.TemporaryDirectory(
-        prefix="postgresql-18.4-", dir=temporary_root
+        prefix="postgresql-docker-", dir=temporary_root
     ) as temporary:
         work = Path(temporary)
-        data = work / "data"
-        password_file = work / "password"
-        log_file = work / "postgresql.log"
-        postgres_process: subprocess.Popen[bytes] | None = None
-        password_file.write_text(password, encoding="utf-8", newline="\n")
+        environment_file = work / "container.env"
+        environment_file.write_text(
+            "\n".join(
+                (
+                    "POSTGRES_DB=postgres",
+                    "POSTGRES_USER=s009_admin",
+                    f"POSTGRES_PASSWORD={password}",
+                    "POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale-provider=builtin "
+                    "--builtin-locale=C.UTF-8 --data-checksums",
+                    "TZ=UTC",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
         try:
-            _run(
+            launch = _run(
                 [
-                    str(initdb),
-                    "-D",
-                    str(data),
-                    "--username=s009_admin",
-                    f"--pwfile={password_file}",
-                    "--auth-host=scram-sha-256",
-                    "--auth-local=scram-sha-256",
-                    "--encoding=UTF8",
-                    "--locale-provider=builtin",
-                    "--builtin-locale=C.UTF-8",
-                    "--data-checksums",
-                    "--no-sync",
+                    "docker",
+                    "run",
+                    "--detach",
+                    "--name",
+                    container,
+                    "--env-file",
+                    str(environment_file),
+                    "--publish",
+                    f"127.0.0.1:{port}:5432",
+                    "--mount",
+                    f"type=bind,src={init_script.resolve()},"
+                    "dst=/docker-entrypoint-initdb.d/00-vector.sql,readonly",
+                    "--tmpfs",
+                    "/var/lib/postgresql:rw",
+                    _IMAGE,
+                    "-c",
+                    "timezone=UTC",
+                    "-c",
+                    "password_encryption=scram-sha-256",
                 ]
             )
-            with (data / "postgresql.conf").open(
-                "a", encoding="utf-8", newline="\n"
-            ) as configuration:
-                configuration.write("\ntimezone = 'UTC'\n")
-            postgres_process = _start_postgres(
-                postgres,
-                data=data,
-                log_file=log_file,
-                port=port,
-            )
-            _wait_for_postgres(pg_isready, postgres_process, port=port)
+            if launch.returncode != 0:
+                raise RuntimeError("PG-INTEGRATION-START")
+            started = True
+            _wait_for_postgres(container)
             environment = dict(os.environ)
-            environment["S003_TOOL_ROOT"] = str(tool_root)
+            environment["S003_POSTGRESQL_CLIENT_ROOT"] = str(client_root)
             environment["S009_ADMIN_DSN"] = (
                 f"postgresql://s009_admin:{password}@127.0.0.1:{port}/postgres"
             )
@@ -181,13 +172,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 environment["S033_LIVE_ENV_FILE"] = str(
                     args.s033_live_env_file.resolve()
                 )
-            pytest_command = [
-                sys.executable,
-                "-m",
-                "pytest",
-                "tests/postgresql",
-                "-q",
-            ]
+            pytest_command = [sys.executable, "-m", "pytest", "tests/postgresql", "-q"]
             test_expression = args.test_expression
             if args.s026_live_env_file is not None and test_expression is None:
                 test_expression = "t03_subject_commit"
@@ -207,23 +192,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return completed.returncode
         except RuntimeError as error:
-            print(f"{error}: isolated PostgreSQL command failed", file=sys.stderr)
+            print(f"{error}: isolated Docker PostgreSQL failed", file=sys.stderr)
+            if started:
+                logs = _run(["docker", "logs", "--tail", "40", container])
+                if logs.stderr:
+                    print(logs.stderr, file=sys.stderr)
             return 1
         finally:
-            if data.is_dir():
-                subprocess.run(
-                    [str(pg_ctl), "-D", str(data), "-m", "immediate", "-w", "stop"],
-                    check=False,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            if postgres_process is not None:
-                try:
-                    postgres_process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    postgres_process.kill()
-                    postgres_process.wait(timeout=5)
+            if started:
+                _remove_container(container)
 
 
 if __name__ == "__main__":

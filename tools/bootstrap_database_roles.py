@@ -1,4 +1,4 @@
-"""Check or apply the fixed PostgreSQL 18 database-role topology.
+"""Check or apply the PostgreSQL 18.4 + pgvector 0.8.6 role topology.
 
 This is a DBA bootstrap entry, not a product command. It accepts only a UUIDv7
 environment identity and secret files below one explicit root.
@@ -26,6 +26,8 @@ CAPABILITY_ROLES: Final = (
 )
 ROLE_CLASSES: Final = ("runtime", "admin", "migrator")
 SEARCH_PATH: Final = "pg_catalog, armi"
+PGVECTOR_SCHEMA: Final = "armi_extensions"
+PGVECTOR_VERSION: Final = "0.8.6"
 MAX_SECRET_BYTES: Final = 65_536
 
 
@@ -173,6 +175,28 @@ def apply_policy(
 ) -> None:
     for role in CAPABILITY_ROLES:
         _normalize_role(connection, role=role, login=False, inherit=False)
+    connection.execute("CREATE SCHEMA IF NOT EXISTS armi_extensions")
+    connection.execute("REVOKE ALL ON SCHEMA armi_extensions FROM PUBLIC")
+    connection.execute(
+        "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA armi_extensions"
+    )
+    extension = connection.execute(
+        """
+        SELECT extension.extversion, namespace.nspname
+        FROM pg_catalog.pg_extension AS extension
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = extension.extnamespace
+        WHERE extension.extname = 'vector'
+        """
+    ).fetchone()
+    if extension != (PGVECTOR_VERSION, PGVECTOR_SCHEMA):
+        raise BootstrapFailure(
+            "DB-PGVECTOR-IDENTITY", "pgvector version or schema is incompatible"
+        )
+    connection.execute(
+        "GRANT USAGE ON SCHEMA armi_extensions "
+        "TO armi_owner, armi_migrator, armi_runtime, armi_admin"
+    )
     physical = {
         role_class: physical_role_name(environment_id, role_class)
         for role_class in ROLE_CLASSES
@@ -401,14 +425,40 @@ def inspect_policy(
         raise BootstrapFailure(
             "DB-ROLE-SEARCH-PATH", "database role search_path has drifted"
         )
+    extension = connection.execute(
+        """
+        SELECT extension.extversion, namespace.nspname
+        FROM pg_catalog.pg_extension AS extension
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = extension.extnamespace
+        WHERE extension.extname = 'vector'
+        """
+    ).fetchone()
+    extension_usage = connection.execute(
+        """
+        SELECT role_value.rolname,
+               has_schema_privilege(role_value.rolname, 'armi_extensions', 'USAGE')
+        FROM pg_catalog.pg_roles AS role_value
+        WHERE role_value.rolname = ANY(%s)
+        ORDER BY role_value.rolname
+        """,
+        (list(CAPABILITY_ROLES),),
+    ).fetchall()
+    if extension != (PGVECTOR_VERSION, PGVECTOR_SCHEMA) or extension_usage != [
+        (role, True) for role in sorted(CAPABILITY_ROLES)
+    ]:
+        raise BootstrapFailure(
+            "DB-PGVECTOR-IDENTITY", "pgvector identity or grants have drifted"
+        )
     return {
         "status": "pass",
-        "schema_version": "armi.database-roles.v1",
+        "schema_version": "armi.database-roles.v2",
         "environment_id": str(environment_id),
         "role_count": len(expected_roles),
         "membership_count": len(expected_memberships),
         "database_grants": "restricted",
         "credential_hashes": "scram-sha-256",
+        "pgvector": f"{PGVECTOR_VERSION}@{PGVECTOR_SCHEMA}",
     }
 
 
