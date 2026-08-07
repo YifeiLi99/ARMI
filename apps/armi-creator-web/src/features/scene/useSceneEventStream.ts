@@ -79,6 +79,9 @@ export function useSceneEventStream({
             "creator-operation",
             "creator-effect",
             "subject-summary",
+            "other-human-record-parties",
+            "other-human-record-scenes",
+            "other-human-record-timeline",
           ].includes(String(query.queryKey[0])),
       });
     }
@@ -138,6 +141,15 @@ export function useSceneEventStream({
           predicate: (query) =>
             query.queryKey[0] === "relationship-current" ||
             (query.queryKey[0] === "relationship-timeline" &&
+              query.queryKey.includes(resourceRef)),
+        });
+        return;
+      }
+      if (resourceKind === "other_human_record") {
+        await queryClient.resetQueries({
+          predicate: (query) =>
+            String(query.queryKey[0]).startsWith("other-human-record-") &&
+            (query.queryKey[0] === "other-human-record-parties" ||
               query.queryKey.includes(resourceRef)),
         });
         return;
@@ -262,6 +274,9 @@ export function useSceneEventStream({
             "creator-operation",
             "creator-effect",
             "subject-summary",
+            "other-human-record-parties",
+            "other-human-record-scenes",
+            "other-human-record-timeline",
           ].includes(String(query.queryKey[0])),
       });
     }, POLLING_MILLISECONDS);

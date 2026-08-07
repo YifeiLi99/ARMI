@@ -38,6 +38,7 @@ describe("generated Creator OpenAPI types", () => {
       | "scene.timeline.invalidated"
       | "capability.request.invalidated"
       | "operation.invalidated"
+      | "other_human.record.invalidated"
       | "effect.invalidated"
       | "subject.summary.invalidated"
     >();

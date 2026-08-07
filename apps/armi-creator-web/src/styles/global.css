@@ -918,6 +918,46 @@ textarea:focus-visible {
   }
 }
 
+.record-choice {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.65rem;
+  text-align: left;
+}
+
+.record-choice[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--surface-strong);
+}
+
+.record-choice span,
+.other-human-record-list time {
+  color: #6d685f;
+  font-size: 0.82rem;
+}
+
+.other-human-record-list {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.other-human-record-list li {
+  padding: 0.85rem;
+  border: 1px solid #d8d2c7;
+  border-radius: 0.75rem;
+  background: #faf8f3;
+}
+
+.other-human-record-list li[data-direction="sent"] {
+  border-left: 3px solid #8e5b3f;
+}
+
 .operation-panel dl {
   display: grid;
   gap: 0.65rem;

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid7
 
@@ -14,6 +15,9 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CreatorEventResourceKind,
+    CreatorProjectionInvalidation,
+    CreatorProjectionNotifier,
     LockPlan,
     LockTarget,
     RuntimeFence,
@@ -21,7 +25,7 @@ from armi_kernel.application import (
     WorkResultRef,
     WorkViolation,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
@@ -48,6 +52,7 @@ class OtherHumanDeliveryPipeline:
         "_factory",
         "_fault_injector",
         "_lease_owner",
+        "_notifier",
         "_stop",
         "_wakeups",
         "_work",
@@ -60,6 +65,7 @@ class OtherHumanDeliveryPipeline:
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
+        notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._factory = factory
         self._work = PostgreSQLDurableWorkGateway(factory)
@@ -68,6 +74,56 @@ class OtherHumanDeliveryPipeline:
         self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._fault_injector = fault_injector or _ignore_diagnostic
+        self._notifier = notifier
+
+    async def _notify(self, party_id: UUID) -> None:
+        if self._notifier is None:
+            return
+        try:
+            await self._notifier.notify(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.OTHER_HUMAN_RECORD,
+                    str(party_id),
+                    Instant(datetime.now(UTC)),
+                    "other-human-record.v1",
+                )
+            )
+        except Exception:
+            self._diagnostic("other_human.delivery.notification_failed")
+
+    async def _notify_after_settlement(self, party_id: UUID, effect_id: UUID) -> None:
+        for _attempt in range(10):
+            try:
+                async with self._factory.unit_of_work(
+                    LockPlan(), read_only=True
+                ) as unit:
+                    connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+                    visible = await (
+                        await connection.execute(
+                            """
+                            SELECT EXISTS (
+                                SELECT 1 FROM armi.scene_timeline_items
+                                WHERE source_kind = 'other_human_response'
+                                  AND source_ref = %s
+                            )
+                            """,
+                            (effect_id,),
+                        )
+                    ).fetchone()
+                if visible is not None and bool(visible[0]):
+                    await self._notify(party_id)
+                    return
+            except DatabaseTransactionError:
+                return
+            await asyncio.sleep(0.05)
+        self._diagnostic("other_human.delivery.notification_deferred")
+
+    def _schedule_notify(self, party_id: UUID, effect_id: UUID) -> None:
+        if self._notifier is not None:
+            asyncio.get_running_loop().call_soon(
+                asyncio.create_task,
+                self._notify_after_settlement(party_id, effect_id),
+            )
 
     async def open(self) -> None:
         await self._factory.open()
@@ -200,6 +256,7 @@ class OtherHumanDeliveryPipeline:
                             response_digest=settlement,
                         )
                     )
+                    self._schedule_notify(row[3], row[0])
                     return True
                 self._fault_injector("before_local_delivery")
                 receipt_digest = Digest.from_bytes(
@@ -222,7 +279,15 @@ class OtherHumanDeliveryPipeline:
                         payload_digest, receipt_digest, schema_version
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1)
                     """,
-                    (delivery_id, row[0], row[2], row[3], row[4], row[5], receipt_digest.value),
+                    (
+                        delivery_id,
+                        row[0],
+                        row[2],
+                        row[3],
+                        row[4],
+                        row[5],
+                        receipt_digest.value,
+                    ),
                 )
                 await connection.execute(
                     """
@@ -262,6 +327,7 @@ class OtherHumanDeliveryPipeline:
                         response_digest=receipt_digest,
                     )
                 )
+                self._schedule_notify(row[3], row[0])
             return True
         except TimeoutError:
             await self._settle_delivery_failure(lease, status="unknown")
@@ -283,7 +349,7 @@ class OtherHumanDeliveryPipeline:
                     await connection.execute(
                         """
                         SELECT effect.other_human_effect_id, effect.scene_id,
-                               effect.registration_digest
+                               effect.registration_digest, effect.other_party_id
                         FROM armi.durable_work AS work
                         JOIN armi.other_human_effects AS effect
                           ON effect.other_human_effect_id = work.owner_ref
@@ -335,6 +401,7 @@ class OtherHumanDeliveryPipeline:
                     lease,
                     WorkResultRef("other_human_effect", row[0]),
                 )
+                self._schedule_notify(row[3], row[0])
         except DatabaseTransactionError, WorkViolation:
             self._diagnostic("other_human.delivery.failure_settlement_deferred")
 
@@ -365,6 +432,7 @@ def build_other_human_delivery_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> OtherHumanDeliveryPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -384,6 +452,7 @@ def build_other_human_delivery_pipeline(
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,
+        notifier=notifier,
     )
 
 

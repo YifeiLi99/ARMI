@@ -328,6 +328,57 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/other-human-records": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Other Human Record Parties */
+    get: operations["listOtherHumanRecordParties"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/other-human-records/{party_id}/scenes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Other Human Record Scenes */
+    get: operations["listOtherHumanRecordScenes"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Other Human Record Timeline */
+    get: operations["getOtherHumanRecordTimeline"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/prompts/creator-guidance": {
     parameters: {
       query?: never;
@@ -1251,6 +1302,7 @@ export interface components {
         | "scene.timeline.invalidated"
         | "capability.request.invalidated"
         | "operation.invalidated"
+        | "other_human.record.invalidated"
         | "effect.invalidated"
         | "subject.summary.invalidated";
       /** Occurred At */
@@ -1268,6 +1320,7 @@ export interface components {
         | "scene-timeline.v4"
         | "capability-request.v4"
         | "creator-operation.v1"
+        | "other-human-record.v1"
         | "creator-effect.v2"
         | "subject-summary.v1";
       /**
@@ -1283,6 +1336,7 @@ export interface components {
         | "scene_timeline"
         | "capability_request"
         | "operation"
+        | "other_human_record"
         | "effect"
         | "subject_summary";
       /** Resource Ref */
@@ -2030,6 +2084,114 @@ export interface components {
         | "codex_result_acceptance"
         | "future_opportunity"
         | "new_evidence";
+    };
+    /** OtherHumanPartyRecordPageResponse */
+    OtherHumanPartyRecordPageResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["OtherHumanPartyRecordResponse"][];
+      /** Next Cursor */
+      next_cursor?: string | null;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "other-human-record.v1";
+    };
+    /** OtherHumanPartyRecordResponse */
+    OtherHumanPartyRecordResponse: {
+      /** Display Label */
+      display_label: string;
+      /** Last Record At */
+      last_record_at?: string | null;
+      /** Party Id */
+      party_id: string;
+      /** Party Key */
+      party_key: string;
+      /** Record Count */
+      record_count: number;
+      /** Scene Count */
+      scene_count: number;
+    };
+    /** OtherHumanSceneRecordPageResponse */
+    OtherHumanSceneRecordPageResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["OtherHumanSceneRecordResponse"][];
+      /** Next Cursor */
+      next_cursor?: string | null;
+      party: components["schemas"]["OtherHumanPartyRecordResponse"];
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "other-human-record.v1";
+    };
+    /** OtherHumanSceneRecordResponse */
+    OtherHumanSceneRecordResponse: {
+      /** Last Record At */
+      last_record_at?: string | null;
+      /** Record Count */
+      record_count: number;
+      /** Scene Id */
+      scene_id: string;
+      /** Scene Key */
+      scene_key: string;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "open" | "closed";
+    };
+    /** OtherHumanTimelineRecordPageResponse */
+    OtherHumanTimelineRecordPageResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Items */
+      items: components["schemas"]["OtherHumanTimelineRecordResponse"][];
+      /** Next Cursor */
+      next_cursor?: string | null;
+      /** Party Id */
+      party_id: string;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "other-human-record.v1";
+      /** Scene Id */
+      scene_id: string;
+    };
+    /** OtherHumanTimelineRecordResponse */
+    OtherHumanTimelineRecordResponse: {
+      /**
+       * Direction
+       * @enum {string}
+       */
+      direction: "received" | "sent";
+      /** Occurred At */
+      occurred_at: string;
+      /** Source Ref */
+      source_ref: string;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "accepted" | "completed" | "failed" | "unknown";
+      /** Text */
+      text: string;
+      /** Timeline Item Id */
+      timeline_item_id: string;
     };
     /**
      * Readiness
@@ -3375,6 +3537,206 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["OperationOutcomeResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  listOtherHumanRecordParties: {
+    parameters: {
+      query?: {
+        limit?: number;
+        cursor?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OtherHumanPartyRecordPageResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  listOtherHumanRecordScenes: {
+    parameters: {
+      query?: {
+        limit?: number;
+        cursor?: string | null;
+      };
+      header?: never;
+      path: {
+        party_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OtherHumanSceneRecordPageResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getOtherHumanRecordTimeline: {
+    parameters: {
+      query?: {
+        limit?: number;
+        cursor?: string | null;
+      };
+      header?: never;
+      path: {
+        party_id: string;
+        scene_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OtherHumanTimelineRecordPageResponse"];
         };
       };
       /** @description Bad Request */

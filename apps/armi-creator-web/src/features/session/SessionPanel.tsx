@@ -25,6 +25,7 @@ import { RelationshipPanel } from "../relationship/RelationshipPanel";
 import { CapabilityInbox } from "../capability/CapabilityInbox";
 import { EffectDetail } from "../effect/EffectDetail";
 import { OperationPanel } from "../operation/OperationPanel";
+import { OtherHumanRecordPanel } from "../otherHuman/OtherHumanRecordPanel";
 import { PromptPanel } from "../prompt/PromptPanel";
 import { TimelinePanel } from "../scene/TimelinePanel";
 import { SceneSelector } from "../scene/SceneSelector";
@@ -387,6 +388,12 @@ export function SessionPanel() {
               setSelectedEffect(null);
               setSelectedOperation(operationRef);
             }}
+          />
+          <OtherHumanRecordPanel
+            token={view.stored.token}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
+            onUnauthorized={unauthorized}
           />
           <CapabilityInbox
             token={view.stored.token}

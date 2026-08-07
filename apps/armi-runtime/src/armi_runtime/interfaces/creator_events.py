@@ -32,6 +32,7 @@ EVENT_KINDS = {
     "scene_timeline": "scene.timeline.invalidated",
     "capability_request": "capability.request.invalidated",
     "operation": "operation.invalidated",
+    "other_human_record": "other_human.record.invalidated",
     "effect": "effect.invalidated",
     "subject_summary": "subject.summary.invalidated",
 }

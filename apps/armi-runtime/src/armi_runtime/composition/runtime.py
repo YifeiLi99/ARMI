@@ -28,6 +28,7 @@ from armi_kernel.application import (
     LifeRecordQueryViolation,
     LifeViolation,
     ModelViolation,
+    OtherHumanRecordViolation,
     RecoveryStatus,
     RecoveryViolation,
     ResponseViolation,
@@ -81,6 +82,7 @@ from .database import (
     compose_model_pipeline,
     compose_other_human_delivery_pipeline,
     compose_other_human_input,
+    compose_other_human_record_query,
     compose_response_admission_pipeline,
     compose_runtime_authority,
     compose_runtime_observation,
@@ -169,6 +171,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     creator_events: CreatorEventBroker | None = None
     creator_input = None
     other_human_input = None
+    other_human_record_query = None
     other_human_delivery_pipeline = None
     life_opportunity_pipeline = None
     context_pipeline = None
@@ -295,6 +298,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 cursor_key=derive_timeline_cursor_key(prepared),
             )
             await life_record_query.open()
+            other_human_record_query = compose_other_human_record_query(
+                prepared,
+                cursor_key=derive_timeline_cursor_key(prepared),
+            )
+            await other_human_record_query.open()
             exact_life_query_pipeline = compose_exact_life_query_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
@@ -352,6 +360,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 prepared,
                 authority_admission=authority.require_writable,
                 wakeups=work_wakeups,
+                notifier=creator_events,
             )
             await other_human_input.open()
             other_human_delivery_pipeline = compose_other_human_delivery_pipeline(
@@ -362,6 +371,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     event,
                     result_code="OTHER_HUMAN_DELIVERY",
                 ),
+                notifier=creator_events,
             )
             await other_human_delivery_pipeline.open()
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
@@ -531,6 +541,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             CreatorMaintenanceViolation,
             CreatorPromptViolation,
             CreatorRelationshipViolation,
+            OtherHumanRecordViolation,
             LifeRecordQueryViolation,
             SceneQueryViolation,
             SubjectCommitViolation,
@@ -554,6 +565,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await exact_life_query_pipeline.close()
             if life_record_query is not None:
                 await life_record_query.close()
+            if other_human_record_query is not None:
+                await other_human_record_query.close()
             if creator_maintenance_query is not None:
                 await creator_maintenance_query.close()
             if creator_relationship_query is not None:
@@ -771,6 +784,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_scenes.close()
         if creator_activity_query is not None:
             await creator_activity_query.close()
+        if other_human_record_query is not None:
+            await other_human_record_query.close()
         if creator_maintenance_query is not None:
             await creator_maintenance_query.close()
         if creator_relationship_query is not None:
@@ -964,6 +979,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         scene_timeline_query=scene_timeline_query,
         creator_activity_query=creator_activity_query,
         life_record_query=life_record_query,
+        other_human_record_query=other_human_record_query,
         creator_life_material_query=life_record_query,
         creator_memory_query=life_record_query,
         creator_maintenance_query=creator_maintenance_query,
@@ -1045,6 +1061,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await other_human_delivery_pipeline.close()
         if life_record_query is not None:
             await life_record_query.close()
+        if other_human_record_query is not None:
+            await other_human_record_query.close()
         if creator_maintenance_query is not None:
             await creator_maintenance_query.close()
         if creator_relationship_query is not None:

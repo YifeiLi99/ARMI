@@ -42,6 +42,7 @@ class CreatorEventResourceKind(StrEnum):
     SCENE_TIMELINE = "scene_timeline"
     CAPABILITY_REQUEST = "capability_request"
     OPERATION = "operation"
+    OTHER_HUMAN_RECORD = "other_human_record"
     EFFECT = "effect"
     SUBJECT_SUMMARY = "subject_summary"
 
@@ -55,6 +56,7 @@ _PROJECTIONS = {
     CreatorEventResourceKind.SCENE_TIMELINE: "scene-timeline.v4",
     CreatorEventResourceKind.CAPABILITY_REQUEST: "capability-request.v4",
     CreatorEventResourceKind.OPERATION: "creator-operation.v1",
+    CreatorEventResourceKind.OTHER_HUMAN_RECORD: "other-human-record.v1",
     CreatorEventResourceKind.EFFECT: "creator-effect.v2",
     CreatorEventResourceKind.SUBJECT_SUMMARY: "subject-summary.v1",
 }

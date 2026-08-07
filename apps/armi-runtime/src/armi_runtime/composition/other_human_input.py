@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
@@ -19,6 +20,9 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CreatorEventResourceKind,
+    CreatorProjectionInvalidation,
+    CreatorProjectionNotifier,
     LockPlan,
     LockTarget,
     OtherHumanInputAcceptance,
@@ -32,7 +36,7 @@ from armi_kernel.application import (
     RegisterOtherHumanPartyCommand,
     RuntimeFence,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
@@ -53,7 +57,14 @@ async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
 
 
 class OtherHumanInputService(OtherHumanInputPort):
-    __slots__ = ("_catalog", "_repository", "_storage", "_uow_factory", "_wakeups")
+    __slots__ = (
+        "_catalog",
+        "_notifier",
+        "_repository",
+        "_storage",
+        "_uow_factory",
+        "_wakeups",
+    )
 
     def __init__(
         self,
@@ -63,12 +74,14 @@ class OtherHumanInputService(OtherHumanInputPort):
         repository: OtherHumanInputRepository,
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
         wakeups: WorkWakeupBus | None = None,
+        notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._storage = storage
         self._catalog = catalog
         self._repository = repository
         self._uow_factory = unit_of_work_factory
         self._wakeups = wakeups or WorkWakeupBus()
+        self._notifier = notifier
 
     async def open(self) -> None:
         try:
@@ -189,7 +202,23 @@ class OtherHumanInputService(OtherHumanInputPort):
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
         if acceptance.newly_accepted:
             self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+            await self._notify(context.party_id)
         return acceptance
+
+    async def _notify(self, party_id: UUID) -> None:
+        if self._notifier is None:
+            return
+        try:
+            await self._notifier.notify(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.OTHER_HUMAN_RECORD,
+                    str(party_id),
+                    Instant(datetime.now(UTC)),
+                    "other-human-record.v1",
+                )
+            )
+        except Exception:
+            return
 
     async def _context(
         self, command: OtherHumanInputCommand, *, lock: bool
@@ -326,6 +355,7 @@ def build_other_human_input_service(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     wakeups: WorkWakeupBus | None = None,
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> OtherHumanInputService:
     return OtherHumanInputService(
         storage=ContentAddressedArtifactStore(
@@ -344,6 +374,7 @@ def build_other_human_input_service(
             authority_admission=authority_admission,
         ),
         wakeups=wakeups,
+        notifier=notifier,
     )
 
 

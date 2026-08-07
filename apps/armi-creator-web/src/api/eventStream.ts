@@ -30,6 +30,11 @@ const RESOURCES = {
     UUID_V7,
   ],
   operation: ["operation.invalidated", "creator-operation.v1", UUID_V7],
+  other_human_record: [
+    "other_human.record.invalidated",
+    "other-human-record.v1",
+    UUID_V7,
+  ],
   effect: ["effect.invalidated", "creator-effect.v2", UUID_V7],
   subject_summary: [
     "subject.summary.invalidated",

@@ -68,6 +68,8 @@ from armi_kernel.application import (
     OtherHumanInputPort,
     OtherHumanInputViolation,
     OtherHumanPartyKey,
+    OtherHumanRecordQueryPort,
+    OtherHumanRecordViolation,
     OtherHumanSceneCommand,
     PromptKind,
     RegisterOtherHumanPartyCommand,
@@ -153,6 +155,12 @@ from .creator_contract import (
     LifeRecordItemResponse,
     LifeRecordPageResponse,
     LiveResponse,
+    OtherHumanPartyRecordPageResponse,
+    OtherHumanPartyRecordResponse,
+    OtherHumanSceneRecordPageResponse,
+    OtherHumanSceneRecordResponse,
+    OtherHumanTimelineRecordPageResponse,
+    OtherHumanTimelineRecordResponse,
     Readiness,
     ReadyResponse,
     RuntimeStatusResponse,
@@ -1175,6 +1183,7 @@ def create_runtime_app(
     creator_memory_query: CreatorMemoryQueryPort | None = None,
     creator_maintenance_query: CreatorMaintenanceQueryPort | None = None,
     creator_relationship_query: CreatorRelationshipQueryPort | None = None,
+    other_human_record_query: OtherHumanRecordQueryPort | None = None,
     creator_emergency_wake: CreatorEmergencyWakePort | None = None,
     creator_events: CreatorEventBroker | None = None,
     creator_input: CreatorInputAcceptancePort | None = None,
@@ -1230,9 +1239,10 @@ def create_runtime_app(
             request.url.path,
         )
         paged_query_path = (
-            request.url.path in {"/v1/life-records", "/v1/memories"}
+            request.url.path
+            in {"/v1/life-records", "/v1/memories", "/v1/other-human-records"}
             or re.fullmatch(
-                r"/v1/memories/[^/]{1,64}/timeline",
+                r"/v1/(?:memories/[^/]{1,64}/timeline|other-human-records/[^/]{1,64}/scenes(?:/[^/]{1,64}/timeline)?)",
                 request.url.path,
             )
             is not None
@@ -3063,6 +3073,199 @@ def create_runtime_app(
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
     del get_scene_timeline
+
+    def _other_human_party_wire(item: Any) -> OtherHumanPartyRecordResponse:
+        return OtherHumanPartyRecordResponse(
+            party_id=str(item.party_id),
+            party_key=item.party_key,
+            display_label=item.display_label,
+            scene_count=item.scene_count,
+            record_count=item.record_count,
+            last_record_at=(
+                None
+                if item.last_record_at is None
+                else Instant(item.last_record_at).to_wire()
+            ),
+        )
+
+    async def _other_human_record_scope(
+        request: Request,
+    ) -> tuple[int, OpaqueCursor | None] | JSONResponse:
+        if (
+            browser_sessions is None
+            or other_human_record_query is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and other_human_record_query is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE")
+                ),
+            )
+        try:
+            token = _bearer(request)
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            limit, _query, _kind, cursor = _life_query_parameters(
+                request, allow_kind=False, allow_text=False
+            )
+            return limit, cursor
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code, content=_rejected(error.code)
+            )
+        except ContractViolation:
+            return JSONResponse(status_code=400, content=_rejected("INPUT_PAGE"))
+
+    @app.get("/v1/other-human-records")
+    async def list_other_human_record_parties(request: Request) -> JSONResponse:
+        scope = await _other_human_record_scope(request)
+        if isinstance(scope, JSONResponse):
+            return scope
+        assert other_human_record_query is not None
+        try:
+            page = await other_human_record_query.list_parties(
+                limit=scope[0], cursor=scope[1]
+            )
+        except OtherHumanRecordViolation as error:
+            status = 400 if error.code.endswith(("CURSOR", "LIMIT")) else 503
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("INPUT_PAGE")
+                    if status == 400
+                    else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE")
+                ),
+            )
+        response = OtherHumanPartyRecordPageResponse(
+            contract_version="1.0",
+            projection_version="other-human-record.v1",
+            items=[_other_human_party_wire(item) for item in page.items],
+            next_cursor=None if page.next_cursor is None else page.next_cursor.value,
+        )
+        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
+
+    @app.get("/v1/other-human-records/{party_id}/scenes")
+    async def list_other_human_record_scenes(
+        party_id: str, request: Request
+    ) -> JSONResponse:
+        scope = await _other_human_record_scope(request)
+        if isinstance(scope, JSONResponse):
+            return scope
+        assert other_human_record_query is not None
+        try:
+            page = await other_human_record_query.list_scenes(
+                UUID(party_id), limit=scope[0], cursor=scope[1]
+            )
+        except ValueError:
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_OTHER_HUMAN_PARTY")
+            )
+        except OtherHumanRecordViolation as error:
+            if error.code.endswith("NOT-VISIBLE"):
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_OTHER_HUMAN_RECORD_NOT_VISIBLE"),
+                )
+            status = 400 if error.code.endswith(("CURSOR", "LIMIT", "SCOPE")) else 503
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("INPUT_PAGE")
+                    if status == 400
+                    else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE")
+                ),
+            )
+        response = OtherHumanSceneRecordPageResponse(
+            contract_version="1.0",
+            projection_version="other-human-record.v1",
+            party=_other_human_party_wire(page.party),
+            items=[
+                OtherHumanSceneRecordResponse(
+                    scene_id=str(item.scene_id),
+                    scene_key=item.scene_key,
+                    status=cast(Literal["open", "closed"], item.status),
+                    record_count=item.record_count,
+                    last_record_at=(
+                        None
+                        if item.last_record_at is None
+                        else Instant(item.last_record_at).to_wire()
+                    ),
+                )
+                for item in page.items
+            ],
+            next_cursor=None if page.next_cursor is None else page.next_cursor.value,
+        )
+        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
+
+    @app.get("/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline")
+    async def get_other_human_record_timeline(
+        party_id: str, scene_id: str, request: Request
+    ) -> JSONResponse:
+        scope = await _other_human_record_scope(request)
+        if isinstance(scope, JSONResponse):
+            return scope
+        assert other_human_record_query is not None
+        try:
+            page = await other_human_record_query.timeline(
+                UUID(party_id),
+                UUID(scene_id),
+                limit=scope[0],
+                cursor=scope[1],
+            )
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content=_rejected("INPUT_OTHER_HUMAN_RECORD_SCOPE"),
+            )
+        except OtherHumanRecordViolation as error:
+            if error.code.endswith("NOT-VISIBLE"):
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_OTHER_HUMAN_RECORD_NOT_VISIBLE"),
+                )
+            status = 400 if error.code.endswith(("CURSOR", "LIMIT", "SCOPE")) else 503
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("INPUT_PAGE")
+                    if status == 400
+                    else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE")
+                ),
+            )
+        response = OtherHumanTimelineRecordPageResponse(
+            contract_version="1.0",
+            projection_version="other-human-record.v1",
+            party_id=str(page.party_id),
+            scene_id=str(page.scene_id),
+            items=[
+                OtherHumanTimelineRecordResponse(
+                    timeline_item_id=str(item.timeline_item_id),
+                    source_ref=str(item.source_ref),
+                    direction=item.direction.value,
+                    status=cast(
+                        Literal["accepted", "completed", "failed", "unknown"],
+                        item.result_status,
+                    ),
+                    text=item.text,
+                    occurred_at=Instant(item.occurred_at).to_wire(),
+                )
+                for item in page.items
+            ],
+            next_cursor=None if page.next_cursor is None else page.next_cursor.value,
+        )
+        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
+
+    del list_other_human_record_parties, list_other_human_record_scenes
+    del get_other_human_record_timeline
 
     def other_human_failure(error: OtherHumanInputViolation) -> JSONResponse:
         if error.code.startswith("SCOPE-"):

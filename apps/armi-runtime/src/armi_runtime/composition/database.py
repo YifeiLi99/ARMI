@@ -22,6 +22,7 @@ from armi_kernel.application import (
     LifeRecordQueryViolation,
     LifeViolation,
     ModelViolation,
+    OtherHumanRecordViolation,
     ResponseViolation,
     RuntimeFence,
     SceneQueryViolation,
@@ -50,6 +51,9 @@ from armi_runtime.adapters.persistence.creator_relationships import (
     PostgreSQLCreatorRelationshipQuery,
 )
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
+from armi_runtime.adapters.persistence.other_human_records import (
+    PostgreSQLOtherHumanRecordQuery,
+)
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
 )
@@ -502,9 +506,7 @@ def compose_life_record_query(
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
-                    raise LifeRecordQueryViolation(
-                        "LIFE-QUERY-UNAVAILABLE"
-                    ) from None
+                    raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
                 config = prepared.effective.config
                 return PostgreSQLLifeRecordQuery(
                     conninfo,
@@ -519,6 +521,43 @@ def compose_life_record_query(
             return handle.consume(create)
     except ConfigurationViolation:
         raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
+
+
+def compose_other_human_record_query(
+    prepared: PreparedEnvironment,
+    *,
+    cursor_key: bytes,
+) -> PostgreSQLOtherHumanRecordQuery:
+    """Resolve the read-only Creator record projection for other humans."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.runtime")
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLOtherHumanRecordQuery:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise OtherHumanRecordViolation(
+                        "OTHER-HUMAN-RECORD-UNAVAILABLE"
+                    ) from None
+                config = prepared.effective.config
+                return PostgreSQLOtherHumanRecordQuery(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    cursor_key=cursor_key,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
 
 
 def compose_exact_life_query_pipeline(
@@ -576,6 +615,7 @@ def compose_other_human_delivery_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> OtherHumanDeliveryPipeline:
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
@@ -606,6 +646,7 @@ def compose_other_human_delivery_pipeline(
                     authority_admission=authority_admission,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
+                    notifier=notifier,
                 )
 
             return handle.consume(create)
@@ -805,6 +846,7 @@ def compose_other_human_input(
     *,
     authority_admission: Callable[[], RuntimeFence],
     wakeups: WorkWakeupBus | None = None,
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> OtherHumanInputService:
     """Resolve the Runtime credential for the local other-human T-02 owner."""
 
@@ -843,6 +885,7 @@ def compose_other_human_input(
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
                     wakeups=wakeups,
+                    notifier=notifier,
                 )
 
             return handle.consume(create)
@@ -876,9 +919,7 @@ def compose_creator_prompt_service(
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
-                    raise CreatorPromptViolation(
-                        "DB-PROMPT-UNAVAILABLE"
-                    ) from None
+                    raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
                 config = prepared.effective.config
                 return build_creator_prompt_service(
                     conninfo,
@@ -1549,6 +1590,7 @@ __all__ = (
     "compose_life_record_query",
     "compose_model_pipeline",
     "compose_other_human_delivery_pipeline",
+    "compose_other_human_record_query",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",
     "compose_runtime_observation",

@@ -180,6 +180,8 @@ def check_repository(root: Path) -> list[Violation]:
                     "material",
                     "memory",
                     "operation",
+                    "otherHuman",
+                    "prompt",
                     "relationship",
                     "scene",
                     "session",

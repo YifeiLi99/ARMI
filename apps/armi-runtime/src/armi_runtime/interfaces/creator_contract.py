@@ -218,6 +218,62 @@ class SceneTimelinePageResponse(_StrictWireModel):
     ) = None
 
 
+class OtherHumanPartyRecordResponse(_StrictWireModel):
+    party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    party_key: Annotated[str, Field(min_length=1, max_length=128)]
+    display_label: Annotated[str, Field(min_length=1, max_length=256)]
+    scene_count: Annotated[int, Field(ge=0)]
+    record_count: Annotated[int, Field(ge=0)]
+    last_record_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
+
+
+class OtherHumanPartyRecordPageResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["other-human-record.v1"]
+    items: Annotated[list[OtherHumanPartyRecordResponse], Field(max_length=100)]
+    next_cursor: (
+        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
+    ) = None
+
+
+class OtherHumanSceneRecordResponse(_StrictWireModel):
+    scene_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
+    status: Literal["open", "closed"]
+    record_count: Annotated[int, Field(ge=0)]
+    last_record_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
+
+
+class OtherHumanSceneRecordPageResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["other-human-record.v1"]
+    party: OtherHumanPartyRecordResponse
+    items: Annotated[list[OtherHumanSceneRecordResponse], Field(max_length=100)]
+    next_cursor: (
+        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
+    ) = None
+
+
+class OtherHumanTimelineRecordResponse(_StrictWireModel):
+    timeline_item_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    source_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    direction: Literal["received", "sent"]
+    status: Literal["accepted", "completed", "failed", "unknown"]
+    text: Annotated[str, Field(min_length=1, max_length=65536)]
+    occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+
+class OtherHumanTimelineRecordPageResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["other-human-record.v1"]
+    party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    scene_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    items: Annotated[list[OtherHumanTimelineRecordResponse], Field(max_length=100)]
+    next_cursor: (
+        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
+    ) = None
+
+
 class CreatorSceneCreateRequest(_StrictWireModel):
     contract_version: Literal["1.0"]
     scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
@@ -969,6 +1025,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "scene.timeline.invalidated",
         "capability.request.invalidated",
         "operation.invalidated",
+        "other_human.record.invalidated",
         "effect.invalidated",
         "subject.summary.invalidated",
     ]
@@ -981,6 +1038,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "scene_timeline",
         "capability_request",
         "operation",
+        "other_human_record",
         "effect",
         "subject_summary",
     ]
@@ -994,6 +1052,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "scene-timeline.v4",
         "capability-request.v4",
         "creator-operation.v1",
+        "other-human-record.v1",
         "creator-effect.v2",
         "subject-summary.v1",
     ]
@@ -1047,6 +1106,11 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             "operation": (
                 "operation.invalidated",
                 "creator-operation.v1",
+                _UUIDV7_PATTERN,
+            ),
+            "other_human_record": (
+                "other_human.record.invalidated",
+                "other-human-record.v1",
                 _UUIDV7_PATTERN,
             ),
             "effect": (
@@ -2435,6 +2499,74 @@ def build_creator_openapi() -> dict[str, object]:
         del scene_key, limit, cursor
         raise NotImplementedError
 
+    @app.get(
+        "/v1/other-human-records",
+        operation_id="listOtherHumanRecordParties",
+        response_model=OtherHumanPartyRecordPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def list_other_human_record_parties(
+        limit: Annotated[int, Query(ge=1, le=100)] = 25,
+        cursor: Annotated[
+            str | None, Query(pattern=_CURSOR_PATTERN, max_length=2048)
+        ] = None,
+    ) -> OtherHumanPartyRecordPageResponse:
+        del limit, cursor
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/other-human-records/{party_id}/scenes",
+        operation_id="listOtherHumanRecordScenes",
+        response_model=OtherHumanSceneRecordPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def list_other_human_record_scenes(
+        party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+        limit: Annotated[int, Query(ge=1, le=100)] = 25,
+        cursor: Annotated[
+            str | None, Query(pattern=_CURSOR_PATTERN, max_length=2048)
+        ] = None,
+    ) -> OtherHumanSceneRecordPageResponse:
+        del party_id, limit, cursor
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline",
+        operation_id="getOtherHumanRecordTimeline",
+        response_model=OtherHumanTimelineRecordPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_other_human_record_timeline(
+        party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+        scene_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)],
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        cursor: Annotated[
+            str | None, Query(pattern=_CURSOR_PATTERN, max_length=2048)
+        ] = None,
+    ) -> OtherHumanTimelineRecordPageResponse:
+        del party_id, scene_id, limit, cursor
+        raise NotImplementedError
+
     @app.post(
         "/v1/scenes/{scene_key}/messages",
         operation_id="acceptCreatorMessage",
@@ -2630,6 +2762,9 @@ def build_creator_openapi() -> dict[str, object]:
         close_creator_scene,
         reopen_creator_scene,
         scene_timeline,
+        list_other_human_record_parties,
+        list_other_human_record_scenes,
+        get_other_human_record_timeline,
         accept_creator_message,
         accept_creator_codex_task,
         get_creator_operation,
@@ -2650,6 +2785,13 @@ def build_creator_openapi() -> dict[str, object]:
     schema["paths"]["/v1/scenes/{scene_key}/timeline"]["get"]["responses"].pop(
         "422", None
     )
+    schema["paths"]["/v1/other-human-records"]["get"]["responses"].pop("422", None)
+    schema["paths"]["/v1/other-human-records/{party_id}/scenes"]["get"][
+        "responses"
+    ].pop("422", None)
+    schema["paths"]["/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline"][
+        "get"
+    ]["responses"].pop("422", None)
     schema["paths"]["/v1/activities/{activity_id}/timeline"]["get"]["responses"].pop(
         "422", None
     )
@@ -2752,6 +2894,12 @@ __all__ = (
     "LifeRecordPageResponse",
     "LiveResponse",
     "OperationOutcomeResponse",
+    "OtherHumanPartyRecordPageResponse",
+    "OtherHumanPartyRecordResponse",
+    "OtherHumanSceneRecordPageResponse",
+    "OtherHumanSceneRecordResponse",
+    "OtherHumanTimelineRecordPageResponse",
+    "OtherHumanTimelineRecordResponse",
     "Readiness",
     "ReadyResponse",
     "RejectedOutcomeResponse",

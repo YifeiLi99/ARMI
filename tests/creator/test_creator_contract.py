@@ -87,6 +87,9 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/relationships/{relationship_id}/timeline",
                 "/v1/runtime/status",
                 "/v1/operations/{result_ref}",
+                "/v1/other-human-records",
+                "/v1/other-human-records/{party_id}/scenes",
+                "/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline",
                 "/v1/prompts/creator-guidance",
                 "/v1/prompts/creator-guidance/deactivation",
                 "/v1/effects/{effect_id}",
@@ -259,6 +262,20 @@ class CreatorContractTests(unittest.TestCase):
         operation = paths["/v1/operations/{result_ref}"]["get"]
         self.assertEqual(operation["operationId"], "getCreatorOperation")
         self.assertEqual(operation["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(
+            paths["/v1/other-human-records"]["get"]["operationId"],
+            "listOtherHumanRecordParties",
+        )
+        self.assertEqual(
+            paths["/v1/other-human-records/{party_id}/scenes"]["get"]["operationId"],
+            "listOtherHumanRecordScenes",
+        )
+        self.assertEqual(
+            paths["/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline"][
+                "get"
+            ]["operationId"],
+            "getOtherHumanRecordTimeline",
+        )
         summary = paths["/v1/subject/summary"]["get"]
         self.assertEqual(summary["operationId"], "getSubjectSummary")
         self.assertEqual(summary["security"], [{"browserSessionBearer": []}])

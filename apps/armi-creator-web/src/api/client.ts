@@ -29,6 +29,12 @@ export type CreatorRelationshipCurrent =
   components["schemas"]["CreatorRelationshipCurrentResponse"];
 export type CreatorRelationshipTimeline =
   components["schemas"]["CreatorRelationshipTimelineResponse"];
+export type OtherHumanPartyRecordPage =
+  components["schemas"]["OtherHumanPartyRecordPageResponse"];
+export type OtherHumanSceneRecordPage =
+  components["schemas"]["OtherHumanSceneRecordPageResponse"];
+export type OtherHumanTimelineRecordPage =
+  components["schemas"]["OtherHumanTimelineRecordPageResponse"];
 export type CreatorRelationshipBoundary =
   components["schemas"]["CreatorRelationshipBoundaryRequest"];
 export type AcceptedOperation =
@@ -359,6 +365,63 @@ export async function getCreatorRelationshipTimeline(
 ): Promise<CreatorRelationshipTimeline> {
   const response = await fetch(
     `/v1/relationships/${encodeURIComponent(relationshipId)}/timeline`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
+}
+
+export async function getOtherHumanRecordParties(
+  token: string,
+  limit: number,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<OtherHumanPartyRecordPage> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) query.set("cursor", cursor);
+  const response = await fetch(`/v1/other-human-records?${query.toString()}`, {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getOtherHumanRecordScenes(
+  token: string,
+  partyId: string,
+  limit: number,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<OtherHumanSceneRecordPage> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) query.set("cursor", cursor);
+  const response = await fetch(
+    `/v1/other-human-records/${encodeURIComponent(partyId)}/scenes?${query.toString()}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson(response);
+}
+
+export async function getOtherHumanRecordTimeline(
+  token: string,
+  partyId: string,
+  sceneId: string,
+  limit: number,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<OtherHumanTimelineRecordPage> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) query.set("cursor", cursor);
+  const response = await fetch(
+    `/v1/other-human-records/${encodeURIComponent(partyId)}/scenes/${encodeURIComponent(sceneId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
       headers: { Authorization: `Bearer ${token}` },

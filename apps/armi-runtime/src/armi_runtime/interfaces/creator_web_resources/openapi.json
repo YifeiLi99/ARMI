@@ -1792,6 +1792,7 @@
               "scene.timeline.invalidated",
               "capability.request.invalidated",
               "operation.invalidated",
+              "other_human.record.invalidated",
               "effect.invalidated",
               "subject.summary.invalidated"
             ],
@@ -1813,6 +1814,7 @@
               "scene-timeline.v4",
               "capability-request.v4",
               "creator-operation.v1",
+              "other-human-record.v1",
               "creator-effect.v2",
               "subject-summary.v1"
             ],
@@ -1829,6 +1831,7 @@
               "scene_timeline",
               "capability_request",
               "operation",
+              "other_human_record",
               "effect",
               "subject_summary"
             ],
@@ -3798,6 +3801,306 @@
           "details"
         ],
         "title": "OperationWaitingOutcomeResponse",
+        "type": "object"
+      },
+      "OtherHumanPartyRecordPageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OtherHumanPartyRecordResponse"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_version": {
+            "const": "other-human-record.v1",
+            "title": "Projection Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "items"
+        ],
+        "title": "OtherHumanPartyRecordPageResponse",
+        "type": "object"
+      },
+      "OtherHumanPartyRecordResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "display_label": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Display Label",
+            "type": "string"
+          },
+          "last_record_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Record At"
+          },
+          "party_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Party Id",
+            "type": "string"
+          },
+          "party_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Party Key",
+            "type": "string"
+          },
+          "record_count": {
+            "minimum": 0.0,
+            "title": "Record Count",
+            "type": "integer"
+          },
+          "scene_count": {
+            "minimum": 0.0,
+            "title": "Scene Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "party_id",
+          "party_key",
+          "display_label",
+          "scene_count",
+          "record_count"
+        ],
+        "title": "OtherHumanPartyRecordResponse",
+        "type": "object"
+      },
+      "OtherHumanSceneRecordPageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OtherHumanSceneRecordResponse"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "party": {
+            "$ref": "#/components/schemas/OtherHumanPartyRecordResponse"
+          },
+          "projection_version": {
+            "const": "other-human-record.v1",
+            "title": "Projection Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "party",
+          "items"
+        ],
+        "title": "OtherHumanSceneRecordPageResponse",
+        "type": "object"
+      },
+      "OtherHumanSceneRecordResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "last_record_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Record At"
+          },
+          "record_count": {
+            "minimum": 0.0,
+            "title": "Record Count",
+            "type": "integer"
+          },
+          "scene_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Scene Id",
+            "type": "string"
+          },
+          "scene_key": {
+            "pattern": "[a-z0-9][a-z0-9._-]{0,63}",
+            "title": "Scene Key",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "closed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scene_id",
+          "scene_key",
+          "status",
+          "record_count"
+        ],
+        "title": "OtherHumanSceneRecordResponse",
+        "type": "object"
+      },
+      "OtherHumanTimelineRecordPageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OtherHumanTimelineRecordResponse"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "party_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Party Id",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "other-human-record.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "scene_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Scene Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "party_id",
+          "scene_id",
+          "items"
+        ],
+        "title": "OtherHumanTimelineRecordPageResponse",
+        "type": "object"
+      },
+      "OtherHumanTimelineRecordResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "enum": [
+              "received",
+              "sent"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "occurred_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "source_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Source Ref",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "completed",
+              "failed",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "timeline_item_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Timeline Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timeline_item_id",
+          "source_ref",
+          "direction",
+          "status",
+          "text",
+          "occurred_at"
+        ],
+        "title": "OtherHumanTimelineRecordResponse",
         "type": "object"
       },
       "Readiness": {
@@ -5908,6 +6211,341 @@
           }
         ],
         "summary": "Get Creator Operation"
+      }
+    },
+    "/v1/other-human-records": {
+      "get": {
+        "operationId": "listOtherHumanRecordParties",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtherHumanPartyRecordPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "List Other Human Record Parties"
+      }
+    },
+    "/v1/other-human-records/{party_id}/scenes": {
+      "get": {
+        "operationId": "listOtherHumanRecordScenes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "party_id",
+            "required": true,
+            "schema": {
+              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+              "title": "Party Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtherHumanSceneRecordPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "List Other Human Record Scenes"
+      }
+    },
+    "/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline": {
+      "get": {
+        "operationId": "getOtherHumanRecordTimeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "party_id",
+            "required": true,
+            "schema": {
+              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+              "title": "Party Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scene_id",
+            "required": true,
+            "schema": {
+              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+              "title": "Scene Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtherHumanTimelineRecordPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Get Other Human Record Timeline"
       }
     },
     "/v1/prompts/creator-guidance": {

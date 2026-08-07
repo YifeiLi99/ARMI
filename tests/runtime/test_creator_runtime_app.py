@@ -65,9 +65,16 @@ from armi_kernel.application import (
     OtherHumanInputCommand,
     OtherHumanInputViolation,
     OtherHumanInteractionId,
+    OtherHumanPartyRecord,
+    OtherHumanPartyRecordPage,
     OtherHumanPartyView,
+    OtherHumanRecordDirection,
     OtherHumanSceneCommand,
+    OtherHumanSceneRecord,
+    OtherHumanSceneRecordPage,
     OtherHumanSceneView,
+    OtherHumanTimelineRecord,
+    OtherHumanTimelineRecordPage,
     PromptDocumentStatus,
     PromptKind,
     PromptRevisionKind,
@@ -183,6 +190,46 @@ class _OtherHumanInput:
             acceptance,
         )
         return acceptance
+
+
+class _OtherHumanRecordQuery:
+    def __init__(self) -> None:
+        self.party_id = uuid7()
+        self.scene_id = uuid7()
+        self.now = datetime.now(UTC)
+
+    async def list_parties(self, *, limit: int, cursor=None):
+        del limit, cursor
+        return OtherHumanPartyRecordPage(
+            (OtherHumanPartyRecord(self.party_id, "friend-1", "朋友", 1, 2, self.now),),
+            None,
+        )
+
+    async def list_scenes(self, party_id, *, limit: int, cursor=None):
+        del limit, cursor
+        return OtherHumanSceneRecordPage(
+            OtherHumanPartyRecord(party_id, "friend-1", "朋友", 1, 2, self.now),
+            (OtherHumanSceneRecord(self.scene_id, "tea", "open", 2, self.now),),
+            None,
+        )
+
+    async def timeline(self, party_id, scene_id, *, limit: int, cursor=None):
+        del limit, cursor
+        return OtherHumanTimelineRecordPage(
+            party_id,
+            scene_id,
+            (
+                OtherHumanTimelineRecord(
+                    uuid7(),
+                    uuid7(),
+                    OtherHumanRecordDirection.RECEIVED,
+                    "accepted",
+                    "你好",
+                    self.now,
+                ),
+            ),
+            None,
+        )
 
 
 class _CreatorScenes:
@@ -715,6 +762,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.events = CreatorEventBroker(epoch=b"\x06" * 16)
         self.creator_input = _CreatorInput()
         self.other_human_input = _OtherHumanInput()
+        self.other_human_record_query = _OtherHumanRecordQuery()
         self.creator_scenes = _CreatorScenes()
         self.creator_codex_task = _CreatorCodexTask()
         self.capability_policy = _CapabilityPolicy()
@@ -775,6 +823,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_events=self.events,
             creator_input=self.creator_input,
             other_human_input=self.other_human_input,
+            other_human_record_query=self.other_human_record_query,
             codex_task_admission=self.creator_codex_task,
             creator_operations=self.creator_input,
             creator_prompt=self.creator_prompt,
@@ -862,6 +911,37 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 json={"message": "关闭后输入"},
             )
             self.assertEqual(after_close.status_code, 404)
+
+    def test_creator_reads_other_human_records_by_party_and_scene(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+                content=b"",
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            headers = self._browser_headers(session.json()["browser_session_token"])
+            parties = client.get("/v1/other-human-records?limit=20", headers=headers)
+            self.assertEqual(parties.status_code, 200)
+            party = parties.json()["items"][0]
+            self.assertEqual(party["display_label"], "朋友")
+            scenes = client.get(
+                f"/v1/other-human-records/{party['party_id']}/scenes?limit=20",
+                headers=headers,
+            )
+            self.assertEqual(scenes.status_code, 200)
+            scene_id = scenes.json()["items"][0]["scene_id"]
+            timeline = client.get(
+                f"/v1/other-human-records/{party['party_id']}/scenes/{scene_id}/timeline?limit=50",
+                headers=headers,
+            )
+            self.assertEqual(timeline.status_code, 200)
+            self.assertEqual(timeline.json()["items"][0]["text"], "你好")
+            self.assertEqual(timeline.json()["items"][0]["direction"], "received")
 
     def test_health_and_static_surface_are_exact(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
