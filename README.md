@@ -44,6 +44,14 @@ docs/                       私有叙述性设计与外部研究资料
 
 ## 本地开发入口
 
+环境已经完成数据库安装和出生初始化后，可从仓库根目录一键拉起 PostgreSQL 与 Runtime：
+
+```powershell
+.\start_armi.ps1 -EnvironmentRoot C:\path\to\environment
+```
+
+也可以预先设置 `ARMI_ENVIRONMENT_ROOT`，之后直接运行 `.\start_armi.ps1`。脚本会同步锁定依赖、检查环境、启动并等待 PostgreSQL、检查数据库、启动 Runtime，并以业务 readiness 为最终成功条件；它不会暗中执行数据库安装或出生初始化。
+
 开发数据库固定使用 Docker 中的 PostgreSQL 18.4 + pgvector 0.8.6：
 
 ```powershell
