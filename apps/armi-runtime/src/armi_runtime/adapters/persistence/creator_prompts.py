@@ -117,7 +117,7 @@ class CreatorPromptRepository:
                 content_digest=(None if row[8] is None else Digest(str(row[8]))),
                 activated_at=(None if row[9] is None else Instant(row[9])),
             )
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise CreatorPromptViolation("DB-PROMPT-INTEGRITY") from None
 
     async def append_revision(

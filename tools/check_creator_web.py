@@ -175,6 +175,7 @@ def check_repository(root: Path) -> list[Violation]:
                 not in {
                     "activity",
                     "capability",
+                    "dataRights",
                     "effect",
                     "export",
                     "maintenance",

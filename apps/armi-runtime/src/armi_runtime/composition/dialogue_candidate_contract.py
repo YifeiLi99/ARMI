@@ -815,9 +815,9 @@ class DialogueExactLifeQueryDecision(CreatorDialogueCandidate):
         "relationship",
         "self_change",
     ]
-    query_text: Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None = (
-        None
-    )
+    query_text: (
+        Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None
+    ) = None
 
     @property
     def schema_version(self) -> str:
@@ -845,9 +845,7 @@ class DialogueTerminalDecision(DialogueTerminalDecisionV15):
 
 
 DialogueDecision = Annotated[
-    DialogueReplyDecision
-    | DialogueTerminalDecision
-    | DialogueExactLifeQueryDecision,
+    DialogueReplyDecision | DialogueTerminalDecision | DialogueExactLifeQueryDecision,
     Field(discriminator="kind"),
 ]
 

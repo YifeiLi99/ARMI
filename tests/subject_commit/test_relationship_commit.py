@@ -109,7 +109,9 @@ async def test_relationship_commit_binds_every_revision_value() -> None:
 
 
 @pytest.mark.asyncio
-async def test_relationship_commit_accepts_only_episode_bound_other_human_party() -> None:
+async def test_relationship_commit_accepts_only_episode_bound_other_human_party() -> (
+    None
+):
     subject_id = uuid7()
     subject_party_id = uuid7()
     other_party_id = uuid7()

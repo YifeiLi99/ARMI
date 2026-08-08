@@ -99,6 +99,7 @@ from armi_kernel.application import (
     RelationshipPartyRole,
     RelationshipStatus,
     SceneKey,
+    SceneQueryViolation,
     SceneStatus,
     SceneTimelinePage,
     SceneTimelineQuery,
@@ -133,6 +134,8 @@ CREATOR_BEARER = f"creator-v1.{'a' * 43}"
 
 class _SceneTimelineQuery:
     async def query(self, request: SceneTimelineQuery) -> SceneTimelinePage:
+        if request.scene_key.value != "default":
+            raise SceneQueryViolation("SCENE-NOT-VISIBLE")
         return SceneTimelinePage(scene_key=request.scene_key, items=())
 
 

@@ -1381,14 +1381,10 @@ class DeterministicCandidateValidator:
                 context=self._context,
             )
             if relationship is None:
-                return _rejected(
-                    relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT"
-                )
+                return _rejected(relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT")
             proposal_no += 1
         action_choices: tuple[
-            OtherHumanReplyDraft
-            | OtherHumanEndConversationDraft
-            | FormalNoActionDraft,
+            OtherHumanReplyDraft | OtherHumanEndConversationDraft | FormalNoActionDraft,
             ...,
         ] = ()
         disposition = CandidateDisposition.CHANGE

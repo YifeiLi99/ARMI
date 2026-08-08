@@ -283,9 +283,7 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
     candidate = {
         "kind": "reply",
         "content": "我会尊重这条边界。",
-        "experience": {
-            "first_person_gist": "对方要求这段交流不要向其他人披露。"
-        },
+        "experience": {"first_person_gist": "对方要求这段交流不要向其他人披露。"},
         "relationship_change": {
             "interpretation": "我需要尊重当前对方独立的隐私边界。",
             "fact": {
@@ -516,11 +514,7 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
             "我仍在等待对方履行回复承诺。",
             (),
             RelationshipStatus.ACTIVE,
-            (
-                CandidateRelationshipCommitmentContext(
-                    commitment, commitment_digest
-                ),
-            ),
+            (CandidateRelationshipCommitmentContext(commitment, commitment_digest),),
         ),
     )
     bases = (
@@ -569,9 +563,7 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
         json.dumps(
             {
                 "kind": "silence",
-                "experience": {
-                    "first_person_gist": "对方确认没有按承诺的时间回复。"
-                },
+                "experience": {"first_person_gist": "对方确认没有按承诺的时间回复。"},
                 "relationship_change": {
                     "commitment_change": {
                         "action": "violate",
@@ -590,7 +582,9 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
     relationship = result.change_set.relationships[0]
     assert relationship.other_party_id == ids[6]
     assert relationship.commitments[0].status is RelationshipCommitmentStatus.VIOLATED
-    assert relationship.open_issues[0].kind is RelationshipIssueKind.COMMITMENT_VIOLATION
+    assert (
+        relationship.open_issues[0].kind is RelationshipIssueKind.COMMITMENT_VIOLATION
+    )
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert reparsed.relationships == result.change_set.relationships
 
@@ -1791,9 +1785,7 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
     assert len(result.change_set.action_choices) == 1
     reply = result.change_set.action_choices[0]
     assert isinstance(reply, CreatorReplyDraft)
-    assert reply.content_bytes.decode("utf-8") == (
-        "我刚查到那次约定的记录。"
-    )
+    assert reply.content_bytes.decode("utf-8") == ("我刚查到那次约定的记录。")
 
     candidate["experiences"] = [
         {

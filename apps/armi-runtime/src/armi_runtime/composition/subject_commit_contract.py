@@ -403,16 +403,15 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             if relationships and (
                 len(relationships) != 1
                 or len(experiences) != 1
-                or relationships[0].source_experience_ref
-                != experiences[0].proposal_ref
+                or relationships[0].source_experience_ref != experiences[0].proposal_ref
             ):
                 raise ValueError
             if result.disposition is CandidateDisposition.CHANGE:
                 valid_action_shape = (
-                    len(other_actions) == 1 and len(action_choices) == 1
-                ) or (
-                    len(no_action) == 1 and len(action_choices) == 1
-                ) or not action_choices
+                    (len(other_actions) == 1 and len(action_choices) == 1)
+                    or (len(no_action) == 1 and len(action_choices) == 1)
+                    or not action_choices
+                )
                 if not valid_action_shape or not (change_material or other_actions):
                     raise ValueError
             elif result.disposition is CandidateDisposition.NO_ACTION:

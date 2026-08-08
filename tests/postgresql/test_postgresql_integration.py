@@ -624,6 +624,34 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     creator_status = json.loads(creator_status_response.read())
                     self.assertEqual(creator_status_response.status, 200)
                     self.assertEqual(creator_status["readiness"], "ready")
+                    p1_read_projections = {
+                        "/v1/scenes": "creator-scenes.v1",
+                        "/v1/scenes/default/timeline?limit=1": "scene-timeline.v4",
+                        "/v1/activities": "creator-activity.v1",
+                        "/v1/life-records?limit=1": "life-record-query.v2",
+                        "/v1/memories?limit=1": "creator-memory.v1",
+                        "/v1/maintenance/status": "creator-maintenance.v2",
+                        "/v1/relationships/current": "creator-relationship.v1",
+                        "/v1/prompts/creator-guidance": "creator-prompt.v1",
+                        "/v1/other-human-records?limit=1": "other-human-record.v1",
+                        "/v1/data-rights/orders": "data-rights-order.v2",
+                        "/v1/subject/summary": "subject-summary.v1",
+                        "/v1/capability-requests?limit=1": "capability-request.v4",
+                    }
+                    for path, projection_version in p1_read_projections.items():
+                        with self.subTest(p1_read_path=path):
+                            connection.request(
+                                "GET", path, headers=authenticated_headers
+                            )
+                            projection_response = connection.getresponse()
+                            projection = json.loads(projection_response.read())
+                            self.assertEqual(
+                                projection_response.status, 200, projection
+                            )
+                            self.assertEqual(
+                                projection["projection_version"],
+                                projection_version,
+                            )
                     input_body = json.dumps(
                         {
                             "contract_version": "1.0",

@@ -134,7 +134,8 @@ class CreatorPromptView:
                 and self.status is not PromptDocumentStatus.INACTIVE
             )
             or (
-                self.revision_kind in (
+                self.revision_kind
+                in (
                     PromptRevisionKind.CREATED,
                     PromptRevisionKind.REVISED,
                 )
@@ -158,9 +159,7 @@ class CreatorPromptView:
                 self.revision_no is not None
                 and (type(self.revision_no) is not int or self.revision_no < 1)
             )
-            or (
-                self.revision_no == 1 and self.previous_revision_id is not None
-            )
+            or (self.revision_no == 1 and self.previous_revision_id is not None)
             or (
                 self.revision_no is not None
                 and self.revision_no > 1

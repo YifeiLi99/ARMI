@@ -334,7 +334,7 @@ class CreatorPromptService(CreatorPromptPort):
         try:
             async with await self._storage.open_verified(snapshot.artifact) as stream:
                 content_bytes = await stream.read()
-        except (ArtifactViolation, OSError):
+        except ArtifactViolation, OSError:
             raise CreatorPromptViolation("ART-PROMPT-READ") from None
         if content_bytes is None:
             raise CreatorPromptViolation("ART-PROMPT-READ")

@@ -845,14 +845,10 @@ def parse_candidate(
             autonomous_value = dict(candidate_object)
             autonomous_value.pop("schema_version", None)
             candidate = parse_autonomous_activity_candidate(autonomous_value)
-        elif (
-            candidate_object is not None
-            and expected_version
-            in {
-                HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
-                OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
-            }
-        ):
+        elif candidate_object is not None and expected_version in {
+            HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+            OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        }:
             other_human_value = dict(candidate_object)
             other_human_value.pop("schema_version", None)
             candidate = parse_other_human_dialogue_candidate(
