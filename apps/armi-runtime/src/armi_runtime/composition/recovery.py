@@ -268,7 +268,9 @@ def _write_manifest(path: Path, value: dict[str, object]) -> None:
     )
 
 
-def _result(manifest: dict[str, object], bundle: Path, *, status: str) -> RecoveryResult:
+def _result(
+    manifest: dict[str, object], bundle: Path, *, status: str
+) -> RecoveryResult:
     database = cast(dict[str, object], manifest["database"])
     tables = cast(list[dict[str, object]], database["tables"])
     artifacts = cast(list[dict[str, object]], manifest["artifacts"])
@@ -279,7 +281,7 @@ def _result(manifest: dict[str, object], bundle: Path, *, status: str) -> Recove
         database_digest=cast(str, database["dump_digest"]),
         catalog_digest=cast(str, database["catalog_digest"]),
         table_count=len(tables),
-        row_count=sum(int(item["rows"]) for item in tables),
+        row_count=sum(cast(int, item["rows"]) for item in tables),
         artifact_count=len(artifacts),
     )
 
@@ -332,13 +334,16 @@ def create_recovery_backup(
         )
     locator = prepared.effective.config.secret_locators.get("database.migrator")
     if locator is None:
-        raise RuntimeViolation("RECOVERY-CREDENTIAL", "the migrator credential is unavailable")
+        raise RuntimeViolation(
+            "RECOVERY-CREDENTIAL", "the migrator credential is unavailable"
+        )
     dump = _client(postgresql_client_root, "pg_dump")
     staging.mkdir()
     try:
         with prepared.credential_port.resolve(
             locator, CredentialPurpose("database.recovery")
         ) as handle:
+
             def create(value: memoryview) -> dict[str, object]:
                 conninfo = bytes(value).decode("utf-8", "strict")
                 with psycopg.connect(conninfo) as connection:
@@ -410,10 +415,15 @@ def _read_manifest(bundle: Path) -> tuple[Path, dict[str, object]]:
         raw = manifest_path.read_bytes()
         value = json.loads(raw.decode("utf-8", "strict"))
     except OSError, UnicodeDecodeError, json.JSONDecodeError:
-        raise RuntimeViolation("RECOVERY-BUNDLE", "the recovery manifest is invalid") from None
-    if type(value) is not dict or value.get("schema_version") != _MANIFEST_SCHEMA:
+        raise RuntimeViolation(
+            "RECOVERY-BUNDLE", "the recovery manifest is invalid"
+        ) from None
+    if type(value) is not dict:
         raise RuntimeViolation("RECOVERY-BUNDLE", "the recovery manifest is invalid")
-    return root, cast(dict[str, object], value)
+    manifest = cast(dict[str, object], value)
+    if manifest.get("schema_version") != _MANIFEST_SCHEMA:
+        raise RuntimeViolation("RECOVERY-BUNDLE", "the recovery manifest is invalid")
+    return root, manifest
 
 
 def verify_recovery_backup(bundle: Path) -> RecoveryResult:
@@ -430,9 +440,9 @@ def verify_recovery_backup(bundle: Path) -> RecoveryResult:
         ):
             raise ValueError
         for item in cast(list[dict[str, object]], manifest["artifacts"]):
-            artifact = (root / "artifacts" / cast(str, item["storage_locator"])).resolve(
-                strict=True
-            )
+            artifact = (
+                root / "artifacts" / cast(str, item["storage_locator"])
+            ).resolve(strict=True)
             if (
                 not artifact.is_relative_to(root / "artifacts")
                 or not artifact.is_file()
@@ -442,7 +452,9 @@ def verify_recovery_backup(bundle: Path) -> RecoveryResult:
             ):
                 raise ValueError
     except KeyError, OSError, TypeError, ValueError:
-        raise RuntimeViolation("RECOVERY-BUNDLE", "the recovery bundle is corrupt") from None
+        raise RuntimeViolation(
+            "RECOVERY-BUNDLE", "the recovery bundle is corrupt"
+        ) from None
     return _result(manifest, root, status="verified")
 
 
@@ -459,7 +471,9 @@ def _read_conninfo(path: Path) -> str:
     try:
         return resolved.read_text(encoding="utf-8").strip()
     except OSError, UnicodeError:
-        raise RuntimeViolation("RECOVERY-TARGET", "the recovery target is invalid") from None
+        raise RuntimeViolation(
+            "RECOVERY-TARGET", "the recovery target is invalid"
+        ) from None
 
 
 def _reject_nonempty_target(conninfo: str) -> None:
@@ -500,25 +514,22 @@ def drill_recovery_backup(
             "RECOVERY-QUARANTINE", "the recovery quarantine root must be empty"
         )
     quarantine = quarantine_root.resolve(strict=True)
-    if (
-        not quarantine.is_dir()
-        or quarantine.is_symlink()
-        or any(quarantine.iterdir())
-    ):
+    if not quarantine.is_dir() or quarantine.is_symlink() or any(quarantine.iterdir()):
         raise RuntimeViolation(
             "RECOVERY-QUARANTINE", "the recovery quarantine root must be empty"
         )
     conninfo = _read_conninfo(target_conninfo_file)
     if _connection_identity(conninfo) == manifest.get("source_connection_identity"):
         raise RuntimeViolation(
-            "RECOVERY-TARGET-SOURCE", "the recovery drill cannot target the source database"
+            "RECOVERY-TARGET-SOURCE",
+            "the recovery drill cannot target the source database",
         )
     _reject_nonempty_target(conninfo)
     restore = _client(postgresql_client_root, "pg_restore")
     database = cast(dict[str, object], manifest["database"])
     dump = root / cast(str, database["dump_path"])
     target_database = conninfo_to_dict(conninfo).get("dbname")
-    if not target_database:
+    if not isinstance(target_database, str) or not target_database:
         raise RuntimeViolation("RECOVERY-TARGET", "the recovery target is invalid")
     _run_client(
         [
@@ -545,7 +556,8 @@ def drill_recovery_backup(
         or restored["subjects"] != database["subjects"]
     ):
         raise RuntimeViolation(
-            "RECOVERY-RESTORE-DRIFT", "the restored database does not match the backup"
+            "RECOVERY-RESTORE-DRIFT",
+            "the restored database does not match the backup",
         )
     for item in cast(list[dict[str, object]], manifest["artifacts"]):
         artifact = artifact_target / cast(str, item["storage_locator"])

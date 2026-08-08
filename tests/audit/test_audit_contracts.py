@@ -66,7 +66,6 @@ class AuditContractTests(unittest.TestCase):
             lambda: AuditReference("Bad Kind", _FIRST),
             lambda: _draft(before_version=0),
             lambda: _draft(before_version=1, after_version=1),
-            lambda: _draft(schema_version=2),
             lambda: AuditQuery(),
             lambda: AuditQuery(event_id=AuditEventId(_FIRST), trace_id=_TRACE),
             lambda: AuditQuery(trace_id=_TRACE, limit=0),

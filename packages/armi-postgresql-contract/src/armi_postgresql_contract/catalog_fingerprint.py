@@ -178,18 +178,30 @@ def _rows(value: Sequence[Sequence[object]]) -> list[list[object]]:
     return [[_safe(item) for item in row] for row in value]
 
 
-def database_catalog_payload(connection: Any) -> bytes:
+def database_catalog_payload(
+    connection: Any, *, normalize_column_ordinals: bool = True
+) -> bytes:
     """Return stable UTF-8 evidence without PostgreSQL-local object identifiers."""
 
     original = connection.execute("SHOW search_path").fetchone()
     if original is None:
         raise RuntimeError("search_path is unavailable")
-    connection.execute("SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)")
+    connection.execute(
+        "SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)"
+    )
     try:
         evidence = [
             {"kind": kind, "rows": _rows(connection.execute(query).fetchall())}
             for kind, query in _CATALOG_QUERIES
         ]
+        if normalize_column_ordinals:
+            columns = next(item for item in evidence if item["kind"] == "columns")
+            ordinals: dict[str, int] = {}
+            for row in columns["rows"]:
+                table_name = str(row[0])
+                ordinal = ordinals.get(table_name, 0) + 1
+                ordinals[table_name] = ordinal
+                row[1] = ordinal
     finally:
         connection.execute(
             "SELECT pg_catalog.set_config('search_path', %s, false)",
@@ -207,4 +219,19 @@ def database_catalog_digest(connection: Any) -> str:
     return f"sha256:{hashlib.sha256(database_catalog_payload(connection)).hexdigest()}"
 
 
-__all__ = ("database_catalog_digest", "database_catalog_payload")
+def legacy_database_catalog_digest(connection: Any) -> str:
+    """Fingerprint the frozen baseline's physical column attribute numbers."""
+
+    return (
+        "sha256:"
+        + hashlib.sha256(
+            database_catalog_payload(connection, normalize_column_ordinals=False)
+        ).hexdigest()
+    )
+
+
+__all__ = (
+    "database_catalog_digest",
+    "database_catalog_payload",
+    "legacy_database_catalog_digest",
+)

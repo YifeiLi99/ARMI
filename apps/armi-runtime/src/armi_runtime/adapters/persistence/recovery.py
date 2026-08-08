@@ -48,6 +48,36 @@ from .recovery_responsibilities import (
 )
 
 _SEARCH_PATH = "pg_catalog, armi"
+_RECOVERY_METRIC_KINDS = (
+    "requeued_work_count",
+    "terminal_work_count",
+    "requeued_outbox_count",
+    "dead_outbox_count",
+    "resumable_work_count",
+    "resumable_outbox_count",
+    "critical_artifact_count",
+    "resumable_opportunity_count",
+    "resumable_cognitive_episode_count",
+    "resumable_model_attempt_count",
+    "resumable_candidate_validation_count",
+    "resumable_subject_commit_count",
+    "resumable_capability_request_count",
+    "resumable_response_operation_count",
+    "resumable_effect_count",
+    "resumable_effect_outbox_count",
+    "resumable_effect_attempt_count",
+    "reliable_effect_observation_count",
+    "creator_response_delivery_count",
+    "resumable_web_observation_count",
+    "unknown_web_observation_attempt_count",
+    "resumable_web_research_intent_count",
+    "pending_web_evidence_acceptance_count",
+    "resumable_web_cognition_count",
+    "resumable_admin_correction_work_count",
+    "resumable_codex_task_count",
+    "resumable_codex_effect_count",
+    "pending_codex_result_acceptance_count",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +292,7 @@ class PostgreSQLRuntimeRecovery:
         if existing is not None:
             if str(existing[1]) != "running":
                 raise RecoveryViolation("REC-ALREADY-COMPLETED")
+            await self._validate_metric_set(connection, existing[0])
             return existing[0], False
         run_id = uuid7()
         await connection.execute(
@@ -273,10 +304,8 @@ class PostgreSQLRuntimeRecovery:
                 life_generation_id,
                 bundle_activation_id,
                 fence_token,
-                status,
-                schema_version
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, 'running', 1)
+                status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'running')
             """,
             (
                 run_id,
@@ -287,7 +316,33 @@ class PostgreSQLRuntimeRecovery:
                 fence.fence_token,
             ),
         )
+        await connection.execute(
+            """
+            INSERT INTO armi.runtime_recovery_metrics (
+                recovery_run_id, metric_kind, metric_value
+            )
+            SELECT %s, metric_kind, 0
+            FROM unnest(%s::text[]) AS metric_kind
+            """,
+            (run_id, list(_RECOVERY_METRIC_KINDS)),
+        )
+        await self._validate_metric_set(connection, run_id)
         return run_id, True
+
+    async def _validate_metric_set(
+        self,
+        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        run_id: UUID,
+    ) -> None:
+        rows = await (
+            await connection.execute(
+                """SELECT metric_kind FROM armi.runtime_recovery_metrics
+                   WHERE recovery_run_id = %s ORDER BY metric_kind""",
+                (run_id,),
+            )
+        ).fetchall()
+        if tuple(str(row[0]) for row in rows) != tuple(sorted(_RECOVERY_METRIC_KINDS)):
+            raise RecoveryViolation("REC-METRIC-SET")
 
     async def _continuity(
         self,
@@ -369,8 +424,7 @@ class PostgreSQLRuntimeRecovery:
                         media_type,
                         logical_kind,
                         privacy_scope,
-                        integrity_status,
-                        schema_version
+                        integrity_status
                     FROM armi.artifacts
                     WHERE artifact_id = %s
                     """,
@@ -502,7 +556,7 @@ class PostgreSQLRuntimeRecovery:
                             subject_id, idempotency_key, payload_kind,
                             payload_ref, payload_digest, priority, not_before,
                             deadline_at, status, max_attempts, attempt_count,
-                            lease_token, trace_id, schema_version
+                            lease_token, trace_id
                         )
                         SELECT
                             uuidv7(), 'cognition.candidate.validate',
@@ -511,7 +565,7 @@ class PostgreSQLRuntimeRecovery:
                             'model_attempt', model_attempt_id, content_digest,
                             50, statement_timestamp(),
                             statement_timestamp() + interval '3600 seconds',
-                            'ready', 2, 0, 0, trace_id, 1
+                            'ready', 2, 0, 0, trace_id
                         FROM source
                         RETURNING
                             work_id, owner_ref, subject_id,
@@ -531,12 +585,10 @@ class PostgreSQLRuntimeRecovery:
                         outbox_item_id, work_id, message_kind,
                         payload_digest, status, available_at,
                         claim_token, attempt_count, max_attempts,
-                        trace_id, schema_version
-                    )
+                        trace_id)
                     VALUES (
                         uuidv7(), %s, 'work.available', %s, 'ready',
-                        statement_timestamp(), 0, 0, 2, %s, 1
-                    )
+                        statement_timestamp(), 0, 0, 2, %s)
                     """,
                     (work_id, payload_digest, trace_id),
                 )
@@ -602,14 +654,12 @@ class PostgreSQLRuntimeRecovery:
                         subject_id, idempotency_key, payload_kind,
                         payload_ref, payload_digest, priority, not_before,
                         deadline_at, status, max_attempts, attempt_count,
-                        lease_token, trace_id, schema_version
-                    ) VALUES (
+                        lease_token, trace_id) VALUES (
                         %s, 'effect.register', 'creator_response_operation', %s,
                         %s, %s, 'action_intent_revision', %s, %s, 50,
                         statement_timestamp(),
                         statement_timestamp() + interval '3600 seconds',
-                        'ready', 2, 0, 0, %s, 1
-                    )
+                        'ready', 2, 0, 0, %s)
                     """,
                     (
                         work_id,
@@ -627,11 +677,9 @@ class PostgreSQLRuntimeRecovery:
                         outbox_item_id, work_id, message_kind,
                         payload_digest, status, available_at,
                         claim_token, attempt_count, max_attempts,
-                        trace_id, schema_version
-                    ) VALUES (
+                        trace_id) VALUES (
                         uuidv7(), %s, 'work.available', %s, 'ready',
-                        statement_timestamp(), 0, 0, 2, %s, 1
-                    )
+                        statement_timestamp(), 0, 0, 2, %s)
                     """,
                     (work_id, response_digest, trace_id),
                 )
@@ -1701,39 +1749,43 @@ class PostgreSQLRuntimeRecovery:
                 ],
             }
             digest = _summary_digest(semantic)
-            await connection.execute(
+            metrics = {
+                "requeued_work_count": scan.requeued_work,
+                "terminal_work_count": scan.terminal_work,
+                "requeued_outbox_count": scan.requeued_outbox,
+                "dead_outbox_count": scan.dead_outbox,
+                "resumable_work_count": int(counts[0]),
+                "resumable_outbox_count": int(counts[1]),
+                "resumable_opportunity_count": int(counts[2]),
+                "resumable_cognitive_episode_count": int(counts[3]),
+                "resumable_model_attempt_count": int(counts[5]),
+                "resumable_candidate_validation_count": int(counts[4]),
+                "resumable_subject_commit_count": int(counts[6]),
+                "resumable_capability_request_count": int(capability_counts[0]),
+                "resumable_response_operation_count": int(response_counts[0]),
+                "resumable_effect_count": int(effect_counts[0]),
+                "resumable_effect_outbox_count": int(effect_counts[2]),
+                "resumable_effect_attempt_count": int(effect_execution_counts[0]),
+                "reliable_effect_observation_count": int(effect_execution_counts[1]),
+                "creator_response_delivery_count": int(effect_execution_counts[2]),
+                "resumable_web_observation_count": int(web_counts[0]),
+                "unknown_web_observation_attempt_count": int(web_counts[1]),
+                "resumable_web_research_intent_count": int(web_evidence_counts[0]),
+                "pending_web_evidence_acceptance_count": int(web_evidence_counts[1]),
+                "resumable_web_cognition_count": int(web_evidence_counts[2]),
+                "resumable_admin_correction_work_count": int(
+                    admin_correction_work_count[0]
+                ),
+                "resumable_codex_task_count": int(codex_counts[0]),
+                "resumable_codex_effect_count": int(codex_counts[1]),
+                "pending_codex_result_acceptance_count": int(codex_counts[2]),
+                "critical_artifact_count": critical,
+            }
+            updated = await connection.execute(
                 """
                 UPDATE armi.runtime_recovery_runs
                 SET status = %s,
                     completed_at = statement_timestamp(),
-                    requeued_work_count = %s,
-                    terminal_work_count = %s,
-                    requeued_outbox_count = %s,
-                    dead_outbox_count = %s,
-                    resumable_work_count = %s,
-                    resumable_outbox_count = %s,
-                    resumable_opportunity_count = %s,
-                    resumable_cognitive_episode_count = %s,
-                    resumable_model_attempt_count = %s,
-                    resumable_candidate_validation_count = %s,
-                    resumable_subject_commit_count = %s,
-                    resumable_capability_request_count = %s,
-                    resumable_response_operation_count = %s,
-                    resumable_effect_count = %s,
-                    resumable_effect_outbox_count = %s,
-                    resumable_effect_attempt_count = %s,
-                    reliable_effect_observation_count = %s,
-                    creator_response_delivery_count = %s,
-                    resumable_web_observation_count = %s,
-                    unknown_web_observation_attempt_count = %s,
-                    resumable_web_research_intent_count = %s,
-                    pending_web_evidence_acceptance_count = %s,
-                    resumable_web_cognition_count = %s,
-                    resumable_codex_task_count = %s,
-                    resumable_codex_effect_count = %s,
-                    pending_codex_result_acceptance_count = %s,
-                    resumable_admin_correction_work_count = %s,
-                    critical_artifact_count = %s,
                     blocker_count = %s,
                     summary_digest = %s
                 WHERE recovery_run_id = %s
@@ -1741,39 +1793,26 @@ class PostgreSQLRuntimeRecovery:
                 """,
                 (
                     status.value,
-                    scan.requeued_work,
-                    scan.terminal_work,
-                    scan.requeued_outbox,
-                    scan.dead_outbox,
-                    int(counts[0]),
-                    int(counts[1]),
-                    int(counts[2]),
-                    int(counts[3]),
-                    int(counts[5]),
-                    int(counts[4]),
-                    int(counts[6]),
-                    int(capability_counts[0]),
-                    int(response_counts[0]),
-                    int(effect_counts[0]),
-                    int(effect_counts[2]),
-                    int(effect_execution_counts[0]),
-                    int(effect_execution_counts[1]),
-                    int(effect_execution_counts[2]),
-                    int(web_counts[0]),
-                    int(web_counts[1]),
-                    int(web_evidence_counts[0]),
-                    int(web_evidence_counts[1]),
-                    int(web_evidence_counts[2]),
-                    int(codex_counts[0]),
-                    int(codex_counts[1]),
-                    int(codex_counts[2]),
-                    int(admin_correction_work_count[0]),
-                    critical,
                     blockers,
                     digest.value,
                     scan.recovery_run_id,
                 ),
             )
+            if updated.rowcount != 1:
+                raise RecoveryViolation("REC-RUN-STALE")
+            async with connection.cursor() as metric_cursor:
+                await metric_cursor.executemany(
+                    """UPDATE armi.runtime_recovery_metrics SET metric_value = %s
+                       WHERE recovery_run_id = %s AND metric_kind = %s""",
+                    tuple(
+                        (metrics[kind], scan.recovery_run_id, kind)
+                        for kind in _RECOVERY_METRIC_KINDS
+                    ),
+                )
+                metric_rowcount = metric_cursor.rowcount
+            if metric_rowcount != len(_RECOVERY_METRIC_KINDS):
+                raise RecoveryViolation("REC-METRIC-SET")
+            await self._validate_metric_set(connection, scan.recovery_run_id)
             await PostgreSQLAuditWriter(connection).append(
                 _audit(
                     fence,
@@ -1812,6 +1851,7 @@ class PostgreSQLRuntimeRecovery:
             resumable_web_research_intent_count=int(web_evidence_counts[0]),
             pending_web_evidence_acceptance_count=int(web_evidence_counts[1]),
             resumable_web_cognition_count=int(web_evidence_counts[2]),
+            resumable_admin_correction_work_count=int(admin_correction_work_count[0]),
             resumable_codex_task_count=int(codex_counts[0]),
             resumable_codex_effect_count=int(codex_counts[1]),
             pending_codex_result_acceptance_count=int(codex_counts[2]),
@@ -1910,7 +1950,6 @@ def _artifact_ref(row: tuple[Any, ...]) -> ArtifactRef:
         logical_kind=str(row[4]),
         privacy_scope=ArtifactPrivacyScope(str(row[5])),
         integrity_status=ArtifactIntegrityStatus(str(row[6])),
-        schema_version=int(row[7]),
     )
 
 

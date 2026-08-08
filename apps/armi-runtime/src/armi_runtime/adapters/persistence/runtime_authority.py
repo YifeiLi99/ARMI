@@ -219,15 +219,11 @@ class PostgreSQLRuntimeAuthority:
                                 bundle_activation_id,
                                 fence_token,
                                 status,
-                                lease_expires_at,
-                                schema_version
-                            )
+                                lease_expires_at)
                             VALUES (
                                 %s, %s, %s, %s, %s, 'active',
                                 statement_timestamp()
-                                    + make_interval(secs => %s),
-                                1
-                            )
+                                    + make_interval(secs => %s))
                             RETURNING
                                 runtime_instance_id,
                                 subject_id,

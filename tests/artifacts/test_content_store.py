@@ -50,7 +50,6 @@ def _reference(content: bytes) -> ArtifactRef:
         logical_kind="test.payload",
         privacy_scope=ArtifactPrivacyScope.PRIVATE,
         integrity_status=ArtifactIntegrityStatus.VERIFIED,
-        schema_version=1,
     )
 
 

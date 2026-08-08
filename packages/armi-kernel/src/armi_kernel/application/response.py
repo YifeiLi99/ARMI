@@ -127,7 +127,7 @@ class OtherHumanReplyDraft:
     content_bytes: bytes
     content_digest: Digest
     capability_kind: str = "local.other-human-inbox.deliver"
-    operation: str = "deliver_local"
+    operation: str = "send"
     audience_scope: str = "other_human"
     data_scope: str = "declared_party_response"
     purpose: str = "respond_to_other_human"
@@ -144,7 +144,7 @@ class OtherHumanReplyDraft:
             or type(self.content_digest) is not Digest
             or Digest.from_bytes(self.content_bytes) != self.content_digest
             or self.capability_kind != "local.other-human-inbox.deliver"
-            or self.operation != "deliver_local"
+            or self.operation != "send"
             or self.audience_scope != "other_human"
             or self.data_scope != "declared_party_response"
             or self.purpose != "respond_to_other_human"

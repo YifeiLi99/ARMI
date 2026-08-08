@@ -108,8 +108,7 @@ class PostgreSQLEffectDispatchRepository:
             """
             INSERT INTO armi.effect_attempts (
                 effect_attempt_id, effect_id, attempt_no, adapter_binding,
-                request_digest, claim_token, dispatch_state, schema_version
-            ) VALUES (%s, %s, %s, %s, %s, %s, 'prepared', 1)
+                request_digest, claim_token, dispatch_state) VALUES (%s, %s, %s, %s, %s, %s, 'prepared')
             """,
             (
                 attempt_id,
@@ -1002,8 +1001,7 @@ class PostgreSQLEffectDispatchRepository:
             INSERT INTO armi.effect_observations (
                 effect_observation_id, effect_id, effect_attempt_id,
                 observation_kind, reliability, receiver_ref,
-                observation_digest, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,1)
+                observation_digest) VALUES (%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 observation_id,

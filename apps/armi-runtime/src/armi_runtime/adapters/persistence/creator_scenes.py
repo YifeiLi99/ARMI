@@ -102,11 +102,8 @@ class CreatorSceneRepository:
                 """
                 INSERT INTO armi.interaction_scenes (
                     scene_id, subject_id, scene_key, scene_kind,
-                    primary_party_id, audience_scope, current_status,
-                    schema_version
-                ) VALUES (
-                    %s, %s, %s, 'creator_dialogue', %s, 'creator', 'open', 1
-                )
+                    primary_party_id, audience_scope, current_status) VALUES (
+                    %s, %s, %s, 'creator_dialogue', %s, 'creator', 'open')
                 RETURNING scene_id, scene_key, current_status, opened_at,
                           closed_at, recent_context_boundary
                 """,
@@ -161,12 +158,19 @@ class CreatorSceneRepository:
                     closed_at = CASE
                         WHEN %s = 'closed' THEN statement_timestamp()
                         ELSE NULL
-                    END
+                    END,
+                    scene_version = scene_version + 1
                 WHERE scene_id = %s
+                  AND current_status IS DISTINCT FROM %s
                 RETURNING scene_id, scene_key, current_status, opened_at,
                           closed_at, recent_context_boundary
                 """,
-                (target_status.value, target_status.value, current.scene_id),
+                (
+                    target_status.value,
+                    target_status.value,
+                    current.scene_id,
+                    target_status.value,
+                ),
             )
         ).fetchone()
         if changed_row is None:

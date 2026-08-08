@@ -162,10 +162,8 @@ class CreatorInputRepository:
                 idempotency_key,
                 request_digest,
                 content_digest,
-                trace_id,
-                schema_version
-            )
-            VALUES (%s, %s, %s, %s, 'creator_message', %s, %s, %s, %s, 1)
+                trace_id)
+            VALUES (%s, %s, %s, %s, 'creator_message', %s, %s, %s, %s)
             """,
             (
                 interaction_id,
@@ -190,13 +188,10 @@ class CreatorInputRepository:
                 source_kind,
                 trust_status,
                 privacy_scope,
-                acceptance_status,
-                schema_version
-            )
+                acceptance_status)
             VALUES (
                 %s, %s, %s, %s, %s, %s,
-                'creator_input', 'external_claim', 'creator_visible', 'accepted', 1
-            )
+                'creator_input', 'external_claim', 'creator_visible', 'accepted')
             """,
             (
                 evidence_id,
@@ -223,14 +218,11 @@ class CreatorInputRepository:
                 eligibility_status,
                 current_disposition,
                 root_opportunity_id,
-                reconsideration_no,
-                schema_version
-            )
+                reconsideration_no)
             VALUES (
                 %s, %s, %s, %s, %s,
                 'consider_creator_input', 'external_evidence', %s, 1, %s,
-                'eligible', 'open', %s, 0, 1
-            )
+                'eligible', 'open', %s, 0)
             """,
             (
                 opportunity_id,
@@ -252,25 +244,24 @@ class CreatorInputRepository:
                 source_ref,
                 source_event_no,
                 result_status,
-                occurred_at,
-                schema_version
-            )
+                occurred_at)
             VALUES (
                 %s, %s, 'creator_input', %s, 1, 'accepted',
-                statement_timestamp(), 1
-            )
+                statement_timestamp())
             """,
             (timeline_item_id, context.scene_id, interaction_id),
         )
         boundary = await connection.execute(
             """
             UPDATE armi.interaction_scenes
-            SET recent_context_boundary = %s
+            SET recent_context_boundary = %s,
+                scene_version = scene_version + 1
             WHERE scene_id = %s
               AND current_status = 'open'
               AND closed_at IS NULL
+              AND recent_context_boundary IS DISTINCT FROM %s
             """,
-            (timeline_item_id, context.scene_id),
+            (timeline_item_id, context.scene_id, timeline_item_id),
         )
         if boundary.rowcount != 1:
             raise CreatorInputViolation("SCOPE-SCENE-NOT-VISIBLE")

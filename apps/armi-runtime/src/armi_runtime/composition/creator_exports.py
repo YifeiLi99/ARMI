@@ -321,8 +321,7 @@ class CreatorExportService(CreatorExportPort):
                     await connection.execute(
                         """
                         SELECT artifact_id, content_digest, byte_size, media_type,
-                               logical_kind, privacy_scope, integrity_status,
-                               schema_version
+                               logical_kind, privacy_scope, integrity_status
                         FROM armi.artifacts
                         ORDER BY content_digest
                         """
@@ -561,7 +560,6 @@ def _artifact_snapshot(row: tuple[Any, ...]) -> _ArtifactSnapshot:
             logical_kind=str(row[4]),
             privacy_scope=ArtifactPrivacyScope(str(row[5])),
             integrity_status=ArtifactIntegrityStatus(str(row[6])),
-            schema_version=int(row[7]),
         ),
         logical_kind=str(row[4]),
     )

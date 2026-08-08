@@ -52,7 +52,6 @@ class ArtifactPolicy:
     producer_kind: str
     producer_trace_id: TraceId
     privacy_scope: ArtifactPrivacyScope
-    schema_version: int = 1
 
     def __post_init__(self) -> None:
         _validate_media_type(self.media_type)
@@ -61,8 +60,6 @@ class ArtifactPolicy:
         if type(self.producer_trace_id) is not TraceId:
             raise ArtifactViolation("ART-DECLARATION")
         if type(self.privacy_scope) is not ArtifactPrivacyScope:
-            raise ArtifactViolation("ART-DECLARATION")
-        if type(self.schema_version) is not int or self.schema_version != 1:
             raise ArtifactViolation("ART-DECLARATION")
 
 
@@ -107,7 +104,6 @@ class ArtifactRef:
     logical_kind: str
     privacy_scope: ArtifactPrivacyScope
     integrity_status: ArtifactIntegrityStatus
-    schema_version: int
 
     def __post_init__(self) -> None:
         _validate_media_type(self.media_type)
@@ -121,8 +117,6 @@ class ArtifactRef:
         if type(self.integrity_status) is not ArtifactIntegrityStatus:
             raise ArtifactViolation("ART-STATE")
         if type(self.privacy_scope) is not ArtifactPrivacyScope:
-            raise ArtifactViolation("ART-DECLARATION")
-        if type(self.schema_version) is not int or self.schema_version != 1:
             raise ArtifactViolation("ART-DECLARATION")
 
 

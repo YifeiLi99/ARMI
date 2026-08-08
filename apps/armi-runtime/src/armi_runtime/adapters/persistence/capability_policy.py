@@ -428,12 +428,10 @@ class PostgreSQLCreatorGrantPolicy:
                             operation_class, audience_scope, data_scope, purpose,
                             workspace_scope, artifact_scope, network_access,
                             valid_from, valid_until, max_uses, max_payload_bytes,
-                            scope_digest, schema_version
-                        ) VALUES (
+                            scope_digest) VALUES (
                             %s, %s, %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, 1
-                        )
+                            %s, %s, %s, %s, %s)
                         """,
                         (
                             grant_id.value,
@@ -539,8 +537,7 @@ class PostgreSQLCreatorGrantPolicy:
                         capability_decision_id, capability_request_id,
                         creator_party_id, expected_request_version,
                         resulting_request_version, decision_kind, command_digest,
-                        scope_digest, reason_code, schema_version
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+                        scope_digest, reason_code) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         command.decision_id.value,
@@ -699,9 +696,8 @@ class PostgreSQLCreatorGrantPolicy:
                         capability_decision_id, capability_request_id,
                         creator_party_id, expected_request_version,
                         resulting_request_version, decision_kind, command_digest,
-                        scope_digest, reason_code, schema_version
-                    ) VALUES (%s, %s, %s, %s, %s, 'expire', %s, %s,
-                              'grant_expired', 1)
+                        scope_digest, reason_code) VALUES (%s, %s, %s, %s, %s, 'expire', %s, %s,
+                              'grant_expired')
                     """,
                     (
                         decision_id,
@@ -807,7 +803,8 @@ async def _cancel_registered_effects(
                    effect.action_intent_revision_id,
                    effect.operation_id,
                    effect.policy_decision_id,
-                   response.root_opportunity_id
+                   response.root_opportunity_id,
+                   effect.destination_kind
             FROM armi.effects AS effect
             JOIN armi.action_operations AS response
               ON response.operation_id
@@ -834,6 +831,7 @@ async def _cancel_registered_effects(
         operation_id = UUID(str(row[3]))
         prior_decision_id = UUID(str(row[4]))
         root_operation_id = UUID(str(row[5]))
+        destination_kind = str(row[6])
         decision_id = uuid7()
         cancellation_digest = Digest.from_bytes(
             rfc8785.dumps(
@@ -858,11 +856,9 @@ async def _cancel_registered_effects(
                 policy_decision_id, action_intent_revision_id,
                 operation_id, decision_outcome,
                 policy_identity, decision_digest, reason_code,
-                supersedes_policy_decision_id, schema_version
-            ) VALUES (
+                supersedes_policy_decision_id) VALUES (
                 %s, %s, %s, 'denied', 'armi.policy-engine.deterministic-v1',
-                %s, %s, %s, 1
-            )
+                %s, %s, %s)
             """,
             (
                 decision_id,
@@ -875,11 +871,56 @@ async def _cancel_registered_effects(
         )
         await connection.execute(
             """
+            INSERT INTO armi.effect_attempts (
+                effect_attempt_id, effect_id, attempt_no, adapter_binding,
+                request_digest, claim_token, dispatch_state, result_status,
+                error_code, settled_at
+            ) VALUES (
+                %s, %s, 1, %s, %s, 1, 'settled', 'cancelled', NULL,
+                statement_timestamp()
+            )
+            """,
+            (
+                attempt_id := uuid7(),
+                effect_id,
+                (
+                    "armi.codex-runner.openai-python-sdk-v1"
+                    if destination_kind == "codex_workspace"
+                    else "armi.local-inbox-adapter.postgresql-v1"
+                ),
+                cancellation_digest.value,
+            ),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.effect_observations (
+                effect_observation_id, effect_id, effect_attempt_id,
+                observation_kind, reliability, receiver_ref,
+                observation_digest
+            ) VALUES (%s, %s, %s, 'runner_cancelled', 'reliable', NULL, %s)
+            """,
+            (
+                observation_id := uuid7(),
+                effect_id,
+                attempt_id,
+                cancellation_digest.value,
+            ),
+        )
+        await connection.execute(
+            """
             UPDATE armi.effects
-            SET status='cancelled', cancelled_at=statement_timestamp()
+            SET status='cancelled', verification_status='verified',
+                current_attempt_id=%s, current_observation_id=%s,
+                settlement_digest=%s, settled_at=statement_timestamp(),
+                cancelled_at=statement_timestamp()
             WHERE effect_id=%s AND status='registered'
             """,
-            (effect_id,),
+            (
+                attempt_id,
+                observation_id,
+                cancellation_digest.value,
+                effect_id,
+            ),
         )
         await connection.execute(
             """
@@ -892,10 +933,11 @@ async def _cancel_registered_effects(
         await connection.execute(
             """
             UPDATE armi.action_operations
-            SET current_status='effect_cancelled',
-                current_policy_decision_id=%s
+            SET phase='terminal', outcome='cancelled',
+                current_policy_decision_id=%s,
+                completed_at=statement_timestamp()
             WHERE operation_id=%s
-              AND current_status='effect_registered'
+              AND phase='effect_registered' AND outcome IS NULL
             """,
             (decision_id, operation_id),
         )

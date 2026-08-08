@@ -435,7 +435,6 @@ class EffectRegistrationPipeline:
                 "creator.reply.text",
                 ArtifactPrivacyScope.CREATOR_VISIBLE,
                 ArtifactIntegrityStatus.VERIFIED,
-                1,
             )
             stream = await self._storage.open_verified(reference)
             try:

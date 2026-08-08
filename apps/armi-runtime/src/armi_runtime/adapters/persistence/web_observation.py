@@ -100,15 +100,12 @@ class PostgreSQLWebObservationRepository:
                     web_observation_request_id, subject_id, runtime_instance_id,
                     fence_token, idempotency_key, purpose, operation_class,
                     request_artifact_id, request_digest, binding_id, work_id,
-                    deadline_at, max_attempts, max_cost_microyuan, status,
-                    schema_version
-                )
+                    deadline_at, max_attempts, max_cost_microyuan, status)
                 VALUES (
                     %s, %s, %s, %s, %s, 'public_web_research',
                     'search_read_public', %s, %s, %s, %s,
                     statement_timestamp() + interval '90 seconds', 2,
-                    1000000, 'pending', 1
-                )
+                    1000000, 'pending')
                 RETURNING web_observation_request_id, subject_id, status,
                           request_digest, request_artifact_id, work_id,
                           0, result_artifact_id, result_digest, last_error_code
@@ -199,8 +196,7 @@ class PostgreSQLWebObservationRepository:
             INSERT INTO armi.observation_attempts (
                 observation_attempt_id, web_observation_request_id, work_id,
                 work_attempt_id, work_lease_token, attempt_no, binding_id,
-                credential_identity, dispatch_state, schema_version
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'prepared', 1)
+                credential_identity, dispatch_state) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'prepared')
             """,
             (
                 attempt_id.value,
@@ -279,8 +275,7 @@ class PostgreSQLWebObservationRepository:
                 INSERT INTO armi.observation_tool_calls (
                     observation_tool_call_id, observation_attempt_id, call_no,
                     action_type, provider_identity_digest, action_digest,
-                    completion_status, schema_version
-                ) VALUES (%s, %s, %s, %s, %s, %s, 'completed', 1)
+                    completion_status) VALUES (%s, %s, %s, %s, %s, %s, 'completed')
                 """,
                 (
                     WebObservationToolCallId(uuid7()).value,
@@ -435,7 +430,6 @@ async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
         str(row[4]),
         ArtifactPrivacyScope(str(row[5])),
         ArtifactIntegrityStatus(str(row[6])),
-        1,
     )
 
 

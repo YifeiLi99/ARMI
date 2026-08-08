@@ -80,7 +80,6 @@ class AuditDraft:
     grant: AuditReference | None = None
     bundle_digest: Digest | None = None
     error_category: ErrorCategory | None = None
-    schema_version: int = 1
 
     def __post_init__(self) -> None:
         if type(self.audit_event_id) is not AuditEventId:
@@ -118,8 +117,6 @@ class AuditDraft:
             and type(self.error_category) is not ErrorCategory
         ):
             raise AuditViolation("AUD-DECLARATION")
-        if type(self.schema_version) is not int or self.schema_version != 1:
-            raise AuditViolation("AUD-SCHEMA-VERSION")
 
 
 @dataclass(frozen=True, slots=True)

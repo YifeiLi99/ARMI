@@ -217,7 +217,7 @@ MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
 MAINTENANCE_CHANGE_SET_VERSION = "armi.subject-change-set.v19"
-OTHER_HUMAN_CHANGE_SET_VERSION = "armi.subject-change-set.v20"
+OTHER_HUMAN_CHANGE_SET_VERSION = "armi.subject-change-set.v21"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 

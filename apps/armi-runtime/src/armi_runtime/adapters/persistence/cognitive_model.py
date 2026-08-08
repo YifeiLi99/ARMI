@@ -186,13 +186,10 @@ class PostgreSQLCognitiveModelRepository:
                 credential_identity,
                 request_artifact_id,
                 request_digest,
-                dispatch_status,
-                schema_version
-            )
+                dispatch_status)
             VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, 'prepared', 1
-            )
+                %s, %s, %s, %s, %s, %s, %s, 'prepared')
             """,
             (
                 attempt_id.value,
@@ -587,7 +584,6 @@ class PostgreSQLCognitiveModelRepository:
             str(row[4]),
             ArtifactPrivacyScope(str(row[5])),
             ArtifactIntegrityStatus(str(row[6])),
-            1,
         )
 
 

@@ -653,14 +653,11 @@ class PostgreSQLCandidateValidationRepository:
                 validator_identity, policy_digest, validation_status,
                 final_disposition, change_set_artifact_id, change_set_digest,
                 accepted_count, rejected_count, error_code,
-                validated_by_runtime_instance_id, validation_fence_token,
-                schema_version
-            )
+                validated_by_runtime_instance_id, validation_fence_token)
             VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, 1
-            )
+                %s, %s, %s)
             """,
             (
                 result.validation_id.value,
@@ -846,9 +843,8 @@ async def _insert_items(
             INSERT INTO armi.cognitive_candidate_validation_items (
                 candidate_validation_id, proposal_ref, atomic_group_ref,
                 owner_kind, fact_class, validation_status, reason_code,
-                semantic_digest, ordinal, schema_version
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+                semantic_digest, ordinal)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 result.validation_id.value,
@@ -1306,7 +1302,6 @@ async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
         str(row[4]),
         ArtifactPrivacyScope(str(row[5])),
         ArtifactIntegrityStatus(str(row[6])),
-        1,
     )
 
 

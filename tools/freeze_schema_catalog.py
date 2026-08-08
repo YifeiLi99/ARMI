@@ -1,4 +1,4 @@
-"""Freeze the modular v1 baseline catalog digest from isolated PostgreSQL."""
+"""Freeze baseline and ordered migration catalog digests from PostgreSQL."""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ import json
 import os
 import secrets
 from collections.abc import Sequence
+from typing import LiteralString, cast
 
 import psycopg
 from armi_postgresql_contract.catalog_fingerprint import (
     database_catalog_digest,
+    legacy_database_catalog_digest,
 )
 from generate_schema_manifests import (
     BASELINE_DOCUMENTS,
@@ -20,19 +22,29 @@ from generate_schema_manifests import (
     main as generate_schema_manifests,
 )
 from psycopg import sql
-from psycopg.conninfo import conninfo_to_dict, make_conninfo
+from psycopg.conninfo import make_conninfo
 
 
 def _target_conninfo(admin_dsn: str, database: str) -> str:
-    values = conninfo_to_dict(admin_dsn)
-    values["dbname"] = database
-    return make_conninfo(**values)
+    return make_conninfo(admin_dsn, dbname=database)
 
 
 def _write_catalog_digest(value: str) -> None:
     path = BASELINE_ROOT / "manifest.json"
     manifest = json.loads(path.read_text(encoding="utf-8"))
     manifest["catalog_sha256"] = value
+    path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+def _write_migration_catalog_digests(values: dict[str, str]) -> None:
+    path = BASELINE_ROOT.parent / "migrations" / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    for migration in manifest["migrations"]:
+        migration["target_catalog_sha256"] = values[migration["migration_id"]]
     path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -54,9 +66,7 @@ def freeze(admin_dsn: str) -> str:
             raise RuntimeError("SCHEMA-CATALOG-ROLE-COLLISION")
         for role in roles:
             admin.execute(
-                sql.SQL("CREATE ROLE {} NOLOGIN NOINHERIT").format(
-                    sql.Identifier(role)
-                )
+                sql.SQL("CREATE ROLE {} NOLOGIN NOINHERIT").format(sql.Identifier(role))
             )
         admin.execute(
             sql.SQL(
@@ -81,10 +91,25 @@ def freeze(admin_dsn: str) -> str:
             )
             connection.execute("SET ROLE armi_owner")
             for name in BASELINE_DOCUMENTS:
-                connection.execute((BASELINE_ROOT / name).read_text(encoding="utf-8"))
+                definition = (BASELINE_ROOT / name).read_text(encoding="utf-8")
+                connection.execute(cast(LiteralString, definition))
+            digest = legacy_database_catalog_digest(connection)
+            migrations_root = BASELINE_ROOT.parent / "migrations"
+            migrations = json.loads(
+                (migrations_root / "manifest.json").read_text(encoding="utf-8")
+            )["migrations"]
+            migration_digests: dict[str, str] = {}
+            for migration in migrations:
+                definition = (migrations_root / migration["path"]).read_text(
+                    encoding="utf-8"
+                )
+                connection.execute(cast(LiteralString, definition))
+                migration_digests[migration["migration_id"]] = database_catalog_digest(
+                    connection
+                )
             connection.execute("RESET ROLE")
-            digest = database_catalog_digest(connection)
         _write_catalog_digest(digest)
+        _write_migration_catalog_digests(migration_digests)
         if generate_schema_manifests() != 0:
             raise RuntimeError("SCHEMA-CATALOG-MANIFEST")
         return digest

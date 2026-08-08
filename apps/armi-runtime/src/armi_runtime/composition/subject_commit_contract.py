@@ -132,6 +132,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v18",
             "armi.subject-change-set.v19",
             "armi.subject-change-set.v20",
+            "armi.subject-change-set.v21",
         }:
             raise ValueError
         version = document["schema_version"]
@@ -199,7 +200,8 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             for item in _array(document.get("capability_requests", []), 4)
         )
         action_choices = tuple(
-            _action(item) for item in _array(document.get("action_choices", []), 1)
+            _action(item, version=version)
+            for item in _array(document.get("action_choices", []), 1)
         )
         web_research_requests = tuple(
             _web_research(item)
@@ -240,6 +242,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                         ".v18",
                         ".v19",
                         ".v20",
+                        ".v21",
                     )
                 ),
             )
@@ -372,7 +375,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         no_action = tuple(
             item for item in action_choices if isinstance(item, FormalNoActionDraft)
         )
-        if version.endswith(".v20"):
+        if version.endswith((".v20", ".v21")):
             other_actions = tuple(
                 item
                 for item in action_choices
@@ -1224,6 +1227,8 @@ def _rejection(value: object) -> CandidateRejection:
 
 def _action(
     value: object,
+    *,
+    version: str,
 ) -> (
     CreatorReplyDraft
     | OtherHumanReplyDraft
@@ -1290,6 +1295,9 @@ def _action(
             },
         )
         content = _text(item["content"]).encode("utf-8", errors="strict")
+        operation = _text(item["operation"])
+        if version.endswith(".v20") and operation == "deliver_local":
+            operation = "send"
         return OtherHumanReplyDraft(
             _text(item["proposal_ref"]),
             _text(item["atomic_group_ref"]),
@@ -1300,7 +1308,7 @@ def _action(
             content,
             Digest(_text(item["content_digest"])),
             _text(item["capability_kind"]),
-            _text(item["operation"]),
+            operation,
             _text(item["audience_scope"]),
             _text(item["data_scope"]),
             _text(item["purpose"]),

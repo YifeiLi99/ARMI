@@ -180,7 +180,7 @@ def _fixture():
         ),
     ],
 )
-def test_other_human_dialogue_uses_party_scoped_v20_change_set(
+def test_other_human_dialogue_uses_party_scoped_v21_change_set(
     candidate: dict[str, str],
     disposition: str,
     draft_type: type[OtherHumanReplyDraft | OtherHumanEndConversationDraft] | None,
@@ -231,12 +231,25 @@ def test_other_human_dialogue_uses_party_scoped_v20_change_set(
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v20" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v21" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert reparsed.disposition.value == disposition
     if draft_type is not None:
         assert isinstance(reparsed.action_choices[0], draft_type)
         assert reparsed.action_choices[0].other_party_id == ids[6]
+        if draft_type is OtherHumanReplyDraft:
+            reply = reparsed.action_choices[0]
+            assert isinstance(reply, OtherHumanReplyDraft)
+            assert reply.operation == "send"
+            historical = json.loads(result.change_set.canonical_bytes)
+            historical["schema_version"] = "armi.subject-change-set.v20"
+            historical["action_choices"][0]["operation"] = "deliver_local"
+            historical_bytes = rfc8785.dumps(historical)
+            normalized = parse_subject_change_set(historical_bytes)
+            assert normalized.canonical_bytes == historical_bytes
+            assert normalized.digest == Digest.from_bytes(historical_bytes)
+            assert isinstance(normalized.action_choices[0], OtherHumanReplyDraft)
+            assert normalized.action_choices[0].operation == "send"
 
 
 def test_other_human_dialogue_builds_only_current_party_relationship() -> None:

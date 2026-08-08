@@ -25,8 +25,7 @@ _SELECT_COLUMNS = """
     media_type,
     logical_kind,
     privacy_scope,
-    integrity_status,
-    schema_version
+    integrity_status
 """
 
 
@@ -67,10 +66,8 @@ class ArtifactCatalogRepository:
                 logical_kind,
                 producer_kind,
                 producer_trace_id,
-                privacy_scope,
-                schema_version
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                privacy_scope)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (content_digest) DO NOTHING
             RETURNING {_SELECT_COLUMNS}
             """,
@@ -84,7 +81,6 @@ class ArtifactCatalogRepository:
                 published.policy.producer_kind,
                 published.policy.producer_trace_id.value,
                 published.policy.privacy_scope.value,
-                published.policy.schema_version,
             ),
         )
         row = await cursor.fetchone()
@@ -107,7 +103,6 @@ class ArtifactCatalogRepository:
             or ref.media_type != published.policy.media_type
             or ref.logical_kind != published.policy.logical_kind
             or ref.privacy_scope is not published.policy.privacy_scope
-            or ref.schema_version != published.policy.schema_version
         ):
             raise ArtifactViolation("ART-METADATA-CONFLICT")
         return ArtifactRegistration(ref, inserted)
@@ -193,7 +188,6 @@ def _row_to_ref(row: Sequence[Any]) -> ArtifactRef:
             logical_kind=str(row[4]),
             privacy_scope=ArtifactPrivacyScope(str(row[5])),
             integrity_status=ArtifactIntegrityStatus(str(row[6])),
-            schema_version=int(row[7]),
         )
     except ArtifactViolation, TypeError, ValueError:
         raise ArtifactViolation("ART-DATABASE") from None

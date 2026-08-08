@@ -130,8 +130,7 @@ class PostgreSQLCodexDelegationRepository:
                 codex_task_source_id, subject_id, source_bundle_artifact_id,
                 source_bundle_digest, source_tree_digest, task_manifest_artifact_id,
                 task_manifest_digest, path_scope_digest, validator_id,
-                deadline_seconds, trace_id, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+                deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 draft.task_source_id.value,
@@ -153,10 +152,8 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.external_evidence (
                 evidence_id, interaction_id, subject_id, scene_id,
                 context_party_id, artifact_id, source_kind, trust_status,
-                privacy_scope, acceptance_status, codex_task_source_id,
-                schema_version
-            ) VALUES (%s,NULL,%s,%s,%s,%s,'codex_task_source','external_claim',
-                'private','accepted',%s,1)
+                privacy_scope, acceptance_status, codex_task_source_id) VALUES (%s,NULL,%s,%s,%s,%s,'codex_task_source','external_claim',
+                'private','accepted',%s)
             """,
             (
                 evidence_id,
@@ -174,9 +171,8 @@ class PostgreSQLCodexDelegationRepository:
                 context_party_id, purpose, source_kind, source_ref,
                 source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
-                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0,1)
+                predecessor_opportunity_id, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
+                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0)
             """,
             (
                 opportunity_id,
@@ -221,8 +217,14 @@ class PostgreSQLCodexDelegationRepository:
                        opportunity.opportunity_id, interaction.request_digest,
                        interaction.content_digest
                 FROM armi.party_input_interactions AS interaction
+                JOIN armi.codex_task_sources AS source
+                  ON source.subject_id = interaction.subject_id
+                 AND source.task_manifest_digest = interaction.content_digest
                 JOIN armi.external_evidence AS evidence
-                  ON evidence.interaction_id=interaction.interaction_id
+                  ON evidence.codex_task_source_id=source.codex_task_source_id
+                 AND evidence.subject_id=interaction.subject_id
+                 AND evidence.scene_id=interaction.scene_id
+                 AND evidence.context_party_id=interaction.source_party_id
                  AND evidence.source_kind='codex_task_source'
                 JOIN armi.opportunities AS opportunity
                   ON opportunity.evidence_id=evidence.evidence_id
@@ -294,8 +296,7 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.party_input_interactions (
                 interaction_id, subject_id, scene_id, source_party_id,
                 purpose, idempotency_key, request_digest, content_digest,
-                trace_id, schema_version
-            ) VALUES (%s,%s,%s,%s,'codex_task_request',%s,%s,%s,%s,1)
+                trace_id) VALUES (%s,%s,%s,%s,'codex_task_request',%s,%s,%s,%s)
             """,
             (
                 interaction_id,
@@ -313,14 +314,11 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.external_evidence (
                 evidence_id, interaction_id, subject_id, scene_id,
                 context_party_id, artifact_id, source_kind, trust_status,
-                privacy_scope, acceptance_status, codex_task_source_id,
-                schema_version
-            ) VALUES (%s,%s,%s,%s,%s,%s,'codex_task_source','external_claim',
-                'private','accepted',%s,1)
+                privacy_scope, acceptance_status, codex_task_source_id) VALUES (%s,NULL,%s,%s,%s,%s,'codex_task_source','external_claim',
+                'private','accepted',%s)
             """,
             (
                 evidence_id,
-                interaction_id,
                 context.subject_id,
                 context.scene_id,
                 context.creator_party_id,
@@ -335,9 +333,8 @@ class PostgreSQLCodexDelegationRepository:
                 context_party_id, purpose, source_kind, source_ref,
                 source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
-                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0,1)
+                predecessor_opportunity_id, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
+                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0)
             """,
             (
                 opportunity_id,
@@ -354,20 +351,21 @@ class PostgreSQLCodexDelegationRepository:
             """
             INSERT INTO armi.scene_timeline_items (
                 timeline_item_id, scene_id, source_kind, source_ref,
-                source_event_no, result_status, occurred_at, schema_version
-            ) VALUES (%s,%s,'creator_input',%s,1,'accepted',statement_timestamp(),1)
+                source_event_no, result_status, occurred_at) VALUES (%s,%s,'creator_input',%s,1,'accepted',statement_timestamp())
             """,
             (timeline_id, context.scene_id, interaction_id),
         )
         boundary = await connection.execute(
             """
             UPDATE armi.interaction_scenes
-            SET recent_context_boundary = %s
+            SET recent_context_boundary = %s,
+                scene_version = scene_version + 1
             WHERE scene_id = %s
               AND current_status = 'open'
               AND closed_at IS NULL
+              AND recent_context_boundary IS DISTINCT FROM %s
             """,
-            (timeline_id, context.scene_id),
+            (timeline_id, context.scene_id, timeline_id),
         )
         if boundary.rowcount != 1:
             raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
@@ -471,8 +469,7 @@ class PostgreSQLCodexDelegationRepository:
             """
             INSERT INTO armi.effect_attempts (
                 effect_attempt_id, effect_id, attempt_no, adapter_binding,
-                request_digest, claim_token, dispatch_state, schema_version
-            ) VALUES (%s,%s,1,%s,%s,%s,'prepared',1)
+                request_digest, claim_token, dispatch_state) VALUES (%s,%s,1,%s,%s,%s,'prepared')
             """,
             (attempt_id, row[1], _BINDING, request_digest.value, claim_token),
         )
@@ -624,9 +621,7 @@ class PostgreSQLCodexDelegationRepository:
                 final_result_artifact_id, patch_artifact_id,
                 result_bundle_artifact_id, diagnostics_artifact_id,
                 validation_report_artifact_id, validation_digest,
-                changed_path_count, execution_error_code, cleanup_error_code,
-                schema_version
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+                changed_path_count, execution_error_code, cleanup_error_code) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 verification_id,
@@ -675,8 +670,7 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.effect_observations (
                 effect_observation_id, effect_id, effect_attempt_id,
                 observation_kind, reliability, receiver_ref,
-                observation_digest, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,NULL,%s,1)
+                observation_digest) VALUES (%s,%s,%s,%s,%s,NULL,%s)
             """,
             (
                 observation_id,
@@ -819,10 +813,8 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.external_evidence (
                 evidence_id, interaction_id, subject_id, scene_id,
                 context_party_id, artifact_id, source_kind, trust_status,
-                privacy_scope, acceptance_status, codex_verification_id,
-                schema_version
-            ) VALUES (%s,NULL,%s,%s,%s,%s,'codex_result','external_claim',
-                'private','accepted',%s,1)
+                privacy_scope, acceptance_status, codex_verification_id) VALUES (%s,NULL,%s,%s,%s,%s,'codex_result','external_claim',
+                'private','accepted',%s)
             """,
             (
                 evidence_id,
@@ -840,9 +832,8 @@ class PostgreSQLCodexDelegationRepository:
                 context_party_id, purpose, source_kind, source_ref,
                 source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,'consider_codex_result',
-                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0,1)
+                predecessor_opportunity_id, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_codex_result',
+                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0)
             """,
             (
                 opportunity_id,
@@ -866,8 +857,7 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.codex_result_sources (
                 codex_result_source_id, codex_verification_id,
                 evidence_id, opportunity_id, result_kind,
-                evidence_artifact_id, evidence_digest, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,1)
+                evidence_artifact_id, evidence_digest) VALUES (%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 result_source_id,
@@ -932,8 +922,7 @@ async def _insert_task_source(connection: Any, draft: CodexTaskSourceDraft) -> N
             codex_task_source_id, subject_id, source_bundle_artifact_id,
             source_bundle_digest, source_tree_digest, task_manifest_artifact_id,
             task_manifest_digest, path_scope_digest, validator_id,
-            deadline_seconds, trace_id, schema_version
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+            deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
         (
             draft.task_source_id.value,
@@ -960,7 +949,6 @@ def _artifact(artifact_id: UUID, digest: object, tail: tuple[Any, ...]) -> Artif
         str(tail[2]),
         ArtifactPrivacyScope(str(tail[3])),
         ArtifactIntegrityStatus(str(tail[4])),
-        1,
     )
 
 

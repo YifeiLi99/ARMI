@@ -154,12 +154,12 @@ class PostgreSQLExactLifeQueryRepository:
                 creator_party_id, purpose, source_kind, source_ref,
                 source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no, schema_version
+                predecessor_opportunity_id, reconsideration_no
             )
             SELECT %s, NULL, %s, %s, %s, 'consider_life_query_result',
                    'life_query_result', %s, 1, %s,
                    'eligible', 'open', source.root_opportunity_id,
-                   %s, source.reconsideration_no + 1, 1
+                   %s, source.reconsideration_no + 1
             FROM armi.opportunities AS source
             WHERE source.opportunity_id = %s
             """,

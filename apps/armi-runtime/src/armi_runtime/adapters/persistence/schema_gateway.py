@@ -13,7 +13,10 @@ from typing import Any, Final, LiteralString, cast
 from uuid import UUID
 
 import psycopg
-from armi_postgresql_contract.catalog_fingerprint import database_catalog_digest
+from armi_postgresql_contract.catalog_fingerprint import (
+    database_catalog_digest,
+    legacy_database_catalog_digest,
+)
 from psycopg import sql
 
 from armi_runtime.adapters.database_errors import DatabaseViolation
@@ -212,7 +215,7 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
                 raise ValueError
             baseline_definitions.append(definition)
             digest_documents.append(
-                {"path": expected_path, "sha256": cast(str, document["sha256"])}
+                {"path": expected_path, "sha256": document["sha256"]}
             )
         combined = json.dumps(
             digest_documents,
@@ -323,10 +326,10 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
         ) from None
     return _SchemaPlan(
         baseline_id=baseline_id,
-        baseline_checksum=cast(str, baseline["sha256"]),
+        baseline_checksum=baseline["sha256"],
         baseline_definitions=tuple(baseline_definitions),
         baseline_tables=frozenset(declared_tables),
-        baseline_catalog_digest=cast(str, baseline["catalog_sha256"]),
+        baseline_catalog_digest=baseline["catalog_sha256"],
         migrations=tuple(migrations),
     )
 
@@ -395,7 +398,7 @@ class PostgreSQLSchemaGateway:
                     environment_id=environment_id,
                     role_class="migrator",
                 )
-                return self._inspect_schema(connection)
+                return self._inspect_schema(connection, allow_pending=True)
             finally:
                 self._release_lock(connection)
 
@@ -508,13 +511,10 @@ class PostgreSQLSchemaGateway:
             raise DatabaseViolation(
                 "DB-PG-VERSION", "PostgreSQL must be exactly version 18.4"
             )
-        if (
-            extensions
-            != [
-                ("pg_trgm", _EXPECTED_PGTRGM, _EXPECTED_PGVECTOR_SCHEMA),
-                ("vector", _EXPECTED_PGVECTOR, _EXPECTED_PGVECTOR_SCHEMA),
-            ]
-        ):
+        if extensions != [
+            ("pg_trgm", _EXPECTED_PGTRGM, _EXPECTED_PGVECTOR_SCHEMA),
+            ("vector", _EXPECTED_PGVECTOR, _EXPECTED_PGVECTOR_SCHEMA),
+        ]:
             raise DatabaseViolation(
                 "DB-PGVECTOR-IDENTITY",
                 "PostgreSQL extensions must match the locked database identity",
@@ -561,7 +561,11 @@ class PostgreSQLSchemaGateway:
         expected_tables = self._plan.tables_after(len(history))
         if actual != expected_tables:
             raise DatabaseViolation("DB-SCHEMA-DIRTY", "the schema tables have drifted")
-        catalog_digest = database_catalog_digest(connection)
+        catalog_digest = (
+            legacy_database_catalog_digest(connection)
+            if len(history) == 1
+            else database_catalog_digest(connection)
+        )
         if catalog_digest != self._plan.catalog_after(len(history)):
             raise DatabaseViolation(
                 "DB-SCHEMA-CATALOG-DRIFT",

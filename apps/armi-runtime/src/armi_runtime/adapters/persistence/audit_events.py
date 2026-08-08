@@ -53,7 +53,6 @@ _COLUMNS = """
     grant_ref,
     bundle_digest,
     error_category,
-    schema_version,
     occurred_at
 """
 
@@ -98,14 +97,11 @@ class PostgreSQLAuditWriter:
                     policy_ref,
                     grant_ref,
                     bundle_digest,
-                    error_category,
-                    schema_version
-                )
+                    error_category)
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s
-                )
+                    %s, %s, %s, %s, %s, %s, %s)
                 """,
                 _draft_parameters(draft),
             )
@@ -174,7 +170,6 @@ def _draft_parameters(draft: AuditDraft) -> tuple[object, ...]:
         draft.grant.reference if draft.grant is not None else None,
         _digest_value(draft.bundle_digest),
         draft.error_category.value if draft.error_category is not None else None,
-        draft.schema_version,
     )
 
 
@@ -227,9 +222,8 @@ def _row_to_record(row: Sequence[Any]) -> AuditRecord:
             error_category=(
                 ErrorCategory(str(row[22])) if row[22] is not None else None
             ),
-            schema_version=int(row[23]),
         )
-        return AuditRecord(draft, Instant(row[24]))
+        return AuditRecord(draft, Instant(row[23]))
     except AuditViolation, TypeError, ValueError:
         raise AuditViolation("AUD-READ") from None
 

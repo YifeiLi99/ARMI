@@ -111,7 +111,6 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-from armi_postgresql_contract.catalog_fingerprint import database_catalog_digest
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -376,9 +375,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=environment_id or _uuid7(),
         )
 
+    def _install_current(
+        self,
+        conninfo: str,
+        *,
+        environment_id: UUID,
+    ) -> Any:
+        gateway = PostgreSQLSchemaGateway()
+        installed = gateway.install(conninfo, environment_id=environment_id)
+        self.assertEqual(installed.status, "pending")
+        return gateway.migrate(conninfo, environment_id=environment_id)
+
     def test_current_schema_installs_once_into_an_empty_database(self) -> None:
         fixture = self.create_database(environment_id=_SUMMARY_ENVIRONMENT_ID)
-        installed = PostgreSQLSchemaGateway().install(
+        installed = self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -404,7 +414,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(extension, ("0.8.6", "armi_extensions", True))
         with self.assertRaises(DatabaseViolation) as repeated:
-            PostgreSQLSchemaGateway().install(
+            self._install_current(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
             )
@@ -460,108 +470,36 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_pending_numbered_migration_requires_explicit_apply(self) -> None:
         fixture = self.create_database()
-        installed = PostgreSQLSchemaGateway().install(
+        gateway = PostgreSQLSchemaGateway()
+        installed = gateway.install(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
-        )
-        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            schema_root = Path(temporary) / "schema"
-            shutil.copytree(source / "baseline", schema_root / "baseline")
-            migrations_root = schema_root / "migrations"
-            migrations_root.mkdir()
-            migration_id = "0001_test_probe"
-            definition = (
-                "CREATE TABLE armi.migration_test_probe (\n"
-                "    probe_id bigint PRIMARY KEY\n"
-                ");\n\n"
-                "REVOKE ALL ON TABLE armi.migration_test_probe\n"
-                "FROM PUBLIC, armi_runtime, armi_admin, armi_migrator;\n"
-            )
-            migration_path = migrations_root / f"{migration_id}.sql"
-            migration_path.write_text(
-                definition,
-                encoding="utf-8",
-                newline="\n",
-            )
-            checksum = f"sha256:{hashlib.sha256(definition.encode()).hexdigest()}"
-            with psycopg.connect(fixture.provisioner_dsn) as connection:
-                connection.execute("SET LOCAL ROLE armi_owner")
-                connection.execute(definition)
-                target_catalog_sha256 = database_catalog_digest(connection)
-                connection.rollback()
-            (migrations_root / "manifest.json").write_text(
-                json.dumps(
-                    {
-                        "baseline_id": "baseline",
-                        "migrations": [
-                            {
-                                "creates_tables": ["migration_test_probe"],
-                                "drops_tables": [],
-                                "migration_id": migration_id,
-                                "path": f"{migration_id}.sql",
-                                "sha256": checksum,
-                                "target_catalog_sha256": target_catalog_sha256,
-                            }
-                        ],
-                        "schema_version": "armi.schema-migrations.v1",
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
-            gateway = PostgreSQLSchemaGateway(resource_root=schema_root)
-            with self.assertRaises(DatabaseViolation) as pending:
-                gateway.status(
-                    fixture.runtime_dsn,
-                    environment_id=fixture.environment_id,
-                )
-            self.assertEqual(pending.exception.code, "DB-SCHEMA-PENDING")
-
-            migrated = gateway.migrate(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            )
-            self.assertEqual(migrated.status, "current")
-            self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.migration_count, 1)
-            self.assertEqual(migrated.target_id, migration_id)
-            status = gateway.status(
+        self.assertEqual(installed.status, "pending")
+        with self.assertRaises(DatabaseViolation) as pending:
+            gateway.status(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
             )
-            self.assertEqual(status, migrated)
-            self.assertEqual(
-                gateway.migrate(
-                    fixture.migrator_dsn,
-                    environment_id=fixture.environment_id,
-                ),
-                migrated,
-            )
-            with psycopg.connect(fixture.provisioner_dsn) as connection:
-                history = connection.execute(
-                    """
-                    SELECT migration_id, migration_kind, checksum
-                    FROM armi.schema_migrations
-                    ORDER BY sequence_no
-                    """
-                ).fetchall()
-            self.assertEqual(
-                history[-1],
-                (migration_id, "migration", checksum),
-            )
-
-    def test_failed_numbered_migration_rolls_back_sql_and_history(self) -> None:
-        fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self.assertEqual(pending.exception.code, "DB-SCHEMA-PENDING")
+        migrated = gateway.migrate(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
+        self.assertEqual(migrated.status, "current")
+        self.assertEqual(migrated.table_count, installed.table_count + 1)
+        self.assertEqual(migrated.migration_count, 1)
+        self.assertEqual(migrated.target_id, "0001_harden_authoritative_schema")
+        self.assertEqual(
+            gateway.migrate(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            ),
+            migrated,
+        )
+
+    def test_failed_numbered_migration_rolls_back_sql_and_history(self) -> None:
+        fixture = self.create_database()
         source = Path(
             "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
         )
@@ -607,6 +545,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 newline="\n",
             )
             gateway = PostgreSQLSchemaGateway(resource_root=schema_root)
+            installed = gateway.install(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            )
+            self.assertEqual(installed.status, "pending")
             with self.assertRaises(DatabaseViolation) as failed:
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -622,6 +565,127 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchall()
             self.assertEqual(table, (None,))
             self.assertEqual(history, [("baseline",)])
+
+    def test_authoritative_migration_preserves_recovery_history(self) -> None:
+        fixture = self.create_database()
+        gateway = PostgreSQLSchemaGateway()
+        installed = gateway.install(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        self.assertEqual(installed.status, "pending")
+        run_id = _uuid7()
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute("SET session_replication_role = replica")
+            connection.execute(
+                """
+                INSERT INTO armi.runtime_recovery_runs (
+                    recovery_run_id, runtime_instance_id, subject_id,
+                    life_generation_id, bundle_activation_id, fence_token,
+                    status, completed_at, summary_digest,
+                    requeued_work_count, resumable_admin_correction_work_count
+                ) VALUES (
+                    %s, %s, %s, %s, %s, 1, 'safe', statement_timestamp(),
+                    %s, 7, 11
+                )
+                """,
+                (
+                    run_id,
+                    _uuid7(),
+                    _uuid7(),
+                    _uuid7(),
+                    _uuid7(),
+                    Digest.from_bytes(b"historical-recovery").value,
+                ),
+            )
+            connection.execute("SET session_replication_role = origin")
+            connection.commit()
+
+        migrated = gateway.migrate(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        self.assertEqual(migrated.status, "current")
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            metrics = dict(
+                connection.execute(
+                    """SELECT metric_kind, metric_value
+                       FROM armi.runtime_recovery_metrics
+                       WHERE recovery_run_id = %s""",
+                    (run_id,),
+                ).fetchall()
+            )
+            parent_columns = connection.execute(
+                """SELECT count(*) FROM information_schema.columns
+                   WHERE table_schema = 'armi'
+                     AND table_name = 'runtime_recovery_runs'"""
+            ).fetchone()
+            fixed_versions = connection.execute(
+                """SELECT count(*) FROM information_schema.columns
+                   WHERE table_schema = 'armi' AND column_name = 'schema_version'"""
+            ).fetchone()
+            catalog_shape = connection.execute(
+                """SELECT
+                       (SELECT count(*) FROM information_schema.tables
+                        WHERE table_schema = 'armi' AND table_type = 'BASE TABLE'),
+                       (SELECT count(*) FROM information_schema.columns
+                        WHERE table_schema = 'armi')"""
+            ).fetchone()
+        self.assertEqual(len(metrics), 28)
+        self.assertEqual(metrics["requeued_work_count"], 7)
+        self.assertEqual(metrics["resumable_admin_correction_work_count"], 11)
+        self.assertEqual(parent_columns, (11,))
+        self.assertEqual(fixed_versions, (0,))
+        self.assertEqual(catalog_shape, (74, 996))
+
+    def test_authoritative_migration_dirty_data_rolls_back_atomically(self) -> None:
+        fixture = self.create_database()
+        gateway = PostgreSQLSchemaGateway()
+        gateway.install(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute("SET session_replication_role = replica")
+            connection.execute(
+                """
+                INSERT INTO armi.local_inbox_deliveries (
+                    delivery_id, effect_id, scene_id, destination_party_id,
+                    payload_artifact_id, payload_digest, payload_bytes,
+                    receipt_digest
+                ) VALUES (%s, %s, %s, %s, %s, %s, NULL, %s)
+                """,
+                (
+                    _uuid7(),
+                    _uuid7(),
+                    _uuid7(),
+                    _uuid7(),
+                    _uuid7(),
+                    Digest.from_bytes(b"payload").value,
+                    Digest.from_bytes(b"receipt").value,
+                ),
+            )
+            connection.execute("SET session_replication_role = origin")
+            connection.commit()
+        with self.assertRaises(DatabaseViolation) as failed:
+            gateway.migrate(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            )
+        self.assertEqual(failed.exception.code, "DB-SCHEMA-MIGRATION-FAILED")
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            state = connection.execute(
+                """SELECT to_regclass('armi.runtime_recovery_metrics'),
+                          EXISTS (
+                              SELECT 1 FROM information_schema.columns
+                              WHERE table_schema = 'armi'
+                                AND table_name = 'local_inbox_deliveries'
+                                AND column_name = 'schema_version'
+                          ),
+                          (SELECT count(*) FROM armi.schema_migrations)
+                """
+            ).fetchone()
+        self.assertEqual(state, (None, True, 1))
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -732,7 +796,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             checked = invoke("config", "check", *root_argument)
             self.assertEqual(checked["status"], "pass")
             installed = invoke("db", "install", *root_argument)
-            self.assertEqual(installed["status"], "current")
+            self.assertEqual(installed["status"], "pending")
+            migrated = invoke("db", "migrate", *root_argument, "--apply")
+            self.assertEqual(migrated["status"], "current")
             inspected = invoke("db", "status", *root_argument)
             self.assertEqual(inspected["status"], "current")
             born = invoke("bootstrap", "birth", *root_argument)
@@ -1197,7 +1263,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self,
     ) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -1356,7 +1422,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self,
     ) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -1587,7 +1653,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_creator_codex_task_intake_is_atomic_and_idempotent(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -1702,7 +1768,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.codex_task_sources),
                     (SELECT count(*) FROM armi.external_evidence
                      WHERE source_kind='codex_task_source'
-                       AND interaction_id IS NOT NULL),
+                       AND interaction_id IS NULL),
                     (SELECT count(*) FROM armi.opportunities
                      WHERE purpose='consider_codex_task'),
                     (SELECT count(*) FROM armi.scene_timeline_items
@@ -1713,7 +1779,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_admin_mcp_health_and_schema_status_use_only_admin_identity(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -1811,7 +1877,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_admin_reset_is_preview_bound_recoverable_and_re_registers(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -1969,7 +2035,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_t07_component_preview_apply_status_and_role_boundary(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -2583,7 +2649,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if not live_secret or live_secret != live_secret.strip():
                 self.fail("WEB-LIVE-CREDENTIAL")
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -2907,7 +2973,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_life_record_query_plans_use_bounded_and_trigram_indexes(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -2922,7 +2988,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     cognitive_episode_id, proposal_ref, experience_kind,
                     fact_class, first_person_gist, scene_id, occurred_at,
                     learned_at, accepted_at, source_perspective, uncertainty,
-                    privacy_scope, schema_version
+                    privacy_scope
                 )
                 SELECT uuidv7(), %s, uuidv7(), uuidv7(), 'proposal:1',
                        'creator_input', 'external_claim',
@@ -2936,7 +3002,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                            ((ordinal %% 3650)::text || ' days')::interval,
                        statement_timestamp() -
                            ((ordinal %% 3650)::text || ' days')::interval,
-                       'creator_claim', NULL, 'private', 1
+                       'creator_claim', NULL, 'private'
                 FROM generate_series(1, 200000) AS ordinal
                 """,
                 (subject_id, scene_id),
@@ -3171,11 +3237,208 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertIn("accepted_experiences_subject_page_idx", deep_plan)
         self.assertNotIn('"Node Type": "Seq Scan"', deep_plan)
 
+    def test_hardened_permission_shapes_and_operational_indexes(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        subject_id = _uuid7()
+        with psycopg.connect(
+            fixture.provisioner_dsn,
+            autocommit=True,
+        ) as connection:
+            invalid_creator_request = """
+                INSERT INTO armi.capability_requests (
+                    capability_request_id, subject_commit_id, proposal_ref,
+                    subject_id, interaction_scene_id, creator_party_id,
+                    capability_id, capability_kind, operation_class,
+                    audience_scope, data_scope, purpose,
+                    requested_valid_for_seconds, requested_max_uses,
+                    requested_max_payload_bytes, request_digest
+                ) VALUES (
+                    uuidv7(), uuidv7(), 'proposal:1', uuidv7(), uuidv7(),
+                    uuidv7(), uuidv7(), 'creator.scene.reply', 'send',
+                    NULL, 'creator_visible_response', 'respond_to_creator',
+                    60, 1, 1024, 'sha256:' || repeat('a', 64)
+                )
+            """
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                connection.execute(invalid_creator_request)
+
+            invalid_codex_request = """
+                INSERT INTO armi.capability_requests (
+                    capability_request_id, subject_commit_id, proposal_ref,
+                    subject_id, interaction_scene_id, creator_party_id,
+                    capability_id, capability_kind, operation_class,
+                    audience_scope, data_scope, purpose, workspace_scope,
+                    artifact_scope, network_access,
+                    requested_valid_for_seconds, requested_max_uses,
+                    requested_max_payload_bytes, request_digest
+                ) VALUES (
+                    uuidv7(), uuidv7(), 'proposal:1', uuidv7(), uuidv7(),
+                    uuidv7(), uuidv7(), 'codex.delegated-work', 'execute',
+                    NULL, NULL, 'delegate_codex_work', NULL,
+                    'explicit_only', false, 60, 1, NULL,
+                    'sha256:' || repeat('b', 64)
+                )
+            """
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                connection.execute(invalid_codex_request)
+
+            connection.execute("SET session_replication_role = replica")
+            connection.execute(
+                """
+                INSERT INTO armi.effect_outbox_items (
+                    effect_outbox_item_id, effect_id, message_kind,
+                    payload_digest, status, available_at, dispatch_deadline
+                )
+                SELECT uuidv7(), uuidv7(), 'effect.dispatch',
+                       'sha256:' || repeat('c', 64), 'ready',
+                       statement_timestamp() - (ordinal || ' seconds')::interval,
+                       statement_timestamp() + interval '1 day'
+                FROM generate_series(1, 10000) AS ordinal
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.effect_outbox_items (
+                    effect_outbox_item_id, effect_id, message_kind,
+                    payload_digest, status, available_at, claim_owner,
+                    claim_expires_at, claim_token, attempt_count,
+                    dispatch_deadline
+                )
+                SELECT uuidv7(), uuidv7(), 'effect.dispatch',
+                       'sha256:' || repeat('d', 64), 'claimed',
+                       statement_timestamp() - interval '1 day', uuidv7(),
+                       statement_timestamp() - (ordinal || ' seconds')::interval,
+                       1, 1, statement_timestamp() + interval '1 day'
+                FROM generate_series(1, 10000) AS ordinal
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.effects (
+                    effect_id, action_intent_revision_id, operation_id,
+                    policy_decision_id, subject_id, scene_id,
+                    context_party_id, payload_artifact_id, payload_digest,
+                    payload_bytes, effect_kind, capability_kind,
+                    operation_class, audience_scope, data_scope, purpose,
+                    authorization_basis, destination_kind,
+                    destination_party_id, registration_digest, status,
+                    verification_status, trace_id, current_attempt_id,
+                    current_observation_id, settlement_digest, settled_at,
+                    action_intent_id
+                )
+                SELECT uuidv7(), uuidv7(), uuidv7(), uuidv7(), %s,
+                       uuidv7(), uuidv7(), uuidv7(),
+                       'sha256:' || repeat('e', 64), 1,
+                       'creator_response', 'creator.scene.reply', 'send',
+                       'creator', 'creator_visible_response',
+                       'respond_to_creator', 'creator_grant',
+                       'creator_inbox', uuidv7(),
+                       'sha256:' || repeat('f', 64), 'unknown',
+                       'inconclusive', repeat('1', 32), uuidv7(), uuidv7(),
+                       'sha256:' || repeat('0', 64),
+                       statement_timestamp() - (ordinal || ' seconds')::interval,
+                       uuidv7()
+                FROM generate_series(1, 10000) AS ordinal
+                """,
+                (subject_id,),
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.cognitive_episodes (
+                    cognitive_episode_id, opportunity_id, subject_id,
+                    purpose, status, base_subject_version, base_state_epoch,
+                    bundle_activation_id, policy_digest, mechanism_identity,
+                    mechanism_config_digest, trace_id
+                )
+                SELECT uuidv7(), uuidv7(), %s, 'consider_autonomous_life',
+                       'preparing', 0, 0, uuidv7(),
+                       'sha256:' || repeat('1', 64),
+                       'armi.context-compiler.deterministic-v1',
+                       'sha256:' || repeat('2', 64), repeat('2', 32)
+                FROM generate_series(1, 10000)
+                """,
+                (subject_id,),
+            )
+            connection.execute("SET session_replication_role = origin")
+            connection.execute(
+                """
+                ANALYZE armi.effect_outbox_items;
+                ANALYZE armi.effects;
+                ANALYZE armi.cognitive_episodes
+                """
+            )
+            plans = (
+                connection.execute(
+                    """
+                    EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                    SELECT effect_outbox_item_id
+                    FROM armi.effect_outbox_items
+                    WHERE status = 'ready'
+                      AND available_at <= statement_timestamp()
+                    ORDER BY available_at, effect_outbox_item_id
+                    LIMIT 50
+                    """
+                ).fetchone(),
+                connection.execute(
+                    """
+                    EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                    SELECT effect_outbox_item_id
+                    FROM armi.effect_outbox_items
+                    WHERE status = 'claimed'
+                      AND claim_expires_at <= statement_timestamp()
+                    ORDER BY claim_expires_at, effect_outbox_item_id
+                    LIMIT 50
+                    """
+                ).fetchone(),
+                connection.execute(
+                    """
+                    EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                    SELECT effect_id
+                    FROM armi.effects
+                    WHERE status = 'unknown'
+                      AND settled_at <= statement_timestamp()
+                    ORDER BY settled_at, effect_id
+                    LIMIT 50
+                    """
+                ).fetchone(),
+                connection.execute(
+                    """
+                    EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                    SELECT cognitive_episode_id
+                    FROM armi.cognitive_episodes
+                    WHERE subject_id = %s
+                      AND purpose = 'consider_autonomous_life'
+                    ORDER BY created_at DESC, cognitive_episode_id DESC
+                    LIMIT 50
+                    """,
+                    (subject_id,),
+                ).fetchone(),
+            )
+
+        plan_text = tuple(json.dumps(row[0], sort_keys=True) for row in plans if row)
+        self.assertEqual(len(plan_text), 4)
+        for expected_index, plan in zip(
+            (
+                "effect_outbox_items_ready_claim_idx",
+                "effect_outbox_items_claim_expiry_idx",
+                "effects_unknown_settlement_idx",
+                "cognitive_episodes_subject_purpose_recent_idx",
+            ),
+            plan_text,
+            strict=True,
+        ):
+            self.assertIn(expected_index, plan)
+            self.assertNotIn('"Node Type": "Seq Scan"', plan)
+
     def test_role_matrix_cross_environment_and_pool_reset(self) -> None:
         fixture_a = self.create_database()
         fixture_b = self.create_database()
         for fixture in (fixture_a, fixture_b):
-            PostgreSQLSchemaGateway().install(
+            self._install_current(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
             )
@@ -3252,7 +3515,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_identity_connection_and_runtime_authority_fail_safely(self) -> None:
         fixture = self.create_database()
         gateway = PostgreSQLSchemaGateway()
-        gateway.install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -3297,7 +3560,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_artifact_registration_reuse_verified_read_and_role_grants(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -3532,7 +3795,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_unique_birth_is_atomic_concurrent_and_idempotent(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -3858,7 +4121,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_t03_subject_commit_is_atomic_and_private(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -4373,9 +4636,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.runtime_instances (
                     runtime_instance_id, subject_id, life_generation_id,
                     bundle_activation_id, fence_token, status,
-                    lease_expires_at, schema_version
-                ) VALUES (%s, %s, %s, %s, 1, 'active',
-                          clock_timestamp() + interval '5 minutes', 1)
+                    lease_expires_at) VALUES (%s, %s, %s, %s, 1, 'active',
+                          clock_timestamp() + interval '5 minutes')
                 """,
                 (
                     ids["runtime"],
@@ -4392,9 +4654,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     INSERT INTO armi.artifacts (
                         artifact_id, content_digest, media_type, byte_size,
                         storage_locator, logical_kind, producer_kind,
-                        producer_trace_id, privacy_scope, schema_version
-                    ) VALUES (%s, %s, %s, %s, %s, %s,
-                              's026_conformance', %s, 'private', 1)
+                        producer_trace_id, privacy_scope) VALUES (%s, %s, %s, %s, %s, %s,
+                              's026_conformance', %s, 'private')
                     """,
                     (
                         artifact_ids[name],
@@ -4411,9 +4672,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.party_input_interactions (
                     interaction_id, subject_id, scene_id,
                     source_party_id, purpose, idempotency_key,
-                    request_digest, content_digest, trace_id, schema_version
-                ) VALUES (%s, %s, %s, %s, 'creator_message',
-                          's026-input', %s, %s, %s, 1)
+                    request_digest, content_digest, trace_id) VALUES (%s, %s, %s, %s, 'creator_message',
+                          's026-input', %s, %s, %s)
                 """,
                 (
                     ids["interaction"],
@@ -4430,9 +4690,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.external_evidence (
                     evidence_id, interaction_id, subject_id, scene_id,
                     context_party_id, artifact_id, source_kind, trust_status,
-                    privacy_scope, acceptance_status, schema_version
-                ) VALUES (%s, %s, %s, %s, %s, %s, 'creator_input',
-                          'external_claim', 'creator_visible', 'accepted', 1)
+                    privacy_scope, acceptance_status) VALUES (%s, %s, %s, %s, %s, %s, 'creator_input',
+                          'external_claim', 'creator_visible', 'accepted')
                 """,
                 (
                     ids["evidence"],
@@ -4450,10 +4709,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     context_party_id, purpose, eligibility_status,
                     current_disposition, selected_at, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest, schema_version
-                ) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
+                    source_version, source_digest) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
                           'eligible', 'selected', statement_timestamp(), %s, 0,
-                          'external_evidence', %s, 1, %s, 1)
+                          'external_evidence', %s, 1, %s)
                 """,
                 (
                     ids["opportunity"],
@@ -4475,12 +4733,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     mechanism_identity, mechanism_config_digest,
                     context_manifest_artifact_id, compiled_context_artifact_id,
                     context_digest, trace_id, prepared_at, model_returned_at,
-                    final_disposition, validated_at, schema_version
-                ) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
+                    final_disposition, validated_at) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
                           'candidate_validated', 0, 0, %s, %s,
                           'armi.context-compiler.deterministic-v1', %s,
                           %s, %s, %s, %s, statement_timestamp(),
-                          statement_timestamp(), 'change', statement_timestamp(), 1)
+                          statement_timestamp(), 'change', statement_timestamp())
                 """,
                 (
                     ids["episode"],
@@ -4503,10 +4760,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     context_item_id, cognitive_episode_id, ordinal, section,
                     item_kind, source_kind, source_ref, source_version,
                     source_digest, trust_class, privacy_scope, disposition,
-                    content_bytes, schema_version
-                ) VALUES (%s, %s, 1, 'evidence', 'creator_input',
+                    content_bytes) VALUES (%s, %s, 1, 'evidence', 'creator_input',
                           'external_evidence', %s, 1, %s, 'external_claim',
-                          'private', 'included', %s, 1)
+                          'private', 'included', %s)
                 """,
                 (
                     ids["context_item"],
@@ -4522,10 +4778,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     context_item_id, cognitive_episode_id, ordinal, section,
                     item_kind, source_kind, source_ref, source_version,
                     source_digest, trust_class, privacy_scope, disposition,
-                    content_bytes, schema_version
-                ) VALUES (%s, %s, 2, 'scene', 'current_scene',
+                    content_bytes) VALUES (%s, %s, 2, 'scene', 'current_scene',
                           'interaction_scene', %s, 1, %s, 'runtime_authority',
-                          'private', 'included', 0, 1)
+                          'private', 'included', 0)
                 """,
                 (
                     ids["context_scene"],
@@ -4540,10 +4795,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     context_item_id, cognitive_episode_id, ordinal, section,
                     item_kind, source_kind, source_ref, source_version,
                     source_digest, trust_class, privacy_scope, disposition,
-                    content_bytes, schema_version
-                ) VALUES (%s, %s, 3, 'capability', 'capability_catalog',
+                    content_bytes) VALUES (%s, %s, 3, 'capability', 'capability_catalog',
                           'capability_catalog', %s, 1, %s, 'policy',
-                          'internal', 'included', 0, 1)
+                          'internal', 'included', 0)
                 """,
                 (
                     ids["context_capability"],
@@ -4568,10 +4822,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         idempotency_key, payload_digest, priority, not_before,
                         deadline_at, status, max_attempts, attempt_count,
                         current_attempt_id, lease_owner, lease_expires_at,
-                        lease_token, result_kind, result_ref, trace_id, schema_version
-                    ) VALUES (%s, %s, 'cognitive_episode', %s, %s, %s, %s, 50,
+                        lease_token, result_kind, result_ref, trace_id) VALUES (%s, %s, 'cognitive_episode', %s, %s, %s, %s, 50,
                               statement_timestamp(), statement_timestamp() + interval '10 minutes',
-                              %s, 2, 1, %s, %s, %s, %s, %s, %s, %s, 1)
+                              %s, 2, 1, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         work_id,
@@ -4608,8 +4861,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     dispatch_status, provider_request_id, provider_model_id,
                     response_artifact_id, input_tokens, output_tokens,
                     cached_input_tokens, estimated_cost_microyuan,
-                    result_status, dispatched_at, settled_at, schema_version
-                ) VALUES (%s, %s, %s, %s, 1, %s, 'volcengine_ark',
+                    result_status, dispatched_at, settled_at) VALUES (%s, %s, %s, %s, 1, %s, 'volcengine_ark',
                           'doubao-seed-evolving', 'provider_evolving_alias',
                           'creator_input_cognition', 'armi.model-request.v1',
                           %s,
@@ -4617,7 +4869,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                           'armi.model.ark-api-key.v1', %s, %s, 'settled',
                           %s, %s, %s,
                           %s, %s, %s, %s, 'succeeded', statement_timestamp(),
-                          statement_timestamp(), 1)
+                          statement_timestamp())
                 """,
                 (
                     ids["model_attempt"],
@@ -4653,12 +4905,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     validator_identity, policy_digest, validation_status,
                     final_disposition, change_set_artifact_id, change_set_digest,
                     accepted_count, rejected_count,
-                    validated_by_runtime_instance_id, validation_fence_token,
-                    schema_version
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, %s,
+                    validated_by_runtime_instance_id, validation_fence_token) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, %s,
                           %s, %s,
                           'armi.candidate-validator.deterministic-v1', %s,
-                          'accepted', 'change', %s, %s, %s, 0, %s, 1, 1)
+                          'accepted', 'change', %s, %s, %s, 0, %s, 1)
                 """,
                 (
                     ids["validation"],
@@ -4687,9 +4937,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     INSERT INTO armi.cognitive_candidate_validation_items (
                         candidate_validation_id, proposal_ref, atomic_group_ref,
                         owner_kind, fact_class, validation_status,
-                        semantic_digest, ordinal, schema_version
-                    ) VALUES (%s, %s, %s, 'experience', %s,
-                              'accepted', %s, %s, 1)
+                        semantic_digest, ordinal) VALUES (%s, %s, %s, 'experience', %s,
+                              'accepted', %s, %s)
                     """,
                     (
                         ids["validation"],
@@ -4719,9 +4968,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     INSERT INTO armi.cognitive_candidate_validation_items (
                         candidate_validation_id, proposal_ref, atomic_group_ref,
                         owner_kind, fact_class, validation_status,
-                        semantic_digest, ordinal, schema_version
-                    ) VALUES (%s, %s, %s, 'capability', 'inference',
-                              'accepted', %s, %s, 1)
+                        semantic_digest, ordinal) VALUES (%s, %s, %s, 'capability', 'inference',
+                              'accepted', %s, %s)
                     """,
                     (
                         ids["validation"],
@@ -4763,9 +5011,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     INSERT INTO armi.cognitive_candidate_validation_items (
                         candidate_validation_id, proposal_ref, atomic_group_ref,
                         owner_kind, fact_class, validation_status,
-                        semantic_digest, ordinal, schema_version
-                    ) VALUES (%s, %s, %s, 'action', 'inference',
-                              'accepted', %s, %s, 1)
+                        semantic_digest, ordinal) VALUES (%s, %s, %s, 'action', 'inference',
+                              'accepted', %s, %s)
                     """,
                     (
                         ids["validation"],
@@ -4924,14 +5171,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     audience_scope, data_scope, purpose, workspace_scope,
                     artifact_scope, network_access, requested_valid_for_seconds,
                     requested_max_uses, requested_max_payload_bytes,
-                    request_digest, schema_version
+                    request_digest
                 )
                 SELECT %s, subject_commit_id, 'proposal:3', subject_id,
                        interaction_scene_id, creator_party_id, capability_id,
                        capability_kind, operation_class, audience_scope,
                        data_scope, purpose, workspace_scope, artifact_scope,
                        network_access, 60, 1, requested_max_payload_bytes,
-                       %s, 1
+                       %s
                 FROM armi.capability_requests
                 WHERE capability_request_id = %s
                 """,
@@ -4961,14 +5208,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     audience_scope, data_scope, purpose, workspace_scope,
                     artifact_scope, network_access, requested_valid_for_seconds,
                     requested_max_uses, requested_max_payload_bytes,
-                    request_digest, schema_version
+                    request_digest
                 )
                 SELECT %s, request.subject_commit_id, 'proposal:4',
                        request.subject_id, request.interaction_scene_id,
                        request.creator_party_id, capability.capability_id,
                        'codex.delegated-work', 'execute', NULL, NULL,
                        'delegate_codex_work', 'isolated_ephemeral',
-                       'explicit_only', false, 600, 1, NULL, %s, 1
+                       'explicit_only', false, 600, 1, NULL, %s
                 FROM armi.capability_requests AS request
                 JOIN armi.capabilities AS capability
                   ON capability.capability_kind = 'codex.delegated-work'
@@ -5298,9 +5545,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.action_intents (
                     action_intent_id, subject_id, scene_id, context_party_id,
                     root_opportunity_id, purpose, current_revision_id,
-                    action_kind, schema_version
-                ) VALUES (%s, %s, %s, %s, %s, 'delegate_codex_work', NULL,
-                          'codex_delegation', 1)
+                    action_kind) VALUES (%s, %s, %s, %s, %s, 'delegate_codex_work', NULL,
+                          'codex_delegation')
                 """,
                 (foreign_action_id, *action_owner[2:]),
             )
@@ -5360,7 +5606,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_runtime_authority_heartbeat_takeover_and_fence(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -5613,7 +5859,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_offline_recovery_backup_and_isolated_drill(self) -> None:
         source = self.create_database()
         target = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             source.migrator_dsn,
             environment_id=source.environment_id,
         )
@@ -5631,7 +5877,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             secrets_root = environment_root / "secrets"
             destination = root / "backups"
             quarantine = root / "quarantine"
-            for path in (data_root / "artifacts", secrets_root, destination, quarantine):
+            for path in (
+                data_root / "artifacts",
+                secrets_root,
+                destination,
+                quarantine,
+            ):
                 path.mkdir(parents=True)
             migrator_secret = secrets_root / "migrator"
             migrator_secret.write_text(
@@ -5710,7 +5961,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT migration_id FROM armi.schema_migrations"
                 ).fetchall()
-            self.assertEqual(restored, [("baseline",)])
+            self.assertEqual(
+                restored,
+                [("baseline",), ("0001_harden_authoritative_schema",)],
+            )
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()
@@ -5747,7 +6001,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_runtime_recovery_reaches_safe_without_starting_workers(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -6514,13 +6768,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 recovery_count = database.execute(
                     """
                     SELECT
-                        resumable_opportunity_count,
-                        resumable_cognitive_episode_count,
-                        resumable_model_attempt_count,
-                        resumable_candidate_validation_count
-                    FROM armi.runtime_recovery_runs
-                    ORDER BY started_at DESC, recovery_run_id DESC
-                    LIMIT 1
+                        max(metric_value) FILTER (
+                            WHERE metric_kind = 'resumable_opportunity_count'
+                        ),
+                        max(metric_value) FILTER (
+                            WHERE metric_kind = 'resumable_cognitive_episode_count'
+                        ),
+                        max(metric_value) FILTER (
+                            WHERE metric_kind = 'resumable_model_attempt_count'
+                        ),
+                        max(metric_value) FILTER (
+                            WHERE metric_kind = 'resumable_candidate_validation_count'
+                        )
+                    FROM armi.runtime_recovery_metrics
+                    WHERE recovery_run_id = (
+                        SELECT recovery_run_id FROM armi.runtime_recovery_runs
+                        ORDER BY started_at DESC, recovery_run_id DESC LIMIT 1
+                    )
                     """
                 ).fetchone()
                 self.assertEqual(recovery_count, (0, 2, 2, 0))
@@ -6598,7 +6862,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute("SELECT * FROM armi.runtime_recovery_runs")
 
     def _prepare_s011_schema(self, fixture: DatabaseFixture) -> None:
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
@@ -7066,13 +7330,27 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 install_exit = main(
                     ("db", "install", "--environment-root", str(root.resolve()))
                 )
+            migrate_output = io.StringIO()
+            with redirect_stdout(migrate_output):
+                migrate_exit = main(
+                    (
+                        "db",
+                        "migrate",
+                        "--environment-root",
+                        str(root.resolve()),
+                        "--apply",
+                    )
+                )
             status_output = io.StringIO()
             with redirect_stdout(status_output):
                 status_exit = main(
                     ("db", "status", "--environment-root", str(root.resolve()))
                 )
             self.assertEqual(install_exit, 0)
+            self.assertEqual(migrate_exit, 0)
             self.assertEqual(status_exit, 0)
+            self.assertEqual(json.loads(install_output.getvalue())["status"], "pending")
+            self.assertEqual(json.loads(migrate_output.getvalue())["status"], "current")
             output = json.loads(status_output.getvalue())
             self.assertEqual(output["status"], "current")
             self.assertGreater(output["table_count"], 0)
@@ -7095,7 +7373,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_durable_work_attempt_expiry_idempotency_and_outbox(self) -> None:
         fixture = self.create_database()
-        PostgreSQLSchemaGateway().install(
+        self._install_current(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )

@@ -112,6 +112,7 @@ class RecoverySummary:
     resumable_web_research_intent_count: int = 0
     pending_web_evidence_acceptance_count: int = 0
     resumable_web_cognition_count: int = 0
+    resumable_admin_correction_work_count: int = 0
     resumable_codex_task_count: int = 0
     resumable_codex_effect_count: int = 0
     pending_codex_result_acceptance_count: int = 0
@@ -147,6 +148,7 @@ class RecoverySummary:
             self.resumable_web_research_intent_count,
             self.pending_web_evidence_acceptance_count,
             self.resumable_web_cognition_count,
+            self.resumable_admin_correction_work_count,
             self.resumable_codex_task_count,
             self.resumable_codex_effect_count,
             self.pending_codex_result_acceptance_count,

@@ -9,6 +9,7 @@
   ],
   "extraPaths": [
     "packages/armi-kernel/src",
+    "packages/armi-postgresql-contract/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],

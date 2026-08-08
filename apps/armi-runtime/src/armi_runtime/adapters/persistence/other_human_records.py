@@ -395,8 +395,7 @@ class PostgreSQLOtherHumanRecordQuery:
                    item.result_status, item.occurred_at,
                    artifact.artifact_id, artifact.content_digest,
                    artifact.byte_size, artifact.media_type, artifact.logical_kind,
-                   artifact.privacy_scope, artifact.integrity_status,
-                   artifact.schema_version
+                   artifact.privacy_scope, artifact.integrity_status
             FROM armi.scene_timeline_items AS item
             JOIN armi.interaction_scenes AS scene ON scene.scene_id = item.scene_id
             LEFT JOIN armi.external_evidence AS evidence
@@ -451,7 +450,6 @@ class PostgreSQLOtherHumanRecordQuery:
                 str(row[9]),
                 ArtifactPrivacyScope(str(row[10])),
                 ArtifactIntegrityStatus(str(row[11])),
-                int(row[12]),
             )
             if ref.media_type != "text/plain":
                 raise ValueError

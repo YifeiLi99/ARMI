@@ -328,13 +328,10 @@ class PostgreSQLContextRepository:
                 policy_digest,
                 mechanism_identity,
                 mechanism_config_digest,
-                trace_id,
-                schema_version
-            )
+                trace_id)
             VALUES (
                 %s, %s, %s, %s, %s, %s, 'preparing',
-                %s, %s, %s, %s, %s, %s, %s, 1
-            )
+                %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 episode_id,
@@ -428,7 +425,7 @@ class PostgreSQLContextRepository:
                     scene.scene_kind,
                     scene.audience_scope,
                     scene.current_status,
-                    scene.schema_version,
+                    scene.scene_version,
                     episode.purpose,
                     COALESCE(evidence.source_kind, opportunity.source_kind),
                     opportunity.source_kind,
@@ -1118,13 +1115,10 @@ class PostgreSQLContextRepository:
                     privacy_scope,
                     disposition,
                     reason_code,
-                    content_bytes,
-                    schema_version
-                )
+                    content_bytes)
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, 1
-                )
+                    %s, %s, %s, %s, %s)
                 """,
                 (
                     uuid7(),
@@ -1311,8 +1305,7 @@ class PostgreSQLContextRepository:
                     media_type,
                     logical_kind,
                     privacy_scope,
-                    integrity_status,
-                    schema_version
+                    integrity_status
                 FROM armi.artifacts
                 WHERE artifact_id = %s
                   AND retention_status = 'retained'
@@ -1331,7 +1324,6 @@ class PostgreSQLContextRepository:
                 str(row[4]),
                 ArtifactPrivacyScope(str(row[5])),
                 ArtifactIntegrityStatus(str(row[6])),
-                int(row[7]),
             )
         except TypeError, ValueError:
             raise ContextViolation("CTX-SOURCE-INVALID") from None

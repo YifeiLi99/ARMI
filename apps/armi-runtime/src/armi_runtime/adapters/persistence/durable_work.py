@@ -109,13 +109,10 @@ class PostgreSQLDurableWorkWriter:
                         max_attempts,
                         attempt_count,
                         lease_token,
-                        trace_id,
-                        schema_version
-                    )
+                        trace_id)
                     VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, 'ready', %s, 0, 0, %s, 1
-                    )
+                        %s, %s, %s, 'ready', %s, 0, 0, %s)
                     ON CONFLICT (
                         owner_kind,
                         owner_ref,
@@ -144,13 +141,10 @@ class PostgreSQLDurableWorkWriter:
                     claim_token,
                     attempt_count,
                     max_attempts,
-                    trace_id,
-                    schema_version
-                )
+                    trace_id)
                 VALUES (
                     %s, %s, 'work.available', %s, 'ready',
-                    %s, 0, 0, %s, %s, 1
-                )
+                    %s, 0, 0, %s, %s)
                 """,
                 (
                     uuid7(),
@@ -749,7 +743,6 @@ def _same_declaration(existing: WorkDraft, requested: WorkDraft) -> bool:
         existing.max_attempts,
         existing.trace_id,
         existing.subject_id,
-        existing.schema_version,
     ) == (
         requested.work_kind,
         requested.owner,
@@ -762,7 +755,6 @@ def _same_declaration(existing: WorkDraft, requested: WorkDraft) -> bool:
         requested.max_attempts,
         requested.trace_id,
         requested.subject_id,
-        requested.schema_version,
     )
 
 

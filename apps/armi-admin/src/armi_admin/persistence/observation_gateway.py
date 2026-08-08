@@ -82,8 +82,8 @@ class AdminObservationGateway:
                     "INSERT INTO armi.deployment_environments ("
                     "singleton_key, environment_id, environment_kind, incarnation, "
                     "resettable, test_controls_enabled, bundle_digest, config_digest, "
-                    "template_digest, data_root_identity_digest, database_identity_digest, "
-                    "schema_version) VALUES (true, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)",
+                    "template_digest, data_root_identity_digest, database_identity_digest"
+                    ") VALUES (true, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                     (
                         values["environment_id"],
                         values["environment_kind"],
@@ -194,8 +194,7 @@ class AdminObservationGateway:
                 "revision.body_digest, artifact.artifact_id, "
                 "artifact.content_digest, artifact.media_type, artifact.byte_size, "
                 "artifact.storage_locator, artifact.logical_kind, "
-                "artifact.privacy_scope, artifact.integrity_status, "
-                "artifact.schema_version "
+                "artifact.privacy_scope, artifact.integrity_status "
                 "FROM armi.life_materials AS material "
                 "JOIN armi.life_material_revisions AS revision "
                 "ON revision.life_material_revision_id = material.current_revision_id "
@@ -256,7 +255,6 @@ class AdminObservationGateway:
             or str(row[19]) != "life.material.content"
             or str(row[20]) != "private"
             or str(row[21]) != "verified"
-            or row[22] != 1
         ):
             raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
         digest_hex = content_digest[7:]

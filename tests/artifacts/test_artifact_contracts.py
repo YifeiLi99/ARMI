@@ -23,7 +23,6 @@ def _policy(**overrides: object) -> ArtifactPolicy:
         "producer_kind": "test-suite",
         "producer_trace_id": TraceId("1" + ("0" * 31)),
         "privacy_scope": ArtifactPrivacyScope.PRIVATE,
-        "schema_version": 1,
     }
     values.update(overrides)
     return ArtifactPolicy(**values)  # type: ignore[arg-type]
@@ -41,7 +40,6 @@ class ArtifactContractTests(unittest.TestCase):
             logical_kind=policy.logical_kind,
             privacy_scope=policy.privacy_scope,
             integrity_status=ArtifactIntegrityStatus.VERIFIED,
-            schema_version=1,
         )
 
         self.assertEqual(reference.artifact_id, artifact_id)
@@ -63,14 +61,13 @@ class ArtifactContractTests(unittest.TestCase):
             ),
         )
 
-    def test_invalid_id_media_token_and_schema_are_rejected(self) -> None:
+    def test_invalid_id_media_and_token_are_rejected(self) -> None:
         invalid_values = (
             lambda: ArtifactId(uuid4()),
             lambda: _policy(media_type="Text/Plain"),
             lambda: _policy(media_type="text/plain; charset=utf-8"),
             lambda: _policy(logical_kind="../escape"),
             lambda: _policy(producer_kind=""),
-            lambda: _policy(schema_version=2),
         )
         for invalid in invalid_values:
             with (
@@ -89,7 +86,6 @@ class ArtifactContractTests(unittest.TestCase):
                 logical_kind="test.payload",
                 privacy_scope=ArtifactPrivacyScope.PRIVATE,
                 integrity_status=ArtifactIntegrityStatus.VERIFIED,
-                schema_version=1,
             )
         with self.assertRaises(ValueError):
             ArtifactPrivacyScope("owner")

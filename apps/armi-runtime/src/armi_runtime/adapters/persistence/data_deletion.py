@@ -422,7 +422,6 @@ class LocalDataDeletionRepository:
             str(row[4]),
             ArtifactPrivacyScope(str(row[5])),
             ArtifactIntegrityStatus(str(row[6])),
-            1,
         )
 
 

@@ -85,9 +85,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     recovery_create = recovery_command.add_parser("create")
     recovery_create.add_argument("--environment-root", type=Path, required=True)
-    recovery_create.add_argument(
-        "--postgresql-client-root", type=Path, required=True
-    )
+    recovery_create.add_argument("--postgresql-client-root", type=Path, required=True)
     recovery_create.add_argument("--destination", type=Path, required=True)
     recovery_verify = recovery_command.add_parser("verify")
     recovery_verify.add_argument("--bundle", type=Path, required=True)
@@ -95,9 +93,7 @@ def _parser() -> argparse.ArgumentParser:
     recovery_drill.add_argument("--bundle", type=Path, required=True)
     recovery_drill.add_argument("--quarantine-root", type=Path, required=True)
     recovery_drill.add_argument("--target-conninfo-file", type=Path, required=True)
-    recovery_drill.add_argument(
-        "--postgresql-client-root", type=Path, required=True
-    )
+    recovery_drill.add_argument("--postgresql-client-root", type=Path, required=True)
     recovery_drill.add_argument("--apply", action="store_true", required=True)
     capacity = command.add_parser("capacity")
     capacity_command = capacity.add_subparsers(

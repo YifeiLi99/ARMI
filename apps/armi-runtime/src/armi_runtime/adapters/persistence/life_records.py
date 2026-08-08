@@ -521,8 +521,7 @@ class PostgreSQLLifeRecordQuery:
                                artifact.media_type,
                                artifact.logical_kind,
                                artifact.privacy_scope,
-                               artifact.integrity_status,
-                               artifact.schema_version
+                               artifact.integrity_status
                         FROM armi.life_materials AS material
                         JOIN armi.life_material_revisions AS revision
                           ON revision.life_material_revision_id =
@@ -554,7 +553,6 @@ class PostgreSQLLifeRecordQuery:
                 str(row[16]),
                 ArtifactPrivacyScope(str(row[17])),
                 ArtifactIntegrityStatus(str(row[18])),
-                int(row[19]),
             )
             if (
                 ref.media_type != "application/json"

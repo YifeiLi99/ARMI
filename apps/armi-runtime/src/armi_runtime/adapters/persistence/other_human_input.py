@@ -95,14 +95,17 @@ class OtherHumanInputRepository:
                 INSERT INTO armi.interaction_scenes (
                     scene_id, subject_id, scene_key, scene_kind,
                     primary_party_id, primary_party_kind, audience_scope,
-                    current_status, schema_version
+                    current_status
                 )
                 SELECT uuidv7(), subject_id, %s, 'other_human_dialogue',
-                       %s, 'other_human', 'other_human', 'open', 1
+                       %s, 'other_human', 'other_human', 'open'
                 FROM armi.subjects
                 WHERE singleton_key = 1 AND status = 'active'
                 ON CONFLICT (subject_id, primary_party_id, scene_key)
-                DO UPDATE SET current_status = 'open', closed_at = NULL
+                DO UPDATE SET current_status = 'open', closed_at = NULL,
+                              scene_version = interaction_scenes.scene_version + 1
+                WHERE interaction_scenes.current_status IS DISTINCT FROM 'open'
+                   OR interaction_scenes.closed_at IS NOT NULL
                 """,
                 (scene_key.value, party[0]),
             )
@@ -110,10 +113,12 @@ class OtherHumanInputRepository:
             cursor = await connection.execute(
                 """
                 UPDATE armi.interaction_scenes
-                SET current_status = 'closed', closed_at = statement_timestamp()
+                SET current_status = 'closed', closed_at = statement_timestamp(),
+                    scene_version = scene_version + 1
                 WHERE primary_party_id = %s AND scene_key = %s
                   AND scene_kind = 'other_human_dialogue'
                   AND audience_scope = 'other_human'
+                  AND current_status IS DISTINCT FROM 'closed'
                 """,
                 (party[0], scene_key.value),
             )
@@ -275,9 +280,8 @@ class OtherHumanInputRepository:
                 opportunity_id, evidence_id, subject_id, scene_id,
                 context_party_id, purpose, eligibility_status,
                 current_disposition, root_opportunity_id, source_kind, source_ref,
-                source_version, source_digest, reconsideration_no, schema_version
-            ) VALUES (%s,%s,%s,%s,%s,'consider_other_human_input',
-                      'eligible','open',%s,'external_evidence',%s,1,%s,0,1)
+                source_version, source_digest, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_other_human_input',
+                      'eligible','open',%s,'external_evidence',%s,1,%s,0)
             """,
             (
                 opportunity_id,
@@ -294,15 +298,17 @@ class OtherHumanInputRepository:
             """
             INSERT INTO armi.scene_timeline_items (
                 timeline_item_id, scene_id, source_kind, source_ref,
-                source_event_no, result_status, occurred_at, schema_version
-            ) VALUES (%s,%s,'other_human_input',%s,1,'accepted',statement_timestamp(),1)
+                source_event_no, result_status, occurred_at) VALUES (%s,%s,'other_human_input',%s,1,'accepted',statement_timestamp())
             """,
             (timeline_id, context.scene_id, interaction_id),
         )
         await connection.execute(
-            """UPDATE armi.interaction_scenes SET recent_context_boundary = %s
-               WHERE scene_id = %s AND current_status = 'open'""",
-            (timeline_id, context.scene_id),
+            """UPDATE armi.interaction_scenes
+               SET recent_context_boundary = %s,
+                   scene_version = scene_version + 1
+               WHERE scene_id = %s AND current_status = 'open'
+                 AND recent_context_boundary IS DISTINCT FROM %s""",
+            (timeline_id, context.scene_id, timeline_id),
         )
         return OtherHumanInputAcceptance(
             context.party_id,

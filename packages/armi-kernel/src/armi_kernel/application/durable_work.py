@@ -93,7 +93,6 @@ class WorkDraft:
     trace_id: TraceId
     subject_id: SubjectId | None = None
     payload: WorkPayloadRef | None = None
-    schema_version: int = 1
 
     def __post_init__(self) -> None:
         if type(self.work_id) is not WorkId:
@@ -123,8 +122,6 @@ class WorkDraft:
         if self.subject_id is not None and type(self.subject_id) is not SubjectId:
             raise WorkViolation("WORK-DECLARATION")
         if self.payload is not None and type(self.payload) is not WorkPayloadRef:
-            raise WorkViolation("WORK-DECLARATION")
-        if type(self.schema_version) is not int or self.schema_version != 1:
             raise WorkViolation("WORK-DECLARATION")
 
 

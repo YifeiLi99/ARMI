@@ -876,10 +876,10 @@ class AdminCorrectionGateway:
                 "INSERT INTO armi.durable_work (work_id, work_kind, owner_kind, owner_ref, "
                 "subject_id, idempotency_key, payload_kind, payload_ref, payload_digest, "
                 "priority, not_before, deadline_at, status, max_attempts, attempt_count, "
-                "lease_token, trace_id, schema_version) VALUES ("
+                "lease_token, trace_id) VALUES ("
                 "%s, 'admin.correction.artifact-cleanup', 'admin_correction', %s, %s, %s, "
                 "'artifact', %s, %s, 100, statement_timestamp(), "
-                "statement_timestamp() + interval '24 hours', 'ready', 10, 0, 0, %s, 1)",
+                "statement_timestamp() + interval '24 hours', 'ready', 10, 0, 0, %s)",
                 (
                     work_id,
                     snapshot["result_id"],
@@ -893,9 +893,9 @@ class AdminCorrectionGateway:
             connection.execute(
                 "INSERT INTO armi.outbox_items (outbox_item_id, work_id, message_kind, "
                 "payload_digest, status, available_at, claim_token, attempt_count, "
-                "max_attempts, trace_id, schema_version) VALUES ("
+                "max_attempts, trace_id) VALUES ("
                 "%s, %s, 'admin.correction.available', %s, 'ready', "
-                "statement_timestamp(), 0, 0, 10, %s, 1)",
+                "statement_timestamp(), 0, 0, 10, %s)",
                 (outbox_id, work_id, handler["content_digest"], trace_id),
             )
 
@@ -907,8 +907,8 @@ class AdminCorrectionGateway:
         connection.execute(
             "INSERT INTO armi.effect_observations (effect_observation_id, effect_id, "
             "effect_attempt_id, observation_kind, reliability, receiver_ref, "
-            "observation_digest, schema_version) VALUES (%s, %s, %s, 'query', "
-            "'reliable', NULL, %s, 1)",
+            "observation_digest) VALUES (%s, %s, %s, 'query', "
+            "'reliable', NULL, %s)",
             (
                 handler["observation_id"],
                 handler["effect_id"],

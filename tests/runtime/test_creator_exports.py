@@ -65,7 +65,6 @@ def _artifact(content: bytes) -> _ArtifactSnapshot:
             logical_kind="creator.export.test",
             privacy_scope=ArtifactPrivacyScope.PRIVATE,
             integrity_status=ArtifactIntegrityStatus.VERIFIED,
-            schema_version=1,
         ),
         "creator.export.test",
     )

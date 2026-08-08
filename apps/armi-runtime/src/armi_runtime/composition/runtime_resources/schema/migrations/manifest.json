@@ -1,5 +1,16 @@
 {
   "baseline_id": "baseline",
-  "migrations": [],
+  "migrations": [
+    {
+      "creates_tables": [
+        "runtime_recovery_metrics"
+      ],
+      "drops_tables": [],
+      "migration_id": "0001_harden_authoritative_schema",
+      "path": "0001_harden_authoritative_schema.sql",
+      "sha256": "sha256:05f45ca4ed914c2b3a109b4330b07ab6cb3dee94847ee91bfc668739da5001b1",
+      "target_catalog_sha256": "sha256:59c604c2cfee9d5bc40b76734951204adaf970fb5aaa82c49ddf1cda33d948b2"
+    }
+  ],
   "schema_version": "armi.schema-migrations.v1"
 }

@@ -70,7 +70,7 @@ def current_catalog_digest() -> str:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
         catalog_digest = value["catalog_sha256"]
-    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+    except OSError, KeyError, TypeError, json.JSONDecodeError:
         return "sha256:" + "0" * 64
     return (
         catalog_digest

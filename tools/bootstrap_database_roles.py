@@ -456,11 +456,10 @@ def inspect_policy(
     if extension != [
         (PGTRGM_VERSION, PGVECTOR_SCHEMA),
         (PGVECTOR_VERSION, PGVECTOR_SCHEMA),
-    ] or extension_usage != [
-        (role, True) for role in sorted(CAPABILITY_ROLES)
-    ]:
+    ] or extension_usage != [(role, True) for role in sorted(CAPABILITY_ROLES)]:
         raise BootstrapFailure(
-            "DB-PGVECTOR-IDENTITY", "PostgreSQL extension identity or grants have drifted"
+            "DB-PGVECTOR-IDENTITY",
+            "PostgreSQL extension identity or grants have drifted",
         )
     return {
         "status": "pass",

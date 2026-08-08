@@ -66,6 +66,7 @@ docs/                       私有叙述性设计与外部研究资料
 uv sync --frozen
 uv run armi config check --environment-root C:\path\to\environment
 uv run armi db install --environment-root C:\path\to\environment
+uv run armi db migrate --environment-root C:\path\to\environment --apply
 uv run armi bootstrap birth --environment-root C:\path\to\environment
 uv run armi start --environment-root C:\path\to\environment
 uv run armi status --environment-root C:\path\to\environment
@@ -73,7 +74,7 @@ uv run armi creator-session issue --environment-root C:\path\to\environment
 uv run armi stop --environment-root C:\path\to\environment
 ```
 
-`db install` 按 manifest 顺序在同一事务中安装冻结的模块化 v1 基线；任一模块失败都会整体回滚。安装会拒绝已有用户对象，并核对列、约束、索引、owner/ACL 与扩展身份组成的完整 catalog 指纹。基线建立前的开发数据库应在确认可丢弃后重建，不提供兼容登记入口。此后结构变化只新增编号 migration，先停止 Runtime，再执行 `armi db migrate --apply`。
+`db install` 按 manifest 顺序在同一事务中安装冻结的模块化 v1 基线；任一模块失败都会整体回滚。新环境必须继续执行 `db migrate --apply`，达到当前 catalog 后才能 `bootstrap birth`。安装会拒绝已有用户对象，并核对列、约束、索引、owner/ACL 与扩展身份组成的完整 catalog 指纹。基线建立前的开发数据库应在确认可丢弃后重建，不提供兼容登记入口。此后结构变化只新增编号 migration，迁移前须停止 Runtime 并完成可验证备份与恢复准备。
 
 离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。备份同时保存 custom-format 数据库 dump、全部 retained+verified artifact、schema 历史、catalog 指纹和逐表行数；它与 Creator JSONL 数据导出是不同协议。
 

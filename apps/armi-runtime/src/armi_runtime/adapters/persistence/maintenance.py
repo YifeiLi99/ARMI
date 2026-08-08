@@ -172,11 +172,9 @@ class PostgreSQLMaintenanceRepository:
                         INSERT INTO armi.maintenance_session_revisions (
                             maintenance_revision_id, maintenance_session_id,
                             revision_no, previous_revision_id, phase,
-                            result_status, transition_kind, schema_version
-                        ) VALUES (
+                            result_status, transition_kind) VALUES (
                             %s, %s, %s, %s, %s,
-                            'failed', 'system_failed', 1
-                        )
+                            'failed', 'system_failed')
                         """,
                         (
                             failed_revision_id,
@@ -280,8 +278,7 @@ class PostgreSQLMaintenanceRepository:
             INSERT INTO armi.maintenance_session_revisions (
                 maintenance_revision_id, maintenance_session_id,
                 revision_no, previous_revision_id, phase,
-                result_status, transition_kind, schema_version
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1)
+                result_status, transition_kind) VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 next_revision_id,
@@ -463,11 +460,9 @@ async def _admit_phase_work(
                 creator_party_id, purpose, eligibility_status,
                 current_disposition, root_opportunity_id, reconsideration_no,
                 source_kind, source_ref, source_version, source_digest,
-                activity_id, schema_version
-            ) VALUES (
+                activity_id) VALUES (
                 %s, NULL, %s, NULL, NULL, %s, 'eligible', 'open', %s, 0,
-                'maintenance_phase_revision', %s, %s, %s, NULL, 1
-            )
+                'maintenance_phase_revision', %s, %s, %s, NULL)
             ON CONFLICT (
                 subject_id, source_kind, source_ref, source_version,
                 purpose, reconsideration_no
@@ -519,12 +514,10 @@ async def _admit_phase_work(
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no,
                 source_kind, source_ref, source_version, source_digest,
-                activity_id, schema_version
-            ) VALUES (
+                activity_id) VALUES (
                 %s, NULL, %s, NULL, NULL, %s, 'eligible', 'open',
                 %s, %s, 1, 'maintenance_phase_revision', %s, %s, %s,
-                NULL, 1
-            )
+                NULL)
             ON CONFLICT (predecessor_opportunity_id) DO NOTHING
             RETURNING opportunity_id
             """,

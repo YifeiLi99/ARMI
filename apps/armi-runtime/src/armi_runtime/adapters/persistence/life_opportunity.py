@@ -112,11 +112,9 @@ class PostgreSQLLifeOpportunityRepository:
                         origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
                         consideration_at, deadline_at, schedule_digest,
                         trigger_kind, sleep_decision_id, started_subject_version,
-                        started_state_epoch, current_revision_id, schema_version
-                    ) VALUES (
+                        started_state_epoch, current_revision_id) VALUES (
                         %s, %s, %s, NULL, %s, %s, %s, %s, %s,
-                        'system_deadline', NULL, %s, %s, %s, 1
-                    )
+                        'system_deadline', NULL, %s, %s, %s)
                     ON CONFLICT (subject_id, life_generation_id, cycle_anchor_ref)
                     DO NOTHING RETURNING maintenance_session_id
                     """,
@@ -141,8 +139,7 @@ class PostgreSQLLifeOpportunityRepository:
                     INSERT INTO armi.maintenance_session_revisions (
                         maintenance_revision_id, maintenance_session_id,
                         revision_no, previous_revision_id, phase,
-                        result_status, transition_kind, schema_version
-                    ) VALUES (%s, %s, 1, NULL, 'preparing', 'running', 'started', 1)
+                        result_status, transition_kind) VALUES (%s, %s, 1, NULL, 'preparing', 'running', 'started')
                     """,
                     (revision_id, session_id),
                 )
@@ -176,11 +173,9 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id, reconsideration_no,
                     available_after, expires_at, source_kind, source_ref,
-                    source_version, source_digest, activity_id, schema_version
-                ) VALUES (
+                    source_version, source_digest, activity_id) VALUES (
                     %s, NULL, %s, NULL, NULL, 'consider_sleep', 'eligible',
-                    'open', %s, 0, %s, %s, 'maintenance_window', %s, 1, %s, NULL, 1
-                )
+                    'open', %s, 0, %s, %s, 'maintenance_window', %s, 1, %s, NULL)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -260,13 +255,11 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest, schema_version
-                )
+                    source_version, source_digest)
                 VALUES (
                     %s, NULL, %s, NULL, NULL, 'consider_autonomous_life',
                     'eligible', 'open', %s, 0,
-                    'life_generation_available', %s, %s, %s, 1
-                )
+                    'life_generation_available', %s, %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -383,12 +376,10 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest, schema_version
-                ) VALUES (
+                    source_version, source_digest) VALUES (
                     %s, NULL, %s, NULL, NULL, 'consider_autonomous_life',
                     'eligible', 'open', %s, 0, 'life_material_revision',
-                    %s, %s, %s, 1
-                )
+                    %s, %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -647,12 +638,10 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest, activity_id, schema_version
-                ) VALUES (
+                    source_version, source_digest, activity_id) VALUES (
                     %s, NULL, %s, NULL, NULL, 'consider_activity_attention',
                     'eligible', 'open', %s, 0, 'activity_revision',
-                    %s, %s, %s, %s, 1
-                )
+                    %s, %s, %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -729,12 +718,10 @@ class PostgreSQLLifeOpportunityRepository:
                             current_disposition, root_opportunity_id,
                             predecessor_opportunity_id, reconsideration_no,
                             source_kind, source_ref, source_version,
-                            source_digest, activity_id, schema_version
-                        ) VALUES (
+                            source_digest, activity_id) VALUES (
                             %s, NULL, %s, NULL, NULL,
                             'consider_activity_attention', 'eligible', 'open',
-                            %s, %s, 1, 'activity_revision', %s, %s, %s, %s, 1
-                        )
+                            %s, %s, 1, 'activity_revision', %s, %s, %s, %s)
                         ON CONFLICT (predecessor_opportunity_id) DO NOTHING
                         RETURNING opportunity_id
                         """,
@@ -914,12 +901,10 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest, activity_id, schema_version
-                ) VALUES (
+                    source_version, source_digest, activity_id) VALUES (
                     %s, NULL, %s, NULL, NULL,
                     'consider_activity_internal_work', 'eligible', 'open',
-                    %s, 0, 'activity_revision', %s, %s, %s, %s, 1
-                )
+                    %s, 0, 'activity_revision', %s, %s, %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -1272,12 +1257,9 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, available_after, source_kind,
-                    source_ref, source_version, source_digest, activity_id,
-                    schema_version
-                ) VALUES (
+                    source_ref, source_version, source_digest, activity_id) VALUES (
                     %s, NULL, %s, %s, %s, 'consider_creator_outreach',
-                    'eligible', 'open', %s, 0, %s, %s, %s, %s, %s, %s, 1
-                )
+                    'eligible', 'open', %s, 0, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no

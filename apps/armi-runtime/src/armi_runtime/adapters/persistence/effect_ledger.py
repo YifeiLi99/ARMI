@@ -47,6 +47,7 @@ class EffectRegistrationSnapshot:
     capability_kind: str
     operation_class: str
     purpose: str
+    action_intent_id: UUID
 
 
 class PostgreSQLEffectLedgerRepository:
@@ -66,7 +67,8 @@ class PostgreSQLEffectLedgerRepository:
                    COALESCE(revision.response_digest, revision.task_manifest_digest),
                    artifact.byte_size, work.trace_id,
                    operation.operation_kind, revision.capability_kind,
-                   revision.operation_class, revision.purpose
+                   revision.operation_class, revision.purpose,
+                   operation.action_intent_id
             FROM armi.durable_work AS work
             JOIN armi.action_operations AS operation
               ON operation.registration_work_id = work.work_id
@@ -107,6 +109,7 @@ class PostgreSQLEffectLedgerRepository:
             str(row[11]),
             str(row[12]),
             str(row[13]),
+            row[14],
         )
 
     async def settle(
@@ -226,8 +229,7 @@ class PostgreSQLEffectLedgerRepository:
             INSERT INTO armi.policy_decisions (
                 policy_decision_id, action_intent_revision_id, operation_id,
                 matched_grant_id, decision_outcome, policy_identity, decision_digest,
-                reason_code, valid_until, schema_version
-            ) VALUES (%s, %s, %s, %s, %s, 'armi.policy-engine.deterministic-v1', %s, %s, %s, 1)
+                reason_code, valid_until) VALUES (%s, %s, %s, %s, %s, 'armi.policy-engine.deterministic-v1', %s, %s, %s)
             """,
             (
                 decision_id,
@@ -247,20 +249,20 @@ class PostgreSQLEffectLedgerRepository:
                 await connection.execute(
                     """
                 INSERT INTO armi.effects (
-                    effect_id, action_intent_revision_id, operation_id,
+                    effect_id, action_intent_revision_id, action_intent_id, operation_id,
                     policy_decision_id, subject_id, scene_id, context_party_id,
                     payload_artifact_id, payload_digest, payload_bytes, effect_kind,
                     capability_kind, operation_class, audience_scope, data_scope, purpose,
                     authorization_basis, destination_kind, destination_party_id,
-                    registration_digest, trace_id, status, verification_status, schema_version
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    registration_digest, trace_id, status, verification_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,'creator_grant',%s,%s,%s,%s,
-                    'registered','not_started',1)
+                    'registered','not_started')
                 RETURNING registered_at
                 """,
                     (
                         effect_id,
                         snapshot.action_revision_id,
+                        snapshot.action_intent_id,
                         snapshot.operation_id,
                         decision_id,
                         snapshot.subject_id,
@@ -289,12 +291,19 @@ class PostgreSQLEffectLedgerRepository:
                 )
             ).fetchone()
             assert row is not None
+            if snapshot.effect_kind == "creator_response":
+                await connection.execute(
+                    """UPDATE armi.dialogue_decisions
+                       SET effect_id = %s
+                       WHERE action_intent_id = %s
+                         AND decision_kind = 'reply' AND effect_id IS NULL""",
+                    (effect_id, snapshot.action_intent_id),
+                )
             await connection.execute(
                 """
                 INSERT INTO armi.effect_outbox_items (
                     effect_outbox_item_id, effect_id, message_kind, payload_digest,
-                    status, dispatch_deadline, max_attempts, schema_version
-                ) VALUES (%s, %s, 'effect.dispatch', %s, 'ready', %s, %s, 1)
+                    status, dispatch_deadline, max_attempts) VALUES (%s, %s, 'effect.dispatch', %s, 'ready', %s, %s)
                 """,
                 (
                     outbox_id,

@@ -197,11 +197,9 @@ class PostgreSQLWebEvidenceRepository:
                 evidence_id, interaction_id, subject_id, scene_id,
                 creator_party_id, artifact_id, source_kind, trust_status,
                 privacy_scope, acceptance_status, web_observation_request_id,
-                observation_attempt_id, schema_version
-            ) VALUES (
+                observation_attempt_id) VALUES (
                 %s, NULL, %s, %s, %s, %s, 'web_search', 'external_claim',
-                'private', 'accepted', %s, %s, 1
-            )
+                'private', 'accepted', %s, %s)
             """,
             (
                 evidence_id,
@@ -223,11 +221,9 @@ class PostgreSQLWebEvidenceRepository:
                 INSERT INTO armi.web_evidence_sources (
                     web_evidence_source_id, evidence_id, observation_attempt_id,
                     citation_no, source_artifact_id, canonical_url_digest,
-                    title_digest, citation_digest, acquisition_kind, schema_version
-                ) VALUES (
+                    title_digest, citation_digest, acquisition_kind) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
-                    'provider_synthesis_citation', 1
-                )
+                    'provider_synthesis_citation')
                 """,
                 (
                     WebEvidenceSourceId(uuid7()).value,
@@ -247,12 +243,10 @@ class PostgreSQLWebEvidenceRepository:
                 creator_party_id, purpose, source_kind, source_ref,
                 source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no, schema_version
-            ) VALUES (
+                predecessor_opportunity_id, reconsideration_no) VALUES (
                 %s, %s, %s, %s, %s, 'consider_web_evidence',
                 'external_evidence', %s, 1, %s,
-                'eligible', 'open', %s, NULL, 0, 1
-            )
+                'eligible', 'open', %s, NULL, 0)
             """,
             (
                 opportunity_id,
@@ -320,7 +314,6 @@ async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
         str(row[4]),
         ArtifactPrivacyScope(str(row[5])),
         ArtifactIntegrityStatus(str(row[6])),
-        1,
     )
 
 

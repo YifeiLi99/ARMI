@@ -51,11 +51,11 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
                     INSERT INTO armi.local_inbox_deliveries (
                         delivery_id, effect_id, scene_id,
                         destination_party_id, payload_artifact_id, payload_digest,
-                        payload_bytes, receipt_digest, schema_version
+                        payload_bytes, receipt_digest
                     )
                     SELECT %s, effect.effect_id, effect.scene_id,
                            effect.destination_party_id, effect.payload_artifact_id,
-                           effect.payload_digest, effect.payload_bytes, %s, 1
+                           effect.payload_digest, effect.payload_bytes, %s
                     FROM armi.effects AS effect
                     WHERE effect.effect_id = %s
                       AND effect.subject_id = %s
@@ -93,8 +93,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
                 """
                 INSERT INTO armi.scene_timeline_items (
                     timeline_item_id, scene_id, source_kind, source_ref,
-                    source_event_no, result_status, occurred_at, schema_version
-                ) VALUES (%s, %s, 'party_response', %s, 1, 'completed', %s, 1)
+                    source_event_no, result_status, occurred_at) VALUES (%s, %s, 'party_response', %s, 1, 'completed', %s)
                 """,
                 (
                     timeline_item_id,
@@ -106,10 +105,12 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
             await connection.execute(
                 """
                 UPDATE armi.interaction_scenes
-                SET recent_context_boundary = %s
+                SET recent_context_boundary = %s,
+                    scene_version = scene_version + 1
                 WHERE scene_id = %s
+                  AND recent_context_boundary IS DISTINCT FROM %s
                 """,
-                (timeline_item_id, request.scene_id),
+                (timeline_item_id, request.scene_id, timeline_item_id),
             )
             await uow.audit.append(
                 AuditDraft(
@@ -180,9 +181,7 @@ def _receipt_digest(request: FrozenEffectRequest, delivery_id: object) -> Digest
                 Any,
                 {
                     "schema_version": "armi.effect-receipt.v1",
-                    "adapter_binding": (
-                        "armi.local-inbox-adapter.postgresql-v1"
-                    ),
+                    "adapter_binding": ("armi.local-inbox-adapter.postgresql-v1"),
                     "delivery_id": str(delivery_id),
                     "effect_id": str(request.effect_id.value),
                     "payload_digest": request.payload_digest.value,

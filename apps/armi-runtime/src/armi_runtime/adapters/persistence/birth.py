@@ -298,11 +298,9 @@ class BirthRepository:
             """
             INSERT INTO armi.interaction_scenes (
                 scene_id, subject_id, scene_key, scene_kind,
-                primary_party_id, audience_scope, current_status, schema_version
-            ) VALUES (
+                primary_party_id, audience_scope, current_status) VALUES (
                 %s, %s, 'default', 'creator_dialogue',
-                %s, 'creator', 'open', 1
-            )
+                %s, 'creator', 'open')
             """,
             (default_scene_id, subject_id, manifest.creator_party_id),
         )

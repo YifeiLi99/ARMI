@@ -368,7 +368,6 @@ async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
         str(row[4]),
         ArtifactPrivacyScope(str(row[5])),
         ArtifactIntegrityStatus(str(row[6])),
-        1,
     )
 
 

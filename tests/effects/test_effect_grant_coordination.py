@@ -50,6 +50,8 @@ class _Connection:
             )
         if "UPDATE armi.effect_attempts" in statement:
             return _Cursor((datetime.now(UTC),))
+        if "INSERT INTO armi.effect_observations" in statement:
+            return _Cursor()
         if "UPDATE armi.effects" in statement:
             return _Cursor((params[1],))
         if "UPDATE armi.effect_outbox_items" in statement:

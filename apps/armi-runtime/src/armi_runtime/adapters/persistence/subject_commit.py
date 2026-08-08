@@ -620,12 +620,9 @@ class PostgreSQLSubjectCommitRepository:
                 cognitive_episode_id, subject_id, life_generation_id,
                 bundle_activation_id, base_subject_version,
                 new_subject_version, base_state_epoch, change_set_digest,
-                commit_digest, runtime_instance_id, fence_token, trace_id,
-                schema_version
-            ) VALUES (
+                commit_digest, runtime_instance_id, fence_token, trace_id) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, 1
-            )
+                %s, %s, %s, %s)
             """,
             (
                 commit_id.value,
@@ -656,22 +653,30 @@ class PostgreSQLSubjectCommitRepository:
             if not evidence_links:
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-BASIS")
             received_at = evidence_links[0][2]
-            experience_kind, source_perspective = {
-                "consider_web_evidence": ("web_observation", "web_claim"),
-                "consider_codex_result": ("codex_observation", "codex_observation"),
-            }.get(snapshot.opportunity_purpose, ("creator_input", "creator_claim"))
+            try:
+                experience_kind, source_perspective = {
+                    "consider_creator_input": ("creator_input", "creator_claim"),
+                    "consider_web_evidence": ("web_observation", "web_claim"),
+                    "consider_codex_result": (
+                        "codex_observation",
+                        "codex_observation",
+                    ),
+                    "consider_other_human_input": (
+                        "other_human_input",
+                        "other_human_claim",
+                    ),
+                }[snapshot.opportunity_purpose]
+            except KeyError:
+                raise SubjectCommitViolation("SUBJECT-EXPERIENCE-SOURCE") from None
             await connection.execute(
                 """
                 INSERT INTO armi.accepted_experiences (
                     experience_id, subject_id, subject_commit_id, cognitive_episode_id,
                     proposal_ref, experience_kind, fact_class,
                     first_person_gist, scene_id, occurred_at, learned_at,
-                    source_perspective, uncertainty, privacy_scope,
-                    schema_version
-                ) VALUES (
+                    source_perspective, uncertainty, privacy_scope) VALUES (
                     %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, 'private', 1
-                )
+                    %s, %s, %s, %s, %s, %s, 'private')
                 """,
                 (
                     experience_id.value,
@@ -992,11 +997,9 @@ class PostgreSQLSubjectCommitRepository:
                 """
                 INSERT INTO armi.scene_timeline_items (
                     timeline_item_id, scene_id, source_kind, source_ref,
-                    source_event_no, result_status, occurred_at, schema_version
-                ) VALUES (
+                    source_event_no, result_status, occurred_at) VALUES (
                     %s, %s, 'subject_commit', %s, 1, 'applied',
-                    statement_timestamp(), 1
-                )
+                    statement_timestamp())
                 """,
                 (timeline_item_id, snapshot.scene_id, commit_id.value),
             )
@@ -1045,12 +1048,10 @@ class PostgreSQLSubjectCommitRepository:
                     current_disposition, root_opportunity_id,
                     predecessor_opportunity_id, reconsideration_no,
                     source_kind, source_ref, source_version, source_digest,
-                    activity_id, schema_version
-                ) VALUES (
+                    activity_id) VALUES (
                     %s, %s, %s, %s, %s, %s, %s,
                     'eligible', 'open', %s, %s, 1,
-                    %s, %s, %s, %s, %s, 1
-                )
+                    %s, %s, %s, %s, %s)
                 """,
                 (
                     successor,
@@ -1422,10 +1423,8 @@ async def _insert_application(
             cognitive_episode_id, work_id, resolution, subject_commit_id,
             successor_opportunity_id, base_subject_version,
             observed_subject_version, completion_digest,
-            runtime_instance_id, fence_token, schema_version
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1
-        )
+            runtime_instance_id, fence_token) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             application_id.value,
@@ -1795,8 +1794,7 @@ async def _insert_activities(
             INSERT INTO armi.activities (
                 activity_id, subject_id, activity_kind,
                 origin_opportunity_id, current_revision_id, head_version,
-                privacy_scope, schema_version
-            ) VALUES (%s, %s, %s, %s, NULL, 0, %s, 1)
+                privacy_scope) VALUES (%s, %s, %s, %s, NULL, 0, %s)
             """,
             (
                 activity.activity_id,
@@ -1816,11 +1814,9 @@ async def _insert_activities(
                 progress_summary, waiting_condition, resumption_cue,
                 next_safe_step, status, terminal_reason,
                 related_scene_id, transition_kind,
-                waiting_condition_kind, resume_not_before, schema_version
-            ) VALUES (
+                waiting_condition_kind, resume_not_before) VALUES (
                 %s, %s, 1, NULL, %s, %s, %s, %s,
-                NULL, NULL, NULL, %s, %s, NULL, %s, 'created', NULL, NULL, 1
-            )
+                NULL, NULL, NULL, %s, %s, NULL, %s, 'created', NULL, NULL)
             """,
             (
                 revision_id,
@@ -1936,11 +1932,9 @@ async def _apply_activity_transition(
             proposal_ref, goal, progress_summary, waiting_condition,
             resumption_cue, next_safe_step, status, terminal_reason,
             related_scene_id, transition_kind, waiting_condition_kind,
-            resume_not_before, schema_version
-        ) VALUES (
+            resume_not_before) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, NULL, %s, %s, %s, 1
-        )
+            %s, %s, %s, %s, NULL, %s, %s, %s)
         """,
         (
             revision_id,
@@ -2093,13 +2087,10 @@ async def _insert_attention_reconsideration(
                 creator_party_id, purpose, eligibility_status,
                 current_disposition, available_after, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no, source_kind,
-                source_ref, source_version, source_digest, activity_id,
-                schema_version
-            ) VALUES (
+                source_ref, source_version, source_digest, activity_id) VALUES (
                 %s, NULL, %s, NULL, NULL, 'consider_activity_attention',
                 'eligible', 'open', statement_timestamp() + interval '60 seconds',
-                %s, %s, 1, 'activity_revision', %s, %s, %s, %s, 1
-            )
+                %s, %s, 1, 'activity_revision', %s, %s, %s, %s)
             ON CONFLICT (predecessor_opportunity_id) DO NOTHING
             RETURNING opportunity_id
             """,
@@ -2227,12 +2218,12 @@ async def _insert_sleep_reconsideration(
                 current_disposition, available_after, expires_at,
                 root_opportunity_id, predecessor_opportunity_id,
                 reconsideration_no, source_kind, source_ref, source_version,
-                source_digest, activity_id, schema_version
+                source_digest, activity_id
             )
             SELECT %s, NULL, subject_id, NULL, NULL, purpose, 'eligible',
                    'open', statement_timestamp() + interval '1 hour', expires_at,
                    root_opportunity_id, opportunity_id, 1, source_kind,
-                   source_ref, source_version, source_digest, NULL, 1
+                   source_ref, source_version, source_digest, NULL
             FROM armi.opportunities
             WHERE opportunity_id = %s
               AND statement_timestamp() + interval '1 hour' < expires_at
@@ -2270,8 +2261,7 @@ async def _insert_sleep_decision(
             sleep_decision_id, opportunity_id, cognitive_episode_id,
             candidate_validation_id, candidate_application_id, subject_id,
             life_generation_id, cycle_anchor_ref, source_digest,
-            decision_kind, review_not_before, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+            decision_kind, review_not_before) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             decision_id,
@@ -2310,9 +2300,8 @@ async def _insert_sleep_decision(
             origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
             consideration_at, deadline_at, schedule_digest, trigger_kind,
             sleep_decision_id, started_subject_version, started_state_epoch,
-            current_revision_id, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
-                  'subject_choice', %s, %s, %s, %s, 1)
+            current_revision_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                  'subject_choice', %s, %s, %s, %s)
         """,
         (
             session_id,
@@ -2334,9 +2323,7 @@ async def _insert_sleep_decision(
         """
         INSERT INTO armi.maintenance_session_revisions (
             maintenance_revision_id, maintenance_session_id, revision_no,
-            previous_revision_id, phase, result_status, transition_kind,
-            schema_version
-        ) VALUES (%s, %s, 1, NULL, 'preparing', 'running', 'started', 1)
+            previous_revision_id, phase, result_status, transition_kind) VALUES (%s, %s, 1, NULL, 'preparing', 'running', 'started')
         """,
         (revision_id, session_id),
     )
@@ -2369,8 +2356,7 @@ async def _insert_activity_attention_decision(
             candidate_validation_id, candidate_application_id, activity_id,
             expected_revision_id, expected_head_version,
             resource_snapshot_digest, decision_kind, result_revision_id,
-            review_not_before, schema_version
-        ) VALUES (%s, 'attention', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+            review_not_before) VALUES (%s, 'attention', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             uuid7(),
@@ -2439,11 +2425,9 @@ async def _insert_maintenance_phase_result(
             candidate_application_id, subject_commit_id,
             maintenance_session_id, maintenance_revision_id,
             expected_head_version, phase, outcome, result_summary,
-            creator_visible_problem, memory_id, schema_version
-        ) VALUES (
+            creator_visible_problem, memory_id) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, 1
-        )
+            %s, %s, %s, %s, %s, %s)
         """,
         (
             uuid7(),
@@ -2494,8 +2478,7 @@ async def _insert_activity_internal_work_decision(
             candidate_validation_id, candidate_application_id, activity_id,
             expected_revision_id, expected_head_version,
             resource_snapshot_digest, decision_kind, result_revision_id,
-            output_material_id, schema_version
-        ) VALUES (%s, 'internal_work', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+            output_material_id) VALUES (%s, 'internal_work', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             uuid7(),
@@ -2589,11 +2572,9 @@ async def _insert_capability_requests(
                 audience_scope, data_scope, purpose, workspace_scope,
                 artifact_scope, network_access, requested_valid_for_seconds,
                 requested_max_uses, requested_max_payload_bytes,
-                request_digest, schema_version
-            ) VALUES (
+                request_digest) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1
-            )
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (subject_id, capability_kind, operation_class)
             WHERE capability_kind = 'codex.delegated-work'
               AND current_status IN ('pending', 'granted', 'limited')
@@ -2733,8 +2714,7 @@ async def _insert_response_intent(
         INSERT INTO armi.action_intents (
             action_intent_id, subject_id, scene_id,
             context_party_id, root_opportunity_id, purpose,
-            current_revision_id, action_kind, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, 'respond_to_creator', NULL, 'party_response', 1)
+            current_revision_id, action_kind) VALUES (%s, %s, %s, %s, %s, 'respond_to_creator', NULL, 'party_response')
         """,
         (
             action_id,
@@ -2786,8 +2766,7 @@ async def _insert_other_human_change_terminal_decision(
             dialogue_decision_id, opportunity_id,
             cognitive_episode_id, candidate_validation_id,
             subject_commit_id, subject_id, scene_id, context_party_id,
-            decision_kind, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+            decision_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             uuid7(),
@@ -2835,7 +2814,8 @@ async def _insert_other_human_action(
             await connection.execute(
                 """
                 UPDATE armi.interaction_scenes
-                SET current_status = 'closed', closed_at = statement_timestamp()
+                SET current_status = 'closed', closed_at = statement_timestamp(),
+                    scene_version = scene_version + 1
                 WHERE scene_id = %s AND subject_id = %s
                   AND primary_party_id = %s
                   AND scene_kind = 'other_human_dialogue'
@@ -2853,8 +2833,7 @@ async def _insert_other_human_action(
                 dialogue_decision_id, opportunity_id,
                 cognitive_episode_id, candidate_validation_id,
                 subject_commit_id, subject_id, scene_id, context_party_id,
-                decision_kind, schema_version
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'end_conversation', 1)
+                decision_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'end_conversation')
             """,
             (
                 decision_id,
@@ -2908,8 +2887,7 @@ async def _insert_other_human_action(
         """
         INSERT INTO armi.action_intents (
             action_intent_id, subject_id, scene_id, context_party_id,
-            root_opportunity_id, purpose, current_revision_id, action_kind, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, 'respond_to_other_human', NULL, 'party_response', 1)
+            root_opportunity_id, purpose, current_revision_id, action_kind) VALUES (%s, %s, %s, %s, %s, 'respond_to_other_human', NULL, 'party_response')
         """,
         (
             action_id,
@@ -2926,10 +2904,9 @@ async def _insert_other_human_action(
             revision_no, response_artifact_id, response_digest, response_bytes,
             media_type, capability_kind, operation_class, audience_scope,
             data_scope, purpose, candidate_validation_id, proposal_ref,
-            subject_commit_id, schema_version
-        ) VALUES (%s, %s, 1, %s, %s, %s, 'text/plain',
-            'local.other-human-inbox.deliver', 'deliver_local', 'other_human',
-            'declared_party_response', 'respond_to_other_human', %s, %s, %s, 1)
+            subject_commit_id) VALUES (%s, %s, 1, %s, %s, %s, 'text/plain',
+            'local.other-human-inbox.deliver', 'send', 'other_human',
+            'declared_party_response', 'respond_to_other_human', %s, %s, %s)
         """,
         (
             revision_id,
@@ -2950,12 +2927,32 @@ async def _insert_other_human_action(
     )
     await connection.execute(
         """
+        INSERT INTO armi.dialogue_decisions (
+            dialogue_decision_id, opportunity_id,
+            cognitive_episode_id, candidate_validation_id,
+            subject_commit_id, subject_id, scene_id, context_party_id,
+            proposal_ref, decision_kind, action_intent_id, effect_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, NULL)
+        """,
+        (
+            decision_id,
+            snapshot.opportunity_id,
+            snapshot.episode_id,
+            snapshot.validation_id,
+            commit_id.value,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            snapshot.other_party_id,
+            reply.proposal_ref,
+            action_id,
+        ),
+    )
+    await connection.execute(
+        """
         INSERT INTO armi.action_operations (
             operation_id, root_opportunity_id, subject_id, scene_id,
             context_party_id, action_intent_id, dialogue_decision_id,
-            phase, outcome, operation_kind, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s,
-                  'admitted', NULL, 'party_response', 1)
+            phase, outcome, operation_kind) VALUES (%s, %s, %s, %s, %s, %s, %s,
+                  'admitted', NULL, 'party_response')
         """,
         (
             operation_id,
@@ -2981,21 +2978,22 @@ async def _insert_other_human_action(
     await connection.execute(
         """
         INSERT INTO armi.effects (
-            effect_id, action_intent_revision_id, operation_id, subject_id, scene_id,
+            effect_id, action_intent_revision_id, action_intent_id,
+            operation_id, subject_id, scene_id,
             context_party_id, payload_artifact_id, payload_digest, payload_bytes,
             effect_kind, capability_kind, operation_class, audience_scope,
             data_scope, purpose, authorization_basis, destination_kind,
             destination_party_id, status, verification_status,
-            registration_digest, trace_id, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+            registration_digest, trace_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
             'local_inbox_delivery', 'local.other-human-inbox.deliver',
-            'deliver_local', 'other_human', 'declared_party_response',
+            'send', 'other_human', 'declared_party_response',
             'respond_to_other_human', 'runtime_builtin', 'other_human_inbox',
-            %s, 'registered', 'not_started', %s, %s, 1)
+            %s, 'registered', 'not_started', %s, %s)
         """,
         (
             effect_id,
             revision_id,
+            action_id,
             operation_id,
             snapshot.subject_id,
             snapshot.scene_id,
@@ -3012,11 +3010,9 @@ async def _insert_other_human_action(
         """
         INSERT INTO armi.effect_outbox_items (
             effect_outbox_item_id, effect_id, message_kind, payload_digest,
-            status, dispatch_deadline, max_attempts, schema_version
-        ) VALUES (
+            status, dispatch_deadline, max_attempts) VALUES (
             %s, %s, 'effect.dispatch', %s, 'ready',
-            statement_timestamp() + interval '1 hour', 2, 1
-        )
+            statement_timestamp() + interval '1 hour', 2)
         """,
         (uuid7(), effect_id, reply.content_digest.value),
     )
@@ -3031,26 +3027,9 @@ async def _insert_other_human_action(
         (effect_id, registration_digest.value, operation_id),
     )
     await connection.execute(
-        """
-        INSERT INTO armi.dialogue_decisions (
-            dialogue_decision_id, opportunity_id,
-            cognitive_episode_id, candidate_validation_id,
-            subject_commit_id, subject_id, scene_id, context_party_id,
-            decision_kind, action_intent_id, effect_id, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, %s, 1)
-        """,
-        (
-            decision_id,
-            snapshot.opportunity_id,
-            snapshot.episode_id,
-            snapshot.validation_id,
-            commit_id.value,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.other_party_id,
-            action_id,
-            effect_id,
-        ),
+        """UPDATE armi.dialogue_decisions SET effect_id = %s
+           WHERE dialogue_decision_id = %s AND effect_id IS NULL""",
+        (effect_id, decision_id),
     )
 
 
@@ -3073,13 +3052,11 @@ async def _finish_creator_response_intent(
             response_artifact_id, response_digest, response_bytes,
             media_type, capability_kind, operation_class, audience_scope,
             data_scope, purpose, candidate_validation_id, proposal_ref,
-            subject_commit_id, schema_version
-        ) VALUES (
+            subject_commit_id) VALUES (
             %s, %s, 1, %s, %s, %s, 'text/plain',
             'creator.scene.reply', 'send', 'creator',
             'creator_visible_response', 'respond_to_creator',
-            %s, %s, %s, 1
-        )
+            %s, %s, %s)
         """,
         (
             revision_id,
@@ -3101,9 +3078,7 @@ async def _finish_creator_response_intent(
         INSERT INTO armi.dialogue_decisions (
             dialogue_decision_id, opportunity_id, cognitive_episode_id,
             candidate_validation_id, subject_commit_id, subject_id, scene_id,
-            context_party_id, proposal_ref, decision_kind, action_intent_id,
-            schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, 1)
+            context_party_id, proposal_ref, decision_kind, action_intent_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s)
         """,
         (
             decision_id,
@@ -3145,9 +3120,8 @@ async def _finish_creator_response_intent(
         INSERT INTO armi.action_operations (
             operation_id, root_opportunity_id, subject_id,
             scene_id, context_party_id, action_intent_id, dialogue_decision_id,
-            admission_work_id, phase, outcome, operation_kind, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
-                  'admission_pending', NULL, 'party_response', 1)
+            admission_work_id, phase, outcome, operation_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                  'admission_pending', NULL, 'party_response')
         """,
         (
             snapshot.root_opportunity_id,
@@ -3231,11 +3205,9 @@ async def _insert_web_research_intent(
             web_research_intent_id, subject_commit_id, source_opportunity_id,
             subject_id, scene_id, creator_party_id, proposal_ref, purpose,
             operation_class, query_artifact_id, query_digest, idempotency_key,
-            admission_work_id, status, trace_id, schema_version
-        ) VALUES (
+            admission_work_id, status, trace_id) VALUES (
             %s, %s, %s, %s, %s, %s, %s, 'public_web_research',
-            'search_read_public', %s, %s, %s, %s, 'pending', %s, 1
-        )
+            'search_read_public', %s, %s, %s, %s, 'pending', %s)
         """,
         (
             intent_id,
@@ -3328,12 +3300,10 @@ async def _insert_exact_life_query_intent(
             exact_life_query_intent_id, subject_commit_id,
             source_opportunity_id, subject_id, scene_id, creator_party_id,
             proposal_ref, record_kind, query_text, result_limit,
-            query_digest, execution_work_id, status, trace_id, schema_version
-        ) VALUES (
+            query_digest, execution_work_id, status, trace_id) VALUES (
             %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s,
-            %s, %s, 'pending', %s, 1
-        )
+            %s, %s, 'pending', %s)
         """,
         (
             intent_id,
@@ -3413,11 +3383,9 @@ async def _insert_codex_delegation_intent(
         INSERT INTO armi.action_intents (
             action_intent_id, subject_id, scene_id,
             context_party_id, root_opportunity_id, purpose,
-            action_kind, current_revision_id, schema_version
-        ) VALUES (
+            action_kind, current_revision_id) VALUES (
             %s, %s, %s, %s, %s, 'delegate_codex_work',
-            'codex_delegation', NULL, 1
-        )
+            'codex_delegation', NULL)
         """,
         (
             action_id,
@@ -3433,12 +3401,9 @@ async def _insert_codex_delegation_intent(
             action_intent_revision_id, action_intent_id, revision_no,
             capability_kind, operation_class, purpose,
             candidate_validation_id, proposal_ref, subject_commit_id,
-            codex_task_source_id, task_manifest_digest, validator_id,
-            schema_version
-        ) VALUES (
+            codex_task_source_id, task_manifest_digest, validator_id) VALUES (
             %s, %s, 1, 'codex.delegated-work', 'execute',
-            'delegate_codex_work', %s, %s, %s, %s, %s, %s, 1
-        )
+            'delegate_codex_work', %s, %s, %s, %s, %s, %s)
         """,
         (
             revision_id,
@@ -3460,11 +3425,9 @@ async def _insert_codex_delegation_intent(
         INSERT INTO armi.action_operations (
             operation_id, root_opportunity_id, subject_id,
             scene_id, context_party_id, action_intent_id,
-            phase, outcome, operation_kind, schema_version
-        ) VALUES (
+            phase, outcome, operation_kind) VALUES (
             %s, %s, %s, %s, %s, %s,
-            'admission_pending', NULL, 'codex_delegation', 1
-        )
+            'admission_pending', NULL, 'codex_delegation')
         """,
         (
             snapshot.root_opportunity_id,
@@ -3512,8 +3475,7 @@ async def _insert_other_human_terminal_decision(
             dialogue_decision_id, opportunity_id,
             cognitive_episode_id, candidate_validation_id,
             candidate_application_id, subject_id, scene_id, context_party_id,
-            decision_kind, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+            decision_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             uuid7(),
@@ -3573,9 +3535,7 @@ async def _insert_formal_no_action(
         INSERT INTO armi.dialogue_decisions (
             dialogue_decision_id, opportunity_id, candidate_application_id,
             candidate_validation_id, proposal_ref, decision_kind,
-            reason_class, basis_digest, subject_id, scene_id, context_party_id,
-            schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+            reason_class, basis_digest, subject_id, scene_id, context_party_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             no_action_id,
@@ -3597,9 +3557,8 @@ async def _insert_formal_no_action(
             operation_id, root_opportunity_id, subject_id,
             scene_id, context_party_id, dialogue_decision_id,
             phase, outcome, completion_digest, completed_at,
-            operation_kind, schema_version
-        ) VALUES (%s, %s, %s, %s, %s, %s, 'terminal', 'no_action', %s,
-                  statement_timestamp(), 'party_response', 1)
+            operation_kind) VALUES (%s, %s, %s, %s, %s, %s, 'terminal', 'no_action', %s,
+                  statement_timestamp(), 'party_response')
         """,
         (
             snapshot.root_opportunity_id,
@@ -3683,7 +3642,6 @@ async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
         str(row[4]),
         ArtifactPrivacyScope(str(row[5])),
         ArtifactIntegrityStatus(str(row[6])),
-        1,
     )
 
 

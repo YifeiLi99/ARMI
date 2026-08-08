@@ -151,17 +151,36 @@ async def coordinate_dispatch_boundary(
     ).fetchone()
     if attempt is None:
         return None
+    observation_id = uuid7()
+    await connection.execute(
+        """
+        INSERT INTO armi.effect_observations (
+            effect_observation_id, effect_id, effect_attempt_id,
+            observation_kind, reliability, receiver_ref,
+            observation_digest
+        ) VALUES (%s, %s, %s, 'runner_cancelled', 'reliable', NULL, %s)
+        """,
+        (observation_id, effect_id, attempt_id, cancellation_digest.value),
+    )
     effect = await (
         await connection.execute(
             """
             UPDATE armi.effects
-            SET status='cancelled', verification_status='not_started',
-                current_attempt_id=NULL, cancelled_at=%s
+            SET status='cancelled', verification_status='verified',
+                current_observation_id=%s, settlement_digest=%s,
+                settled_at=%s, cancelled_at=%s
             WHERE effect_id=%s AND status='dispatching'
               AND current_attempt_id=%s
             RETURNING effect_id
             """,
-            (attempt[0], effect_id, attempt_id),
+            (
+                observation_id,
+                cancellation_digest.value,
+                attempt[0],
+                attempt[0],
+                effect_id,
+                attempt_id,
+            ),
         )
     ).fetchone()
     outbox = await (
@@ -266,11 +285,9 @@ async def supersede_effect_policy(
             policy_decision_id, action_intent_revision_id,
             operation_id, decision_outcome,
             policy_identity, decision_digest, reason_code,
-            supersedes_policy_decision_id, schema_version
-        ) VALUES (
+            supersedes_policy_decision_id) VALUES (
             %s,%s,%s,'denied','armi.policy-engine.deterministic-v1',
-            %s,%s,%s,1
-        )
+            %s,%s,%s)
         """,
         (
             decision_id,
