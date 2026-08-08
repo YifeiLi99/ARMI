@@ -23,6 +23,7 @@ from armi_runtime.composition.database import (
     DatabaseViolation,
     inspect_operator_schema,
     install_operator_schema,
+    migrate_operator_schema,
 )
 from armi_runtime.composition.environment import prepare_environment
 from armi_runtime.composition.operational_maintenance import (
@@ -58,6 +59,9 @@ def _parser() -> argparse.ArgumentParser:
     database_status.add_argument("--environment-root", type=Path, required=True)
     database_install = database_command.add_parser("install")
     database_install.add_argument("--environment-root", type=Path, required=True)
+    database_migrate = database_command.add_parser("migrate")
+    database_migrate.add_argument("--environment-root", type=Path, required=True)
+    database_migrate.add_argument("--apply", action="store_true", required=True)
     database_maintain = database_command.add_parser("maintain")
     database_maintain.add_argument("--environment-root", type=Path, required=True)
     database_maintain.add_argument("--apply", action="store_true", required=True)
@@ -149,6 +153,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {"database.status": "database.runtime"}
     elif args.command == "db" and args.database_command == "maintain":
         credential_scope = {"database.maintenance": "database.migrator"}
+    elif args.command == "db" and args.database_command == "migrate":
+        credential_scope = {"database.migrate": "database.migrator"}
     elif args.command == "db":
         credential_scope = {"database.migrator": "database.migrator"}
     elif args.command == "artifacts":
@@ -206,6 +212,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result = inspect_operator_schema(prepared)
             elif args.database_command == "install":
                 result = install_operator_schema(prepared)
+            elif args.database_command == "migrate":
+                result = migrate_operator_schema(prepared)
             else:
                 result = run_database_maintenance(prepared)
         except (DatabaseViolation, RuntimeViolation) as error:

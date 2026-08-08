@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 import selectors
+import shutil
 import signal
 import socket
 import subprocess
@@ -407,6 +408,164 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
+
+    def test_pending_numbered_migration_requires_explicit_apply(self) -> None:
+        fixture = self.create_database()
+        installed = PostgreSQLSchemaGateway().install(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        source = Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            schema_root = Path(temporary) / "schema"
+            shutil.copytree(source / "baseline", schema_root / "baseline")
+            migrations_root = schema_root / "migrations"
+            migrations_root.mkdir()
+            migration_id = "0002_test_probe"
+            definition = (
+                "CREATE TABLE armi.migration_test_probe (\n"
+                "    probe_id bigint PRIMARY KEY\n"
+                ");\n\n"
+                "REVOKE ALL ON TABLE armi.migration_test_probe\n"
+                "FROM PUBLIC, armi_runtime, armi_admin, armi_migrator;\n"
+            )
+            migration_path = migrations_root / f"{migration_id}.sql"
+            migration_path.write_text(
+                definition,
+                encoding="utf-8",
+                newline="\n",
+            )
+            checksum = f"sha256:{hashlib.sha256(definition.encode()).hexdigest()}"
+            (migrations_root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "baseline_id": "0001_baseline",
+                        "migrations": [
+                            {
+                                "creates_tables": ["migration_test_probe"],
+                                "drops_tables": [],
+                                "migration_id": migration_id,
+                                "path": f"{migration_id}.sql",
+                                "sha256": checksum,
+                            }
+                        ],
+                        "schema_version": "armi.schema-migrations.v1",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            gateway = PostgreSQLSchemaGateway(resource_root=schema_root)
+            with self.assertRaises(DatabaseViolation) as pending:
+                gateway.status(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                )
+            self.assertEqual(pending.exception.code, "DB-SCHEMA-PENDING")
+
+            migrated = gateway.migrate(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            )
+            self.assertEqual(migrated.status, "current")
+            self.assertEqual(migrated.table_count, installed.table_count + 1)
+            self.assertEqual(migrated.migration_count, 1)
+            self.assertEqual(migrated.target_id, migration_id)
+            status = gateway.status(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+            )
+            self.assertEqual(status, migrated)
+            self.assertEqual(
+                gateway.migrate(
+                    fixture.migrator_dsn,
+                    environment_id=fixture.environment_id,
+                ),
+                migrated,
+            )
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                history = connection.execute(
+                    """
+                    SELECT migration_id, migration_kind, checksum
+                    FROM armi.schema_migrations
+                    ORDER BY sequence_no
+                    """
+                ).fetchall()
+            self.assertEqual(
+                history[-1],
+                (migration_id, "migration", checksum),
+            )
+
+    def test_failed_numbered_migration_rolls_back_sql_and_history(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().install(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        source = Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            schema_root = Path(temporary) / "schema"
+            shutil.copytree(source / "baseline", schema_root / "baseline")
+            migrations_root = schema_root / "migrations"
+            migrations_root.mkdir()
+            migration_id = "0002_failing_probe"
+            definition = (
+                "CREATE TABLE armi.failing_migration_probe (\n"
+                "    probe_id bigint PRIMARY KEY\n"
+                ");\n"
+                "SELECT missing_function_for_migration_test();\n"
+            )
+            (migrations_root / f"{migration_id}.sql").write_text(
+                definition,
+                encoding="utf-8",
+                newline="\n",
+            )
+            checksum = f"sha256:{hashlib.sha256(definition.encode()).hexdigest()}"
+            (migrations_root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "baseline_id": "0001_baseline",
+                        "migrations": [
+                            {
+                                "creates_tables": ["failing_migration_probe"],
+                                "drops_tables": [],
+                                "migration_id": migration_id,
+                                "path": f"{migration_id}.sql",
+                                "sha256": checksum,
+                            }
+                        ],
+                        "schema_version": "armi.schema-migrations.v1",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            gateway = PostgreSQLSchemaGateway(resource_root=schema_root)
+            with self.assertRaises(DatabaseViolation) as failed:
+                gateway.migrate(
+                    fixture.migrator_dsn,
+                    environment_id=fixture.environment_id,
+                )
+            self.assertEqual(failed.exception.code, "DB-SCHEMA-MIGRATION-FAILED")
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                table = connection.execute(
+                    "SELECT to_regclass('armi.failing_migration_probe')"
+                ).fetchone()
+                history = connection.execute(
+                    "SELECT migration_id FROM armi.schema_migrations ORDER BY sequence_no"
+                ).fetchall()
+            self.assertEqual(table, (None,))
+            self.assertEqual(history, [("0001_baseline",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -1960,7 +2119,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(head[2], replacement)
                 bootstrap_revision_id = str(head[3])
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                    runtime.execute("UPDATE armi.subjects SET state_epoch = 2")
+                    runtime.execute(
+                        "UPDATE armi.subjects "
+                        "SET birth_idempotency_key = 'forbidden-runtime-update'"
+                    )
                 runtime.rollback()
 
             repair_preview = service.mutate(

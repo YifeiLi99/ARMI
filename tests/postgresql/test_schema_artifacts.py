@@ -1,98 +1,94 @@
 from __future__ import annotations
 
+import json
+import shutil
 from pathlib import Path
 
+import pytest
+from armi_runtime.adapters.database_errors import DatabaseViolation
 from armi_runtime.adapters.persistence.schema_gateway import (
     PostgreSQLSchemaGateway,
 )
+
+from tools.generate_schema_manifests import main as generate_schema_manifests
 
 RESOURCE = Path(
     "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
 )
 
 
-def test_current_schema_is_the_only_database_definition() -> None:
-    current = RESOURCE / "current"
-    definitions = sorted(current.glob("*.sql"))
+def test_frozen_baseline_and_migration_plan_are_the_only_schema_sources() -> None:
+    baseline = RESOURCE / "baseline"
+    migrations = RESOURCE / "migrations"
+    definitions = sorted(baseline.glob("*.sql"))
     assert definitions
-    assert not Path("schema").exists()
-    assert not (RESOURCE / "migrations").exists()
-    assert not (RESOURCE / "manifests").exists()
+    assert not (RESOURCE / "current").exists()
+    assert (baseline / "manifest.json").is_file()
+    assert (migrations / "manifest.json").is_file()
     assert not any((RESOURCE / "checks").glob("*.sql"))
-    assert not any(RESOURCE.rglob("*.json"))
 
 
-def test_current_schema_has_no_migration_ledger() -> None:
+def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
+    baseline_manifest = RESOURCE / "baseline/manifest.json"
+    migration_manifest = RESOURCE / "migrations/manifest.json"
+    before = (baseline_manifest.read_bytes(), migration_manifest.read_bytes())
+
+    assert generate_schema_manifests() == 0
+
+    after = (baseline_manifest.read_bytes(), migration_manifest.read_bytes())
+    assert after == before
+    baseline = json.loads(after[0])
+    migrations = json.loads(after[1])
+    assert baseline["schema_version"] == "armi.schema-baseline.v1"
+    assert baseline["baseline_id"] == "0001_baseline"
+    assert "schema_migrations" in baseline["tables"]
+    assert migrations == {
+        "baseline_id": "0001_baseline",
+        "migrations": [],
+        "schema_version": "armi.schema-migrations.v1",
+    }
+
+
+def test_baseline_contains_authoritative_schema_and_migration_ledger() -> None:
     sql = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in sorted((RESOURCE / "current").glob("*.sql"))
+        for path in sorted((RESOURCE / "baseline").glob("*.sql"))
     )
-    assert "schema_migrations" not in sql
     assert "CREATE SCHEMA armi" in sql
+    assert "CREATE TABLE armi.schema_migrations" in sql
     assert "CREATE TABLE armi.subjects" in sql
     assert "CREATE TABLE armi.activities" in sql
     assert "CREATE TABLE armi.maintenance_sessions" in sql
-    assert "CREATE TABLE armi.maintenance_phase_results" in sql
     assert "CREATE TABLE armi.subjective_memories" in sql
-    assert "CREATE TABLE armi.subjective_memory_revisions" in sql
-    assert "CREATE TABLE armi.memory_relations" in sql
     assert "CREATE TABLE armi.relationships" in sql
-    assert "CREATE TABLE armi.relationship_revisions" in sql
-    assert "CREATE TABLE armi.relationship_experience_links" in sql
     assert "CREATE TABLE armi.life_materials" in sql
-    assert "CREATE TABLE armi.life_material_revisions" in sql
-    assert "CREATE TABLE armi.exact_life_query_intents" in sql
-    assert "'consider_life_query_result'" in sql
-    assert "'maintain_subjective_memory'" in sql
-    assert "'perform_subject_self_check'" in sql
-    assert "'consider_creator_outreach'" in sql
-    assert "'creator_outreach_absence'" in sql
-    assert "'consider_other_human_input'" in sql
     assert "CREATE TABLE armi.other_human_dialogue_decisions" in sql
-    assert "CREATE TABLE armi.other_human_action_intents" in sql
-    assert "CREATE TABLE armi.other_human_effects" in sql
-    assert "CREATE TABLE armi.other_human_local_inbox_deliveries" in sql
-    assert "'local.other-human-inbox.deliver'" in sql
-    assert "'armi.other-human-dialogue-candidate.v2'" in sql
-    assert "scope IN ('creator_social', 'other_human_social')" in sql
-    assert "status IN ('pending', 'succeeded', 'empty', 'failed', 'denied')" in sql
-    assert "material_kind IN ('diary', 'work', 'collection', 'draft')" in sql
-    assert "FOREIGN KEY (owner_party_id, subject_id)" in sql
-    assert "UNIQUE (subject_commit_id, proposal_ref)" in sql
-    assert "life_materials_current_revision_fk" in sql
-    assert "'maintenance_window', 'life_material_revision'" in sql
-    assert "'codex_result_rejected'" in sql
-    assert "ACTION|CANDIDATE" in sql
-    assert "'privacy_changed', 'deleted'" in sql
-    assert "'creator_visible', 'private', 'shared', 'restricted'" in sql
-    assert "revision_kind = 'updated'" in sql
-    assert "privacy_status IN ('creator_visible', 'private')" in sql
-    assert (
-        "GRANT UPDATE (current_revision_id, head_version, deleted_at, updated_at)"
-        in sql
-    )
-    assert "commitments jsonb NOT NULL" in sql
-    assert "open_issues jsonb NOT NULL" in sql
-    assert "supports_commitment_event" in sql
-    assert "accessibility IN ('available', 'faded', 'forgotten')" in sql
-    assert "wake_request_id" in sql
-    assert "sleep-maintenance-v1" in sql
-    assert "creator_visible_problem" in sql
-    assert "'birth', 'created', 'revised', 'deactivated'," in sql
-    assert "'subject_created', 'subject_revised'" in sql
-    assert "prompt_revisions_subject_commit_fk" in sql
-    assert "GRANT UPDATE (current_revision_id, status)" in sql
-    assert "CHECK (status = 'active' OR current_revision_id IS NOT NULL)" in sql
-    assert "CHECK (subject_commit_id IS NULL)" in sql
-    assert "schema_migrations" not in sql
+    assert "CREATE TABLE armi.creator_exports" in sql
+    assert "CREATE TABLE armi.deletion_orders" in sql
 
 
-def test_gateway_exposes_empty_database_install_not_upgrade() -> None:
+def test_gateway_exposes_baseline_install_and_explicit_migration() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
-    assert not hasattr(PostgreSQLSchemaGateway, "upgrade")
+    assert callable(PostgreSQLSchemaGateway.migrate)
 
 
-def test_admin_package_has_no_schema_governance_manifest() -> None:
+def test_gateway_rejects_baseline_digest_drift(tmp_path: Path) -> None:
+    schema = tmp_path / "schema"
+    shutil.copytree(RESOURCE, schema)
+    foundation = schema / "baseline/00_foundation.sql"
+    foundation.write_text(
+        foundation.read_text(encoding="utf-8") + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    with pytest.raises(DatabaseViolation) as raised:
+        PostgreSQLSchemaGateway(resource_root=schema)
+
+    assert raised.value.code == "DB-SCHEMA-RESOURCE"
+
+
+def test_admin_package_has_no_second_schema_governance_manifest() -> None:
     resources = Path("apps/armi-admin/src/armi_admin/mcp/resources")
     assert sorted(path.name for path in resources.glob("*.json")) == [
         "admin-config.schema.json"

@@ -418,6 +418,62 @@ class RuntimeCliTests(unittest.TestCase):
         )
         maintain.assert_called_once()
 
+    def test_schema_migration_requires_apply_and_scoped_migrator(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            with (
+                redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit) as missing_apply,
+            ):
+                main(
+                    (
+                        "db",
+                        "migrate",
+                        "--environment-root",
+                        str(root.resolve()),
+                    )
+                )
+            self.assertEqual(missing_apply.exception.code, 2)
+            output = io.StringIO()
+            report = SimpleNamespace(
+                safe_view=lambda: {
+                    "status": "current",
+                    "baseline_id": "0001_baseline",
+                    "migration_count": 0,
+                    "target_id": "0001_baseline",
+                    "table_count": 43,
+                }
+            )
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "armi_runtime.cli.prepare_environment",
+                    wraps=prepare_environment,
+                ) as prepare,
+                patch(
+                    "armi_runtime.cli.migrate_operator_schema",
+                    return_value=report,
+                ) as migrate,
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    (
+                        "db",
+                        "migrate",
+                        "--environment-root",
+                        str(root.resolve()),
+                        "--apply",
+                    )
+                )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "current")
+        self.assertEqual(
+            prepare.call_args.kwargs["credential_scope"],
+            {"database.migrate": "database.migrator"},
+        )
+        migrate.assert_called_once()
+
     def test_capacity_baseline_is_read_only_and_returns_attention_exit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

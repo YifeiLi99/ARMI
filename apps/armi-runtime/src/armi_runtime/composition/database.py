@@ -1,4 +1,4 @@
-"""Explicit database composition for Runtime probing and empty-database install."""
+"""Explicit database composition for schema status, baseline, and migration."""
 
 from __future__ import annotations
 
@@ -138,13 +138,17 @@ CODEX_LOCATOR_NAME: Final = "codex.auth_json"
 _REASON_BY_CODE: Final = {
     "DB-CONNECTION-UNAVAILABLE": "RUNTIME_DATABASE_UNAVAILABLE",
     "DB-PG-VERSION": "RUNTIME_DATABASE_VERSION_MISMATCH",
+    "DB-PGVECTOR-IDENTITY": "RUNTIME_DATABASE_IDENTITY_MISMATCH",
     "DB-DATABASE-IDENTITY": "RUNTIME_DATABASE_IDENTITY_MISMATCH",
     "DB-RUNTIME-ROLE-UNSAFE": "RUNTIME_DATABASE_ROLE_UNSAFE",
     "DB-SCHEMA-MISSING": "RUNTIME_SCHEMA_MISSING",
     "DB-SCHEMA-EXISTS": "RUNTIME_SCHEMA_INVALID",
     "DB-SCHEMA-DIRTY": "RUNTIME_SCHEMA_INVALID",
+    "DB-SCHEMA-HISTORY": "RUNTIME_SCHEMA_INVALID",
     "DB-SCHEMA-INVARIANT": "RUNTIME_SCHEMA_INVALID",
+    "DB-SCHEMA-PENDING": "RUNTIME_SCHEMA_MIGRATION_REQUIRED",
     "DB-SCHEMA-RESOURCE": "RUNTIME_SCHEMA_INVALID",
+    "DB-SCHEMA-UNBASELINED": "RUNTIME_SCHEMA_BASELINE_REQUIRED",
     "DB-ROLE-IDENTITY": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
     "DB-ROLE-ATTRIBUTES": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
     "DB-ROLE-MEMBERSHIP": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
@@ -193,6 +197,11 @@ def _with_connection(
                         conninfo,
                         environment_id=prepared.effective.config.environment.environment_id,
                     )
+                if operation == "migrate":
+                    return gateway.migrate(
+                        conninfo,
+                        environment_id=prepared.effective.config.environment.environment_id,
+                    )
                 return gateway.status(
                     conninfo,
                     environment_id=prepared.effective.config.environment.environment_id,
@@ -215,7 +224,7 @@ def _with_connection(
 
 
 def inspect_runtime_schema(prepared: PreparedEnvironment) -> SchemaStatus:
-    """Read-only Runtime probe; this path cannot install the current schema."""
+    """Read-only Runtime probe; this path cannot change schema history."""
 
     return _with_connection(
         prepared,
@@ -240,6 +249,15 @@ def install_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
         locator_name=MIGRATOR_LOCATOR_NAME,
         purpose="database.migrator",
         operation="install",
+    )
+
+
+def migrate_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
+    return _with_connection(
+        prepared,
+        locator_name=MIGRATOR_LOCATOR_NAME,
+        purpose="database.migrate",
+        operation="migrate",
     )
 
 
@@ -1697,5 +1715,6 @@ __all__ = (
     "inspect_runtime_continuity",
     "inspect_runtime_schema",
     "install_operator_schema",
+    "migrate_operator_schema",
     "runtime_database_reason",
 )

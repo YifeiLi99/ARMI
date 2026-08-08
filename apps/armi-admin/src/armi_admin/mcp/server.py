@@ -88,7 +88,7 @@ def create_admin_server(service: AdminToolService) -> MCPServer:
 
     @server.tool(
         name="schema_status",
-        description="Read the current disposable database schema status.",
+        description="Read the authoritative database schema status.",
         annotations=READ_ONLY_ANNOTATIONS,
         structured_output=True,
     )
