@@ -55,7 +55,7 @@ class PostgreSQLExactLifeQueryRepository:
                 """
                 SELECT intent.exact_life_query_intent_id, intent.subject_id,
                        intent.source_opportunity_id, intent.scene_id,
-                       intent.creator_party_id, intent.record_kind,
+                       intent.context_party_id, intent.record_kind,
                        intent.query_text, intent.result_limit,
                        intent.query_digest, intent.trace_id
                 FROM armi.durable_work AS work

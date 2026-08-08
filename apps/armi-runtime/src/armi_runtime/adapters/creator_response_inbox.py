@@ -1,4 +1,4 @@
-"""PostgreSQL Creator inbox adapter with an idempotent receiver boundary."""
+"""PostgreSQL local inbox adapter with an idempotent receiver boundary."""
 
 from __future__ import annotations
 
@@ -26,8 +26,8 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 )
 
 
-class PostgreSQLCreatorResponseInbox(ActionAdapterPort):
-    """Receive one Creator response without access to the effect ledger."""
+class PostgreSQLLocalInbox(ActionAdapterPort):
+    """Receive one local party response without access to the effect ledger."""
 
     __slots__ = ("_factory",)
 
@@ -48,23 +48,23 @@ class PostgreSQLCreatorResponseInbox(ActionAdapterPort):
             row = await (
                 await connection.execute(
                     """
-                    INSERT INTO armi.creator_response_deliveries (
-                        creator_response_delivery_id, effect_id, interaction_scene_id,
-                        creator_party_id, payload_artifact_id, payload_digest,
+                    INSERT INTO armi.local_inbox_deliveries (
+                        delivery_id, effect_id, scene_id,
+                        destination_party_id, payload_artifact_id, payload_digest,
                         payload_bytes, receipt_digest, schema_version
                     )
-                    SELECT %s, effect.effect_id, effect.interaction_scene_id,
-                           effect.creator_party_id, effect.payload_artifact_id,
+                    SELECT %s, effect.effect_id, effect.scene_id,
+                           effect.destination_party_id, effect.payload_artifact_id,
                            effect.payload_digest, effect.payload_bytes, %s, 1
                     FROM armi.effects AS effect
                     WHERE effect.effect_id = %s
                       AND effect.subject_id = %s
-                      AND effect.interaction_scene_id = %s
-                      AND effect.creator_party_id = %s
+                      AND effect.scene_id = %s
+                      AND effect.destination_party_id = %s
                       AND effect.payload_digest = %s
                       AND effect.payload_bytes = %s
                     ON CONFLICT (effect_id) DO NOTHING
-                    RETURNING creator_response_delivery_id, receipt_digest, received_at
+                    RETURNING delivery_id, receipt_digest, delivered_at
                     """,
                     (
                         delivery_id,
@@ -94,7 +94,7 @@ class PostgreSQLCreatorResponseInbox(ActionAdapterPort):
                 INSERT INTO armi.scene_timeline_items (
                     timeline_item_id, scene_id, source_kind, source_ref,
                     source_event_no, result_status, occurred_at, schema_version
-                ) VALUES (%s, %s, 'creator_response', %s, 1, 'completed', %s, 1)
+                ) VALUES (%s, %s, 'party_response', %s, 1, 'completed', %s, 1)
                 """,
                 (
                     timeline_item_id,
@@ -116,8 +116,8 @@ class PostgreSQLCreatorResponseInbox(ActionAdapterPort):
                     AuditEventId(uuid7()),
                     AuditReference("runtime", uow.environment_id),
                     Purpose("effect.dispatch"),
-                    "creator.response.received",
-                    AuditReference("creator_response_delivery", row[0]),
+                    "party.response.received",
+                    AuditReference("local_inbox_delivery", row[0]),
                     AuditResultStatus.COMPLETED,
                     request.trace_id,
                     AuditSensitivity.PRIVATE,
@@ -152,10 +152,10 @@ class PostgreSQLCreatorResponseInbox(ActionAdapterPort):
         row = await (
             await connection.execute(
                 """
-                SELECT creator_response_delivery_id, receipt_digest, received_at,
-                       payload_digest, payload_bytes, interaction_scene_id,
-                       creator_party_id
-                FROM armi.creator_response_deliveries
+                SELECT delivery_id, receipt_digest, delivered_at,
+                       payload_digest, payload_bytes, scene_id,
+                       destination_party_id
+                FROM armi.local_inbox_deliveries
                 WHERE effect_id = %s
                 """,
                 (request.effect_id.value,),
@@ -181,7 +181,7 @@ def _receipt_digest(request: FrozenEffectRequest, delivery_id: object) -> Digest
                 {
                     "schema_version": "armi.effect-receipt.v1",
                     "adapter_binding": (
-                        "armi.creator-response-adapter.postgresql-inbox-v1"
+                        "armi.local-inbox-adapter.postgresql-v1"
                     ),
                     "delivery_id": str(delivery_id),
                     "effect_id": str(request.effect_id.value),
@@ -193,4 +193,4 @@ def _receipt_digest(request: FrozenEffectRequest, delivery_id: object) -> Digest
     )
 
 
-__all__ = ("PostgreSQLCreatorResponseInbox",)
+__all__ = ("PostgreSQLLocalInbox",)

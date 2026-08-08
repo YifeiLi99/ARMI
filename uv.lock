@@ -6,6 +6,7 @@ requires-python = "==3.14.*"
 members = [
     "armi-admin",
     "armi-kernel",
+    "armi-postgresql-contract",
     "armi-runtime",
     "armi-workspace",
 ]
@@ -47,6 +48,7 @@ version = "0.0.0"
 source = { editable = "apps/armi-admin" }
 dependencies = [
     { name = "armi-kernel" },
+    { name = "armi-postgresql-contract" },
     { name = "mcp" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
@@ -57,6 +59,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "mcp", specifier = "==2.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
@@ -70,11 +73,17 @@ version = "0.0.0"
 source = { editable = "packages/armi-kernel" }
 
 [[package]]
+name = "armi-postgresql-contract"
+version = "0.0.0"
+source = { editable = "packages/armi-postgresql-contract" }
+
+[[package]]
 name = "armi-runtime"
 version = "0.0.0"
 source = { editable = "apps/armi-runtime" }
 dependencies = [
     { name = "armi-kernel" },
+    { name = "armi-postgresql-contract" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "openai" },
@@ -89,6 +98,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "fastapi", specifier = "==0.140.13" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "openai", specifier = "==2.49.0" },

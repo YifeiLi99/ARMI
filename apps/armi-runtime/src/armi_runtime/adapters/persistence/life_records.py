@@ -272,7 +272,17 @@ class PostgreSQLLifeRecordQuery:
                 rows = await (
                     await connection.execute(
                         """
-                        WITH records AS (
+                        WITH query_input AS (
+                            SELECT %s::uuid AS subject_id,
+                                   %s::text AS actor,
+                                   %s::text AS record_kind,
+                                   %s::text AS query_text,
+                                   %s::timestamptz AS before_at,
+                                   %s::text AS before_kind,
+                                   %s::uuid AS before_id,
+                                   %s::integer AS branch_limit
+                        ), records AS (
+                            (
                             SELECT activity.activity_id AS record_ref,
                                    'activity'::text AS record_kind,
                                    left(
@@ -289,8 +299,16 @@ class PostgreSQLLifeRecordQuery:
                             JOIN armi.activity_revisions AS revision
                               ON revision.activity_revision_id =
                                  activity.current_revision_id
-                            WHERE activity.subject_id = %s
+                            CROSS JOIN query_input AS query
+                            WHERE activity.subject_id = query.subject_id
+                              AND (query.record_kind IS NULL OR query.record_kind = 'activity')
+                              AND (query.query_text IS NULL OR left(revision.goal || CASE WHEN revision.progress_summary IS NULL THEN '' ELSE ' — ' || revision.progress_summary END, 4096) ILIKE '%%' || query.query_text || '%%')
+                              AND (query.before_at IS NULL OR (revision.created_at, 'activity'::text, activity.activity_id) < (query.before_at, query.before_kind, query.before_id))
+                            ORDER BY revision.created_at DESC, activity.activity_id DESC
+                            LIMIT (SELECT branch_limit FROM query_input)
+                            )
                             UNION ALL
+                            (
                             SELECT experience.experience_id,
                                    'conversation'::text,
                                    experience.first_person_gist,
@@ -298,17 +316,22 @@ class PostgreSQLLifeRecordQuery:
                                    experience.accepted_at,
                                    NULL::boolean
                             FROM armi.accepted_experiences AS experience
-                            JOIN armi.subject_commits AS commit
-                              ON commit.subject_commit_id =
-                                 experience.subject_commit_id
-                            WHERE commit.subject_id = %s
+                            CROSS JOIN query_input AS query
+                            WHERE experience.subject_id = query.subject_id
+                              AND (query.record_kind IS NULL OR query.record_kind = 'conversation')
+                              AND (query.query_text IS NULL OR experience.first_person_gist ILIKE '%%' || query.query_text || '%%')
+                              AND (query.before_at IS NULL OR (experience.accepted_at, 'conversation'::text, experience.experience_id) < (query.before_at, query.before_kind, query.before_id))
                               AND NOT EXISTS (
                                   SELECT 1 FROM armi.deletion_items AS deletion_item
                                   WHERE deletion_item.target_kind = 'experience'
                                     AND deletion_item.target_ref = experience.experience_id
                                     AND deletion_item.result_status IN ('completed', 'partial')
                               )
+                            ORDER BY experience.accepted_at DESC, experience.experience_id DESC
+                            LIMIT (SELECT branch_limit FROM query_input)
+                            )
                             UNION ALL
+                            (
                             SELECT memory.memory_id,
                                    'memory'::text,
                                    revision.summary,
@@ -319,14 +342,22 @@ class PostgreSQLLifeRecordQuery:
                             JOIN armi.subjective_memory_revisions AS revision
                               ON revision.memory_revision_id =
                                  memory.current_revision_id
-                            WHERE memory.subject_id = %s
+                            CROSS JOIN query_input AS query
+                            WHERE memory.subject_id = query.subject_id
+                              AND (query.record_kind IS NULL OR query.record_kind = 'memory')
+                              AND (query.query_text IS NULL OR revision.summary ILIKE '%%' || query.query_text || '%%')
+                              AND (query.before_at IS NULL OR (revision.created_at, 'memory'::text, memory.memory_id) < (query.before_at, query.before_kind, query.before_id))
                               AND NOT EXISTS (
                                   SELECT 1 FROM armi.deletion_items AS deletion_item
                                   WHERE deletion_item.target_kind = 'memory'
                                     AND deletion_item.target_ref = memory.memory_id
                                     AND deletion_item.result_status IN ('completed', 'partial')
                               )
+                            ORDER BY revision.created_at DESC, memory.memory_id DESC
+                            LIMIT (SELECT branch_limit FROM query_input)
+                            )
                             UNION ALL
+                            (
                             SELECT material.life_material_id,
                                    'material'::text,
                                    revision.title,
@@ -337,13 +368,21 @@ class PostgreSQLLifeRecordQuery:
                             JOIN armi.life_material_revisions AS revision
                               ON revision.life_material_revision_id =
                                  material.current_revision_id
-                            WHERE material.subject_id = %s
+                            CROSS JOIN query_input AS query
+                            WHERE material.subject_id = query.subject_id
                               AND material.deleted_at IS NULL
+                              AND (query.record_kind IS NULL OR query.record_kind = 'material')
+                              AND (query.query_text IS NULL OR revision.title ILIKE '%%' || query.query_text || '%%')
+                              AND (query.before_at IS NULL OR (revision.created_at, 'material'::text, material.life_material_id) < (query.before_at, query.before_kind, query.before_id))
                               AND (
-                                  %s = 'subject'
+                                  query.actor = 'subject'
                                   OR revision.privacy_status = 'creator_visible'
                               )
+                            ORDER BY revision.created_at DESC, material.life_material_id DESC
+                            LIMIT (SELECT branch_limit FROM query_input)
+                            )
                             UNION ALL
+                            (
                             SELECT relationship.relationship_id,
                                    'relationship'::text,
                                    revision.interpretation,
@@ -354,14 +393,22 @@ class PostgreSQLLifeRecordQuery:
                             JOIN armi.relationship_revisions AS revision
                               ON revision.relationship_revision_id =
                                  relationship.current_revision_id
-                            WHERE relationship.subject_id = %s
+                            CROSS JOIN query_input AS query
+                            WHERE relationship.subject_id = query.subject_id
+                              AND (query.record_kind IS NULL OR query.record_kind = 'relationship')
+                              AND (query.query_text IS NULL OR revision.interpretation ILIKE '%%' || query.query_text || '%%')
+                              AND (query.before_at IS NULL OR (revision.created_at, 'relationship'::text, relationship.relationship_id) < (query.before_at, query.before_kind, query.before_id))
                               AND NOT EXISTS (
                                   SELECT 1 FROM armi.deletion_items AS deletion_item
                                   WHERE deletion_item.target_kind = 'relationship'
                                     AND deletion_item.target_ref = relationship.relationship_id
                                     AND deletion_item.result_status IN ('completed', 'partial')
                               )
+                            ORDER BY revision.created_at DESC, relationship.relationship_id DESC
+                            LIMIT (SELECT branch_limit FROM query_input)
+                            )
                             UNION ALL
+                            (
                             SELECT revision.component_revision_id,
                                    'self_change'::text,
                                    left(revision.semantic_payload::text, 4096),
@@ -369,44 +416,34 @@ class PostgreSQLLifeRecordQuery:
                                    revision.created_at,
                                    NULL::boolean
                             FROM armi.subject_component_revisions AS revision
-                            WHERE revision.subject_id = %s
+                            CROSS JOIN query_input AS query
+                            WHERE revision.subject_id = query.subject_id
                               AND revision.component_kind = 'self'
+                              AND (query.record_kind IS NULL OR query.record_kind = 'self_change')
+                              AND (query.query_text IS NULL OR revision.semantic_payload::text ILIKE '%%' || query.query_text || '%%')
+                              AND (query.before_at IS NULL OR (revision.created_at, 'self_change'::text, revision.component_revision_id) < (query.before_at, query.before_kind, query.before_id))
+                            ORDER BY revision.created_at DESC, revision.component_revision_id DESC
+                            LIMIT (SELECT branch_limit FROM query_input)
+                            )
                         )
                         SELECT record_ref, record_kind, summary, source_kind,
                                occurred_at, naturally_recallable
                         FROM records
-                        WHERE (%s::text IS NULL OR record_kind = %s)
-                          AND (%s::text IS NULL OR summary ILIKE
-                               '%%' || %s || '%%')
-                          AND (
-                              %s::timestamptz IS NULL
-                              OR (occurred_at, record_kind, record_ref)
-                                 < (%s, %s, %s)
-                          )
                         ORDER BY occurred_at DESC, record_kind DESC,
                                  record_ref DESC
                         LIMIT %s
                         """,
                         (
                             subject_id,
-                            subject_id,
-                            subject_id,
-                            subject_id,
                             request.actor.value,
-                            subject_id,
-                            subject_id,
-                            None
-                            if request.record_kind is None
-                            else request.record_kind.value,
                             None
                             if request.record_kind is None
                             else request.record_kind.value,
                             request.query_text,
-                            request.query_text,
-                            None if boundary is None else boundary[0].value,
                             None if boundary is None else boundary[0].value,
                             None if boundary is None else boundary[1],
                             None if boundary is None else boundary[2],
+                            request.limit + 1,
                             request.limit + 1,
                         ),
                     )

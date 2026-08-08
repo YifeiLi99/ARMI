@@ -177,7 +177,7 @@ class PostgreSQLContextRepository:
                     opportunity.opportunity_id,
                     opportunity.subject_id,
                     opportunity.scene_id,
-                    opportunity.creator_party_id,
+                    opportunity.context_party_id,
                     COALESCE(
                         interaction.trace_id,
                         other_interaction.trace_id,
@@ -191,16 +191,16 @@ class PostgreSQLContextRepository:
                     subject.current_bundle_activation_id,
                     transaction_timestamp(),
                     opportunity.purpose,
-                    opportunity.other_party_id
+                    opportunity.context_party_id
                 FROM armi.opportunities AS opportunity
                 LEFT JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = opportunity.evidence_id
-                LEFT JOIN armi.creator_input_interactions AS interaction
-                  ON interaction.creator_interaction_id
-                    = evidence.creator_interaction_id
-                LEFT JOIN armi.other_human_input_interactions AS other_interaction
-                  ON other_interaction.other_human_interaction_id
-                    = evidence.other_human_interaction_id
+                LEFT JOIN armi.party_input_interactions AS interaction
+                  ON interaction.interaction_id
+                    = evidence.interaction_id
+                LEFT JOIN armi.party_input_interactions AS other_interaction
+                  ON other_interaction.interaction_id
+                    = evidence.interaction_id
                 LEFT JOIN armi.web_observation_requests AS observation
                   ON observation.web_observation_request_id
                     = evidence.web_observation_request_id
@@ -237,8 +237,8 @@ class PostgreSQLContextRepository:
                       SELECT 1
                       FROM armi.deletion_orders AS deletion_order
                       WHERE deletion_order.requester_party_id = COALESCE(
-                                opportunity.other_party_id,
-                                opportunity.creator_party_id
+                                opportunity.context_party_id,
+                                opportunity.context_party_id
                             )
                         AND deletion_order.status = 'effective'
                         AND (
@@ -319,8 +319,7 @@ class PostgreSQLContextRepository:
                 opportunity_id,
                 subject_id,
                 scene_id,
-                creator_party_id,
-                other_party_id,
+                context_party_id,
                 purpose,
                 status,
                 base_subject_version,
@@ -333,7 +332,7 @@ class PostgreSQLContextRepository:
                 schema_version
             )
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, 'preparing',
+                %s, %s, %s, %s, %s, %s, 'preparing',
                 %s, %s, %s, %s, %s, %s, %s, 1
             )
             """,
@@ -343,7 +342,6 @@ class PostgreSQLContextRepository:
                 row[1],
                 row[2],
                 row[3],
-                row[10],
                 row[9],
                 row[5],
                 row[6],
@@ -411,7 +409,7 @@ class PostgreSQLContextRepository:
                     episode.opportunity_id,
                     episode.subject_id,
                     episode.scene_id,
-                    episode.creator_party_id,
+                    episode.context_party_id,
                     episode.base_subject_version,
                     episode.base_state_epoch,
                     episode.bundle_activation_id,
@@ -446,9 +444,9 @@ class PostgreSQLContextRepository:
                     subject_prompt.prompt_revision_id,
                     subject_prompt.revision_no,
                     subject_prompt.content_artifact_id,
-                    evidence.creator_interaction_id,
-                    evidence.other_human_interaction_id,
-                    episode.other_party_id
+                    evidence.interaction_id,
+                    evidence.interaction_id,
+                    episode.context_party_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -850,20 +848,20 @@ class PostgreSQLContextRepository:
                       ON current_item.scene_id = item.scene_id
                      AND current_item.source_kind = 'other_human_input'
                      AND current_item.source_ref = %s
-                    LEFT JOIN armi.other_human_input_interactions AS prior_input
+                    LEFT JOIN armi.party_input_interactions AS prior_input
                       ON item.source_kind = 'other_human_input'
-                     AND prior_input.other_human_interaction_id = item.source_ref
+                     AND prior_input.interaction_id = item.source_ref
                      AND prior_input.scene_id = item.scene_id
                     LEFT JOIN armi.external_evidence AS prior_evidence
-                      ON prior_evidence.other_human_interaction_id =
-                         prior_input.other_human_interaction_id
+                      ON prior_evidence.interaction_id =
+                         prior_input.interaction_id
                      AND prior_evidence.scene_id = item.scene_id
-                    LEFT JOIN armi.other_human_effects AS response_effect
+                    LEFT JOIN armi.effects AS response_effect
                       ON item.source_kind = 'other_human_response'
-                     AND response_effect.other_human_effect_id = item.source_ref
+                     AND response_effect.effect_id = item.source_ref
                      AND response_effect.scene_id = item.scene_id
-                    LEFT JOIN armi.other_human_action_intent_revisions AS response_revision
-                      ON response_revision.other_human_action_intent_revision_id =
+                    LEFT JOIN armi.action_intent_revisions AS response_revision
+                      ON response_revision.action_intent_revision_id =
                          response_effect.action_intent_revision_id
                     WHERE item.scene_id = %s
                       AND item.source_kind IN (
@@ -896,19 +894,19 @@ class PostgreSQLContextRepository:
                       ON current_item.scene_id = item.scene_id
                      AND current_item.source_kind = 'creator_input'
                      AND current_item.source_ref = %s
-                    LEFT JOIN armi.creator_input_interactions AS prior_input
+                    LEFT JOIN armi.party_input_interactions AS prior_input
                       ON item.source_kind = 'creator_input'
-                     AND prior_input.creator_interaction_id = item.source_ref
+                     AND prior_input.interaction_id = item.source_ref
                      AND prior_input.scene_id = item.scene_id
                      AND prior_input.purpose = 'creator_message'
                     LEFT JOIN armi.external_evidence AS prior_evidence
-                      ON prior_evidence.creator_interaction_id =
-                         prior_input.creator_interaction_id
+                      ON prior_evidence.interaction_id =
+                         prior_input.interaction_id
                      AND prior_evidence.scene_id = item.scene_id
                     LEFT JOIN armi.effects AS response_effect
                       ON item.source_kind = 'creator_response'
                      AND response_effect.effect_id = item.source_ref
-                     AND response_effect.interaction_scene_id = item.scene_id
+                     AND response_effect.scene_id = item.scene_id
                     LEFT JOIN armi.action_intent_revisions AS response_revision
                       ON response_revision.action_intent_revision_id =
                          response_effect.action_intent_revision_id
@@ -943,19 +941,19 @@ class PostgreSQLContextRepository:
                                response_revision.response_artifact_id
                            ) AS artifact_id
                     FROM armi.scene_timeline_items AS item
-                    LEFT JOIN armi.creator_input_interactions AS prior_input
+                    LEFT JOIN armi.party_input_interactions AS prior_input
                       ON item.source_kind = 'creator_input'
-                     AND prior_input.creator_interaction_id = item.source_ref
+                     AND prior_input.interaction_id = item.source_ref
                      AND prior_input.scene_id = item.scene_id
                      AND prior_input.purpose = 'creator_message'
                     LEFT JOIN armi.external_evidence AS prior_evidence
-                      ON prior_evidence.creator_interaction_id =
-                         prior_input.creator_interaction_id
+                      ON prior_evidence.interaction_id =
+                         prior_input.interaction_id
                      AND prior_evidence.scene_id = item.scene_id
                     LEFT JOIN armi.effects AS response_effect
                       ON item.source_kind = 'creator_response'
                      AND response_effect.effect_id = item.source_ref
-                     AND response_effect.interaction_scene_id = item.scene_id
+                     AND response_effect.scene_id = item.scene_id
                     LEFT JOIN armi.action_intent_revisions AS response_revision
                       ON response_revision.action_intent_revision_id =
                          response_effect.action_intent_revision_id
@@ -1028,8 +1026,12 @@ class PostgreSQLContextRepository:
             opportunity_id=row[1],
             subject_id=row[2],
             scene_id=row[3],
-            creator_party_id=row[4],
-            other_party_id=row[37],
+            creator_party_id=(
+                None if str(row[20]) == "consider_other_human_input" else row[4]
+            ),
+            other_party_id=(
+                row[4] if str(row[20]) == "consider_other_human_input" else None
+            ),
             purpose=str(row[20]),
             subject_version=int(row[5]),
             state_epoch=int(row[6]),

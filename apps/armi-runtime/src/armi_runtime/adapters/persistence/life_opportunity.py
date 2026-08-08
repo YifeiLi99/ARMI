@@ -173,7 +173,7 @@ class PostgreSQLLifeOpportunityRepository:
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
+                    context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id, reconsideration_no,
                     available_after, expires_at, source_kind, source_ref,
                     source_version, source_digest, activity_id, schema_version
@@ -257,7 +257,7 @@ class PostgreSQLLifeOpportunityRepository:
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
+                    context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
                     source_version, source_digest, schema_version
@@ -380,7 +380,7 @@ class PostgreSQLLifeOpportunityRepository:
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
+                    context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
                     source_version, source_digest, schema_version
@@ -512,7 +512,7 @@ class PostgreSQLLifeOpportunityRepository:
                        revision.resume_not_before,
                        CASE
                          WHEN revision.waiting_condition_kind = 'creator_input' THEN EXISTS (
-                           SELECT 1 FROM armi.creator_input_interactions AS input
+                           SELECT 1 FROM armi.party_input_interactions AS input
                            WHERE input.received_at > revision.created_at
                          )
                          WHEN revision.waiting_condition_kind = 'external_evidence' THEN EXISTS (
@@ -567,14 +567,14 @@ class PostgreSQLLifeOpportunityRepository:
                             OR EXISTS (
                               SELECT 1
                               FROM armi.cognitive_episodes AS waiting_episode
-                              JOIN armi.activity_attention_decisions AS decision
+                              JOIN armi.activity_decisions AS decision
                                 USING (cognitive_episode_id)
                               WHERE waiting_episode.opportunity_id =
                                     candidate_root.opportunity_id
                                 AND waiting_episode.status = 'completed'
                                 AND decision.decision_kind = 'need_information'
                                 AND EXISTS (
-                                  SELECT 1 FROM armi.creator_input_interactions AS input
+                                  SELECT 1 FROM armi.party_input_interactions AS input
                                   WHERE input.received_at > decision.decided_at
                                 )
                             )
@@ -644,7 +644,7 @@ class PostgreSQLLifeOpportunityRepository:
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
+                    context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
                     source_version, source_digest, activity_id, schema_version
@@ -688,13 +688,13 @@ class PostgreSQLLifeOpportunityRepository:
                              OR EXISTS (
                                SELECT 1
                                FROM armi.cognitive_episodes AS waiting_episode
-                               JOIN armi.activity_attention_decisions AS decision
+                               JOIN armi.activity_decisions AS decision
                                  USING (cognitive_episode_id)
                                WHERE waiting_episode.opportunity_id = root.opportunity_id
                                  AND waiting_episode.status = 'completed'
                                  AND decision.decision_kind = 'need_information'
                                  AND EXISTS (
-                                   SELECT 1 FROM armi.creator_input_interactions AS input
+                                   SELECT 1 FROM armi.party_input_interactions AS input
                                    WHERE input.received_at > decision.decided_at
                                  )
                              )
@@ -725,7 +725,7 @@ class PostgreSQLLifeOpportunityRepository:
                         """
                         INSERT INTO armi.opportunities (
                             opportunity_id, evidence_id, subject_id, scene_id,
-                            creator_party_id, purpose, eligibility_status,
+                            context_party_id, purpose, eligibility_status,
                             current_disposition, root_opportunity_id,
                             predecessor_opportunity_id, reconsideration_no,
                             source_kind, source_ref, source_version,
@@ -911,7 +911,7 @@ class PostgreSQLLifeOpportunityRepository:
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
+                    context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
                     source_version, source_digest, activity_id, schema_version
@@ -992,7 +992,7 @@ class PostgreSQLLifeOpportunityRepository:
             await connection.execute(
                 """
                 SELECT scene.scene_id, scene.primary_party_id,
-                       latest.creator_interaction_id, latest.received_at,
+                       latest.interaction_id, latest.received_at,
                        generation.life_generation_id, generation.generation_no,
                        generation.created_at, statement_timestamp()
                 FROM armi.interaction_scenes AS scene
@@ -1001,14 +1001,14 @@ class PostgreSQLLifeOpportunityRepository:
                  AND generation.life_generation_id = %s
                  AND generation.status = 'active'
                 LEFT JOIN LATERAL (
-                    SELECT interaction.creator_interaction_id,
+                    SELECT interaction.interaction_id,
                            interaction.received_at
-                    FROM armi.creator_input_interactions AS interaction
+                    FROM armi.party_input_interactions AS interaction
                     WHERE interaction.subject_id = scene.subject_id
                       AND interaction.scene_id = scene.scene_id
-                      AND interaction.creator_party_id = scene.primary_party_id
+                      AND interaction.source_party_id = scene.primary_party_id
                     ORDER BY interaction.received_at DESC,
-                             interaction.creator_interaction_id DESC
+                             interaction.interaction_id DESC
                     LIMIT 1
                 ) AS latest ON true
                 WHERE scene.subject_id = %s
@@ -1092,22 +1092,21 @@ class PostgreSQLLifeOpportunityRepository:
                         FROM armi.opportunities AS opportunity
                         JOIN armi.action_intents AS intent
                           ON intent.root_opportunity_id = opportunity.opportunity_id
-                        JOIN armi.creator_response_operations AS operation
+                        JOIN armi.action_operations AS operation
                           ON operation.root_opportunity_id = opportunity.opportunity_id
                         WHERE opportunity.subject_id = %s
                           AND opportunity.scene_id = %s
-                          AND opportunity.creator_party_id = %s
+                          AND opportunity.context_party_id = %s
                           AND opportunity.purpose = 'consider_creator_outreach'
-                          AND operation.current_status IN (
-                              'pending', 'accepted', 'effect_registered',
-                              'effect_dispatching', 'effect_completed',
-                              'effect_unknown'
+                          AND (
+                              operation.phase <> 'terminal'
+                              OR operation.outcome = 'unknown'
                           )
                           AND NOT EXISTS (
                               SELECT 1
-                              FROM armi.creator_input_interactions AS reply
-                              WHERE reply.scene_id = intent.interaction_scene_id
-                                AND reply.creator_party_id = intent.creator_party_id
+                              FROM armi.party_input_interactions AS reply
+                              WHERE reply.scene_id = intent.scene_id
+                                AND reply.source_party_id = intent.context_party_id
                                 AND reply.received_at > intent.created_at
                           )
                     ),
@@ -1122,7 +1121,7 @@ class PostgreSQLLifeOpportunityRepository:
                         FROM armi.scene_timeline_items AS item
                         WHERE item.scene_id = %s
                           AND item.source_kind IN (
-                              'creator_input', 'creator_response'
+                              'creator_input', 'party_response'
                           )
                     )
                 """,
@@ -1270,7 +1269,7 @@ class PostgreSQLLifeOpportunityRepository:
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
+                    context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, available_after, source_kind,
                     source_ref, source_version, source_digest, activity_id,

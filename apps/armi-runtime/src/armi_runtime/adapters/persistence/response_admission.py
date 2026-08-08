@@ -71,15 +71,16 @@ class PostgreSQLResponseAdmissionRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT operation.creator_response_operation_id,
+                SELECT operation.operation_id,
                        intent.action_intent_id, intent.subject_id,
-                       intent.interaction_scene_id, intent.creator_party_id,
+                       intent.scene_id, intent.context_party_id,
                        revision.response_artifact_id, revision.response_digest,
                        revision.response_bytes, work.trace_id
                 FROM armi.durable_work AS work
-                JOIN armi.creator_response_operations AS operation
+                JOIN armi.action_operations AS operation
                   ON operation.admission_work_id = work.work_id
-                 AND operation.current_status = 'pending'
+                 AND operation.phase = 'admission_pending'
+                 AND operation.outcome IS NULL
                 JOIN armi.action_intents AS intent
                   ON intent.action_intent_id = operation.action_intent_id
                 JOIN armi.action_intent_revisions AS revision
@@ -130,15 +131,15 @@ class PostgreSQLResponseAdmissionRepository:
         locked = await (
             await connection.execute(
                 """
-                SELECT current_status
-                FROM armi.creator_response_operations
-                WHERE creator_response_operation_id = %s
+                SELECT phase, outcome
+                FROM armi.action_operations
+                WHERE operation_id = %s
                 FOR UPDATE
                 """,
                 (snapshot.operation_id,),
             )
         ).fetchone()
-        if locked is None or str(locked[0]) != "pending":
+        if locked is None or locked != ("admission_pending", None):
             raise ResponseViolation("RESPONSE-WORK-STALE")
         if not integrity_ok:
             status = ResponseAdmissionStatus.FAILED
@@ -222,19 +223,27 @@ class PostgreSQLResponseAdmissionRepository:
         updated = await (
             await connection.execute(
                 """
-                UPDATE armi.creator_response_operations
-                SET current_status = %s, matched_grant_id = %s,
+                UPDATE armi.action_operations
+                SET phase = CASE WHEN %s = 'accepted' THEN 'admitted' ELSE 'terminal' END,
+                    outcome = CASE WHEN %s = 'accepted' THEN NULL
+                                   WHEN %s IN ('unauthorized', 'unavailable') THEN 'denied'
+                                   ELSE 'failed' END,
+                    matched_grant_id = %s,
                     completion_digest = %s, reason_code = %s,
-                    completed_at = statement_timestamp()
-                WHERE creator_response_operation_id = %s
-                  AND current_status = 'pending'
-                RETURNING creator_response_operation_id
+                    completed_at = CASE WHEN %s = 'accepted' THEN NULL
+                                        ELSE statement_timestamp() END
+                WHERE operation_id = %s
+                  AND phase = 'admission_pending' AND outcome IS NULL
+                RETURNING operation_id
                 """,
                 (
+                    status.value,
+                    status.value,
                     status.value,
                     grant_id,
                     completion.value,
                     reason,
+                    status.value,
                     snapshot.operation_id,
                 ),
             )
@@ -264,9 +273,9 @@ class PostgreSQLResponseAdmissionRepository:
             )
             await connection.execute(
                 """
-                UPDATE armi.creator_response_operations
+                UPDATE armi.action_operations
                 SET registration_work_id = %s
-                WHERE creator_response_operation_id = %s
+                WHERE operation_id = %s
                   AND registration_work_id IS NULL
                 """,
                 (registration_work_id, snapshot.operation_id),

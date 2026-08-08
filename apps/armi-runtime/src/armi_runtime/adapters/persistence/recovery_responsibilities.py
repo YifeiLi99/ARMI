@@ -247,8 +247,8 @@ async def repair_terminal_cognitive_responsibilities(
     operations = await (
         await connection.execute(
             """
-            UPDATE armi.creator_response_operations AS operation
-            SET current_status = 'codex_result_rejected',
+            UPDATE armi.action_operations AS operation
+            SET phase = 'terminal', outcome = 'rejected',
                 reason_code = episode.failure_code,
                 completed_at = statement_timestamp()
             FROM armi.codex_verification_results AS verification
@@ -257,10 +257,11 @@ async def repair_terminal_cognitive_responsibilities(
             JOIN armi.cognitive_episodes AS episode
               ON episode.opportunity_id = source.opportunity_id
             WHERE operation.effect_id = verification.effect_id
-              AND operation.current_status = 'codex_result_pending'
+              AND operation.phase = 'result_pending'
+              AND operation.outcome IS NULL
               AND episode.status = 'candidate_rejected'
               AND episode.failure_code IS NOT NULL
-            RETURNING operation.creator_response_operation_id
+            RETURNING operation.operation_id
             """
         )
     ).fetchall()

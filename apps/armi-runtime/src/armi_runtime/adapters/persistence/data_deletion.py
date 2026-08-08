@@ -251,21 +251,18 @@ class LocalDataDeletionRepository:
             """
             WITH targets(target_kind, target_ref, required_action,
                          remaining_location) AS (
-                SELECT 'interaction', creator_interaction_id, 'tombstone', NULL
-                FROM armi.creator_input_interactions WHERE creator_party_id = %s
-                UNION ALL
-                SELECT 'interaction', other_human_interaction_id, 'tombstone', NULL
-                FROM armi.other_human_input_interactions WHERE other_party_id = %s
+                SELECT 'interaction', interaction_id, 'tombstone', NULL
+                FROM armi.party_input_interactions WHERE source_party_id = %s
                 UNION ALL
                 SELECT 'evidence', evidence_id, 'tombstone', NULL
                 FROM armi.external_evidence
-                WHERE COALESCE(other_party_id, creator_party_id) = %s
+                WHERE context_party_id = %s
                 UNION ALL
                 SELECT DISTINCT 'experience', link.experience_id, 'tombstone', NULL
                 FROM armi.experience_evidence_links AS link
                 JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = link.evidence_id
-                WHERE COALESCE(evidence.other_party_id, evidence.creator_party_id) = %s
+                WHERE evidence.context_party_id = %s
                 UNION ALL
                 SELECT DISTINCT 'memory', revision.memory_id, 'tombstone', NULL
                 FROM armi.subjective_memory_revisions AS revision
@@ -273,7 +270,7 @@ class LocalDataDeletionRepository:
                   ON link.experience_id = revision.source_experience_id
                 JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = link.evidence_id
-                WHERE COALESCE(evidence.other_party_id, evidence.creator_party_id) = %s
+                WHERE evidence.context_party_id = %s
                 UNION ALL
                 SELECT 'relationship', relationship_id, 'tombstone', NULL
                 FROM armi.relationships WHERE other_party_id = %s
@@ -282,10 +279,8 @@ class LocalDataDeletionRepository:
                 FROM armi.interaction_scenes WHERE primary_party_id = %s
                 UNION ALL
                 SELECT 'effect', effect_id, 'retain', 'objective_history'
-                FROM armi.effects WHERE creator_party_id = %s
-                UNION ALL
-                SELECT 'effect', other_human_effect_id, 'retain', 'objective_history'
-                FROM armi.other_human_effects WHERE other_party_id = %s
+                FROM armi.effects
+                WHERE context_party_id = %s OR destination_party_id = %s
             )
             INSERT INTO armi.deletion_items (
                 deletion_item_id, deletion_order_id, target_kind, target_ref,
@@ -299,7 +294,7 @@ class LocalDataDeletionRepository:
             FROM targets
             ON CONFLICT (deletion_order_id, target_kind, target_ref) DO NOTHING
             """,
-            (party_id,) * 9 + (order_id, order_digest),
+            (party_id,) * 8 + (order_id, order_digest),
         )
 
     async def _related_artifact_ids(
@@ -309,52 +304,45 @@ class LocalDataDeletionRepository:
             await connection.execute(
                 """
                 SELECT artifact_id FROM armi.external_evidence
-                WHERE COALESCE(other_party_id, creator_party_id) = %s
+                WHERE context_party_id = %s
                 UNION
                 SELECT episode.context_manifest_artifact_id
                 FROM armi.cognitive_episodes AS episode
-                WHERE COALESCE(episode.other_party_id, episode.creator_party_id) = %s
+                WHERE episode.context_party_id = %s
                   AND episode.context_manifest_artifact_id IS NOT NULL
                 UNION
                 SELECT episode.compiled_context_artifact_id
                 FROM armi.cognitive_episodes AS episode
-                WHERE COALESCE(episode.other_party_id, episode.creator_party_id) = %s
+                WHERE episode.context_party_id = %s
                   AND episode.compiled_context_artifact_id IS NOT NULL
                 UNION
                 SELECT attempt.request_artifact_id
                 FROM armi.cognitive_attempts AS attempt
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = attempt.cognitive_episode_id
-                WHERE COALESCE(episode.other_party_id, episode.creator_party_id) = %s
+                WHERE episode.context_party_id = %s
                 UNION
                 SELECT attempt.response_artifact_id
                 FROM armi.cognitive_attempts AS attempt
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = attempt.cognitive_episode_id
-                WHERE COALESCE(episode.other_party_id, episode.creator_party_id) = %s
+                WHERE episode.context_party_id = %s
                   AND attempt.response_artifact_id IS NOT NULL
                 UNION
                 SELECT validation.change_set_artifact_id
                 FROM armi.cognitive_candidate_validations AS validation
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = validation.cognitive_episode_id
-                WHERE COALESCE(episode.other_party_id, episode.creator_party_id) = %s
+                WHERE episode.context_party_id = %s
                   AND validation.change_set_artifact_id IS NOT NULL
                 UNION
                 SELECT revision.response_artifact_id
                 FROM armi.action_intent_revisions AS revision
                 JOIN armi.action_intents AS intent
                   ON intent.action_intent_id = revision.action_intent_id
-                WHERE intent.creator_party_id = %s
-                UNION
-                SELECT revision.response_artifact_id
-                FROM armi.other_human_action_intent_revisions AS revision
-                JOIN armi.other_human_action_intents AS intent
-                  ON intent.other_human_action_intent_id =
-                     revision.other_human_action_intent_id
-                WHERE intent.other_party_id = %s
+                WHERE intent.context_party_id = %s
                 """,
-                (party_id,) * 8,
+                (party_id,) * 7,
             )
         ).fetchall()
         return tuple(row[0] for row in rows)

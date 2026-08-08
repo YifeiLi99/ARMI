@@ -59,18 +59,18 @@ class PostgreSQLEffectLedgerRepository:
         row = await (
             await connection.execute(
                 """
-            SELECT operation.creator_response_operation_id, operation.root_opportunity_id,
+            SELECT operation.operation_id, operation.root_opportunity_id,
                    revision.action_intent_revision_id, operation.subject_id,
-                   operation.interaction_scene_id, operation.creator_party_id,
+                   operation.scene_id, operation.context_party_id,
                    COALESCE(revision.response_artifact_id, source.task_manifest_artifact_id),
                    COALESCE(revision.response_digest, revision.task_manifest_digest),
                    artifact.byte_size, work.trace_id,
                    operation.operation_kind, revision.capability_kind,
                    revision.operation_class, revision.purpose
             FROM armi.durable_work AS work
-            JOIN armi.creator_response_operations AS operation
+            JOIN armi.action_operations AS operation
               ON operation.registration_work_id = work.work_id
-             AND operation.current_status = 'accepted'
+             AND operation.phase = 'admitted' AND operation.outcome IS NULL
             JOIN armi.action_intents AS intent ON intent.action_intent_id = operation.action_intent_id
             JOIN armi.action_intent_revisions AS revision
               ON revision.action_intent_revision_id = intent.current_revision_id
@@ -122,11 +122,11 @@ class PostgreSQLEffectLedgerRepository:
             raise EffectViolation("EFFECT-FENCE")
         locked = await (
             await connection.execute(
-                "SELECT current_status FROM armi.creator_response_operations WHERE creator_response_operation_id = %s FOR UPDATE",
+                "SELECT phase, outcome FROM armi.action_operations WHERE operation_id = %s FOR UPDATE",
                 (snapshot.operation_id,),
             )
         ).fetchone()
-        if locked is None:
+        if locked is None or locked != ("admitted", None):
             raise EffectViolation("EFFECT-WORK-STALE")
         registration_digest = _registration_digest(snapshot)
         existing = await self._existing(connection, snapshot, registration_digest)
@@ -224,7 +224,7 @@ class PostgreSQLEffectLedgerRepository:
         await connection.execute(
             """
             INSERT INTO armi.policy_decisions (
-                policy_decision_id, action_intent_revision_id, creator_response_operation_id,
+                policy_decision_id, action_intent_revision_id, operation_id,
                 matched_grant_id, decision_outcome, policy_identity, decision_digest,
                 reason_code, valid_until, schema_version
             ) VALUES (%s, %s, %s, %s, %s, 'armi.policy-engine.deterministic-v1', %s, %s, %s, 1)
@@ -247,13 +247,15 @@ class PostgreSQLEffectLedgerRepository:
                 await connection.execute(
                     """
                 INSERT INTO armi.effects (
-                    effect_id, action_intent_revision_id, creator_response_operation_id,
-                    policy_decision_id, subject_id, interaction_scene_id, creator_party_id,
+                    effect_id, action_intent_revision_id, operation_id,
+                    policy_decision_id, subject_id, scene_id, context_party_id,
                     payload_artifact_id, payload_digest, payload_bytes, effect_kind,
                     capability_kind, operation_class, audience_scope, data_scope, purpose,
+                    authorization_basis, destination_kind, destination_party_id,
                     registration_digest, trace_id, status, verification_status, schema_version
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,'registered','not_started',1)
+                    %s,%s,%s,%s,%s,'creator_grant',%s,%s,%s,%s,
+                    'registered','not_started',1)
                 RETURNING registered_at
                 """,
                     (
@@ -277,6 +279,10 @@ class PostgreSQLEffectLedgerRepository:
                         if snapshot.effect_kind == "creator_response"
                         else None,
                         snapshot.purpose,
+                        "creator_inbox"
+                        if snapshot.effect_kind == "creator_response"
+                        else "codex_workspace",
+                        snapshot.creator_party_id,
                         registration_digest.value,
                         snapshot.trace_id.value,
                     ),
@@ -300,10 +306,10 @@ class PostgreSQLEffectLedgerRepository:
             )
             await connection.execute(
                 """
-                UPDATE armi.creator_response_operations SET current_status='effect_registered',
+                UPDATE armi.action_operations SET phase='effect_registered', outcome=NULL,
                     current_policy_decision_id=%s, effect_id=%s,
                     effect_registration_digest=%s, effect_registered_at=%s
-                WHERE creator_response_operation_id=%s AND current_status='accepted'
+                WHERE operation_id=%s AND phase='admitted' AND outcome IS NULL
                 """,
                 (
                     decision_id,
@@ -323,10 +329,14 @@ class PostgreSQLEffectLedgerRepository:
                 Instant(row[0]),
             )
         else:
-            status = "unauthorized" if outcome == "denied" else "unavailable"
             await connection.execute(
-                "UPDATE armi.creator_response_operations SET current_status=%s, current_policy_decision_id=%s, reason_code=%s, completed_at=statement_timestamp() WHERE creator_response_operation_id=%s AND current_status='accepted'",
-                (status, decision_id, reason, snapshot.operation_id),
+                "UPDATE armi.action_operations SET phase='terminal', outcome=%s, current_policy_decision_id=%s, reason_code=%s, completed_at=statement_timestamp() WHERE operation_id=%s AND phase='admitted' AND outcome IS NULL",
+                (
+                    "denied" if outcome == "denied" else "failed",
+                    decision_id,
+                    reason,
+                    snapshot.operation_id,
+                ),
             )
             await uow.work.complete(
                 lease,
@@ -378,13 +388,13 @@ class PostgreSQLEffectLedgerRepository:
                    verification.patch_digest, verification.changed_path_count,
                    result_opportunity.current_disposition
             FROM armi.effects AS effect
-            JOIN armi.creator_response_operations AS operation
-              ON operation.creator_response_operation_id = effect.creator_response_operation_id
+            JOIN armi.action_operations AS operation
+              ON operation.operation_id = effect.operation_id
             JOIN armi.policy_decisions AS policy
               ON policy.policy_decision_id = effect.policy_decision_id
             JOIN armi.permission_grants AS permission
               ON permission.grant_id = policy.matched_grant_id
-             AND permission.creator_party_id = effect.creator_party_id
+             AND permission.creator_party_id = effect.context_party_id
             JOIN armi.capability_requests AS request
               ON request.capability_request_id = permission.capability_request_id
              AND request.capability_kind = effect.capability_kind
@@ -396,7 +406,7 @@ class PostgreSQLEffectLedgerRepository:
               ON result_source.codex_verification_id = verification.codex_verification_id
             LEFT JOIN armi.opportunities AS result_opportunity
               ON result_opportunity.opportunity_id = result_source.opportunity_id
-            WHERE effect.effect_id=%s AND effect.creator_party_id=%s
+            WHERE effect.effect_id=%s AND effect.context_party_id=%s
             """,
                 (effect_id.value, creator_party_id),
             )
@@ -543,7 +553,7 @@ class PostgreSQLEffectLedgerRepository:
                 JOIN armi.artifacts AS artifact
                   ON artifact.artifact_id = verification.{column}
                 WHERE effect.effect_id=%s
-                  AND effect.creator_party_id=%s
+                  AND effect.context_party_id=%s
                   AND effect.effect_kind='codex_delegation'
                   AND effect.status='completed'
                   AND effect.verification_status='verified'

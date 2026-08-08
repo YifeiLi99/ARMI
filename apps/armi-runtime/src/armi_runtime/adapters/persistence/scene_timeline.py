@@ -300,24 +300,24 @@ class PostgreSQLSceneTimelineQuery:
                                   THEN item.source_ref
                                 END
                             FROM armi.scene_timeline_items AS item
-                            LEFT JOIN armi.creator_input_interactions AS interaction
+                            LEFT JOIN armi.party_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
-                             AND interaction.creator_interaction_id = item.source_ref
+                             AND interaction.interaction_id = item.source_ref
                              AND interaction.scene_id = item.scene_id
-                             AND interaction.creator_party_id = %s
+                             AND interaction.source_party_id = %s
                             LEFT JOIN armi.external_evidence AS evidence
-                              ON evidence.creator_interaction_id =
-                                 interaction.creator_interaction_id
+                              ON evidence.interaction_id =
+                                 interaction.interaction_id
                              AND evidence.subject_id = interaction.subject_id
                              AND evidence.scene_id = interaction.scene_id
-                             AND evidence.creator_party_id =
-                                 interaction.creator_party_id
+                             AND evidence.context_party_id =
+                                 interaction.source_party_id
                             LEFT JOIN armi.opportunities AS opportunity
                               ON opportunity.evidence_id = evidence.evidence_id
                              AND opportunity.subject_id = evidence.subject_id
                              AND opportunity.scene_id = evidence.scene_id
-                             AND opportunity.creator_party_id =
-                                 evidence.creator_party_id
+                             AND opportunity.context_party_id =
+                                 evidence.context_party_id
                              AND opportunity.reconsideration_no = 0
                             LEFT JOIN armi.subject_commits AS subject_commit
                               ON item.source_kind = 'subject_commit'
@@ -328,7 +328,7 @@ class PostgreSQLSceneTimelineQuery:
                             LEFT JOIN armi.opportunities AS commit_opportunity
                               ON commit_opportunity.opportunity_id =
                                  commit_episode.opportunity_id
-                             AND commit_opportunity.creator_party_id = %s
+                             AND commit_opportunity.context_party_id = %s
                             WHERE item.scene_id = %s
                             ORDER BY item.occurred_at DESC,
                                      item.timeline_item_id DESC
@@ -361,24 +361,24 @@ class PostgreSQLSceneTimelineQuery:
                                   THEN item.source_ref
                                 END
                             FROM armi.scene_timeline_items AS item
-                            LEFT JOIN armi.creator_input_interactions AS interaction
+                            LEFT JOIN armi.party_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
-                             AND interaction.creator_interaction_id = item.source_ref
+                             AND interaction.interaction_id = item.source_ref
                              AND interaction.scene_id = item.scene_id
-                             AND interaction.creator_party_id = %s
+                             AND interaction.source_party_id = %s
                             LEFT JOIN armi.external_evidence AS evidence
-                              ON evidence.creator_interaction_id =
-                                 interaction.creator_interaction_id
+                              ON evidence.interaction_id =
+                                 interaction.interaction_id
                              AND evidence.subject_id = interaction.subject_id
                              AND evidence.scene_id = interaction.scene_id
-                             AND evidence.creator_party_id =
-                                 interaction.creator_party_id
+                             AND evidence.context_party_id =
+                                 interaction.source_party_id
                             LEFT JOIN armi.opportunities AS opportunity
                               ON opportunity.evidence_id = evidence.evidence_id
                              AND opportunity.subject_id = evidence.subject_id
                              AND opportunity.scene_id = evidence.scene_id
-                             AND opportunity.creator_party_id =
-                                 evidence.creator_party_id
+                             AND opportunity.context_party_id =
+                                 evidence.context_party_id
                              AND opportunity.reconsideration_no = 0
                             LEFT JOIN armi.subject_commits AS subject_commit
                               ON item.source_kind = 'subject_commit'
@@ -389,7 +389,7 @@ class PostgreSQLSceneTimelineQuery:
                             LEFT JOIN armi.opportunities AS commit_opportunity
                               ON commit_opportunity.opportunity_id =
                                  commit_episode.opportunity_id
-                             AND commit_opportunity.creator_party_id = %s
+                             AND commit_opportunity.context_party_id = %s
                             WHERE item.scene_id = %s
                               AND (item.occurred_at, item.timeline_item_id)
                                   < (%s, %s)

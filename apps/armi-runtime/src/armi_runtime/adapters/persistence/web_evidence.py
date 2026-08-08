@@ -66,7 +66,7 @@ class PostgreSQLWebEvidenceRepository:
                 """
                 SELECT intent.web_research_intent_id, intent.subject_id,
                        intent.source_opportunity_id, intent.scene_id,
-                       intent.creator_party_id, intent.query_artifact_id,
+                       intent.context_party_id, intent.query_artifact_id,
                        intent.query_digest, intent.idempotency_key,
                        intent.trace_id
                 FROM armi.durable_work AS work
@@ -175,7 +175,7 @@ class PostgreSQLWebEvidenceRepository:
             await connection.execute(
                 """
                 SELECT intent.web_research_intent_id, intent.subject_id,
-                       intent.scene_id, intent.creator_party_id, intent.trace_id
+                       intent.scene_id, intent.context_party_id, intent.trace_id
                 FROM armi.web_research_intents AS intent
                 WHERE intent.web_observation_request_id = %s
                   AND intent.status = 'admitted'
@@ -194,7 +194,7 @@ class PostgreSQLWebEvidenceRepository:
         await connection.execute(
             """
             INSERT INTO armi.external_evidence (
-                evidence_id, creator_interaction_id, subject_id, scene_id,
+                evidence_id, interaction_id, subject_id, scene_id,
                 creator_party_id, artifact_id, source_kind, trust_status,
                 privacy_scope, acceptance_status, web_observation_request_id,
                 observation_attempt_id, schema_version

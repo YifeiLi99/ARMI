@@ -59,7 +59,7 @@ class CompositionManifestTests(unittest.TestCase):
                 ),
                 (
                     "M0-SEAM-EFFECT",
-                    "armi.creator-response-adapter.postgresql-inbox-v1",
+                    "armi.local-inbox-adapter.postgresql-v1",
                 ),
                 (
                     "M0-SEAM-CODEX",

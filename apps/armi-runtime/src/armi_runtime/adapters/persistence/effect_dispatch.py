@@ -28,7 +28,7 @@ from .effect_grant_coordination import (
 )
 from .unit_of_work import PostgreSQLUnitOfWork
 
-_ADAPTER_BINDING = "armi.creator-response-adapter.postgresql-inbox-v1"
+_ADAPTER_BINDING = "armi.local-inbox-adapter.postgresql-v1"
 
 
 class _AbsentDisposition(StrEnum):
@@ -63,20 +63,20 @@ class PostgreSQLEffectDispatchRepository:
             await connection.execute(
                 """
                 SELECT outbox.effect_outbox_item_id, effect.effect_id,
-                       effect.subject_id, effect.interaction_scene_id,
-                       effect.creator_party_id, effect.payload_artifact_id,
+                       effect.subject_id, effect.scene_id,
+                       effect.context_party_id, effect.payload_artifact_id,
                        effect.payload_digest, effect.payload_bytes, effect.trace_id,
                        scene.scene_key, outbox.attempt_count, outbox.claim_token
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.interaction_scenes AS scene
-                  ON scene.scene_id = effect.interaction_scene_id
+                  ON scene.scene_id = effect.scene_id
                 WHERE outbox.status = 'ready'
                   AND outbox.available_at <= statement_timestamp()
                   AND statement_timestamp() < outbox.dispatch_deadline
                   AND outbox.attempt_count < outbox.max_attempts
                   AND effect.status = 'registered'
-                  AND effect.effect_kind = 'creator_response'
+                  AND effect.destination_kind IN ('creator_inbox', 'other_human_inbox')
                 ORDER BY outbox.available_at, outbox.effect_outbox_item_id
                 FOR UPDATE OF outbox, effect SKIP LOCKED
                 LIMIT 1
@@ -131,9 +131,9 @@ class PostgreSQLEffectDispatchRepository:
         )
         await connection.execute(
             """
-            UPDATE armi.creator_response_operations
-            SET current_status = 'effect_dispatching'
-            WHERE effect_id = %s AND current_status = 'effect_registered'
+            UPDATE armi.action_operations
+            SET phase = 'dispatching', outcome = NULL
+            WHERE effect_id = %s AND phase = 'effect_registered' AND outcome IS NULL
             """,
             (row[1],),
         )
@@ -161,19 +161,19 @@ class PostgreSQLEffectDispatchRepository:
                        outbox.claim_token, outbox.attempt_count,
                        effect.payload_artifact_id, scene.scene_key,
                        effect.effect_id, attempt.effect_attempt_id,
-                       effect.subject_id, effect.interaction_scene_id,
-                       effect.creator_party_id, effect.payload_digest,
+                       effect.subject_id, effect.scene_id,
+                       effect.context_party_id, effect.payload_digest,
                        effect.payload_bytes, attempt.request_digest, effect.trace_id
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
                 JOIN armi.interaction_scenes AS scene
-                  ON scene.scene_id = effect.interaction_scene_id
+                  ON scene.scene_id = effect.scene_id
                 WHERE outbox.status = 'claimed'
                   AND outbox.claim_expires_at <= statement_timestamp()
                   AND effect.status = 'dispatching'
-                  AND effect.effect_kind = 'creator_response'
+                  AND effect.destination_kind IN ('creator_inbox', 'other_human_inbox')
                   AND attempt.dispatch_state IN ('prepared', 'dispatching')
                 ORDER BY outbox.claim_expires_at, outbox.effect_outbox_item_id
                 FOR UPDATE OF outbox, effect, attempt SKIP LOCKED
@@ -213,7 +213,7 @@ class PostgreSQLEffectDispatchRepository:
                        outbox.claim_token, outbox.attempt_count,
                        effect.payload_artifact_id, scene.scene_key,
                        effect.effect_id, effect.subject_id,
-                       effect.interaction_scene_id, effect.creator_party_id,
+                       effect.scene_id, effect.context_party_id,
                        effect.payload_digest, effect.payload_bytes,
                        attempt.request_digest, effect.trace_id
                 FROM armi.effect_outbox_items AS outbox
@@ -221,10 +221,10 @@ class PostgreSQLEffectDispatchRepository:
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
                 JOIN armi.interaction_scenes AS scene
-                  ON scene.scene_id = effect.interaction_scene_id
+                  ON scene.scene_id = effect.scene_id
                 WHERE outbox.status = 'unknown'
                   AND effect.status = 'unknown'
-                  AND effect.effect_kind = 'creator_response'
+                  AND effect.destination_kind IN ('creator_inbox', 'other_human_inbox')
                   AND attempt.dispatch_state = 'settled'
                   AND attempt.result_status = 'unknown'
                 ORDER BY effect.settled_at, effect.effect_id
@@ -622,7 +622,7 @@ class PostgreSQLEffectDispatchRepository:
             ),
         )
         await connection.execute(
-            "UPDATE armi.creator_response_operations SET current_status='effect_registered' WHERE effect_id=%s",
+            "UPDATE armi.action_operations SET phase='effect_registered', outcome=NULL WHERE effect_id=%s",
             (snapshot.request.effect_id.value,),
         )
 
@@ -688,7 +688,7 @@ class PostgreSQLEffectDispatchRepository:
                 WHERE effect_id=%s AND current_attempt_id=%s
                   AND status='dispatching'
                 RETURNING policy_decision_id, action_intent_revision_id,
-                          creator_response_operation_id
+                          operation_id
                 """,
                 (
                     observation_id,
@@ -728,13 +728,13 @@ class PostgreSQLEffectDispatchRepository:
         operation = await (
             await connection.execute(
                 """
-                UPDATE armi.creator_response_operations
-                SET current_status='effect_cancelled',
+                UPDATE armi.action_operations
+                SET phase='terminal', outcome='cancelled',
                     current_policy_decision_id=%s, reason_code=NULL,
                     completed_at=%s
-                WHERE creator_response_operation_id=%s
-                  AND current_status='effect_dispatching'
-                RETURNING creator_response_operation_id
+                WHERE operation_id=%s
+                  AND phase='dispatching' AND outcome IS NULL
+                RETURNING operation_id
                 """,
                 (current_decision_id, attempt[0], effect[2]),
             )
@@ -837,11 +837,15 @@ class PostgreSQLEffectDispatchRepository:
         )
         await connection.execute(
             """
-            UPDATE armi.creator_response_operations SET current_status=%s,
+            UPDATE armi.action_operations SET phase='terminal',
+                outcome=CASE WHEN %s='effect_completed' THEN 'completed'
+                             WHEN %s='effect_unknown' THEN 'unknown'
+                             ELSE 'failed' END,
                 reason_code=%s, completed_at=%s
             WHERE effect_id=%s
             """,
             (
+                operation_status,
                 operation_status,
                 error_code,
                 attempt[0],
@@ -945,10 +949,13 @@ class PostgreSQLEffectDispatchRepository:
         operation = await (
             await connection.execute(
                 """
-                UPDATE armi.creator_response_operations
-                SET current_status=%s, reason_code=%s, completed_at=%s
-                WHERE effect_id=%s AND current_status='effect_unknown'
-                RETURNING creator_response_operation_id
+                UPDATE armi.action_operations
+                SET phase='terminal',
+                    outcome=CASE WHEN %s='effect_completed' THEN 'completed'
+                                 ELSE 'failed' END,
+                    reason_code=%s, completed_at=%s
+                WHERE effect_id=%s AND phase='terminal' AND outcome='unknown'
+                RETURNING operation_id
                 """,
                 (
                     operation_status,

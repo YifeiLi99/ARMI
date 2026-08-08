@@ -805,13 +805,13 @@ async def _cancel_registered_effects(
             """
             SELECT effect.effect_id, effect.subject_id,
                    effect.action_intent_revision_id,
-                   effect.creator_response_operation_id,
+                   effect.operation_id,
                    effect.policy_decision_id,
                    response.root_opportunity_id
             FROM armi.effects AS effect
-            JOIN armi.creator_response_operations AS response
-              ON response.creator_response_operation_id
-               = effect.creator_response_operation_id
+            JOIN armi.action_operations AS response
+              ON response.operation_id
+               = effect.operation_id
             JOIN armi.policy_decisions AS policy
               ON policy.policy_decision_id = effect.policy_decision_id
              AND policy.is_current
@@ -856,7 +856,7 @@ async def _cancel_registered_effects(
             """
             INSERT INTO armi.policy_decisions (
                 policy_decision_id, action_intent_revision_id,
-                creator_response_operation_id, decision_outcome,
+                operation_id, decision_outcome,
                 policy_identity, decision_digest, reason_code,
                 supersedes_policy_decision_id, schema_version
             ) VALUES (
@@ -891,10 +891,10 @@ async def _cancel_registered_effects(
         )
         await connection.execute(
             """
-            UPDATE armi.creator_response_operations
+            UPDATE armi.action_operations
             SET current_status='effect_cancelled',
                 current_policy_decision_id=%s
-            WHERE creator_response_operation_id=%s
+            WHERE operation_id=%s
               AND current_status='effect_registered'
             """,
             (decision_id, operation_id),
@@ -988,7 +988,7 @@ async def _activate_codex_registration(
     row = await (
         await connection.execute(
             """
-            SELECT operation.creator_response_operation_id, operation.subject_id,
+            SELECT operation.operation_id, operation.subject_id,
                    revision.task_manifest_digest, revision.codex_task_source_id,
                    commit.trace_id
             FROM armi.capability_requests AS request
@@ -997,13 +997,15 @@ async def _activate_codex_registration(
              AND revision.capability_kind = 'codex.delegated-work'
             JOIN armi.action_intents AS intent
               ON intent.current_revision_id = revision.action_intent_revision_id
-            JOIN armi.creator_response_operations AS operation
+            JOIN armi.action_operations AS operation
               ON operation.action_intent_id = intent.action_intent_id
              AND operation.operation_kind = 'codex_delegation'
             JOIN armi.subject_commits AS commit
               ON commit.subject_commit_id = request.subject_commit_id
             WHERE request.capability_request_id = %s
-              AND operation.current_status = 'codex_waiting_grant'
+              AND operation.phase = 'admission_pending'
+              AND operation.outcome IS NULL
+              AND operation.operation_kind = 'codex_delegation'
             FOR UPDATE OF operation
             """,
             (capability_request_id,),
@@ -1051,13 +1053,14 @@ async def _activate_codex_registration(
     updated = await (
         await connection.execute(
             """
-            UPDATE armi.creator_response_operations
-            SET current_status = 'accepted', matched_grant_id = %s,
+            UPDATE armi.action_operations
+            SET phase = 'admitted', outcome = NULL, matched_grant_id = %s,
                 completion_digest = %s, completed_at = statement_timestamp(),
                 registration_work_id = %s
-            WHERE creator_response_operation_id = %s
-              AND current_status = 'codex_waiting_grant'
-            RETURNING creator_response_operation_id
+            WHERE operation_id = %s
+              AND phase = 'admission_pending' AND outcome IS NULL
+              AND operation_kind = 'codex_delegation'
+            RETURNING operation_id
             """,
             (grant_id, completion.value, work_id.value, row[0]),
         )

@@ -94,7 +94,7 @@ class _CandidateRejectionConnection:
                     (self._failed_opportunity_id, "failed"),
                 ]
             )
-        if "UPDATE armi.creator_response_operations AS operation" in statement:
+        if "UPDATE armi.action_operations AS operation" in statement:
             return _Cursor([(self._operation_id,)])
         raise AssertionError(statement)
 

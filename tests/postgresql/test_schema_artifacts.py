@@ -15,13 +15,27 @@ from tools.generate_schema_manifests import main as generate_schema_manifests
 RESOURCE = Path(
     "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
 )
+BASELINE_DOCUMENTS = [
+    "00_namespace.sql",
+    "10_runtime_and_subject.sql",
+    "20_artifacts_parties_interactions.sql",
+    "30_cognition_and_provenance.sql",
+    "40_life_memory_relationships.sql",
+    "50_activities_and_maintenance.sql",
+    "60_actions_work_and_effects.sql",
+    "70_web_codex_audit_data_rights.sql",
+    "80_cross_domain_constraints_and_indexes.sql",
+    "90_static_catalog.sql",
+    "99_privileges.sql",
+]
 
 
 def test_frozen_baseline_and_migration_plan_are_the_only_schema_sources() -> None:
     baseline = RESOURCE / "baseline"
     migrations = RESOURCE / "migrations"
     definitions = sorted(baseline.glob("*.sql"))
-    assert [path.name for path in definitions] == ["baseline.sql"]
+    assert [path.name for path in definitions] == BASELINE_DOCUMENTS
+    assert not (baseline / "baseline.sql").exists()
     assert not (RESOURCE / "current").exists()
     assert (baseline / "manifest.json").is_file()
     assert (migrations / "manifest.json").is_file()
@@ -41,7 +55,8 @@ def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
     migrations = json.loads(after[1])
     assert baseline["schema_version"] == "armi.schema-baseline.v1"
     assert baseline["baseline_id"] == "baseline"
-    assert baseline["path"] == "baseline.sql"
+    assert [item["path"] for item in baseline["documents"]] == BASELINE_DOCUMENTS
+    assert baseline["catalog_sha256"].startswith("sha256:")
     assert "schema_migrations" in baseline["tables"]
     assert migrations == {
         "baseline_id": "baseline",
@@ -51,7 +66,10 @@ def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
 
 
 def test_baseline_contains_authoritative_schema_and_migration_ledger() -> None:
-    sql = (RESOURCE / "baseline/baseline.sql").read_text(encoding="utf-8")
+    sql = "\n".join(
+        (RESOURCE / "baseline" / name).read_text(encoding="utf-8")
+        for name in BASELINE_DOCUMENTS
+    )
     assert "CREATE SCHEMA armi" in sql
     assert "CREATE TABLE armi.schema_migrations" in sql
     assert "CREATE TABLE armi.subjects" in sql
@@ -60,12 +78,27 @@ def test_baseline_contains_authoritative_schema_and_migration_ledger() -> None:
     assert "CREATE TABLE armi.subjective_memories" in sql
     assert "CREATE TABLE armi.relationships" in sql
     assert "CREATE TABLE armi.life_materials" in sql
-    assert "CREATE TABLE armi.other_human_dialogue_decisions" in sql
+    assert "CREATE TABLE armi.dialogue_decisions" in sql
     assert "CREATE TABLE armi.creator_exports" in sql
     assert "CREATE TABLE armi.deletion_orders" in sql
     assert "INSERT INTO armi.capabilities VALUES" in sql
     assert "'creator.scene.reply'" in sql
     assert "'codex.delegated-work'" in sql
+    assert "'local.other-human-inbox.deliver'" in sql
+    for retired in (
+        "creator_input_interactions",
+        "other_human_input_interactions",
+        "other_human_action_intents",
+        "formal_no_action_decisions",
+        "other_human_dialogue_decisions",
+        "creator_response_operations",
+        "other_human_effects",
+        "creator_response_deliveries",
+        "other_human_local_inbox_deliveries",
+        "activity_attention_decisions",
+        "activity_internal_work_decisions",
+    ):
+        assert retired not in sql
 
 
 def test_gateway_exposes_baseline_install_and_explicit_migration() -> None:
@@ -76,7 +109,7 @@ def test_gateway_exposes_baseline_install_and_explicit_migration() -> None:
 def test_gateway_rejects_baseline_digest_drift(tmp_path: Path) -> None:
     schema = tmp_path / "schema"
     shutil.copytree(RESOURCE, schema)
-    baseline = schema / "baseline/baseline.sql"
+    baseline = schema / "baseline/30_cognition_and_provenance.sql"
     baseline.write_text(
         baseline.read_text(encoding="utf-8") + "\n",
         encoding="utf-8",

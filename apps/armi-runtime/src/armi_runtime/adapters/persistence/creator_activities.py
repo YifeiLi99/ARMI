@@ -177,13 +177,13 @@ class PostgreSQLCreatorActivityQuery:
                         FROM armi.activity_revisions AS revision
                         WHERE revision.activity_id = %s
                         UNION ALL
-                        SELECT decision.attention_decision_id,
+                        SELECT decision.activity_decision_id,
                                decision.decision_kind,
                                NULL::text,
                                NULL::text,
                                decision.review_not_before,
                                decision.decided_at
-                        FROM armi.activity_attention_decisions AS decision
+                        FROM armi.activity_decisions AS decision
                         WHERE decision.activity_id = %s
                           AND decision.result_revision_id IS NULL
                         ORDER BY 6 DESC, 1 DESC

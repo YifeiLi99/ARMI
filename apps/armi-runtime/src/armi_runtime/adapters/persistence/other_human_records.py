@@ -207,10 +207,10 @@ class PostgreSQLOtherHumanRecordQuery:
              AND item.source_kind IN ('other_human_input', 'other_human_response')
             LEFT JOIN armi.external_evidence AS evidence
               ON item.source_kind = 'other_human_input'
-             AND evidence.other_human_interaction_id = item.source_ref
-            LEFT JOIN armi.other_human_effects AS effect
+             AND evidence.interaction_id = item.source_ref
+            LEFT JOIN armi.effects AS effect
               ON item.source_kind = 'other_human_response'
-             AND effect.other_human_effect_id = item.source_ref
+             AND effect.effect_id = item.source_ref
             JOIN armi.artifacts AS artifact
               ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
              AND artifact.integrity_status = 'verified'
@@ -256,10 +256,10 @@ class PostgreSQLOtherHumanRecordQuery:
              AND item.source_kind IN ('other_human_input', 'other_human_response')
             LEFT JOIN armi.external_evidence AS evidence
               ON item.source_kind = 'other_human_input'
-             AND evidence.other_human_interaction_id = item.source_ref
-            LEFT JOIN armi.other_human_effects AS effect
+             AND evidence.interaction_id = item.source_ref
+            LEFT JOIN armi.effects AS effect
               ON item.source_kind = 'other_human_response'
-             AND effect.other_human_effect_id = item.source_ref
+             AND effect.effect_id = item.source_ref
             JOIN armi.artifacts AS artifact
               ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
              AND artifact.integrity_status = 'verified'
@@ -299,10 +299,10 @@ class PostgreSQLOtherHumanRecordQuery:
              AND item.source_kind IN ('other_human_input', 'other_human_response')
             LEFT JOIN armi.external_evidence AS evidence
               ON item.source_kind = 'other_human_input'
-             AND evidence.other_human_interaction_id = item.source_ref
-            LEFT JOIN armi.other_human_effects AS effect
+             AND evidence.interaction_id = item.source_ref
+            LEFT JOIN armi.effects AS effect
               ON item.source_kind = 'other_human_response'
-             AND effect.other_human_effect_id = item.source_ref
+             AND effect.effect_id = item.source_ref
             JOIN armi.artifacts AS artifact
               ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
              AND artifact.integrity_status = 'verified'
@@ -401,10 +401,10 @@ class PostgreSQLOtherHumanRecordQuery:
             JOIN armi.interaction_scenes AS scene ON scene.scene_id = item.scene_id
             LEFT JOIN armi.external_evidence AS evidence
               ON item.source_kind = 'other_human_input'
-             AND evidence.other_human_interaction_id = item.source_ref
-            LEFT JOIN armi.other_human_effects AS effect
+             AND evidence.interaction_id = item.source_ref
+            LEFT JOIN armi.effects AS effect
               ON item.source_kind = 'other_human_response'
-             AND effect.other_human_effect_id = item.source_ref
+             AND effect.effect_id = item.source_ref
             JOIN armi.artifacts AS artifact
               ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
              AND artifact.integrity_status = 'verified'

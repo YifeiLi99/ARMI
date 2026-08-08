@@ -86,6 +86,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--s028-live-env-file", type=Path)
     parser.add_argument("--s033-live-env-file", type=Path)
     parser.add_argument("--test-expression")
+    parser.add_argument("--freeze-catalog", action="store_true")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     client_root = (root / args.postgresql_client_root).resolve()
@@ -172,6 +173,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 environment["S033_LIVE_ENV_FILE"] = str(
                     args.s033_live_env_file.resolve()
                 )
+            if args.freeze_catalog:
+                frozen = subprocess.run(
+                    [sys.executable, "tools/freeze_schema_catalog.py"],
+                    cwd=root,
+                    env=environment,
+                    check=False,
+                )
+                if frozen.returncode != 0:
+                    return frozen.returncode
             pytest_command = [sys.executable, "-m", "pytest", "tests/postgresql", "-q"]
             test_expression = args.test_expression
             if args.s026_live_env_file is not None and test_expression is None:

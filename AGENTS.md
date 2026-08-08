@@ -34,9 +34,10 @@
 ## 4. 数据库与机器合同
 
 - PostgreSQL 是唯一权威关系数据库。开发与测试服务端固定使用 Docker 中的 PostgreSQL 18.4 + pgvector 0.8.6；Runtime 只通过 DSN 连接，容器不是第二事实源。
-- `apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema/baseline/baseline.sql` 是已经冻结的单一 PostgreSQL 数据库基线 dump，包含完整初始结构和运行必需的静态目录数据，只用于向空数据库安装，不再随功能变化改写。`schema/migrations/` 是此后唯一的结构演进路径；每次持久结构变化新增一个有序、带摘要的 SQL migration，并同步写入/查询代码与相关测试。
+- `apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema/baseline/` 是已经冻结的有序 PostgreSQL 模块基线；manifest 固定模块顺序、逐文件与组合摘要、表集合和完整 catalog 摘要。它只用于在同一事务中向空数据库安装，不能随功能变化改写。`schema/migrations/` 是此后唯一的结构演进路径；每次持久结构变化新增一个有序、带目标 catalog 摘要的 SQL migration，并同步写入/查询代码与相关测试。
 - `armi db install` 只允许空数据库并自动登记基线；基线建立前的开发数据库不提供兼容登记路径，应在确认可丢弃后重建；后续升级使用 `armi db migrate --apply`。Runtime 和普通启动脚本只检查目标版本，不自动安装或迁移。
 - 正式环境的唯一权威数据库不得因源码或 DDL 变化而重建。测试数据库仍可丢弃重建，但必须与正式环境隔离；迁移前停止 Runtime，并按数据风险完成可核验备份与恢复准备。
+- 只有具备独立 owner、生命周期、一对多关系、权限/保留策略或显著独立查询模式时才新增表；渠道、party kind、枚举值或 adapter 差异本身不构成建表理由。
 - 只有产品当前直接读取的机器合同才保留 JSON，例如外部 wire/schema、实际 provider/model binding、静态前端资源索引和包管理锁文件。内部策略、阶段状态、候选身份与验收结果不维护 JSON 镜像。
 - 仓库中的 JSON 使用 UTF-8、2 空格缩进和结尾换行。RFC 8785 只用于摘要输入或 wire 编码；配置 schema 默认由代码按需导出，不提交重复副本。
 - `runtime-composition` 只记录接缝和 Active binding，不聚合配置、前端、schema 或策略摘要。资源在各自真实消费边界验证。

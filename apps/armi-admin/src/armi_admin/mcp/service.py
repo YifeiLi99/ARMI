@@ -57,7 +57,7 @@ _EXPECTED_POSTGRESQL = 180004
 _REQUIRED_SCHEMA_TABLES = frozenset(
     {
         "activities",
-        "creator_input_interactions",
+        "party_input_interactions",
         "deployment_environments",
         "maintenance_sessions",
         "runtime_instances",

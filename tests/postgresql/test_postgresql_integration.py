@@ -111,11 +111,12 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_postgresql_contract.catalog_fingerprint import database_catalog_digest
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
 )
 from armi_runtime.adapters.creator_response_inbox import (
-    PostgreSQLCreatorResponseInbox,
+    PostgreSQLLocalInbox,
 )
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.adapters.model.web_search_custody import normalize_full_response
@@ -409,6 +410,54 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
 
+    def test_baseline_module_failure_rolls_back_every_module(self) -> None:
+        fixture = self.create_database()
+        source = Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            schema_root = Path(temporary) / "schema"
+            shutil.copytree(source, schema_root)
+            failing_path = schema_root / "baseline/50_activities_and_maintenance.sql"
+            failing_path.write_bytes(
+                failing_path.read_bytes() + b"\nSELECT armi.module_failure_probe();\n"
+            )
+            manifest_path = schema_root / "baseline/manifest.json"
+            manifest = cast(
+                dict[str, Any], json.loads(manifest_path.read_text(encoding="utf-8"))
+            )
+            documents = cast(list[dict[str, str]], manifest["documents"])
+            for document in documents:
+                if document["path"] == failing_path.name:
+                    document["sha256"] = (
+                        f"sha256:{hashlib.sha256(failing_path.read_bytes()).hexdigest()}"
+                    )
+            combined = json.dumps(
+                documents,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            manifest["sha256"] = f"sha256:{hashlib.sha256(combined).hexdigest()}"
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+
+            with self.assertRaises(DatabaseViolation) as failed:
+                PostgreSQLSchemaGateway(resource_root=schema_root).install(
+                    fixture.migrator_dsn,
+                    environment_id=fixture.environment_id,
+                )
+            self.assertEqual(failed.exception.code, "DB-SCHEMA-INSTALL-FAILED")
+
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            namespace = connection.execute(
+                "SELECT pg_catalog.to_regnamespace('armi')"
+            ).fetchone()
+        self.assertEqual(namespace, (None,))
+
     def test_pending_numbered_migration_requires_explicit_apply(self) -> None:
         fixture = self.create_database()
         installed = PostgreSQLSchemaGateway().install(
@@ -438,6 +487,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 newline="\n",
             )
             checksum = f"sha256:{hashlib.sha256(definition.encode()).hexdigest()}"
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                connection.execute("SET LOCAL ROLE armi_owner")
+                connection.execute(definition)
+                target_catalog_sha256 = database_catalog_digest(connection)
+                connection.rollback()
             (migrations_root / "manifest.json").write_text(
                 json.dumps(
                     {
@@ -449,6 +503,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 "migration_id": migration_id,
                                 "path": f"{migration_id}.sql",
                                 "sha256": checksum,
+                                "target_catalog_sha256": target_catalog_sha256,
                             }
                         ],
                         "schema_version": "armi.schema-migrations.v1",
@@ -539,6 +594,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 "migration_id": migration_id,
                                 "path": f"{migration_id}.sql",
                                 "sha256": checksum,
+                                "target_catalog_sha256": "sha256:" + "0" * 64,
                             }
                         ],
                         "schema_version": "armi.schema-migrations.v1",
@@ -708,7 +764,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 started = invoke("start", *root_argument)
                 self.assertEqual(started["status"], "started")
                 first_status = invoke("status", *root_argument)
-                self.assertEqual(first_status["status"], "running")
+                self.assertEqual(first_status["status"], "running", first_status)
                 self.assertEqual(
                     (
                         first_status["runtime"]["runtime_state"],
@@ -926,11 +982,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 with psycopg.connect(fixture.runtime_dsn) as database:
                     pending_responsibility_before = database.execute(
                         """
-                        SELECT interaction.creator_interaction_id,
+                        SELECT interaction.interaction_id,
                                opportunity.opportunity_id
-                        FROM armi.creator_input_interactions AS interaction
+                        FROM armi.party_input_interactions AS interaction
                         JOIN armi.external_evidence AS evidence
-                          USING (creator_interaction_id)
+                          USING (interaction_id)
                         JOIN armi.opportunities AS opportunity
                           USING (evidence_id)
                         WHERE interaction.idempotency_key =
@@ -940,9 +996,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     open_work_before = database.execute(
                         """
                         SELECT work.work_kind, work.status
-                        FROM armi.creator_input_interactions AS interaction
+                        FROM armi.party_input_interactions AS interaction
                         JOIN armi.external_evidence AS evidence
-                          USING (creator_interaction_id)
+                          USING (interaction_id)
                         JOIN armi.opportunities AS opportunity
                           USING (evidence_id)
                         JOIN armi.cognitive_episodes AS episode
@@ -1058,11 +1114,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ).fetchone()
                     pending_responsibility_after = connection.execute(
                         """
-                        SELECT interaction.creator_interaction_id,
+                        SELECT interaction.interaction_id,
                                opportunity.opportunity_id
-                        FROM armi.creator_input_interactions AS interaction
+                        FROM armi.party_input_interactions AS interaction
                         JOIN armi.external_evidence AS evidence
-                          USING (creator_interaction_id)
+                          USING (interaction_id)
                         JOIN armi.opportunities AS opportunity
                           USING (evidence_id)
                         WHERE interaction.idempotency_key =
@@ -1072,9 +1128,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     open_work_after = connection.execute(
                         """
                         SELECT work.work_kind, work.status
-                        FROM armi.creator_input_interactions AS interaction
+                        FROM armi.party_input_interactions AS interaction
                         JOIN armi.external_evidence AS evidence
-                          USING (creator_interaction_id)
+                          USING (interaction_id)
                         JOIN armi.opportunities AS opportunity
                           USING (evidence_id)
                         JOIN armi.cognitive_episodes AS episode
@@ -1641,12 +1697,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             counts = connection.execute(
                 """
                 SELECT
-                    (SELECT count(*) FROM armi.creator_input_interactions
+                    (SELECT count(*) FROM armi.party_input_interactions
                      WHERE purpose='codex_task_request'),
                     (SELECT count(*) FROM armi.codex_task_sources),
                     (SELECT count(*) FROM armi.external_evidence
                      WHERE source_kind='codex_task_source'
-                       AND creator_interaction_id IS NOT NULL),
+                       AND interaction_id IS NOT NULL),
                     (SELECT count(*) FROM armi.opportunities
                      WHERE purpose='consider_codex_task'),
                     (SELECT count(*) FROM armi.scene_timeline_items
@@ -1990,6 +2046,101 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     selectors.SelectSelector()
                 ),
             )
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                component_heads = connection.execute(
+                    """
+                    SELECT component_kind, current_revision_id
+                    FROM armi.subject_component_heads
+                    ORDER BY component_kind
+                    LIMIT 2
+                    """
+                ).fetchall()
+                self.assertEqual(len(component_heads), 2)
+                with self.assertRaises(psycopg.errors.IntegrityError):
+                    connection.execute(
+                        """
+                        UPDATE armi.subject_component_heads
+                        SET current_revision_id = %s
+                        WHERE component_kind = %s
+                        """,
+                        (component_heads[1][1], component_heads[0][0]),
+                    )
+                connection.rollback()
+                with self.assertRaises(psycopg.errors.IntegrityError):
+                    connection.execute(
+                        """
+                        UPDATE armi.subject_component_revisions
+                        SET previous_revision_id = %s
+                        WHERE component_revision_id = %s
+                        """,
+                        (component_heads[1][1], component_heads[0][1]),
+                    )
+                connection.rollback()
+
+                prompt_head = connection.execute(
+                    """
+                    SELECT prompt_document_id, current_revision_id, subject_id
+                    FROM armi.prompt_documents
+                    WHERE current_revision_id IS NOT NULL
+                    ORDER BY prompt_kind
+                    LIMIT 1
+                    """
+                ).fetchone()
+                assert prompt_head is not None
+                foreign_document = connection.execute(
+                    """
+                    SELECT prompt_document_id
+                    FROM armi.prompt_documents
+                    WHERE current_revision_id IS NULL
+                    ORDER BY prompt_kind
+                    LIMIT 1
+                    """
+                ).fetchone()
+                assert foreign_document is not None
+                foreign_document_id = foreign_document[0]
+                foreign_revision_id = _uuid7()
+                connection.execute(
+                    """
+                    INSERT INTO armi.prompt_revisions (
+                        prompt_revision_id, prompt_document_id, revision_no,
+                        previous_revision_id, content_artifact_id, content_digest,
+                        author_party_id, subject_commit_id, change_reason
+                    )
+                    SELECT %s, %s, 1, NULL, content_artifact_id, content_digest,
+                           author_party_id, NULL, 'created'
+                    FROM armi.prompt_revisions
+                    WHERE prompt_revision_id = %s
+                    """,
+                    (foreign_revision_id, foreign_document_id, prompt_head[1]),
+                )
+                connection.execute(
+                    "UPDATE armi.prompt_documents SET current_revision_id = %s "
+                    "WHERE prompt_document_id = %s",
+                    (foreign_revision_id, foreign_document_id),
+                )
+                connection.commit()
+                with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+                    connection.execute(
+                        """
+                        UPDATE armi.prompt_documents
+                        SET current_revision_id = %s
+                        WHERE prompt_document_id = %s
+                        """,
+                        (prompt_head[1], foreign_document_id),
+                    )
+                    connection.commit()
+                connection.rollback()
+                with self.assertRaises(psycopg.errors.IntegrityError):
+                    connection.execute(
+                        """
+                        UPDATE armi.prompt_revisions
+                        SET revision_no = 2, previous_revision_id = %s,
+                            change_reason = 'revised'
+                        WHERE prompt_revision_id = %s
+                        """,
+                        (foreign_revision_id, prompt_head[1]),
+                    )
+                connection.rollback()
             config = AdminConfig.model_validate(
                 {
                     "schema_version": "armi.admin-config.v4",
@@ -2279,8 +2430,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ),
                 )
                 provisioner.execute(
-                    "INSERT INTO armi.creator_input_interactions (creator_interaction_id, "
-                    "subject_id, scene_id, creator_party_id, purpose, idempotency_key, "
+                    "INSERT INTO armi.party_input_interactions (interaction_id, "
+                    "subject_id, scene_id, source_party_id, purpose, idempotency_key, "
                     "request_digest, content_digest, trace_id) VALUES (%s, %s, %s, %s, "
                     "'creator_message', 's037-delete-input', %s, %s, %s)",
                     (
@@ -2295,7 +2446,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 provisioner.execute(
                     "INSERT INTO armi.external_evidence (evidence_id, "
-                    "creator_interaction_id, subject_id, scene_id, creator_party_id, "
+                    "interaction_id, subject_id, scene_id, context_party_id, "
                     "artifact_id, source_kind, trust_status, privacy_scope, "
                     "acceptance_status) VALUES (%s, %s, %s, %s, %s, %s, "
                     "'creator_input', 'external_claim', 'creator_visible', 'accepted')",
@@ -2310,7 +2461,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 provisioner.execute(
                     "INSERT INTO armi.opportunities (opportunity_id, evidence_id, "
-                    "subject_id, scene_id, creator_party_id, purpose, eligibility_status, "
+                    "subject_id, scene_id, context_party_id, purpose, eligibility_status, "
                     "current_disposition, root_opportunity_id, reconsideration_no, "
                     "source_kind, source_ref, source_version, source_digest) VALUES "
                     "(%s, %s, %s, %s, %s, 'consider_creator_input', 'eligible', 'open', "
@@ -2362,7 +2513,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "purpose": "admin.preview_correction",
                         "spec": {
                             "correction_kind": "delete_uncommitted_creator_input",
-                            "creator_interaction_id": str(interaction_id),
+                            "interaction_id": str(interaction_id),
                         },
                     }
                 ),
@@ -2381,7 +2532,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "preview_token": delete_preview.result["preview_token"],
                         "spec": {
                             "correction_kind": "delete_uncommitted_creator_input",
-                            "creator_interaction_id": str(interaction_id),
+                            "interaction_id": str(interaction_id),
                         },
                     }
                 ),
@@ -2406,8 +2557,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with psycopg.connect(fixture.runtime_dsn) as runtime:
                 facts = runtime.execute(
                     "SELECT (SELECT state_epoch FROM armi.subjects), "
-                    "(SELECT count(*) FROM armi.creator_input_interactions WHERE "
-                    "creator_interaction_id = %s), (SELECT status FROM armi.durable_work "
+                    "(SELECT count(*) FROM armi.party_input_interactions WHERE "
+                    "interaction_id = %s), (SELECT status FROM armi.durable_work "
                     "WHERE work_id = %s)",
                     (interaction_id, side_work_id),
                 ).fetchone()
@@ -2711,7 +2862,27 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             (
                 "public-access",
                 "GRANT USAGE ON SCHEMA armi TO PUBLIC",
-                "DB-ROLE-PUBLIC-PRIVILEGE",
+                "DB-SCHEMA-CATALOG-DRIFT",
+            ),
+            (
+                "column-nullability",
+                "ALTER TABLE armi.subjects ALTER COLUMN status DROP NOT NULL",
+                "DB-SCHEMA-CATALOG-DRIFT",
+            ),
+            (
+                "constraint",
+                "ALTER TABLE armi.subjects DROP CONSTRAINT subjects_status_check",
+                "DB-SCHEMA-CATALOG-DRIFT",
+            ),
+            (
+                "index",
+                "DROP INDEX armi.accepted_experiences_subject_page_idx",
+                "DB-SCHEMA-CATALOG-DRIFT",
+            ),
+            (
+                "table-acl",
+                "REVOKE SELECT ON armi.subjects FROM armi_runtime",
+                "DB-SCHEMA-CATALOG-DRIFT",
             ),
         )
         for label, mutation, expected_code in mutations:
@@ -2733,6 +2904,272 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         environment_id=fixture.environment_id,
                     )
                 self.assertEqual(raised.exception.code, expected_code)
+
+    def test_life_record_query_plans_use_bounded_and_trigram_indexes(self) -> None:
+        fixture = self.create_database()
+        PostgreSQLSchemaGateway().install(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        subject_id = _uuid7()
+        scene_id = _uuid7()
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute("SET session_replication_role = replica")
+            connection.execute(
+                """
+                INSERT INTO armi.accepted_experiences (
+                    experience_id, subject_id, subject_commit_id,
+                    cognitive_episode_id, proposal_ref, experience_kind,
+                    fact_class, first_person_gist, scene_id, occurred_at,
+                    learned_at, accepted_at, source_perspective, uncertainty,
+                    privacy_scope, schema_version
+                )
+                SELECT uuidv7(), %s, uuidv7(), uuidv7(), 'proposal:1',
+                       'creator_input', 'external_claim',
+                       CASE WHEN ordinal = 123456
+                            THEN 'rare telescope marker for selective search'
+                            ELSE 'ordinary long-term experience' END,
+                       %s,
+                       statement_timestamp() -
+                           ((ordinal %% 3650)::text || ' days')::interval,
+                       statement_timestamp() -
+                           ((ordinal %% 3650)::text || ' days')::interval,
+                       statement_timestamp() -
+                           ((ordinal %% 3650)::text || ' days')::interval,
+                       'creator_claim', NULL, 'private', 1
+                FROM generate_series(1, 200000) AS ordinal
+                """,
+                (subject_id, scene_id),
+            )
+            connection.execute(
+                """
+                CREATE TEMP TABLE memory_plan_fixture ON COMMIT DROP AS
+                SELECT ordinal, uuidv7() AS memory_id,
+                       uuidv7() AS historical_revision_id,
+                       uuidv7() AS current_revision_id,
+                       uuidv7() AS source_experience_id
+                FROM generate_series(1, 5000) AS ordinal
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.subjective_memory_revisions (
+                    memory_revision_id, memory_id, revision_no,
+                    previous_revision_id, subject_commit_id,
+                    candidate_validation_id, proposal_ref,
+                    source_experience_id, source_kind, source_fact_class,
+                    summary, revision_kind, accessibility,
+                    mechanism_identity, mechanism_config_identity,
+                    privacy_scope
+                )
+                SELECT historical_revision_id, memory_id, 1, NULL,
+                       uuidv7(), uuidv7(), 'proposal:1', source_experience_id,
+                       'reported', 'external_claim',
+                       'ordinary historical memory', 'formed', 'available',
+                       'armi.memory-formation.contextual-v1', 'formation-v1',
+                       'private'
+                FROM memory_plan_fixture
+                UNION ALL
+                SELECT current_revision_id, memory_id, 2,
+                       historical_revision_id, uuidv7(), uuidv7(),
+                       'proposal:1', source_experience_id,
+                       'reported', 'external_claim',
+                       CASE WHEN ordinal = 2345
+                            THEN 'rare aurora memory marker'
+                            ELSE 'ordinary current memory' END,
+                       'recalled', 'available',
+                       'armi.memory-revision.contextual-v1',
+                       'natural-dialogue-v1', 'private'
+                FROM memory_plan_fixture
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.subjective_memories (
+                    memory_id, subject_id, life_generation_id,
+                    current_revision_id, head_version
+                )
+                SELECT memory_id, %s, uuidv7(), current_revision_id, 2
+                FROM memory_plan_fixture
+                """,
+                (subject_id,),
+            )
+            connection.execute(
+                """
+                CREATE TEMP TABLE material_plan_fixture ON COMMIT DROP AS
+                SELECT ordinal, uuidv7() AS material_id,
+                       uuidv7() AS revision_id
+                FROM generate_series(1, 2000) AS ordinal
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.life_material_revisions (
+                    life_material_revision_id, life_material_id, revision_no,
+                    subject_commit_id, candidate_validation_id, proposal_ref,
+                    artifact_id, body_digest, title, metadata, revision_kind,
+                    privacy_status, material_status, source_kind,
+                    semantic_digest
+                )
+                SELECT revision_id, material_id, 1, uuidv7(), uuidv7(),
+                       'proposal:1', uuidv7(),
+                       'sha256:' || repeat('a', 64),
+                       CASE WHEN ordinal = 987
+                            THEN 'rare comet material marker'
+                            ELSE 'ordinary life material' END,
+                       '{}'::jsonb, 'created', 'creator_visible', 'active',
+                       'subject_cognition', 'sha256:' || repeat('b', 64)
+                FROM material_plan_fixture
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.life_materials (
+                    life_material_id, subject_id, life_generation_id,
+                    material_kind, owner_party_id, current_revision_id,
+                    head_version
+                )
+                SELECT material_id, %s, uuidv7(), 'diary', uuidv7(),
+                       revision_id, 1
+                FROM material_plan_fixture
+                """,
+                (subject_id,),
+            )
+            connection.execute(
+                """
+                CREATE TEMP TABLE relationship_plan_fixture ON COMMIT DROP AS
+                SELECT ordinal, uuidv7() AS relationship_id,
+                       uuidv7() AS revision_id,
+                       uuidv7() AS subject_party_id,
+                       uuidv7() AS other_party_id
+                FROM generate_series(1, 1000) AS ordinal
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.relationship_revisions (
+                    relationship_revision_id, relationship_id, revision_no,
+                    subject_commit_id, candidate_validation_id, proposal_ref,
+                    facts, interpretation, boundaries, commitments,
+                    open_issues, relationship_status, semantic_digest,
+                    mechanism_identity, privacy_scope
+                )
+                SELECT revision_id, relationship_id, 1, uuidv7(), uuidv7(),
+                       'proposal:1', '["known"]'::jsonb,
+                       CASE WHEN ordinal = 543
+                            THEN 'rare pulsar relationship marker'
+                            ELSE 'ordinary relationship interpretation' END,
+                       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'active',
+                       'sha256:' || repeat('c', 64),
+                       'armi.relationship.contextual-v1', 'private'
+                FROM relationship_plan_fixture
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.relationships (
+                    relationship_id, subject_id, life_generation_id,
+                    subject_party_id, other_party_id, scope,
+                    current_revision_id, head_version
+                )
+                SELECT relationship_id, %s, uuidv7(), subject_party_id,
+                       other_party_id, 'other_human_social', revision_id, 1
+                FROM relationship_plan_fixture
+                """,
+                (subject_id,),
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.subject_component_revisions (
+                    component_revision_id, subject_id, component_kind,
+                    component_version, previous_revision_id, origin_kind,
+                    origin_ref, semantic_payload, privacy_scope,
+                    semantic_digest
+                )
+                SELECT uuidv7(), %s, 'self', ordinal,
+                       CASE WHEN ordinal = 1 THEN NULL ELSE uuidv7() END,
+                       CASE WHEN ordinal = 1
+                            THEN 'bootstrap'
+                            ELSE 'admin_correction' END,
+                       uuidv7(),
+                       jsonb_build_object(
+                           'summary',
+                           CASE WHEN ordinal = 4321
+                                THEN 'rare nebula self marker'
+                                ELSE 'ordinary self change' END
+                       ),
+                       'private',
+                       CASE WHEN ordinal = 1
+                            THEN NULL
+                            ELSE 'sha256:' || repeat('d', 64) END
+                FROM generate_series(1, 5000) AS ordinal
+                """,
+                (subject_id,),
+            )
+            connection.execute("SET session_replication_role = origin")
+            connection.execute(
+                """
+                ANALYZE armi.accepted_experiences;
+                ANALYZE armi.subjective_memory_revisions;
+                ANALYZE armi.life_material_revisions;
+                ANALYZE armi.relationship_revisions;
+                ANALYZE armi.subject_component_revisions
+                """
+            )
+
+            bounded = connection.execute(
+                """
+                EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                SELECT experience_id, accepted_at
+                FROM armi.accepted_experiences
+                WHERE subject_id = %s
+                ORDER BY accepted_at DESC, experience_id DESC
+                LIMIT 51
+                """,
+                (subject_id,),
+            ).fetchone()
+            selective = connection.execute(
+                """
+                EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                SELECT experience_id
+                FROM armi.accepted_experiences
+                WHERE first_person_gist ILIKE '%%telescope%%'
+                LIMIT 51
+                """
+            ).fetchone()
+            boundary = connection.execute(
+                """
+                SELECT accepted_at, experience_id
+                FROM armi.accepted_experiences
+                WHERE subject_id = %s
+                ORDER BY accepted_at DESC, experience_id DESC
+                OFFSET 100000 LIMIT 1
+                """,
+                (subject_id,),
+            ).fetchone()
+            assert boundary is not None
+            deep_page = connection.execute(
+                """
+                EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                SELECT experience_id, accepted_at
+                FROM armi.accepted_experiences
+                WHERE subject_id = %s
+                  AND (accepted_at, experience_id) < (%s, %s)
+                ORDER BY accepted_at DESC, experience_id DESC
+                LIMIT 51
+                """,
+                (subject_id, boundary[0], boundary[1]),
+            ).fetchone()
+
+        assert bounded is not None and selective is not None and deep_page is not None
+        bounded_plan = json.dumps(bounded[0], sort_keys=True)
+        selective_plan = json.dumps(selective[0], sort_keys=True)
+        deep_plan = json.dumps(deep_page[0], sort_keys=True)
+        self.assertIn("accepted_experiences_subject_page_idx", bounded_plan)
+        self.assertNotIn('"Node Type": "Seq Scan"', bounded_plan)
+        self.assertIn("accepted_experiences_gist_trgm_idx", selective_plan)
+        self.assertIn("accepted_experiences_subject_page_idx", deep_plan)
+        self.assertNotIn('"Node Type": "Seq Scan"', deep_plan)
 
     def test_role_matrix_cross_environment_and_pool_reset(self) -> None:
         fixture_a = self.create_database()
@@ -3971,9 +4408,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             connection.execute(
                 """
-                INSERT INTO armi.creator_input_interactions (
-                    creator_interaction_id, subject_id, scene_id,
-                    creator_party_id, purpose, idempotency_key,
+                INSERT INTO armi.party_input_interactions (
+                    interaction_id, subject_id, scene_id,
+                    source_party_id, purpose, idempotency_key,
                     request_digest, content_digest, trace_id, schema_version
                 ) VALUES (%s, %s, %s, %s, 'creator_message',
                           's026-input', %s, %s, %s, 1)
@@ -3991,8 +4428,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 INSERT INTO armi.external_evidence (
-                    evidence_id, creator_interaction_id, subject_id, scene_id,
-                    creator_party_id, artifact_id, source_kind, trust_status,
+                    evidence_id, interaction_id, subject_id, scene_id,
+                    context_party_id, artifact_id, source_kind, trust_status,
                     privacy_scope, acceptance_status, schema_version
                 ) VALUES (%s, %s, %s, %s, %s, %s, 'creator_input',
                           'external_claim', 'creator_visible', 'accepted', 1)
@@ -4010,7 +4447,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
+                    context_party_id, purpose, eligibility_status,
                     current_disposition, selected_at, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
                     source_version, source_digest, schema_version
@@ -4033,7 +4470,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 INSERT INTO armi.cognitive_episodes (
                     cognitive_episode_id, opportunity_id, subject_id, scene_id,
-                    creator_party_id, purpose, status, base_subject_version,
+                    context_party_id, purpose, status, base_subject_version,
                     base_state_epoch, bundle_activation_id, policy_digest,
                     mechanism_identity, mechanism_config_digest,
                     context_manifest_artifact_id, compiled_context_artifact_id,
@@ -4437,7 +4874,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.capability_request_basis_links),
                     (SELECT count(*) FROM armi.action_intents),
                     (SELECT count(*) FROM armi.action_intent_revisions),
-                    (SELECT count(*) FROM armi.creator_response_operations),
+                    (SELECT count(*) FROM armi.action_operations),
                     (SELECT count(*) FROM armi.scene_timeline_items WHERE source_kind = 'subject_commit'),
                     (SELECT count(*) FROM armi.audit_events WHERE operation = 'cognition.subject.committed')
                 """
@@ -4731,7 +5168,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             unit_of_work,
                             dispatch_snapshot,
                         )
-                    adapter = PostgreSQLCreatorResponseInbox(response_factory)
+                    adapter = PostgreSQLLocalInbox(response_factory)
                     receipt = await adapter.dispatch(
                         dispatch_snapshot.request,
                         payloads["reply"],
@@ -4844,21 +5281,56 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ),
         )
         with psycopg.connect(fixture.provisioner_dsn) as connection:
+            action_owner = connection.execute(
+                """
+                SELECT action_intent_id, current_revision_id, subject_id, scene_id,
+                       context_party_id, root_opportunity_id
+                FROM armi.action_intents
+                WHERE current_revision_id IS NOT NULL
+                ORDER BY created_at
+                LIMIT 1
+                """
+            ).fetchone()
+            assert action_owner is not None
+            foreign_action_id = _uuid7()
+            connection.execute(
+                """
+                INSERT INTO armi.action_intents (
+                    action_intent_id, subject_id, scene_id, context_party_id,
+                    root_opportunity_id, purpose, current_revision_id,
+                    action_kind, schema_version
+                ) VALUES (%s, %s, %s, %s, %s, 'delegate_codex_work', NULL,
+                          'codex_delegation', 1)
+                """,
+                (foreign_action_id, *action_owner[2:]),
+            )
+            connection.commit()
+            with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+                connection.execute(
+                    "UPDATE armi.action_intents SET current_revision_id = %s "
+                    "WHERE action_intent_id = %s",
+                    (action_owner[1], foreign_action_id),
+                )
+            connection.rollback()
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
             effect_state = connection.execute(
                 """
                 SELECT effect.status, effect_outbox.status,
-                       operation.current_status, permission.consumed_uses,
+                       CASE WHEN operation.phase = 'terminal'
+                            THEN 'effect_' || operation.outcome
+                            ELSE operation.phase END,
+                       permission.consumed_uses,
                        original_policy.is_current, current_policy.is_current,
                        current_policy.supersedes_policy_decision_id =
                            original_policy.policy_decision_id,
-                       (SELECT count(*) FROM armi.creator_response_deliveries),
+                       (SELECT count(*) FROM armi.local_inbox_deliveries),
                        (SELECT count(*) FROM armi.effect_attempts),
                        (SELECT count(*) FROM armi.effect_observations),
                        (SELECT count(*) FROM armi.scene_timeline_items
-                        WHERE source_kind = 'creator_response')
+                        WHERE source_kind = 'party_response')
                 FROM armi.effects AS effect
                 JOIN armi.effect_outbox_items AS effect_outbox USING (effect_id)
-                JOIN armi.creator_response_operations AS operation USING (effect_id)
+                JOIN armi.action_operations AS operation USING (effect_id)
                 JOIN armi.policy_decisions AS original_policy
                   ON original_policy.policy_decision_id =
                      effect.policy_decision_id
@@ -5138,6 +5610,141 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         ):
             connection.execute("SELECT * FROM armi.runtime_instances")
 
+    def test_offline_recovery_backup_and_isolated_drill(self) -> None:
+        source = self.create_database()
+        target = self.create_database()
+        PostgreSQLSchemaGateway().install(
+            source.migrator_dsn,
+            environment_id=source.environment_id,
+        )
+        client_root = Path(
+            os.environ.get(
+                "S003_POSTGRESQL_CLIENT_ROOT",
+                Path.cwd() / ".armi-tools/installs/postgresql/18.4/pgsql",
+            )
+        ).resolve()
+        entry_point = str(Path(".venv/Scripts/armi.exe").resolve())
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            root = Path(temporary).resolve()
+            environment_root = root / "environment"
+            data_root = environment_root / "data"
+            secrets_root = environment_root / "secrets"
+            destination = root / "backups"
+            quarantine = root / "quarantine"
+            for path in (data_root / "artifacts", secrets_root, destination, quarantine):
+                path.mkdir(parents=True)
+            migrator_secret = secrets_root / "migrator"
+            migrator_secret.write_text(
+                source.migrator_dsn, encoding="utf-8", newline="\n"
+            )
+            (environment_root / "environment.toml").write_text(
+                "\n".join(
+                    (
+                        "[environment]",
+                        f'environment_id = "{source.environment_id}"',
+                        f'data_root = "{data_root.as_posix()}"',
+                        "",
+                        "[creator]",
+                        "port = 45682",
+                        "",
+                        "[secret_locators]",
+                        f'"database.migrator" = "file:{migrator_secret.as_posix()}"',
+                        "",
+                    )
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
+
+            def invoke(*arguments: str) -> dict[str, Any]:
+                completed = subprocess.run(
+                    (entry_point, *arguments),
+                    cwd=Path.cwd(),
+                    env={
+                        key: value
+                        for key, value in os.environ.items()
+                        if not key.startswith("ARMI_")
+                    },
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=120,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                return cast(dict[str, Any], json.loads(completed.stdout))
+
+            created = invoke(
+                "recovery",
+                "create",
+                "--environment-root",
+                str(environment_root),
+                "--postgresql-client-root",
+                str(client_root),
+                "--destination",
+                str(destination),
+            )
+            self.assertEqual(created["status"], "created")
+            bundle = Path(cast(str, created["bundle"]))
+            verified = invoke("recovery", "verify", "--bundle", str(bundle))
+            self.assertEqual(verified["status"], "verified")
+            target_conninfo = root / "target-conninfo"
+            target_conninfo.write_text(
+                target.migrator_dsn, encoding="utf-8", newline="\n"
+            )
+            drilled = invoke(
+                "recovery",
+                "drill",
+                "--bundle",
+                str(bundle),
+                "--quarantine-root",
+                str(quarantine),
+                "--target-conninfo-file",
+                str(target_conninfo),
+                "--postgresql-client-root",
+                str(client_root),
+                "--apply",
+            )
+            self.assertEqual(drilled["status"], "drill_passed")
+            with psycopg.connect(target.runtime_dsn) as connection:
+                restored = connection.execute(
+                    "SELECT migration_id FROM armi.schema_migrations"
+                ).fetchall()
+            self.assertEqual(restored, [("baseline",)])
+
+            second_quarantine = root / "second-quarantine"
+            second_quarantine.mkdir()
+            repeated = subprocess.run(
+                (
+                    entry_point,
+                    "recovery",
+                    "drill",
+                    "--bundle",
+                    str(bundle),
+                    "--quarantine-root",
+                    str(second_quarantine),
+                    "--target-conninfo-file",
+                    str(target_conninfo),
+                    "--postgresql-client-root",
+                    str(client_root),
+                    "--apply",
+                ),
+                cwd=Path.cwd(),
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.startswith("ARMI_")
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=120,
+            )
+            self.assertNotEqual(repeated.returncode, 0)
+            rejected = cast(dict[str, Any], json.loads(repeated.stderr))
+            self.assertEqual(rejected["code"], "RECOVERY-TARGET-NOT-EMPTY")
+
     def test_runtime_recovery_reaches_safe_without_starting_workers(self) -> None:
         fixture = self.create_database()
         PostgreSQLSchemaGateway().install(
@@ -5397,7 +6004,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 deadline = time.monotonic() + 30
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
-                        self.fail("born Runtime exited before listening")
+                        stdout, stderr = process.communicate(timeout=5)
+                        self.fail(
+                            "born Runtime exited before listening: "
+                            f"stdout={stdout!r} stderr={stderr!r}"
+                        )
                     try:
                         with socket.create_connection(
                             ("127.0.0.1", runtime_port),
@@ -5594,6 +6205,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         ),
                     )
                     self.assertEqual(operation_event_lines[3], b"\n")
+                    if process.poll() is not None:
+                        stdout, stderr = process.communicate(timeout=5)
+                        self.fail(
+                            "Runtime exited after accepting input: "
+                            f"stdout={stdout!r} stderr={stderr!r}"
+                        )
                     connection.request(
                         "POST",
                         "/v1/scenes/default/messages",
@@ -5644,14 +6261,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(
                         (
                             operation["status"],
-                            operation["waiting_for"],
-                            operation["resume_condition"],
+                            operation.get("waiting_for"),
+                            operation.get("resume_condition"),
                         ),
                         (
                             "waiting",
                             "model_attempt",
                             "model_step_available",
                         ),
+                        operation,
                     )
                     connection.request(
                         "GET",
@@ -5743,7 +6361,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fact_counts = database.execute(
                     """
                     SELECT
-                        (SELECT count(*) FROM armi.creator_input_interactions),
+                        (SELECT count(*) FROM armi.party_input_interactions),
                         (SELECT count(*) FROM armi.external_evidence),
                         (
                             SELECT count(*) FROM armi.opportunities
@@ -5824,11 +6442,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 with self.assertRaises(psycopg.errors.ForeignKeyViolation):
                     database.execute(
                         """
-                        INSERT INTO armi.creator_input_interactions (
-                            creator_interaction_id,
+                        INSERT INTO armi.party_input_interactions (
+                            interaction_id,
                             subject_id,
                             scene_id,
-                            creator_party_id,
+                            source_party_id,
                             purpose,
                             idempotency_key,
                             request_digest,

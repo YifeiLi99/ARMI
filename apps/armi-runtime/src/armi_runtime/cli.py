@@ -30,6 +30,11 @@ from armi_runtime.composition.operational_maintenance import (
     run_artifact_retention,
     run_database_maintenance,
 )
+from armi_runtime.composition.recovery import (
+    create_recovery_backup,
+    drill_recovery_backup,
+    verify_recovery_backup,
+)
 from armi_runtime.composition.runtime import run_runtime
 from armi_runtime.composition.runtime_capacity import run_runtime_capacity_baseline
 from armi_runtime.composition.runtime_errors import RuntimeViolation
@@ -73,6 +78,27 @@ def _parser() -> argparse.ArgumentParser:
     artifacts_cleanup = artifacts_command.add_parser("cleanup")
     artifacts_cleanup.add_argument("--environment-root", type=Path, required=True)
     artifacts_cleanup.add_argument("--apply", action="store_true")
+    recovery = command.add_parser("recovery")
+    recovery_command = recovery.add_subparsers(
+        dest="recovery_command",
+        required=True,
+    )
+    recovery_create = recovery_command.add_parser("create")
+    recovery_create.add_argument("--environment-root", type=Path, required=True)
+    recovery_create.add_argument(
+        "--postgresql-client-root", type=Path, required=True
+    )
+    recovery_create.add_argument("--destination", type=Path, required=True)
+    recovery_verify = recovery_command.add_parser("verify")
+    recovery_verify.add_argument("--bundle", type=Path, required=True)
+    recovery_drill = recovery_command.add_parser("drill")
+    recovery_drill.add_argument("--bundle", type=Path, required=True)
+    recovery_drill.add_argument("--quarantine-root", type=Path, required=True)
+    recovery_drill.add_argument("--target-conninfo-file", type=Path, required=True)
+    recovery_drill.add_argument(
+        "--postgresql-client-root", type=Path, required=True
+    )
+    recovery_drill.add_argument("--apply", action="store_true", required=True)
     capacity = command.add_parser("capacity")
     capacity_command = capacity.add_subparsers(
         dest="capacity_command",
@@ -142,6 +168,29 @@ def _safe_failure(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "recovery" and args.recovery_command in {"verify", "drill"}:
+        try:
+            if args.recovery_command == "verify":
+                recovery_result = verify_recovery_backup(args.bundle)
+            else:
+                recovery_result = drill_recovery_backup(
+                    args.bundle,
+                    quarantine_root=args.quarantine_root,
+                    target_conninfo_file=args.target_conninfo_file,
+                    postgresql_client_root=args.postgresql_client_root,
+                )
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 4
+        print(
+            json.dumps(
+                recovery_result.safe_view(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
     environment_root = args.environment_root
     if environment_root is None:
         configured_root = os.environ.get("ARMI_ENVIRONMENT_ROOT")
@@ -161,6 +210,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {
             "database.artifact-maintenance": "database.runtime",
         }
+    elif args.command == "recovery":
+        credential_scope = {"database.recovery": "database.migrator"}
     elif args.command == "bootstrap":
         credential_scope = {"database.birth": "database.runtime"}
     elif args.command == "creator-session":
@@ -236,6 +287,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         except RuntimeViolation as error:
             _safe_failure(error)
             return 4 if args.apply else 3
+        print(
+            json.dumps(
+                result.safe_view(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    if args.command == "recovery":
+        try:
+            result = create_recovery_backup(
+                prepared,
+                postgresql_client_root=args.postgresql_client_root,
+                destination=args.destination,
+            )
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 4
         print(
             json.dumps(
                 result.safe_view(),

@@ -28,6 +28,7 @@ ROLE_CLASSES: Final = ("runtime", "admin", "migrator")
 SEARCH_PATH: Final = "pg_catalog, armi"
 PGVECTOR_SCHEMA: Final = "armi_extensions"
 PGVECTOR_VERSION: Final = "0.8.6"
+PGTRGM_VERSION: Final = "1.6"
 MAX_SECRET_BYTES: Final = 65_536
 
 
@@ -180,18 +181,25 @@ def apply_policy(
     connection.execute(
         "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA armi_extensions"
     )
+    connection.execute(
+        "CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA armi_extensions"
+    )
     extension = connection.execute(
         """
         SELECT extension.extversion, namespace.nspname
         FROM pg_catalog.pg_extension AS extension
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = extension.extnamespace
-        WHERE extension.extname = 'vector'
+        WHERE extension.extname IN ('pg_trgm', 'vector')
+        ORDER BY extension.extname
         """
-    ).fetchone()
-    if extension != (PGVECTOR_VERSION, PGVECTOR_SCHEMA):
+    ).fetchall()
+    if extension != [
+        (PGTRGM_VERSION, PGVECTOR_SCHEMA),
+        (PGVECTOR_VERSION, PGVECTOR_SCHEMA),
+    ]:
         raise BootstrapFailure(
-            "DB-PGVECTOR-IDENTITY", "pgvector version or schema is incompatible"
+            "DB-PGVECTOR-IDENTITY", "PostgreSQL extension identity is incompatible"
         )
     connection.execute(
         "GRANT USAGE ON SCHEMA armi_extensions "
@@ -431,9 +439,10 @@ def inspect_policy(
         FROM pg_catalog.pg_extension AS extension
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = extension.extnamespace
-        WHERE extension.extname = 'vector'
+        WHERE extension.extname IN ('pg_trgm', 'vector')
+        ORDER BY extension.extname
         """
-    ).fetchone()
+    ).fetchall()
     extension_usage = connection.execute(
         """
         SELECT role_value.rolname,
@@ -444,11 +453,14 @@ def inspect_policy(
         """,
         (list(CAPABILITY_ROLES),),
     ).fetchall()
-    if extension != (PGVECTOR_VERSION, PGVECTOR_SCHEMA) or extension_usage != [
+    if extension != [
+        (PGTRGM_VERSION, PGVECTOR_SCHEMA),
+        (PGVECTOR_VERSION, PGVECTOR_SCHEMA),
+    ] or extension_usage != [
         (role, True) for role in sorted(CAPABILITY_ROLES)
     ]:
         raise BootstrapFailure(
-            "DB-PGVECTOR-IDENTITY", "pgvector identity or grants have drifted"
+            "DB-PGVECTOR-IDENTITY", "PostgreSQL extension identity or grants have drifted"
         )
     return {
         "status": "pass",
@@ -459,6 +471,7 @@ def inspect_policy(
         "database_grants": "restricted",
         "credential_hashes": "scram-sha-256",
         "pgvector": f"{PGVECTOR_VERSION}@{PGVECTOR_SCHEMA}",
+        "pg_trgm": f"{PGTRGM_VERSION}@{PGVECTOR_SCHEMA}",
     }
 
 

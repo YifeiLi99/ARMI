@@ -151,8 +151,8 @@ class PostgreSQLCodexDelegationRepository:
         await connection.execute(
             """
             INSERT INTO armi.external_evidence (
-                evidence_id, creator_interaction_id, subject_id, scene_id,
-                creator_party_id, artifact_id, source_kind, trust_status,
+                evidence_id, interaction_id, subject_id, scene_id,
+                context_party_id, artifact_id, source_kind, trust_status,
                 privacy_scope, acceptance_status, codex_task_source_id,
                 schema_version
             ) VALUES (%s,NULL,%s,%s,%s,%s,'codex_task_source','external_claim',
@@ -171,7 +171,7 @@ class PostgreSQLCodexDelegationRepository:
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, source_kind, source_ref,
+                context_party_id, purpose, source_kind, source_ref,
                 source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no, schema_version
@@ -217,17 +217,17 @@ class PostgreSQLCodexDelegationRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT interaction.creator_interaction_id, evidence.evidence_id,
+                SELECT interaction.interaction_id, evidence.evidence_id,
                        opportunity.opportunity_id, interaction.request_digest,
                        interaction.content_digest
-                FROM armi.creator_input_interactions AS interaction
+                FROM armi.party_input_interactions AS interaction
                 JOIN armi.external_evidence AS evidence
-                  ON evidence.creator_interaction_id=interaction.creator_interaction_id
+                  ON evidence.interaction_id=interaction.interaction_id
                  AND evidence.source_kind='codex_task_source'
                 JOIN armi.opportunities AS opportunity
                   ON opportunity.evidence_id=evidence.evidence_id
                  AND opportunity.purpose='consider_codex_task'
-                WHERE interaction.creator_party_id=%s
+                WHERE interaction.source_party_id=%s
                   AND interaction.scene_id=%s
                   AND interaction.purpose='codex_task_request'
                   AND interaction.idempotency_key=%s
@@ -291,8 +291,8 @@ class PostgreSQLCodexDelegationRepository:
         )
         await connection.execute(
             """
-            INSERT INTO armi.creator_input_interactions (
-                creator_interaction_id, subject_id, scene_id, creator_party_id,
+            INSERT INTO armi.party_input_interactions (
+                interaction_id, subject_id, scene_id, source_party_id,
                 purpose, idempotency_key, request_digest, content_digest,
                 trace_id, schema_version
             ) VALUES (%s,%s,%s,%s,'codex_task_request',%s,%s,%s,%s,1)
@@ -311,8 +311,8 @@ class PostgreSQLCodexDelegationRepository:
         await connection.execute(
             """
             INSERT INTO armi.external_evidence (
-                evidence_id, creator_interaction_id, subject_id, scene_id,
-                creator_party_id, artifact_id, source_kind, trust_status,
+                evidence_id, interaction_id, subject_id, scene_id,
+                context_party_id, artifact_id, source_kind, trust_status,
                 privacy_scope, acceptance_status, codex_task_source_id,
                 schema_version
             ) VALUES (%s,%s,%s,%s,%s,%s,'codex_task_source','external_claim',
@@ -332,7 +332,7 @@ class PostgreSQLCodexDelegationRepository:
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, source_kind, source_ref,
+                context_party_id, purpose, source_kind, source_ref,
                 source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no, schema_version
@@ -407,9 +407,9 @@ class PostgreSQLCodexDelegationRepository:
             await connection.execute(
                 """
                 SELECT outbox.effect_outbox_item_id, effect.effect_id,
-                       operation.creator_response_operation_id,
+                       operation.operation_id,
                        operation.root_opportunity_id, effect.subject_id,
-                       effect.interaction_scene_id, effect.creator_party_id,
+                       effect.scene_id, effect.context_party_id,
                        source.codex_task_source_id,
                        source.source_bundle_artifact_id, source.source_bundle_digest,
                        source.source_tree_digest, source.task_manifest_artifact_id,
@@ -422,7 +422,7 @@ class PostgreSQLCodexDelegationRepository:
                        manifest.privacy_scope, manifest.integrity_status
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
-                JOIN armi.creator_response_operations AS operation
+                JOIN armi.action_operations AS operation
                   ON operation.effect_id = effect.effect_id
                 JOIN armi.action_intent_revisions AS revision
                   ON revision.action_intent_revision_id = effect.action_intent_revision_id
@@ -485,8 +485,8 @@ class PostgreSQLCodexDelegationRepository:
         )
         await connection.execute(
             """
-            UPDATE armi.creator_response_operations SET current_status='codex_dispatching'
-            WHERE creator_response_operation_id=%s AND current_status='effect_registered'
+            UPDATE armi.action_operations SET phase='dispatching', outcome=NULL
+            WHERE operation_id=%s AND phase='effect_registered' AND outcome IS NULL
             """,
             (row[2],),
         )
@@ -779,24 +779,32 @@ class PostgreSQLCodexDelegationRepository:
                 snapshot.claim_token,
             ),
         )
-        operation_status = {
-            CodexVerificationStatus.VERIFIED: "codex_result_pending",
-            CodexVerificationStatus.FAILED: "codex_failed",
-            CodexVerificationStatus.UNKNOWN: "codex_unknown",
-            CodexVerificationStatus.CANCELLED: "codex_cancelled",
+        operation_phase = (
+            "result_pending"
+            if status is CodexVerificationStatus.VERIFIED
+            else "terminal"
+        )
+        operation_outcome = {
+            CodexVerificationStatus.VERIFIED: None,
+            CodexVerificationStatus.FAILED: "failed",
+            CodexVerificationStatus.UNKNOWN: "unknown",
+            CodexVerificationStatus.CANCELLED: "cancelled",
         }[status]
         await connection.execute(
             """
-            UPDATE armi.creator_response_operations
-            SET current_status=%s, reason_code=%s, completed_at=statement_timestamp()
-            WHERE creator_response_operation_id=%s
+            UPDATE armi.action_operations
+            SET phase=%s, outcome=%s, reason_code=%s,
+                completed_at=CASE WHEN %s='terminal' THEN statement_timestamp() ELSE NULL END
+            WHERE operation_id=%s
             """,
             (
-                operation_status,
+                operation_phase,
+                operation_outcome,
                 terminal_error_code
                 if status
                 in {CodexVerificationStatus.FAILED, CodexVerificationStatus.UNKNOWN}
                 else cleanup_error_code,
+                operation_phase,
                 snapshot.operation_id,
             ),
         )
@@ -809,8 +817,8 @@ class PostgreSQLCodexDelegationRepository:
         await connection.execute(
             """
             INSERT INTO armi.external_evidence (
-                evidence_id, creator_interaction_id, subject_id, scene_id,
-                creator_party_id, artifact_id, source_kind, trust_status,
+                evidence_id, interaction_id, subject_id, scene_id,
+                context_party_id, artifact_id, source_kind, trust_status,
                 privacy_scope, acceptance_status, codex_verification_id,
                 schema_version
             ) VALUES (%s,NULL,%s,%s,%s,%s,'codex_result','external_claim',
@@ -829,7 +837,7 @@ class PostgreSQLCodexDelegationRepository:
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, source_kind, source_ref,
+                context_party_id, purpose, source_kind, source_ref,
                 source_version, source_digest, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no, schema_version

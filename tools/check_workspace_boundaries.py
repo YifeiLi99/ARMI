@@ -44,12 +44,20 @@ DISTRIBUTIONS = (
         dependencies=(),
     ),
     Distribution(
+        name="armi-postgresql-contract",
+        module="armi_postgresql_contract",
+        project_dir=Path("packages/armi-postgresql-contract"),
+        layers=(),
+        dependencies=(),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
         layers=("adapters", "interfaces", "workers", "composition"),
         dependencies=(
             "armi-kernel==0.0.0",
+            "armi-postgresql-contract==0.0.0",
             "fastapi==0.140.13",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -68,6 +76,7 @@ DISTRIBUTIONS = (
         layers=("application", "mcp", "persistence", "process_control"),
         dependencies=(
             "armi-kernel==0.0.0",
+            "armi-postgresql-contract==0.0.0",
             "mcp==2.0.0",
             "psycopg[binary]==3.3.4",
             "psycopg-pool==3.3.1",

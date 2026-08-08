@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
+from armi_postgresql_contract.catalog_fingerprint import (
+    database_catalog_digest,
+)
 from psycopg import sql
 from psycopg.abc import QueryNoTemplate
 
@@ -126,25 +129,14 @@ class AdminObservationGateway:
         }
 
     def database_catalog_digest(self) -> str:
-        rows = self._all(
-            "SELECT relation.relname, relation.relkind, attribute.attname, "
-            "pg_catalog.format_type(attribute.atttypid, attribute.atttypmod), "
-            "attribute.attnotnull "
-            "FROM pg_catalog.pg_class AS relation "
-            "JOIN pg_catalog.pg_namespace AS namespace "
-            "ON namespace.oid = relation.relnamespace "
-            "LEFT JOIN pg_catalog.pg_attribute AS attribute "
-            "ON attribute.attrelid = relation.oid AND attribute.attnum > 0 "
-            "AND NOT attribute.attisdropped "
-            "WHERE namespace.nspname = 'armi' AND relation.relkind = 'r' "
-            "ORDER BY relation.relname, attribute.attnum"
-        )
-        encoded = json.dumps(
-            [[_safe(value) for value in row] for row in rows],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+        pool = self._pool()
+        try:
+            pool.open()
+            with pool.connection() as connection:
+                connection.execute("SET TRANSACTION READ ONLY")
+                return database_catalog_digest(connection)
+        finally:
+            pool.close()
 
     def subject_snapshot(self, *, private: bool) -> dict[str, Any]:
         subject = self._one(
@@ -366,9 +358,9 @@ class AdminObservationGateway:
             )
         else:
             rows = self._all(
-                "SELECT creator_response_operation_id, root_opportunity_id, current_status, "
-                "effect_id, completed_at FROM armi.creator_response_operations "
-                "WHERE creator_response_operation_id = %s OR root_opportunity_id = %s LIMIT 200",
+                "SELECT operation_id, root_opportunity_id, current_status, "
+                "effect_id, completed_at FROM armi.action_operations "
+                "WHERE operation_id = %s OR root_opportunity_id = %s LIMIT 200",
                 (value, value),
             )
         return {
@@ -380,8 +372,8 @@ class AdminObservationGateway:
         mapping = {
             "subject": ("subjects", "subject_id"),
             "operation": (
-                "creator_response_operations",
-                "creator_response_operation_id",
+                "action_operations",
+                "operation_id",
             ),
             "episode": ("cognitive_episodes", "cognitive_episode_id"),
             "effect": ("effects", "effect_id"),

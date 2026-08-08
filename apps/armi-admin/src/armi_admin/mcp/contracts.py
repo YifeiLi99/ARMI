@@ -282,9 +282,9 @@ class RepairSubjectComponentHeadSpec(_StrictModel):
 
 class DeleteUncommittedCreatorInputSpec(_StrictModel):
     correction_kind: Literal["delete_uncommitted_creator_input"]
-    creator_interaction_id: str
+    interaction_id: str
 
-    _creator_interaction_id = field_validator("creator_interaction_id")(_uuid7)
+    _interaction_id = field_validator("interaction_id")(_uuid7)
 
 
 class RequeueStuckWorkSpec(_StrictModel):

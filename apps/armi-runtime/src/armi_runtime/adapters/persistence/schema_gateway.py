@@ -13,6 +13,7 @@ from typing import Any, Final, LiteralString, cast
 from uuid import UUID
 
 import psycopg
+from armi_postgresql_contract.catalog_fingerprint import database_catalog_digest
 from psycopg import sql
 
 from armi_runtime.adapters.database_errors import DatabaseViolation
@@ -27,13 +28,26 @@ _HISTORY_TABLE = "schema_migrations"
 _ADVISORY_LOCK: Final = 4_701_932_009
 _EXPECTED_POSTGRESQL: Final = 180004
 _EXPECTED_PGVECTOR: Final = "0.8.6"
+_EXPECTED_PGTRGM: Final = "1.6"
 _EXPECTED_PGVECTOR_SCHEMA: Final = "armi_extensions"
 _EXPECTED_ENCODING: Final = "UTF8"
 _EXPECTED_TIMEZONE: Final = "UTC"
 _EXPECTED_LOCALE: Final = "C.UTF-8"
 _IDENTIFIER = re.compile(r"^[0-9]{4}_[a-z0-9_]+$", re.ASCII)
 _BASELINE_ID: Final = "baseline"
-_BASELINE_PATH: Final = "baseline.sql"
+_BASELINE_DOCUMENTS: Final = (
+    "00_namespace.sql",
+    "10_runtime_and_subject.sql",
+    "20_artifacts_parties_interactions.sql",
+    "30_cognition_and_provenance.sql",
+    "40_life_memory_relationships.sql",
+    "50_activities_and_maintenance.sql",
+    "60_actions_work_and_effects.sql",
+    "70_web_codex_audit_data_rights.sql",
+    "80_cross_domain_constraints_and_indexes.sql",
+    "90_static_catalog.sql",
+    "99_privileges.sql",
+)
 _TABLE = re.compile(r"^[a-z][a-z0-9_]*$", re.ASCII)
 _TABLE_PATTERN = re.compile(rb"\bCREATE TABLE armi\.([a-z][a-z0-9_]*)\s*\(")
 
@@ -45,6 +59,7 @@ class SchemaStatus:
     baseline_id: str
     migration_count: int
     target_id: str
+    catalog_digest: str
 
     def safe_view(self) -> dict[str, object]:
         return {
@@ -53,6 +68,7 @@ class SchemaStatus:
             "baseline_id": self.baseline_id,
             "migration_count": self.migration_count,
             "target_id": self.target_id,
+            "catalog_digest": self.catalog_digest,
         }
 
 
@@ -63,14 +79,16 @@ class _Migration:
     definition: bytes
     creates_tables: frozenset[str]
     drops_tables: frozenset[str]
+    target_catalog_digest: str
 
 
 @dataclass(frozen=True, slots=True)
 class _SchemaPlan:
     baseline_id: str
     baseline_checksum: str
-    baseline_definition: bytes
+    baseline_definitions: tuple[bytes, ...]
     baseline_tables: frozenset[str]
+    baseline_catalog_digest: str
     migrations: tuple[_Migration, ...]
 
     @property
@@ -86,6 +104,11 @@ class _SchemaPlan:
     @property
     def target_id(self) -> str:
         return self.migrations[-1].migration_id if self.migrations else self.baseline_id
+
+    def catalog_after(self, history_count: int) -> str:
+        if history_count <= 1:
+            return self.baseline_catalog_digest
+        return self.migrations[history_count - 2].target_catalog_digest
 
     def tables_after(self, history_count: int) -> frozenset[str]:
         tables = set(self.baseline_tables)
@@ -145,7 +168,8 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
         if set(baseline) != {
             "schema_version",
             "baseline_id",
-            "path",
+            "catalog_sha256",
+            "documents",
             "sha256",
             "tables",
         }:
@@ -155,8 +179,9 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
             baseline["schema_version"] != "armi.schema-baseline.v1"
             or type(baseline_id) is not str
             or baseline_id != _BASELINE_ID
-            or baseline["path"] != _BASELINE_PATH
             or type(baseline["sha256"]) is not str
+            or type(baseline["catalog_sha256"]) is not str
+            or not str(baseline["catalog_sha256"]).startswith("sha256:")
         ):
             raise ValueError
         declared_tables = _text_list(baseline["tables"])
@@ -164,12 +189,40 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
             _TABLE.fullmatch(name) is None for name in declared_tables
         ):
             raise ValueError
-        baseline_definition = baseline_root.joinpath(_BASELINE_PATH).read_bytes()
-        if (
-            not baseline_definition.strip()
-            or _digest(baseline_definition) != baseline["sha256"]
-        ):
+        document_values = baseline["documents"]
+        if type(document_values) is not list:
             raise ValueError
+        documents = cast(list[object], document_values)
+        if len(documents) != len(_BASELINE_DOCUMENTS):
+            raise ValueError
+        baseline_definitions: list[bytes] = []
+        digest_documents: list[dict[str, str]] = []
+        for expected_path, item in zip(_BASELINE_DOCUMENTS, documents, strict=True):
+            if type(item) is not dict:
+                raise ValueError
+            document = cast(dict[str, object], item)
+            if (
+                set(document) != {"path", "sha256"}
+                or document["path"] != expected_path
+                or type(document["sha256"]) is not str
+            ):
+                raise ValueError
+            definition = baseline_root.joinpath(expected_path).read_bytes()
+            if not definition.strip() or _digest(definition) != document["sha256"]:
+                raise ValueError
+            baseline_definitions.append(definition)
+            digest_documents.append(
+                {"path": expected_path, "sha256": cast(str, document["sha256"])}
+            )
+        combined = json.dumps(
+            digest_documents,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if _digest(combined) != baseline["sha256"]:
+            raise ValueError
+        baseline_definition = b"\n".join(baseline_definitions)
         discovered_tables = {
             match.group(1).decode("ascii")
             for match in _TABLE_PATTERN.finditer(baseline_definition)
@@ -179,7 +232,7 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
             for entry in baseline_root.iterdir()
             if entry.name.endswith(".sql")
         )
-        if actual_paths != [_BASELINE_PATH]:
+        if actual_paths != sorted(_BASELINE_DOCUMENTS):
             raise ValueError
         if (
             discovered_tables != set(declared_tables)
@@ -210,11 +263,13 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
                 "sha256",
                 "creates_tables",
                 "drops_tables",
+                "target_catalog_sha256",
             }:
                 raise ValueError
             migration_id = entry["migration_id"]
             path = entry["path"]
             checksum = entry["sha256"]
+            target_catalog_digest = entry["target_catalog_sha256"]
             creates = _text_list(entry["creates_tables"])
             drops = _text_list(entry["drops_tables"])
             if (
@@ -224,6 +279,8 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
                 or type(path) is not str
                 or path != f"{migration_id}.sql"
                 or type(checksum) is not str
+                or type(target_catalog_digest) is not str
+                or not target_catalog_digest.startswith("sha256:")
                 or creates != sorted(set(creates))
                 or drops != sorted(set(drops))
                 or any(_TABLE.fullmatch(name) is None for name in (*creates, *drops))
@@ -248,6 +305,7 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
                     migration_definition,
                     frozenset(creates),
                     frozenset(drops),
+                    target_catalog_digest,
                 )
             )
             migration_paths.append(path)
@@ -265,9 +323,10 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
         ) from None
     return _SchemaPlan(
         baseline_id=baseline_id,
-        baseline_checksum=_digest(baseline_definition),
-        baseline_definition=baseline_definition,
+        baseline_checksum=cast(str, baseline["sha256"]),
+        baseline_definitions=tuple(baseline_definitions),
         baseline_tables=frozenset(declared_tables),
+        baseline_catalog_digest=cast(str, baseline["catalog_sha256"]),
         migrations=tuple(migrations),
     )
 
@@ -309,7 +368,7 @@ class PostgreSQLSchemaGateway:
             )
             self._acquire_lock(connection)
             try:
-                if self._catalog_tables(connection):
+                if self._catalog_user_objects(connection):
                     raise DatabaseViolation(
                         "DB-SCHEMA-EXISTS",
                         "the authoritative database must be empty before baseline install",
@@ -317,7 +376,8 @@ class PostgreSQLSchemaGateway:
                 try:
                     with connection.transaction():
                         connection.execute("SET LOCAL ROLE armi_owner")
-                        self._execute(connection, self._plan.baseline_definition)
+                        for definition in self._plan.baseline_definitions:
+                            self._execute(connection, definition)
                         self._record(
                             connection,
                             self._plan.baseline_id,
@@ -416,28 +476,29 @@ class PostgreSQLSchemaGateway:
                 WHERE datname = current_database()
                 """
             ).fetchone()
-            vector_row = connection.execute(
+            extension_rows = connection.execute(
                 """
-                SELECT extension.extversion, namespace.nspname
+                SELECT extension.extname, extension.extversion, namespace.nspname
                 FROM pg_catalog.pg_extension AS extension
                 JOIN pg_catalog.pg_namespace AS namespace
                   ON namespace.oid = extension.extnamespace
-                WHERE extension.extname = 'vector'
+                WHERE extension.extname IN ('pg_trgm', 'vector')
+                ORDER BY extension.extname
                 """
-            ).fetchone()
+            ).fetchall()
             if None in (
                 version_row,
                 encoding_row,
                 timezone_row,
                 locale_row,
-                vector_row,
+                extension_rows,
             ):
                 raise ValueError
             version = int(str(cast(tuple[object, ...], version_row)[0]))
             encoding = str(cast(tuple[object, ...], encoding_row)[0])
             timezone = str(cast(tuple[object, ...], timezone_row)[0])
             provider, locale = cast(tuple[object, object], locale_row)
-            vector_version, vector_schema = cast(tuple[object, object], vector_row)
+            extensions = [tuple(str(value) for value in row) for row in extension_rows]
         except psycopg.Error, TypeError, ValueError:
             raise DatabaseViolation(
                 "DB-DATABASE-IDENTITY",
@@ -448,12 +509,15 @@ class PostgreSQLSchemaGateway:
                 "DB-PG-VERSION", "PostgreSQL must be exactly version 18.4"
             )
         if (
-            vector_version != _EXPECTED_PGVECTOR
-            or vector_schema != _EXPECTED_PGVECTOR_SCHEMA
+            extensions
+            != [
+                ("pg_trgm", _EXPECTED_PGTRGM, _EXPECTED_PGVECTOR_SCHEMA),
+                ("vector", _EXPECTED_PGVECTOR, _EXPECTED_PGVECTOR_SCHEMA),
+            ]
         ):
             raise DatabaseViolation(
                 "DB-PGVECTOR-IDENTITY",
-                "pgvector must be exactly version 0.8.6 in armi_extensions",
+                "PostgreSQL extensions must match the locked database identity",
             )
         if (
             encoding != _EXPECTED_ENCODING
@@ -497,6 +561,12 @@ class PostgreSQLSchemaGateway:
         expected_tables = self._plan.tables_after(len(history))
         if actual != expected_tables:
             raise DatabaseViolation("DB-SCHEMA-DIRTY", "the schema tables have drifted")
+        catalog_digest = database_catalog_digest(connection)
+        if catalog_digest != self._plan.catalog_after(len(history)):
+            raise DatabaseViolation(
+                "DB-SCHEMA-CATALOG-DRIFT",
+                "the schema catalog, indexes, or privileges have drifted",
+            )
         migration_count = len(history) - 1
         if len(history) < len(expected):
             if not allow_pending:
@@ -512,7 +582,36 @@ class PostgreSQLSchemaGateway:
             baseline_id=self._plan.baseline_id,
             migration_count=migration_count,
             target_id=self._plan.target_id,
+            catalog_digest=catalog_digest,
         )
+
+    @staticmethod
+    def _catalog_user_objects(
+        connection: psycopg.Connection[tuple[Any, ...]],
+    ) -> frozenset[tuple[str, str]]:
+        try:
+            rows = connection.execute(
+                """
+                SELECT namespace.nspname, relation.relname
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                LEFT JOIN pg_catalog.pg_depend AS dependency
+                  ON dependency.objid = relation.oid AND dependency.deptype = 'e'
+                WHERE namespace.nspname NOT IN (
+                        'pg_catalog', 'information_schema', 'armi_extensions'
+                      )
+                  AND namespace.nspname NOT LIKE 'pg_toast%'
+                  AND relation.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
+                  AND dependency.objid IS NULL
+                ORDER BY namespace.nspname, relation.relname
+                """
+            ).fetchall()
+        except psycopg.Error:
+            raise DatabaseViolation(
+                "DB-SCHEMA-INVARIANT", "the database catalog could not be inspected"
+            ) from None
+        return frozenset((str(row[0]), str(row[1])) for row in rows)
 
     @staticmethod
     def _catalog_tables(

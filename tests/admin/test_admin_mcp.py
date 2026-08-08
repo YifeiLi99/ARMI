@@ -73,7 +73,7 @@ def _current_snapshot() -> AdminSchemaSnapshot:
         timezone="UTC",
         tables=(
             "activities",
-            "creator_input_interactions",
+            "party_input_interactions",
             "deployment_environments",
             "maintenance_sessions",
             "runtime_instances",

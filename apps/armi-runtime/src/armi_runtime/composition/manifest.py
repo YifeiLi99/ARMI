@@ -84,7 +84,7 @@ def build_composition_manifest() -> dict[str, object]:
             if seam_id == "P0-SEAM-LIFE-SCHEDULER"
             else "armi.policy-engine.deterministic-v1"
             if seam_id == "M0-SEAM-POLICY"
-            else "armi.creator-response-adapter.postgresql-inbox-v1"
+            else "armi.local-inbox-adapter.postgresql-v1"
             if seam_id == "M0-SEAM-EFFECT"
             else "armi.codex-runner.openai-python-sdk-v1"
             if seam_id == "M0-SEAM-CODEX"

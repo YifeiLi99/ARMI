@@ -84,7 +84,6 @@ from .database import (
     compose_life_opportunity_pipeline,
     compose_life_record_query,
     compose_model_pipeline,
-    compose_other_human_delivery_pipeline,
     compose_other_human_input,
     compose_other_human_record_query,
     compose_response_admission_pipeline,
@@ -178,7 +177,6 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     creator_input = None
     other_human_input = None
     other_human_record_query = None
-    other_human_delivery_pipeline = None
     life_opportunity_pipeline = None
     context_pipeline = None
     model_pipeline = None
@@ -382,17 +380,6 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 notifier=creator_events,
             )
             await other_human_input.open()
-            other_human_delivery_pipeline = compose_other_human_delivery_pipeline(
-                prepared,
-                authority_admission=authority.require_writable,
-                wakeups=work_wakeups,
-                diagnostic=lambda event: diagnostic.emit(
-                    event,
-                    result_code="OTHER_HUMAN_DELIVERY",
-                ),
-                notifier=creator_events,
-            )
-            await other_human_delivery_pipeline.open()
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
@@ -605,8 +592,6 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await creator_input.close()
             if other_human_input is not None:
                 await other_human_input.close()
-            if other_human_delivery_pipeline is not None:
-                await other_human_delivery_pipeline.close()
             if context_pipeline is not None:
                 await context_pipeline.close()
             if life_opportunity_pipeline is not None:
@@ -735,11 +720,6 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 exact_life_query_pipeline.run_worker(),
                 name="exact-life-query-worker",
             )
-        if other_human_delivery_pipeline is not None:
-            supervisor.start(
-                other_human_delivery_pipeline.run_worker(),
-                name="other-human-local-delivery-worker",
-            )
         if model_pipeline is not None:
             for index in range(config.model.concurrency):
                 supervisor.start(
@@ -828,8 +808,6 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_input.close()
         if other_human_input is not None:
             await other_human_input.close()
-        if other_human_delivery_pipeline is not None:
-            other_human_delivery_pipeline.stop()
         if context_pipeline is not None:
             context_pipeline.stop()
         if life_opportunity_pipeline is not None:
@@ -863,8 +841,6 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await life_opportunity_pipeline.close()
         if exact_life_query_pipeline is not None:
             await exact_life_query_pipeline.close()
-        if other_human_delivery_pipeline is not None:
-            await other_human_delivery_pipeline.close()
         if life_record_query is not None:
             await life_record_query.close()
         if model_pipeline is not None:
@@ -960,7 +936,6 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         for pipeline in (
             life_opportunity_pipeline,
             exact_life_query_pipeline,
-            other_human_delivery_pipeline,
             context_pipeline,
             model_pipeline,
             web_search_pipeline,
@@ -1091,8 +1066,6 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_activity_query.close()
         if exact_life_query_pipeline is not None:
             await exact_life_query_pipeline.close()
-        if other_human_delivery_pipeline is not None:
-            await other_human_delivery_pipeline.close()
         if life_record_query is not None:
             await life_record_query.close()
         if other_human_record_query is not None:

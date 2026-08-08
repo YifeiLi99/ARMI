@@ -22,7 +22,7 @@ ARMI 以真实人类的心理、生活和社会行为作为参照，但承认自
 
 ## 当前软件形态
 
-ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳定内核、普通 Runtime 与隔离的管理 MCP；Creator 工作台是由 Runtime 同源托管的 React 静态应用。PostgreSQL 是唯一权威关系数据库，文件制品只保存不适合直接进入关系表的大正文或执行产物。
+ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳定内核、Runtime/Admin 共用的 PostgreSQL catalog 合同、普通 Runtime 与隔离的管理 MCP；Creator 工作台是由 Runtime 同源托管的 React 静态应用。PostgreSQL 是唯一权威关系数据库，文件制品只保存不适合直接进入关系表的大正文或执行产物。
 
 当前代码已经覆盖 Creator 对话与多场合、Self/Mind/Prompt、主观记忆、关系与生活资料、自主机会与 Activity、睡眠维护、主动联系、内置其他人交流、本地导出与数据权利，以及经授权的 Creator→Codex 委托。代码存在不等于某个环境已经配置并启用；模型、网页、Codex 和其他外部能力仍取决于该环境的绑定、凭据与授权。
 
@@ -32,6 +32,7 @@ ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳�
 
 ```text
 packages/armi-kernel/       领域、应用端口与稳定公共契约
+packages/armi-postgresql-contract/ Runtime/Admin 共用的 catalog 指纹合同
 apps/armi-runtime/          权威 Runtime、适配器、接口与组合根
 apps/armi-admin/            与日常 Runtime 隔离的管理 MCP
 apps/armi-creator-web/      Creator 本机工作台
@@ -72,7 +73,9 @@ uv run armi creator-session issue --environment-root C:\path\to\environment
 uv run armi stop --environment-root C:\path\to\environment
 ```
 
-`db install` 只向空数据库安装冻结的 `baseline.sql`；基线建立前的开发数据库应在确认可丢弃后重建，不提供兼容登记入口。以后源码引入编号 migration 时，先停止 Runtime，再执行 `armi db migrate --apply`。普通启动只检查数据库是否已到当前目标，不会暗中修改结构。
+`db install` 按 manifest 顺序在同一事务中安装冻结的模块化 v1 基线；任一模块失败都会整体回滚。安装会拒绝已有用户对象，并核对列、约束、索引、owner/ACL 与扩展身份组成的完整 catalog 指纹。基线建立前的开发数据库应在确认可丢弃后重建，不提供兼容登记入口。此后结构变化只新增编号 migration，先停止 Runtime，再执行 `armi db migrate --apply`。
+
+离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。备份同时保存 custom-format 数据库 dump、全部 retained+verified artifact、schema 历史、catalog 指纹和逐表行数；它与 Creator JSONL 数据导出是不同协议。
 
 日常开发从改动相关的最小检查开始；仓库快速质量入口为：
 

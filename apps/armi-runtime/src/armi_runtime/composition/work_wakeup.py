@@ -13,7 +13,6 @@ SUBJECT_COMMIT = "cognition.subject.commit"
 RESPONSE_ADMIT = "cognition.response.admit"
 EFFECT_REGISTER = "effect.register"
 EXACT_LIFE_QUERY = "life.query.execute"
-OTHER_HUMAN_DELIVER = "effect.other-human-local.deliver"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +85,6 @@ __all__ = (
     "EXACT_LIFE_QUERY",
     "MODEL_INVOKE",
     "OPPORTUNITY_AVAILABLE",
-    "OTHER_HUMAN_DELIVER",
     "RESPONSE_ADMIT",
     "SUBJECT_COMMIT",
     "WorkWakeupBus",

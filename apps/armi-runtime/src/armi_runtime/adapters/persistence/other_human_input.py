@@ -184,16 +184,16 @@ class OtherHumanInputRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT interaction.other_human_interaction_id, evidence.evidence_id,
+                SELECT interaction.interaction_id, evidence.evidence_id,
                        opportunity.opportunity_id, interaction.request_digest,
                        interaction.content_digest
-                FROM armi.other_human_input_interactions AS interaction
+                FROM armi.party_input_interactions AS interaction
                 JOIN armi.external_evidence AS evidence
-                  ON evidence.other_human_interaction_id = interaction.other_human_interaction_id
+                  ON evidence.interaction_id = interaction.interaction_id
                 JOIN armi.opportunities AS opportunity
                   ON opportunity.evidence_id = evidence.evidence_id
                  AND opportunity.purpose = 'consider_other_human_input'
-                WHERE interaction.other_party_id = %s AND interaction.scene_id = %s
+                WHERE interaction.source_party_id = %s AND interaction.scene_id = %s
                   AND interaction.purpose = 'other_human_message'
                   AND interaction.idempotency_key = %s
                 """,
@@ -235,8 +235,8 @@ class OtherHumanInputRepository:
         )
         await connection.execute(
             """
-            INSERT INTO armi.other_human_input_interactions (
-                other_human_interaction_id, subject_id, scene_id, other_party_id,
+            INSERT INTO armi.party_input_interactions (
+                interaction_id, subject_id, scene_id, source_party_id,
                 purpose, idempotency_key, request_digest, content_digest, trace_id
             ) VALUES (%s,%s,%s,%s,'other_human_message',%s,%s,%s,%s)
             """,
@@ -254,10 +254,10 @@ class OtherHumanInputRepository:
         await connection.execute(
             """
             INSERT INTO armi.external_evidence (
-                evidence_id, creator_interaction_id, other_human_interaction_id,
-                subject_id, scene_id, creator_party_id, other_party_id, artifact_id,
+                evidence_id, interaction_id,
+                subject_id, scene_id, context_party_id, artifact_id,
                 source_kind, trust_status, privacy_scope, acceptance_status
-            ) VALUES (%s,NULL,%s,%s,%s,NULL,%s,%s,
+            ) VALUES (%s,%s,%s,%s,%s,%s,
                       'other_human_input','external_claim','private','accepted')
             """,
             (
@@ -273,10 +273,10 @@ class OtherHumanInputRepository:
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, other_party_id, purpose, eligibility_status,
+                context_party_id, purpose, eligibility_status,
                 current_disposition, root_opportunity_id, source_kind, source_ref,
                 source_version, source_digest, reconsideration_no, schema_version
-            ) VALUES (%s,%s,%s,%s,NULL,%s,'consider_other_human_input',
+            ) VALUES (%s,%s,%s,%s,%s,'consider_other_human_input',
                       'eligible','open',%s,'external_evidence',%s,1,%s,0,1)
             """,
             (

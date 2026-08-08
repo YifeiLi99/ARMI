@@ -106,18 +106,18 @@ class CreatorInputRepository:
             await connection.execute(
                 """
                 SELECT
-                    interaction.creator_interaction_id,
+                    interaction.interaction_id,
                     evidence.evidence_id,
                     opportunity.opportunity_id,
                     interaction.request_digest,
                     interaction.content_digest
-                FROM armi.creator_input_interactions AS interaction
+                FROM armi.party_input_interactions AS interaction
                 JOIN armi.external_evidence AS evidence
-                  ON evidence.creator_interaction_id
-                    = interaction.creator_interaction_id
+                  ON evidence.interaction_id
+                    = interaction.interaction_id
                 JOIN armi.opportunities AS opportunity
                   ON opportunity.evidence_id = evidence.evidence_id
-                WHERE interaction.creator_party_id = %s
+                WHERE interaction.source_party_id = %s
                   AND interaction.scene_id = %s
                   AND interaction.purpose = 'creator_message'
                   AND interaction.idempotency_key = %s
@@ -153,11 +153,11 @@ class CreatorInputRepository:
         timeline_item_id = uuid7()
         await connection.execute(
             """
-            INSERT INTO armi.creator_input_interactions (
-                creator_interaction_id,
+            INSERT INTO armi.party_input_interactions (
+                interaction_id,
                 subject_id,
                 scene_id,
-                creator_party_id,
+                source_party_id,
                 purpose,
                 idempotency_key,
                 request_digest,
@@ -182,10 +182,10 @@ class CreatorInputRepository:
             """
             INSERT INTO armi.external_evidence (
                 evidence_id,
-                creator_interaction_id,
+                interaction_id,
                 subject_id,
                 scene_id,
-                creator_party_id,
+                context_party_id,
                 artifact_id,
                 source_kind,
                 trust_status,
@@ -214,7 +214,7 @@ class CreatorInputRepository:
                 evidence_id,
                 subject_id,
                 scene_id,
-                creator_party_id,
+                context_party_id,
                 purpose,
                 source_kind,
                 source_ref,
@@ -295,7 +295,7 @@ class CreatorInputRepository:
             await connection.execute(
                 """
                 SELECT
-                    interaction.creator_interaction_id,
+                    interaction.interaction_id,
                     evidence.evidence_id,
                     requested.opportunity_id,
                     interaction.request_digest,
@@ -307,7 +307,42 @@ class CreatorInputRepository:
                     application.completion_digest,
                     commit.new_subject_version,
                     opportunity.reconsideration_no
-                    , response.current_status
+                    , CASE
+                        WHEN response.operation_kind = 'party_response' THEN
+                            CASE response.phase
+                                WHEN 'admission_pending' THEN 'pending'
+                                WHEN 'admitted' THEN 'accepted'
+                                WHEN 'effect_registered' THEN 'effect_registered'
+                                WHEN 'dispatching' THEN 'effect_dispatching'
+                                WHEN 'terminal' THEN
+                                    CASE response.outcome
+                                        WHEN 'completed' THEN 'effect_completed'
+                                        WHEN 'failed' THEN 'effect_failed'
+                                        WHEN 'unknown' THEN 'effect_unknown'
+                                        WHEN 'cancelled' THEN 'effect_cancelled'
+                                        WHEN 'denied' THEN 'unauthorized'
+                                        WHEN 'no_action' THEN 'no_action'
+                                        ELSE response.outcome
+                                    END
+                                ELSE response.phase
+                            END
+                        WHEN response.operation_kind = 'codex_delegation' THEN
+                            CASE response.phase
+                                WHEN 'admission_pending' THEN 'codex_waiting_grant'
+                                WHEN 'dispatching' THEN 'codex_dispatching'
+                                WHEN 'result_pending' THEN 'codex_result_pending'
+                                WHEN 'terminal' THEN
+                                    CASE response.outcome
+                                        WHEN 'completed' THEN 'codex_result_accepted'
+                                        WHEN 'rejected' THEN 'codex_result_rejected'
+                                        WHEN 'failed' THEN 'codex_failed'
+                                        WHEN 'unknown' THEN 'codex_unknown'
+                                        WHEN 'cancelled' THEN 'codex_cancelled'
+                                        ELSE response.outcome
+                                    END
+                                ELSE response.phase
+                            END
+                      END
                     , response.completion_digest
                     , response.reason_code
                     , no_action.decision_kind
@@ -323,12 +358,12 @@ class CreatorInputRepository:
                 ) AS opportunity ON true
                 JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = requested.evidence_id
-                JOIN armi.creator_input_interactions AS interaction
-                  ON interaction.creator_interaction_id
-                    = evidence.creator_interaction_id
+                JOIN armi.party_input_interactions AS interaction
+                  ON interaction.interaction_id
+                    = evidence.interaction_id
                 JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = opportunity.scene_id
-                 AND scene.primary_party_id = opportunity.creator_party_id
+                 AND scene.primary_party_id = opportunity.context_party_id
                  AND scene.audience_scope = 'creator'
                 LEFT JOIN armi.cognitive_episodes AS episode
                   ON episode.opportunity_id = opportunity.opportunity_id
@@ -336,14 +371,14 @@ class CreatorInputRepository:
                   ON application.cognitive_episode_id = episode.cognitive_episode_id
                 LEFT JOIN armi.subject_commits AS commit
                   ON commit.subject_commit_id = application.subject_commit_id
-                LEFT JOIN armi.creator_response_operations AS response
+                LEFT JOIN armi.action_operations AS response
                   ON response.root_opportunity_id = requested.opportunity_id
-                LEFT JOIN armi.formal_no_action_decisions AS no_action
-                  ON no_action.formal_no_action_id = response.formal_no_action_id
+                LEFT JOIN armi.dialogue_decisions AS no_action
+                  ON no_action.dialogue_decision_id = response.dialogue_decision_id
                 LEFT JOIN armi.effects AS effect ON effect.effect_id = response.effect_id
                 WHERE requested.opportunity_id = %s
                   AND requested.root_opportunity_id = requested.opportunity_id
-                  AND opportunity.creator_party_id = %s
+                  AND opportunity.context_party_id = %s
                   AND requested.purpose IN (
                       'consider_creator_input', 'consider_codex_task'
                   )

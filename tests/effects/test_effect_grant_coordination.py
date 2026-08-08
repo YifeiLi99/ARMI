@@ -58,7 +58,7 @@ class _Connection:
             return _Cursor((self.ids["policy"],))
         if "INSERT INTO armi.policy_decisions" in statement:
             return _Cursor()
-        if "UPDATE armi.creator_response_operations" in statement:
+        if "UPDATE armi.action_operations" in statement:
             return _Cursor((self.ids["operation"],))
         raise AssertionError(f"unexpected statement: {statement}")
 

@@ -560,12 +560,12 @@ class PostgreSQLRuntimeRecovery:
             response_backfill = await (
                 await connection.execute(
                     """
-                    SELECT response.creator_response_operation_id,
+                    SELECT response.operation_id,
                            response.subject_id,
                            revision.action_intent_revision_id,
                            revision.response_digest,
                            interaction.trace_id
-                    FROM armi.creator_response_operations AS response
+                    FROM armi.action_operations AS response
                     JOIN armi.action_intents AS intent
                       ON intent.action_intent_id = response.action_intent_id
                     JOIN armi.action_intent_revisions AS revision
@@ -576,12 +576,13 @@ class PostgreSQLRuntimeRecovery:
                          response.root_opportunity_id
                     JOIN armi.external_evidence AS evidence
                       ON evidence.evidence_id = opportunity.evidence_id
-                    JOIN armi.creator_input_interactions AS interaction
-                      ON interaction.creator_interaction_id =
-                         evidence.creator_interaction_id
-                    WHERE response.current_status = 'accepted'
+                    JOIN armi.party_input_interactions AS interaction
+                      ON interaction.interaction_id =
+                         evidence.interaction_id
+                    WHERE response.phase = 'admitted'
+                      AND response.outcome IS NULL
                       AND response.registration_work_id IS NULL
-                    ORDER BY response.creator_response_operation_id
+                    ORDER BY response.operation_id
                     FOR UPDATE OF response
                     """
                 )
@@ -637,12 +638,12 @@ class PostgreSQLRuntimeRecovery:
                 updated = await (
                     await connection.execute(
                         """
-                        UPDATE armi.creator_response_operations
+                        UPDATE armi.action_operations
                         SET registration_work_id = %s
-                        WHERE creator_response_operation_id = %s
+                        WHERE operation_id = %s
                           AND current_status = 'accepted'
                           AND registration_work_id IS NULL
-                        RETURNING creator_response_operation_id
+                        RETURNING operation_id
                         """,
                         (work_id, response_operation_id),
                     )
@@ -736,15 +737,15 @@ class PostgreSQLRuntimeRecovery:
                               ON evidence.evidence_id = opportunity.evidence_id
                              AND evidence.subject_id = opportunity.subject_id
                              AND evidence.scene_id = opportunity.scene_id
-                             AND evidence.creator_party_id
-                               = opportunity.creator_party_id
-                            JOIN armi.creator_input_interactions AS interaction
-                              ON interaction.creator_interaction_id
-                               = evidence.creator_interaction_id
+                             AND evidence.context_party_id
+                               = opportunity.context_party_id
+                            JOIN armi.party_input_interactions AS interaction
+                              ON interaction.interaction_id
+                               = evidence.interaction_id
                              AND interaction.subject_id = evidence.subject_id
                              AND interaction.scene_id = evidence.scene_id
-                             AND interaction.creator_party_id
-                               = evidence.creator_party_id
+                             AND interaction.source_party_id
+                               = evidence.context_party_id
                             WHERE opportunity.current_disposition = 'open'
                               AND opportunity.eligibility_status = 'eligible'
                               AND opportunity.available_after
@@ -877,19 +878,19 @@ class PostgreSQLRuntimeRecovery:
                               ON evidence.evidence_id = opportunity.evidence_id
                              AND evidence.subject_id = opportunity.subject_id
                              AND evidence.scene_id = opportunity.scene_id
-                             AND evidence.creator_party_id
-                               = opportunity.creator_party_id
-                            LEFT JOIN armi.creator_input_interactions AS interaction
-                              ON interaction.creator_interaction_id
-                               = evidence.creator_interaction_id
+                             AND evidence.context_party_id
+                               = opportunity.context_party_id
+                            LEFT JOIN armi.party_input_interactions AS interaction
+                              ON interaction.interaction_id
+                               = evidence.interaction_id
                              AND interaction.subject_id = evidence.subject_id
                              AND interaction.scene_id = evidence.scene_id
-                             AND interaction.creator_party_id
-                               = evidence.creator_party_id
+                             AND interaction.source_party_id
+                               = evidence.context_party_id
                             WHERE opportunity.purpose = 'consider_creator_input'
                               AND (
                                   evidence.evidence_id IS NULL
-                               OR interaction.creator_interaction_id IS NULL
+                               OR interaction.interaction_id IS NULL
                                OR opportunity.current_disposition
                                   NOT IN (
                                       'open',
@@ -1114,16 +1115,18 @@ class PostgreSQLRuntimeRecovery:
                     """
                     SELECT
                         count(*) FILTER (
-                            WHERE response.current_status = 'pending'
+                            WHERE response.phase = 'admission_pending'
+                              AND response.outcome IS NULL
                         ),
                         count(*) FILTER (
                             WHERE opportunity.opportunity_id IS NULL
                                OR scene.scene_id IS NULL
                                OR scene.subject_id <> response.subject_id
                                OR scene.primary_party_id
-                                  <> response.creator_party_id
+                                  <> response.context_party_id
                                OR (
-                                   response.current_status = 'pending'
+                                   response.phase = 'admission_pending'
+                                   AND response.outcome IS NULL
                                    AND (
                                        intent.action_intent_id IS NULL
                                        OR revision.action_intent_revision_id
@@ -1135,7 +1138,8 @@ class PostgreSQLRuntimeRecovery:
                                    )
                                )
                                OR (
-                                   response.current_status = 'accepted'
+                                   response.phase IN ('admitted', 'effect_registered', 'dispatching')
+                                   AND response.outcome IS NULL
                                    AND (
                                        intent.action_intent_id IS NULL
                                        OR revision.action_intent_revision_id
@@ -1145,13 +1149,13 @@ class PostgreSQLRuntimeRecovery:
                                    )
                                )
                                OR (
-                                   response.current_status = 'no_action'
-                                   AND no_action.formal_no_action_id IS NULL
+                                   response.phase = 'terminal'
+                                   AND response.outcome = 'no_action'
+                                   AND no_action.dialogue_decision_id IS NULL
                                )
                                OR (
-                                   response.current_status IN (
-                                       'unauthorized', 'unavailable', 'failed'
-                                   )
+                                   response.phase = 'terminal'
+                                   AND response.outcome IN ('denied', 'failed')
                                    AND (
                                        intent.action_intent_id IS NULL
                                        OR revision.action_intent_revision_id
@@ -1160,21 +1164,21 @@ class PostgreSQLRuntimeRecovery:
                                    )
                                )
                         )
-                    FROM armi.creator_response_operations AS response
+                    FROM armi.action_operations AS response
                     LEFT JOIN armi.opportunities AS opportunity
                       ON opportunity.opportunity_id
                        = response.root_opportunity_id
                     LEFT JOIN armi.interaction_scenes AS scene
-                      ON scene.scene_id = response.interaction_scene_id
+                      ON scene.scene_id = response.scene_id
                     LEFT JOIN armi.action_intents AS intent
                       ON intent.action_intent_id = response.action_intent_id
                     LEFT JOIN armi.action_intent_revisions AS revision
                       ON revision.action_intent_id = intent.action_intent_id
                      AND revision.action_intent_revision_id
                        = intent.current_revision_id
-                    LEFT JOIN armi.formal_no_action_decisions AS no_action
-                      ON no_action.formal_no_action_id
-                       = response.formal_no_action_id
+                    LEFT JOIN armi.dialogue_decisions AS no_action
+                      ON no_action.dialogue_decision_id
+                       = response.dialogue_decision_id
                     LEFT JOIN armi.durable_work AS work
                       ON work.work_id = response.admission_work_id
                     """
@@ -1218,8 +1222,8 @@ class PostgreSQLRuntimeRecovery:
                     FROM armi.effects AS effect
                     LEFT JOIN armi.policy_decisions AS decision
                       ON decision.policy_decision_id = effect.policy_decision_id
-                    LEFT JOIN armi.creator_response_operations AS response
-                      ON response.creator_response_operation_id = effect.creator_response_operation_id
+                    LEFT JOIN armi.action_operations AS response
+                      ON response.operation_id = effect.operation_id
                     LEFT JOIN armi.policy_decisions AS current_decision
                       ON current_decision.policy_decision_id =
                          response.current_policy_decision_id
@@ -1239,7 +1243,7 @@ class PostgreSQLRuntimeRecovery:
                         (SELECT count(*)
                          FROM armi.effect_observations
                          WHERE reliability = 'reliable'),
-                        (SELECT count(*) FROM armi.creator_response_deliveries),
+                        (SELECT count(*) FROM armi.local_inbox_deliveries),
                         count(*) FILTER (
                             WHERE
                                 (effect.status = 'registered' AND outbox.status <> 'ready')
@@ -1248,11 +1252,11 @@ class PostgreSQLRuntimeRecovery:
                                     OR attempt.dispatch_state <> 'dispatching'
                                     OR (
                                         effect.effect_kind = 'creator_response'
-                                        AND response.current_status <> 'effect_dispatching'
+                                        AND (response.phase <> 'dispatching' OR response.outcome IS NOT NULL)
                                     )
                                     OR (
                                         effect.effect_kind = 'codex_delegation'
-                                        AND response.current_status <> 'codex_dispatching'
+                                        AND (response.phase <> 'dispatching' OR response.outcome IS NOT NULL)
                                     )
                                 ))
                                 OR (
@@ -1265,8 +1269,9 @@ class PostgreSQLRuntimeRecovery:
                                     OR observation.observation_kind <> 'receipt'
                                     OR delivery.effect_id IS NULL
                                     OR observation.receiver_ref
-                                       <> delivery.creator_response_delivery_id
-                                    OR response.current_status <> 'effect_completed'
+                                       <> delivery.delivery_id
+                                    OR response.phase <> 'terminal'
+                                    OR response.outcome <> 'completed'
                                     )
                                 )
                                 OR (
@@ -1278,10 +1283,9 @@ class PostgreSQLRuntimeRecovery:
                                         OR observation.reliability <> 'reliable'
                                         OR observation.observation_kind <> 'runner_verified'
                                         OR delivery.effect_id IS NOT NULL
-                                        OR response.current_status NOT IN (
-                                            'codex_result_pending',
-                                            'codex_result_accepted',
-                                            'codex_result_rejected'
+                                        OR NOT (
+                                            (response.phase = 'result_pending' AND response.outcome IS NULL)
+                                            OR (response.phase = 'terminal' AND response.outcome IN ('completed', 'rejected'))
                                         )
                                     )
                                 )
@@ -1291,14 +1295,15 @@ class PostgreSQLRuntimeRecovery:
                                     OR observation.reliability <> 'reliable'
                                     OR (
                                         effect.effect_kind = 'creator_response'
-                                        AND response.current_status <> 'effect_failed'
+                                        AND (response.phase <> 'terminal' OR response.outcome <> 'failed')
                                     )
                                     OR (
                                         effect.effect_kind = 'codex_delegation'
                                         AND (
                                             observation.observation_kind
                                                 <> 'runner_failed'
-                                            OR response.current_status <> 'codex_failed'
+                                            OR response.phase <> 'terminal'
+                                            OR response.outcome <> 'failed'
                                         )
                                     )
                                 ))
@@ -1308,14 +1313,15 @@ class PostgreSQLRuntimeRecovery:
                                     OR observation.reliability <> 'inconclusive'
                                     OR (
                                         effect.effect_kind = 'creator_response'
-                                        AND response.current_status <> 'effect_unknown'
+                                        AND (response.phase <> 'terminal' OR response.outcome <> 'unknown')
                                     )
                                     OR (
                                         effect.effect_kind = 'codex_delegation'
                                         AND (
                                             observation.observation_kind
                                                 <> 'runner_unknown'
-                                            OR response.current_status <> 'codex_unknown'
+                                            OR response.phase <> 'terminal'
+                                            OR response.outcome <> 'unknown'
                                         )
                                     )
                                 ))
@@ -1323,14 +1329,15 @@ class PostgreSQLRuntimeRecovery:
                                     outbox.status <> 'cancelled'
                                     OR (
                                         effect.effect_kind = 'creator_response'
-                                        AND response.current_status <> 'effect_cancelled'
+                                        AND (response.phase <> 'terminal' OR response.outcome <> 'cancelled')
                                     )
                                     OR (
                                         effect.effect_kind = 'codex_delegation'
                                         AND (
                                             observation.observation_kind
                                                 <> 'runner_cancelled'
-                                            OR response.current_status <> 'codex_cancelled'
+                                            OR response.phase <> 'terminal'
+                                            OR response.outcome <> 'cancelled'
                                         )
                                     )
                                 ))
@@ -1338,9 +1345,9 @@ class PostgreSQLRuntimeRecovery:
                     FROM armi.effects AS effect
                     JOIN armi.effect_outbox_items AS outbox
                       ON outbox.effect_id = effect.effect_id
-                    JOIN armi.creator_response_operations AS response
-                      ON response.creator_response_operation_id
-                       = effect.creator_response_operation_id
+                    JOIN armi.action_operations AS response
+                      ON response.operation_id
+                       = effect.operation_id
                     LEFT JOIN armi.effect_attempts AS attempt
                       ON attempt.effect_attempt_id = effect.current_attempt_id
                      AND attempt.effect_id = effect.effect_id
@@ -1349,7 +1356,7 @@ class PostgreSQLRuntimeRecovery:
                        = effect.current_observation_id
                      AND observation.effect_id = effect.effect_id
                      AND observation.effect_attempt_id = attempt.effect_attempt_id
-                    LEFT JOIN armi.creator_response_deliveries AS delivery
+                    LEFT JOIN armi.local_inbox_deliveries AS delivery
                       ON delivery.effect_id = effect.effect_id
                     """
                 )

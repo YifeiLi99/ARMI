@@ -173,13 +173,13 @@ class PostgreSQLCandidateValidationRepository:
                     episode.base_state_epoch,
                     episode.context_digest,
                     episode.scene_id,
-                    episode.creator_party_id,
+                    episode.context_party_id,
                     attempt.response_artifact_id,
                     attempt.candidate_schema_version,
                     episode.trace_id,
                     episode.purpose,
                     episode.opportunity_id,
-                    episode.other_party_id
+                    episode.context_party_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -738,8 +738,8 @@ class PostgreSQLCandidateValidationRepository:
                 operation = await (
                     await connection.execute(
                         """
-                        UPDATE armi.creator_response_operations AS operation
-                        SET current_status = 'codex_result_rejected',
+                        UPDATE armi.action_operations AS operation
+                        SET phase = 'terminal', outcome = 'rejected',
                             reason_code = %s,
                             completed_at = statement_timestamp()
                         FROM armi.codex_result_sources AS source
@@ -748,8 +748,9 @@ class PostgreSQLCandidateValidationRepository:
                              source.codex_verification_id
                         WHERE source.opportunity_id = %s
                           AND operation.effect_id = verification.effect_id
-                          AND operation.current_status = 'codex_result_pending'
-                        RETURNING operation.creator_response_operation_id
+                          AND operation.phase = 'result_pending'
+                          AND operation.outcome IS NULL
+                        RETURNING operation.operation_id
                         """,
                         (result.error_code, snapshot.opportunity_id),
                     )

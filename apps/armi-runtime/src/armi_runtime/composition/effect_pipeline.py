@@ -33,7 +33,7 @@ from armi_kernel.application import (
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.creator_response_inbox import (
-    PostgreSQLCreatorResponseInbox,
+    PostgreSQLLocalInbox,
 )
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.effect_dispatch import (
@@ -88,7 +88,7 @@ class EffectRegistrationPipeline:
         self._storage = storage
         self._repository = PostgreSQLEffectLedgerRepository()
         self._dispatcher = PostgreSQLEffectDispatchRepository()
-        self._adapter = adapter or PostgreSQLCreatorResponseInbox(factory)
+        self._adapter = adapter or PostgreSQLLocalInbox(factory)
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()

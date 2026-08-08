@@ -536,17 +536,17 @@ class AdminCorrectionGateway:
         # Admin deliberately has DELETE rather than broad UPDATE on these rows.
         suffix = ""
         row = connection.execute(
-            "SELECT interaction.creator_interaction_id, evidence.evidence_id, "
+            "SELECT interaction.interaction_id, evidence.evidence_id, "
             "opportunity.opportunity_id, evidence.artifact_id, artifact.content_digest, "
             "opportunity.current_disposition, interaction.subject_id "
-            "FROM armi.creator_input_interactions AS interaction "
+            "FROM armi.party_input_interactions AS interaction "
             "JOIN armi.external_evidence AS evidence "
-            "ON evidence.creator_interaction_id = interaction.creator_interaction_id "
+            "ON evidence.interaction_id = interaction.interaction_id "
             "AND evidence.source_kind = 'creator_input' "
             "JOIN armi.opportunities AS opportunity ON opportunity.evidence_id = evidence.evidence_id "
             "JOIN armi.artifacts AS artifact ON artifact.artifact_id = evidence.artifact_id "
-            "WHERE interaction.creator_interaction_id = %s" + suffix,
-            (spec["creator_interaction_id"],),
+            "WHERE interaction.interaction_id = %s" + suffix,
+            (spec["interaction_id"],),
         ).fetchone()
         if row is None or str(row[6]) != subject_id:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-INPUT-NOT-FOUND")
@@ -589,7 +589,7 @@ class AdminCorrectionGateway:
             }
         )
         return {
-            "target_identity": _digest({"creator_interaction_id": str(row[0])}),
+            "target_identity": _digest({"interaction_id": str(row[0])}),
             "target_versions": {"input_chain": 1},
             "target_count": 4 + audit_count,
             "dependency_count": 3,
@@ -607,7 +607,7 @@ class AdminCorrectionGateway:
                 "side_work_id": side_work_id,
             },
             "status_spec": {
-                "creator_interaction_id": str(row[0]),
+                "interaction_id": str(row[0]),
                 "evidence_id": str(row[1]),
                 "opportunity_id": str(row[2]),
                 "artifact_id": str(row[3]),
@@ -675,14 +675,15 @@ class AdminCorrectionGateway:
         suffix = " FOR UPDATE OF effect, operation, outbox" if for_update else ""
         row = connection.execute(
             "SELECT effect.effect_id, effect.status, effect.current_attempt_id, "
-            "effect.payload_digest, effect.creator_response_operation_id, "
-            "operation.current_status, outbox.effect_outbox_item_id, "
-            "delivery.creator_response_delivery_id, delivery.receipt_digest "
+            "effect.payload_digest, effect.operation_id, "
+            "CASE WHEN operation.phase = 'terminal' THEN operation.outcome "
+            "ELSE operation.phase END, outbox.effect_outbox_item_id, "
+            "delivery.delivery_id, delivery.receipt_digest "
             "FROM armi.effects AS effect "
-            "JOIN armi.creator_response_operations AS operation "
-            "ON operation.creator_response_operation_id = effect.creator_response_operation_id "
+            "JOIN armi.action_operations AS operation "
+            "ON operation.operation_id = effect.operation_id "
             "JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id = effect.effect_id "
-            "LEFT JOIN armi.creator_response_deliveries AS delivery "
+            "LEFT JOIN armi.local_inbox_deliveries AS delivery "
             "ON delivery.effect_id = effect.effect_id "
             "AND delivery.payload_digest = effect.payload_digest "
             "WHERE effect.effect_id = %s" + suffix,
@@ -854,7 +855,7 @@ class AdminCorrectionGateway:
             (handler["evidence_id"],),
         )
         connection.execute(
-            "DELETE FROM armi.creator_input_interactions WHERE creator_interaction_id = %s",
+            "DELETE FROM armi.party_input_interactions WHERE interaction_id = %s",
             (handler["interaction_id"],),
         )
         if not handler["artifact_shared"]:
@@ -949,9 +950,9 @@ class AdminCorrectionGateway:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-EFFECT-OUTBOX")
         if (
             connection.execute(
-                "UPDATE armi.creator_response_operations SET current_status = %s, "
+                "UPDATE armi.action_operations SET current_status = %s, "
                 "reason_code = %s, completed_at = statement_timestamp() "
-                "WHERE creator_response_operation_id = %s",
+                "WHERE operation_id = %s",
                 (
                     "effect_completed" if completed else "effect_failed",
                     None if completed else "EFFECT-DELIVERY-NOT-FOUND",
@@ -992,12 +993,12 @@ class AdminCorrectionGateway:
         if kind == "delete_uncommitted_creator_input":
             row = connection.execute(
                 "SELECT evidence.evidence_id, opportunity.opportunity_id, evidence.artifact_id "
-                "FROM armi.creator_input_interactions AS interaction "
+                "FROM armi.party_input_interactions AS interaction "
                 "LEFT JOIN armi.external_evidence AS evidence "
-                "ON evidence.creator_interaction_id = interaction.creator_interaction_id "
+                "ON evidence.interaction_id = interaction.interaction_id "
                 "LEFT JOIN armi.opportunities AS opportunity ON opportunity.evidence_id = evidence.evidence_id "
-                "WHERE interaction.creator_interaction_id = %s",
-                (status_spec["creator_interaction_id"],),
+                "WHERE interaction.interaction_id = %s",
+                (status_spec["interaction_id"],),
             ).fetchone()
             if row is None:
                 work = self._existing_side_work(connection, side_work_id)
@@ -1015,7 +1016,7 @@ class AdminCorrectionGateway:
                 )
             return _digest(
                 {
-                    "interaction_id": status_spec["creator_interaction_id"],
+                    "interaction_id": status_spec["interaction_id"],
                     "evidence_id": None if row[0] is None else str(row[0]),
                     "opportunity_id": None if row[1] is None else str(row[1]),
                     "artifact_id": None if row[2] is None else str(row[2]),
@@ -1091,7 +1092,7 @@ class AdminCorrectionGateway:
             "OR EXISTS (SELECT 1 FROM armi.cognitive_candidate_validations WHERE change_set_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.action_intent_revisions WHERE response_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.effects WHERE payload_artifact_id = %s) "
-            "OR EXISTS (SELECT 1 FROM armi.creator_response_deliveries WHERE payload_artifact_id = %s) "
+            "OR EXISTS (SELECT 1 FROM armi.local_inbox_deliveries WHERE payload_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.web_observation_requests WHERE request_artifact_id = %s OR result_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.observation_attempts WHERE result_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.web_research_intents WHERE query_artifact_id = %s) "

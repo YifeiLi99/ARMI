@@ -73,7 +73,7 @@
       "activation_steps": [
         "M0-S030"
       ],
-      "active_binding": "armi.creator-response-adapter.postgresql-inbox-v1",
+      "active_binding": "armi.local-inbox-adapter.postgresql-v1",
       "runtime_discovery": false,
       "seam_id": "M0-SEAM-EFFECT"
     },

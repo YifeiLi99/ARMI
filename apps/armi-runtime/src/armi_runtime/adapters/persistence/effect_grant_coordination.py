@@ -39,7 +39,14 @@ async def coordinate_dispatch_boundary(
 ) -> DispatchBoundaryResult | None:
     """Serialize dispatch with grant revoke/expiry and cancel before I/O."""
 
+    del cancelled_operation_status
     connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    expected_phase = {
+        "effect_dispatching": "dispatching",
+        "codex_dispatching": "dispatching",
+    }.get(expected_operation_status)
+    if expected_phase is None:
+        return None
     policy_ref = await (
         await connection.execute(
             """
@@ -77,23 +84,23 @@ async def coordinate_dispatch_boundary(
                    effect.subject_id, effect.purpose, effect.trace_id,
                    effect.policy_decision_id,
                    effect.action_intent_revision_id,
-                   effect.creator_response_operation_id
+                   effect.operation_id
             FROM armi.effect_outbox_items AS outbox
             JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
             JOIN armi.effect_attempts AS attempt
               ON attempt.effect_attempt_id=effect.current_attempt_id
             JOIN armi.policy_decisions AS policy
               ON policy.policy_decision_id=effect.policy_decision_id
-            JOIN armi.creator_response_operations AS operation
-              ON operation.creator_response_operation_id=
-                 effect.creator_response_operation_id
+            JOIN armi.action_operations AS operation
+              ON operation.operation_id=
+                 effect.operation_id
             WHERE outbox.effect_outbox_item_id=%s
               AND outbox.status='claimed' AND outbox.claim_owner=%s
               AND outbox.claim_token=%s
               AND effect.effect_id=%s AND effect.status='dispatching'
               AND effect.current_attempt_id=%s
               AND attempt.dispatch_state='prepared'
-              AND operation.current_status=%s
+              AND operation.phase=%s AND operation.outcome IS NULL
             FOR UPDATE OF outbox, effect, attempt, policy, operation
             """,
             (
@@ -102,7 +109,7 @@ async def coordinate_dispatch_boundary(
                 claim_token,
                 effect_id,
                 attempt_id,
-                expected_operation_status,
+                expected_phase,
             ),
         )
     ).fetchone()
@@ -185,19 +192,18 @@ async def coordinate_dispatch_boundary(
     operation = await (
         await connection.execute(
             """
-            UPDATE armi.creator_response_operations
-            SET current_status=%s, current_policy_decision_id=%s,
+            UPDATE armi.action_operations
+            SET phase='terminal', outcome='cancelled', current_policy_decision_id=%s,
                 reason_code=NULL, completed_at=%s
-            WHERE creator_response_operation_id=%s
-              AND current_status=%s
-            RETURNING creator_response_operation_id
+            WHERE operation_id=%s
+              AND phase=%s AND outcome IS NULL
+            RETURNING operation_id
             """,
             (
-                cancelled_operation_status,
                 current_decision_id,
                 attempt[0],
                 current[7],
-                expected_operation_status,
+                expected_phase,
             ),
         )
     ).fetchone()
@@ -258,7 +264,7 @@ async def supersede_effect_policy(
         """
         INSERT INTO armi.policy_decisions (
             policy_decision_id, action_intent_revision_id,
-            creator_response_operation_id, decision_outcome,
+            operation_id, decision_outcome,
             policy_identity, decision_digest, reason_code,
             supersedes_policy_decision_id, schema_version
         ) VALUES (
