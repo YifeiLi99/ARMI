@@ -12,14 +12,24 @@ if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt
 if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
     throw 'ARMI-START-PLATFORM: only Windows x86_64 is supported.'
 }
-if ([string]::IsNullOrWhiteSpace($EnvironmentRoot)) {
-    throw 'ARMI-START-ENVIRONMENT: pass -EnvironmentRoot or set ARMI_ENVIRONMENT_ROOT.'
-}
-
 $workspace = [IO.Path]::GetFullPath($PSScriptRoot)
+if ([string]::IsNullOrWhiteSpace($EnvironmentRoot)) {
+    $EnvironmentRoot = Join-Path (Split-Path -Parent $workspace) 'ARMI-Environment'
+}
 $resolvedEnvironmentRoot = [IO.Path]::GetFullPath($EnvironmentRoot)
 if (-not (Test-Path -LiteralPath $resolvedEnvironmentRoot -PathType Container)) {
     throw "ARMI-START-ENVIRONMENT: environment root does not exist: $resolvedEnvironmentRoot"
+}
+$requiredEnvironmentEntries = @(
+    'environment.toml',
+    'data',
+    'secrets',
+    'bootstrap/birth-manifest.json'
+)
+foreach ($entry in $requiredEnvironmentEntries) {
+    if (-not (Test-Path -LiteralPath (Join-Path $resolvedEnvironmentRoot $entry))) {
+        throw "ARMI-START-ENVIRONMENT: environment is not initialized; missing $entry"
+    }
 }
 
 $managedUv = Join-Path $workspace '.armi-tools/installs/uv/0.11.33/uv.exe'
