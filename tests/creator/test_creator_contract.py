@@ -92,6 +92,8 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline",
                 "/v1/prompts/creator-guidance",
                 "/v1/prompts/creator-guidance/deactivation",
+                "/v1/exports",
+                "/v1/exports/{export_id}",
                 "/v1/effects/{effect_id}",
                 "/v1/effects/{effect_id}/artifacts/{artifact_kind}",
                 "/v1/subject/summary",
@@ -140,6 +142,19 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(
             deactivation["operationId"],
             "deactivateCreatorPrompt",
+        )
+        export = paths["/v1/exports"]["post"]
+        self.assertEqual(export["operationId"], "createCreatorExport")
+        self.assertEqual(export["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(
+            set(export["responses"]),
+            {"200", "201", "400", "401", "403", "409", "413", "503"},
+        )
+        export_query = paths["/v1/exports/{export_id}"]["get"]
+        self.assertEqual(export_query["operationId"], "getCreatorExport")
+        self.assertEqual(
+            set(export_query["responses"]),
+            {"200", "400", "401", "403", "404", "503"},
         )
         timeline = paths["/v1/scenes/{scene_key}/timeline"]["get"]
         self.assertEqual(timeline["operationId"], "getSceneTimeline")

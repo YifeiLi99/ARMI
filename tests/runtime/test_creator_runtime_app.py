@@ -15,6 +15,9 @@ from armi_kernel.application import (
     CreatorActivityTimelineItem,
     CreatorActivityViolation,
     CreatorCodexTaskCommand,
+    CreatorExportCommand,
+    CreatorExportResult,
+    CreatorExportStatus,
     CreatorGrantCommand,
     CreatorGrantResult,
     CreatorInputAcceptance,
@@ -735,6 +738,42 @@ class _CreatorPrompt:
         return self.current
 
 
+class _CreatorExport:
+    def __init__(self) -> None:
+        self.results: dict[UUID, CreatorExportResult] = {}
+        self.commands: list[CreatorExportCommand] = []
+
+    async def export(self, command: CreatorExportCommand) -> CreatorExportResult:
+        self.commands.append(command)
+        export_id = uuid7()
+        now = Instant(datetime.now(UTC))
+        partial = command.directory_name == "partial-export"
+        result = CreatorExportResult(
+            export_id=export_id,
+            status=(
+                CreatorExportStatus.PARTIAL
+                if partial
+                else CreatorExportStatus.COMPLETED
+            ),
+            directory_name=command.directory_name,
+            destination_path=f"data/exports/{command.directory_name}",
+            manifest_digest=Digest.from_bytes(b"manifest"),
+            table_count=39,
+            row_count=120,
+            artifact_count=4,
+            missing_artifacts=(Digest.from_bytes(b"missing").value,) if partial else (),
+            error_code=None,
+            created_at=now,
+            completed_at=now,
+            newly_created=True,
+        )
+        self.results[export_id] = result
+        return result
+
+    async def get(self, export_id: UUID) -> CreatorExportResult | None:
+        return self.results.get(export_id)
+
+
 class CreatorRuntimeAppTests(unittest.TestCase):
     def setUp(self) -> None:
         self.lifecycle = LifecycleController(environment_id=ENVIRONMENT_ID)
@@ -767,6 +806,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.creator_codex_task = _CreatorCodexTask()
         self.capability_policy = _CapabilityPolicy()
         self.creator_prompt = _CreatorPrompt()
+        self.creator_export = _CreatorExport()
         self.activity_query = _CreatorActivityQuery()
         self.life_record_query = _LifeRecordQuery()
         self.maintenance_query = _CreatorMaintenanceQuery()
@@ -827,6 +867,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             codex_task_admission=self.creator_codex_task,
             creator_operations=self.creator_input,
             creator_prompt=self.creator_prompt,
+            creator_export=self.creator_export,
             capability_policy=self.capability_policy,
         )
 
@@ -1088,6 +1129,54 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(deactivated.json()["revision_no"], 3)
         self.assertEqual(unauthenticated.status_code, 401)
         self.assertEqual(wrong_origin.status_code, 403)
+
+    def test_creator_local_export_is_session_bound_and_queryable(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+                content=b"",
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            headers = {
+                **self._browser_headers(session.json()["browser_session_token"]),
+                "Idempotency-Key": "export-request-1",
+            }
+            exported = client.post(
+                "/v1/exports",
+                headers=headers,
+                json={
+                    "contract_version": "1.0",
+                    "directory_name": "creator-export-20260808",
+                },
+            )
+            queried = client.get(
+                f"/v1/exports/{exported.json()['export_id']}",
+                headers=self._browser_headers(session.json()["browser_session_token"]),
+            )
+            invalid = client.post(
+                "/v1/exports",
+                headers=headers,
+                json={"contract_version": "1.0", "directory_name": "../escape"},
+            )
+            wrong_origin = client.post(
+                "/v1/exports",
+                headers={**headers, "Origin": "http://invalid"},
+                json={"contract_version": "1.0", "directory_name": "blocked"},
+            )
+
+        self.assertEqual(exported.status_code, 201)
+        self.assertEqual(exported.json()["status"], "completed")
+        self.assertEqual(exported.json()["table_count"], 39)
+        self.assertEqual(queried.status_code, 200)
+        self.assertEqual(queried.json()["export_id"], exported.json()["export_id"])
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(wrong_origin.status_code, 403)
+        self.assertEqual(len(self.creator_export.commands), 1)
 
     def test_full_issue_exchange_status_and_logout_flow(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

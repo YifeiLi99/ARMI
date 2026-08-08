@@ -19,6 +19,7 @@ from armi_kernel.application import (
     CodexDelegationViolation,
     ContextViolation,
     CreatorActivityViolation,
+    CreatorExportViolation,
     CreatorInputCommand,
     CreatorInputViolation,
     CreatorMaintenanceViolation,
@@ -70,6 +71,7 @@ from .database import (
     compose_codex_pipeline,
     compose_context_pipeline,
     compose_creator_activity_query,
+    compose_creator_export_service,
     compose_creator_input,
     compose_creator_maintenance_query,
     compose_creator_prompt_service,
@@ -163,6 +165,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     scene_timeline_query = None
     creator_scenes = None
     creator_activity_query = None
+    creator_export_service = None
     life_record_query = None
     exact_life_query_pipeline = None
     creator_maintenance_query = None
@@ -330,6 +333,12 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 authority_admission=authority.require_writable,
             )
             await creator_prompt_service.open()
+            creator_export_service = compose_creator_export_service(
+                prepared,
+                creator_party_id=creator_context.party_id,
+                authority_admission=authority.require_writable,
+            )
+            await creator_export_service.open()
             creator_events = CreatorEventBroker(
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -539,6 +548,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             CreatorInputViolation,
             CreatorActivityViolation,
             CreatorMaintenanceViolation,
+            CreatorExportViolation,
             CreatorPromptViolation,
             CreatorRelationshipViolation,
             OtherHumanRecordViolation,
@@ -573,6 +583,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await creator_relationship_query.close()
             if creator_prompt_service is not None:
                 await creator_prompt_service.close()
+            if creator_export_service is not None:
+                await creator_export_service.close()
             if creator_input is not None:
                 await creator_input.close()
             if other_human_input is not None:
@@ -792,6 +804,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_relationship_query.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
+        if creator_export_service is not None:
+            await creator_export_service.close()
         if creator_input is not None:
             await creator_input.close()
         if other_human_input is not None:
@@ -985,6 +999,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         creator_maintenance_query=creator_maintenance_query,
         creator_relationship_query=creator_relationship_query,
         creator_prompt=creator_prompt_service,
+        creator_export=creator_export_service,
         creator_emergency_wake=life_opportunity_pipeline,
         creator_events=creator_events,
         creator_input=creator_input,
@@ -1069,6 +1084,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_relationship_query.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
+        if creator_export_service is not None:
+            await creator_export_service.close()
         if creator_input is not None:
             await creator_input.close()
         if other_human_input is not None:

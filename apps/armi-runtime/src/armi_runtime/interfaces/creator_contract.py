@@ -1947,6 +1947,60 @@ class CreatorPromptResponse(_StrictWireModel):
         return self
 
 
+class CreatorExportRequest(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    directory_name: Annotated[str, Field(pattern=r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")]
+
+    @field_validator("directory_name")
+    @classmethod
+    def validate_directory_name(cls, value: str) -> str:
+        if value in {".", ".."}:
+            raise ValueError("CON-EXPORT-DIRECTORY: directory name is invalid")
+        return value
+
+
+class CreatorExportResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-export.v1"]
+    export_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    status: Literal["running", "completed", "partial", "failed"]
+    directory_name: Annotated[str, Field(min_length=1, max_length=64)]
+    destination_path: Annotated[str, Field(min_length=1, max_length=4096)]
+    manifest_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")] | None
+    table_count: Annotated[int, Field(ge=0)]
+    row_count: Annotated[int, Field(ge=0)]
+    artifact_count: Annotated[int, Field(ge=0)]
+    missing_artifacts: Annotated[
+        list[Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]],
+        Field(max_length=100_000),
+    ]
+    error_code: Annotated[str, Field(min_length=1, max_length=128)] | None
+    created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+    newly_created: bool
+
+    @field_validator("export_id")
+    @classmethod
+    def validate_export_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-EXPORT-ID: identity must be UUIDv7")
+        return value
+
+    @field_validator("created_at", "completed_at")
+    @classmethod
+    def validate_export_time(cls, value: str | None) -> str | None:
+        if value is not None and Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-EXPORT-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_export_result(self) -> CreatorExportResponse:
+        if (self.status == "running") != (self.completed_at is None):
+            raise ValueError("CON-EXPORT-STATE: result is inconsistent")
+        return self
+
+
 def build_creator_openapi() -> dict[str, object]:
     """Build the schema locally without exporting or starting an ASGI app."""
 
@@ -2114,6 +2168,46 @@ def build_creator_openapi() -> dict[str, object]:
         _request: CreatorPromptDeactivateRequest,
     ) -> CreatorPromptResponse:
         del _request
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/exports",
+        operation_id="createCreatorExport",
+        status_code=201,
+        response_model=CreatorExportResponse,
+        responses={
+            200: {"model": CreatorExportResponse},
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def create_creator_export(
+        _request: CreatorExportRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> CreatorExportResponse:
+        del _request, idempotency_key
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/exports/{export_id}",
+        operation_id="getCreatorExport",
+        response_model=CreatorExportResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_creator_export(export_id: str) -> CreatorExportResponse:
+        del export_id
         raise NotImplementedError
 
     @app.get(
@@ -2743,6 +2837,8 @@ def build_creator_openapi() -> dict[str, object]:
         get_creator_prompt,
         revise_creator_prompt,
         deactivate_creator_prompt,
+        create_creator_export,
+        get_creator_export,
         list_creator_activities,
         get_creator_activity_timeline,
         get_creator_relationship_current,
@@ -2805,6 +2901,8 @@ def build_creator_openapi() -> dict[str, object]:
     schema["paths"]["/v1/prompts/creator-guidance/deactivation"]["post"][
         "responses"
     ].pop("422", None)
+    schema["paths"]["/v1/exports"]["post"]["responses"].pop("422", None)
+    schema["paths"]["/v1/exports/{export_id}"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/life-records"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/materials/{material_id}"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/memories"]["get"]["responses"].pop("422", None)
@@ -2860,6 +2958,8 @@ __all__ = (
     "CreatorActivityTimelineItemResponse",
     "CreatorActivityTimelineResponse",
     "CreatorCodexTaskRequest",
+    "CreatorExportRequest",
+    "CreatorExportResponse",
     "CreatorInputRequest",
     "CreatorLifeMaterialResponse",
     "CreatorMaintenanceSessionResponse",

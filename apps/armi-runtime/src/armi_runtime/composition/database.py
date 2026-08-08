@@ -12,6 +12,7 @@ from armi_kernel.application import (
     CapabilityViolation,
     CodexDelegationViolation,
     CreatorActivityViolation,
+    CreatorExportViolation,
     CreatorMaintenanceViolation,
     CreatorProjectionNotifier,
     CreatorPromptViolation,
@@ -83,6 +84,7 @@ from .codex_pipeline import CodexEffectPipeline
 from .configuration import ConfigurationViolation
 from .context_compiler import CONTEXT_POLICY_VERSION
 from .context_pipeline import ContextPipeline, build_context_pipeline
+from .creator_exports import CreatorExportService, build_creator_export_service
 from .creator_input import (
     EvidenceAcceptanceTransaction,
     build_evidence_acceptance_transaction,
@@ -943,6 +945,49 @@ def compose_creator_prompt_service(
         raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
 
 
+def compose_creator_export_service(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+    authority_admission: Callable[[], RuntimeFence],
+) -> CreatorExportService:
+    """Resolve the Runtime credential for Creator local complete-data export."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> CreatorExportService:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
+                config = prepared.effective.config
+                return build_creator_export_service(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
+
+
 def compose_life_opportunity_pipeline(
     prepared: PreparedEnvironment,
     *,
@@ -1579,6 +1624,7 @@ __all__ = (
     "compose_codex_pipeline",
     "compose_context_pipeline",
     "compose_creator_activity_query",
+    "compose_creator_export_service",
     "compose_creator_input",
     "compose_creator_maintenance_query",
     "compose_creator_prompt_service",

@@ -24,6 +24,10 @@ from armi_kernel.application import (
     CreatorCodexTaskCommand,
     CreatorEmergencyWakePort,
     CreatorEventResourceKind,
+    CreatorExportCommand,
+    CreatorExportPort,
+    CreatorExportResult,
+    CreatorExportViolation,
     CreatorGrantCommand,
     CreatorGrantDecision,
     CreatorGrantResult,
@@ -125,6 +129,8 @@ from .creator_contract import (
     CreatorActivityTimelineItemResponse,
     CreatorActivityTimelineResponse,
     CreatorCodexTaskRequest,
+    CreatorExportRequest,
+    CreatorExportResponse,
     CreatorInputRequest,
     CreatorLifeMaterialResponse,
     CreatorMaintenanceSessionResponse,
@@ -596,6 +602,28 @@ async def _creator_prompt_deactivate_request(
         raise CreatorPromptViolation("CON-PROMPT-BODY") from None
 
 
+async def _creator_export_request(
+    request: Request,
+    maximum_bytes: int,
+) -> CreatorExportRequest:
+    if request.headers.get("content-type") != "application/json":
+        raise CreatorExportViolation("CREATOR-EXPORT-COMMAND")
+    body = await request.body()
+    if not body or len(body) > min(maximum_bytes, 4096):
+        raise CreatorExportViolation("CREATOR-EXPORT-COMMAND")
+    try:
+        value = json.loads(
+            body.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_object_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite JSON")
+            ),
+        )
+        return CreatorExportRequest.model_validate(value)
+    except UnicodeDecodeError, ValueError, ValidationError:
+        raise CreatorExportViolation("CREATOR-EXPORT-COMMAND") from None
+
+
 def _creator_prompt_response(view: CreatorPromptView) -> CreatorPromptResponse:
     return CreatorPromptResponse(
         contract_version="1.0",
@@ -644,6 +672,55 @@ def _creator_prompt_error(error: CreatorPromptViolation) -> JSONResponse:
     return JSONResponse(
         status_code=503,
         content=_unavailable("DEPENDENCY_CREATOR_PROMPT_UNAVAILABLE"),
+    )
+
+
+def _creator_export_response(result: CreatorExportResult) -> CreatorExportResponse:
+    return CreatorExportResponse(
+        contract_version="1.0",
+        projection_version="creator-export.v1",
+        export_id=str(result.export_id),
+        status=result.status.value,
+        directory_name=result.directory_name,
+        destination_path=result.destination_path,
+        manifest_digest=(
+            None if result.manifest_digest is None else result.manifest_digest.value
+        ),
+        table_count=result.table_count,
+        row_count=result.row_count,
+        artifact_count=result.artifact_count,
+        missing_artifacts=list(result.missing_artifacts),
+        error_code=result.error_code,
+        created_at=result.created_at.to_wire(),
+        completed_at=(
+            None if result.completed_at is None else result.completed_at.to_wire()
+        ),
+        newly_created=result.newly_created,
+    )
+
+
+def _creator_export_error(error: CreatorExportViolation) -> JSONResponse:
+    if error.code in {
+        "CREATOR-EXPORT-IDEMPOTENCY-CONFLICT",
+        "CREATOR-EXPORT-DIRECTORY-EXISTS",
+        "CREATOR-EXPORT-STATE",
+    }:
+        return JSONResponse(
+            status_code=409,
+            content=_rejected("CONFLICT_CREATOR_EXPORT"),
+        )
+    if error.code in {
+        "CREATOR-EXPORT-COMMAND",
+        "CREATOR-EXPORT-ID",
+        "CREATOR-EXPORT-PATH",
+    }:
+        return JSONResponse(
+            status_code=400,
+            content=_rejected("INPUT_CREATOR_EXPORT_INVALID"),
+        )
+    return JSONResponse(
+        status_code=503,
+        content=_unavailable("DEPENDENCY_CREATOR_EXPORT_UNAVAILABLE"),
     )
 
 
@@ -1191,6 +1268,7 @@ def create_runtime_app(
     creator_operations: CreatorOperationQueryPort | None = None,
     subject_summary: SubjectSummaryProvider | None = None,
     creator_prompt: CreatorPromptPort | None = None,
+    creator_export: CreatorExportPort | None = None,
     capability_policy: CapabilityPolicyPort | None = None,
     effect_ledger: EffectLedgerPort | None = None,
     codex_task_admission: CreatorCodexTaskAdmissionPort | None = None,
@@ -1632,6 +1710,106 @@ def create_runtime_app(
         )
 
     del get_creator_prompt, revise_creator_prompt, deactivate_creator_prompt
+
+    @app.post("/v1/exports")
+    async def create_creator_export(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_export is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_export is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_CREATOR_EXPORT_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            idempotency_value = request.headers.get("idempotency-key")
+            if idempotency_value is None:
+                raise CreatorExportViolation("CREATOR-EXPORT-COMMAND")
+            try:
+                idempotency_key = IdempotencyKey.from_wire(idempotency_value)
+            except ContractViolation:
+                raise CreatorExportViolation("CREATOR-EXPORT-COMMAND") from None
+            body = await _creator_export_request(request, request_body_max_bytes)
+            result = await creator_export.export(
+                CreatorExportCommand(
+                    directory_name=body.directory_name,
+                    idempotency_key=idempotency_key,
+                    trace_id=TraceId(secrets.token_hex(16)),
+                )
+            )
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except CreatorExportViolation as error:
+            return _creator_export_error(error)
+        return JSONResponse(
+            status_code=201 if result.newly_created else 200,
+            content=_creator_export_response(result).model_dump(mode="json"),
+        )
+
+    @app.get("/v1/exports/{export_id}")
+    async def get_creator_export(request: Request, export_id: str) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or creator_export is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403
+                if browser_sessions is not None and creator_export is not None
+                else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if status == 403
+                    else _unavailable("DEPENDENCY_CREATOR_EXPORT_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            try:
+                export_uuid = UUID(export_id)
+            except ValueError:
+                raise CreatorExportViolation("CREATOR-EXPORT-ID") from None
+            result = await creator_export.get(export_uuid)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        except CreatorExportViolation as error:
+            return _creator_export_error(error)
+        if result is None:
+            return JSONResponse(
+                status_code=404,
+                content=_rejected("CREATOR_EXPORT_NOT_FOUND"),
+            )
+        return JSONResponse(
+            content=_creator_export_response(result).model_dump(mode="json")
+        )
+
+    del create_creator_export, get_creator_export
 
     @app.get("/v1/capability-requests")
     async def list_capability_requests(request: Request) -> JSONResponse:

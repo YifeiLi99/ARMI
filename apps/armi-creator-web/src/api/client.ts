@@ -43,6 +43,7 @@ export type CreatorOperation =
   components["schemas"]["OperationOutcomeResponse"];
 export type SubjectSummary = components["schemas"]["SubjectSummaryResponse"];
 export type CreatorPrompt = components["schemas"]["CreatorPromptResponse"];
+export type CreatorExport = components["schemas"]["CreatorExportResponse"];
 export type CapabilityRequestPage =
   components["schemas"]["CapabilityRequestPageResponse"];
 export type CapabilityRequest =
@@ -60,6 +61,40 @@ export class ApiFailure extends Error {
   ) {
     super(`Creator request failed with status ${status}`);
   }
+}
+
+export async function createCreatorExport(
+  token: string,
+  directoryName: string,
+  idempotencyKey: string,
+): Promise<CreatorExport> {
+  const response = await fetch("/v1/exports", {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify({
+      contract_version: "1.0",
+      directory_name: directoryName,
+    }),
+  });
+  return requireJson(response);
+}
+
+export async function getCreatorExport(
+  token: string,
+  exportId: string,
+  signal?: AbortSignal,
+): Promise<CreatorExport> {
+  const response = await fetch(`/v1/exports/${encodeURIComponent(exportId)}`, {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
 }
 
 async function safeErrorCode(

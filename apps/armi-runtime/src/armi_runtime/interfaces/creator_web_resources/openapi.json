@@ -1044,6 +1044,158 @@
         "title": "CreatorCodexTaskRequest",
         "type": "object"
       },
+      "CreatorExportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "directory_name": {
+            "pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
+            "title": "Directory Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "directory_name"
+        ],
+        "title": "CreatorExportRequest",
+        "type": "object"
+      },
+      "CreatorExportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_count": {
+            "minimum": 0.0,
+            "title": "Artifact Count",
+            "type": "integer"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "created_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Created At",
+            "type": "string"
+          },
+          "destination_path": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Destination Path",
+            "type": "string"
+          },
+          "directory_name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Directory Name",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "export_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Export Id",
+            "type": "string"
+          },
+          "manifest_digest": {
+            "anyOf": [
+              {
+                "pattern": "sha256:[0-9a-f]{64}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Digest"
+          },
+          "missing_artifacts": {
+            "items": {
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "maxItems": 100000,
+            "title": "Missing Artifacts",
+            "type": "array"
+          },
+          "newly_created": {
+            "title": "Newly Created",
+            "type": "boolean"
+          },
+          "projection_version": {
+            "const": "creator-export.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "row_count": {
+            "minimum": 0.0,
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "partial",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "table_count": {
+            "minimum": 0.0,
+            "title": "Table Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "export_id",
+          "status",
+          "directory_name",
+          "destination_path",
+          "manifest_digest",
+          "table_count",
+          "row_count",
+          "artifact_count",
+          "missing_artifacts",
+          "error_code",
+          "created_at",
+          "completed_at",
+          "newly_created"
+        ],
+        "title": "CreatorExportResponse",
+        "type": "object"
+      },
       "CreatorInputAcceptanceDetails": {
         "additionalProperties": false,
         "properties": {
@@ -5438,6 +5590,204 @@
           }
         ],
         "summary": "Get Effect Artifact"
+      }
+    },
+    "/v1/exports": {
+      "post": {
+        "operationId": "createCreatorExport",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatorExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorExportResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorExportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Create Creator Export"
+      }
+    },
+    "/v1/exports/{export_id}": {
+      "get": {
+        "operationId": "getCreatorExport",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorExportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Get Creator Export"
       }
     },
     "/v1/life-records": {

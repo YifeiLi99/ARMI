@@ -176,6 +176,7 @@ def check_repository(root: Path) -> list[Violation]:
                     "activity",
                     "capability",
                     "effect",
+                    "export",
                     "maintenance",
                     "material",
                     "memory",
