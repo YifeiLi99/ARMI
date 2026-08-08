@@ -2885,7 +2885,10 @@
           "execution_status": {
             "enum": [
               "not_required",
-              "pending"
+              "pending",
+              "executing",
+              "completed",
+              "partial"
             ],
             "title": "Execution Status",
             "type": "string"

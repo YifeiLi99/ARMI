@@ -1015,6 +1015,8 @@ def compose_data_rights_order_service(
                     conninfo,
                     environment_id=config.environment.environment_id,
                     creator_party_id=creator_party_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_min=config.database.pool_min,
                     pool_max=config.database.pool_max,
                     acquire_timeout_seconds=(

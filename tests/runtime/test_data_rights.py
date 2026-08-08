@@ -61,7 +61,7 @@ def test_three_order_kinds_are_explicit_and_bounded() -> None:
         DataRightsOrderKind("delete_all_life")
 
 
-def test_delete_related_remains_effective_but_pending_s015_execution() -> None:
+def test_delete_related_tracks_pending_and_terminal_s015_execution() -> None:
     party_id = uuid7()
     now = Instant(datetime.now(UTC))
     result = DataRightsOrderResult(
@@ -79,6 +79,25 @@ def test_delete_related_remains_effective_but_pending_s015_execution() -> None:
         True,
     )
     assert result.execution_status is DataRightsExecutionStatus.PENDING
+    for status in (
+        DataRightsExecutionStatus.COMPLETED,
+        DataRightsExecutionStatus.PARTIAL,
+    ):
+        settled = DataRightsOrderResult(
+            uuid7(),
+            party_id,
+            DataRightsRequesterKind.OTHER_HUMAN,
+            DataRightsOrderKind.DELETE_RELATED,
+            DataRightsScopeKind.PARTY_LOCAL_DATA,
+            party_id,
+            "effective",
+            status,
+            Digest.from_bytes(b"request"),
+            now,
+            now,
+            False,
+        )
+        assert settled.completed_at == now
     with pytest.raises(DataRightsViolation):
         DataRightsOrderResult(
             uuid7(),

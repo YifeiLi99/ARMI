@@ -282,6 +282,20 @@ class ContentAddressedArtifactStore:
             raise ArtifactViolation("ART-PATH-UNSAFE") from None
         return VerifiedFileStream(file_value)
 
+    async def delete_verified(self, ref: ArtifactRef) -> bool:
+        """Delete one exact registered object after revalidating its identity."""
+
+        if type(ref) is not ArtifactRef:
+            raise ArtifactViolation("ART-DECLARATION")
+        try:
+            return await asyncio.to_thread(self._delete_verified_sync, ref)
+        except FileNotFoundError:
+            return False
+        except ArtifactViolation:
+            raise
+        except OSError:
+            raise ArtifactViolation("ART-DELETE-IO") from None
+
     async def scan(
         self,
         *,
@@ -343,6 +357,33 @@ class ContentAddressedArtifactStore:
             raise
         except OSError:
             raise ArtifactViolation("ART-STAGING-IO") from None
+
+    def _delete_verified_sync(self, ref: ArtifactRef) -> bool:
+        self._prepare_sync()
+        digest_hex = ref.content_digest.value.removeprefix("sha256:")
+        path = self._object_path(digest_hex)
+        file_value = self._open_verified_sync(
+            path,
+            ref.content_digest,
+            ref.byte_size,
+            self._objects,
+        )
+        try:
+            opened = os.fstat(file_value.fileno())
+        finally:
+            file_value.close()
+        current = path.lstat()
+        if (
+            current.st_dev != opened.st_dev
+            or current.st_ino != opened.st_ino
+            or not stat.S_ISREG(current.st_mode)
+            or current.st_nlink != 1
+            or path.is_symlink()
+            or getattr(current, "st_file_attributes", 0) & _FILE_ATTRIBUTE_REPARSE_POINT
+        ):
+            raise ArtifactViolation("ART-PATH-UNSAFE")
+        path.unlink()
+        return True
 
     def _assert_safe_tree(self) -> None:
         for path in (

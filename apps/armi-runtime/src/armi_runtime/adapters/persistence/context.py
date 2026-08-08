@@ -561,6 +561,12 @@ class PostgreSQLContextRepository:
                   AND memory.life_generation_id = %s
                   AND revision.accessibility IN ('available', 'faded')
                   AND %s <> 'consider_other_human_input'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM armi.deletion_items AS deletion_item
+                      WHERE deletion_item.target_kind = 'memory'
+                        AND deletion_item.target_ref = memory.memory_id
+                        AND deletion_item.result_status IN ('completed', 'partial')
+                  )
                 ORDER BY
                     CASE revision.accessibility
                         WHEN 'available' THEN 1 ELSE 2
@@ -577,8 +583,15 @@ class PostgreSQLContextRepository:
                 """
                 SELECT EXISTS (
                     SELECT 1
-                    FROM armi.subjective_memories
-                    WHERE subject_id = %s AND life_generation_id = %s
+                    FROM armi.subjective_memories AS memory
+                    WHERE memory.subject_id = %s
+                      AND memory.life_generation_id = %s
+                      AND NOT EXISTS (
+                          SELECT 1 FROM armi.deletion_items AS deletion_item
+                          WHERE deletion_item.target_kind = 'memory'
+                            AND deletion_item.target_ref = memory.memory_id
+                            AND deletion_item.result_status IN ('completed', 'partial')
+                      )
                 )
                 """,
                 (row[2], row[28]),
@@ -636,6 +649,12 @@ class PostgreSQLContextRepository:
                           relationship.other_party_id = %s
                           AND relationship.scope = %s
                       )
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM armi.deletion_items AS deletion_item
+                      WHERE deletion_item.target_kind = 'relationship'
+                        AND deletion_item.target_ref = relationship.relationship_id
+                        AND deletion_item.result_status IN ('completed', 'partial')
                   )
                 ORDER BY relationship.relationship_id
                 """,

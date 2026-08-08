@@ -260,6 +260,12 @@ class PostgreSQLSceneTimelineQuery:
                           AND scene.scene_kind = 'creator_dialogue'
                           AND scene.audience_scope = 'creator'
                           AND creator.party_id = %s
+                          AND NOT EXISTS (
+                              SELECT 1 FROM armi.deletion_orders AS deletion_order
+                              WHERE deletion_order.requester_party_id = creator.party_id
+                                AND deletion_order.order_kind = 'delete_related'
+                                AND deletion_order.status = 'effective'
+                          )
                         """,
                         (request.scene_key.value, self._creator_party_id),
                     )

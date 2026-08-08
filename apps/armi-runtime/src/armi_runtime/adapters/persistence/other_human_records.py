@@ -215,7 +215,14 @@ class PostgreSQLOtherHumanRecordQuery:
               ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
              AND artifact.integrity_status = 'verified'
              AND artifact.privacy_scope = 'private'
-            WHERE party.party_kind = 'other_human' {clause}
+             AND artifact.retention_status = 'retained'
+            WHERE party.party_kind = 'other_human'
+              AND NOT EXISTS (
+                  SELECT 1 FROM armi.deletion_orders AS deletion_order
+                  WHERE deletion_order.requester_party_id = party.party_id
+                    AND deletion_order.order_kind = 'delete_related'
+                    AND deletion_order.status = 'effective'
+              ) {clause}
             GROUP BY party.party_id, party.declared_identity_key, party.display_label
             ORDER BY party.party_id DESC LIMIT %s
             """,
@@ -257,7 +264,14 @@ class PostgreSQLOtherHumanRecordQuery:
               ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
              AND artifact.integrity_status = 'verified'
              AND artifact.privacy_scope = 'private'
+             AND artifact.retention_status = 'retained'
             WHERE party.party_id = %s AND party.party_kind = 'other_human'
+              AND NOT EXISTS (
+                  SELECT 1 FROM armi.deletion_orders AS deletion_order
+                  WHERE deletion_order.requester_party_id = party.party_id
+                    AND deletion_order.order_kind = 'delete_related'
+                    AND deletion_order.status = 'effective'
+              )
             GROUP BY party.party_id, party.declared_identity_key, party.display_label
             """,
             (party_id,),
@@ -293,8 +307,15 @@ class PostgreSQLOtherHumanRecordQuery:
               ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
              AND artifact.integrity_status = 'verified'
              AND artifact.privacy_scope = 'private'
+             AND artifact.retention_status = 'retained'
             WHERE scene.primary_party_id = %s
               AND scene.scene_kind = 'other_human_dialogue' {clause}
+              AND NOT EXISTS (
+                  SELECT 1 FROM armi.deletion_orders AS deletion_order
+                  WHERE deletion_order.requester_party_id = scene.primary_party_id
+                    AND deletion_order.order_kind = 'delete_related'
+                    AND deletion_order.status = 'effective'
+              )
             GROUP BY scene.scene_id, scene.scene_key, scene.current_status
             ORDER BY scene.scene_id DESC LIMIT %s
             """,
@@ -334,6 +355,12 @@ class PostgreSQLOtherHumanRecordQuery:
              AND party.party_kind = 'other_human'
             WHERE scene.scene_id = %s AND scene.primary_party_id = %s
               AND scene.scene_kind = 'other_human_dialogue'
+              AND NOT EXISTS (
+                  SELECT 1 FROM armi.deletion_orders AS deletion_order
+                  WHERE deletion_order.requester_party_id = scene.primary_party_id
+                    AND deletion_order.order_kind = 'delete_related'
+                    AND deletion_order.status = 'effective'
+              )
             """,
             (scene_id, party_id),
         )
@@ -382,9 +409,16 @@ class PostgreSQLOtherHumanRecordQuery:
               ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
              AND artifact.integrity_status = 'verified'
              AND artifact.privacy_scope = 'private'
+             AND artifact.retention_status = 'retained'
             WHERE scene.primary_party_id = %s AND scene.scene_id = %s
               AND scene.scene_kind = 'other_human_dialogue'
               AND item.source_kind IN ('other_human_input', 'other_human_response')
+              AND NOT EXISTS (
+                  SELECT 1 FROM armi.deletion_orders AS deletion_order
+                  WHERE deletion_order.requester_party_id = scene.primary_party_id
+                    AND deletion_order.order_kind = 'delete_related'
+                    AND deletion_order.status = 'effective'
+              )
               {clause}
             ORDER BY item.occurred_at DESC, item.timeline_item_id DESC LIMIT %s
             """,

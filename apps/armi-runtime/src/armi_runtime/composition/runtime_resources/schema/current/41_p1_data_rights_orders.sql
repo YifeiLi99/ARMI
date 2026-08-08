@@ -13,7 +13,9 @@ CREATE TABLE armi.deletion_orders (
         CHECK (reason_code = 'requester_exercised_local_right'),
     status text NOT NULL CHECK (status = 'effective'),
     execution_status text NOT NULL
-        CHECK (execution_status IN ('not_required', 'pending')),
+        CHECK (execution_status IN (
+            'not_required', 'pending', 'executing', 'completed', 'partial'
+        )),
     idempotency_key text NOT NULL
         CHECK (idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
     request_digest text NOT NULL
@@ -35,11 +37,18 @@ CREATE TABLE armi.deletion_orders (
             AND scope_kind = 'party_local_data')
     ),
     CHECK (
-        (order_kind = 'delete_related' AND execution_status = 'pending')
+        (order_kind = 'delete_related' AND execution_status IN (
+            'pending', 'executing', 'completed', 'partial'
+        ))
         OR (order_kind <> 'delete_related'
             AND execution_status = 'not_required')
     ),
-    CHECK (completed_at IS NULL)
+    CHECK (
+        (execution_status IN ('not_required', 'pending', 'executing')
+            AND completed_at IS NULL)
+        OR (execution_status IN ('completed', 'partial')
+            AND completed_at IS NOT NULL)
+    )
 );
 
 CREATE INDEX deletion_orders_effective_party_idx
@@ -49,3 +58,5 @@ CREATE INDEX deletion_orders_effective_party_idx
 REVOKE ALL ON TABLE armi.deletion_orders
 FROM PUBLIC, armi_runtime, armi_admin, armi_migrator;
 GRANT SELECT, INSERT ON TABLE armi.deletion_orders TO armi_runtime;
+GRANT UPDATE (execution_status, completed_at)
+ON armi.deletion_orders TO armi_runtime;

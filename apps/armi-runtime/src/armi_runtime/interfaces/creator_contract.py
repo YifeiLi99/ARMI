@@ -2016,7 +2016,9 @@ class DataRightsOrderResponse(_StrictWireModel):
     scope_kind: Literal["party_contact", "party_local_data"]
     scope_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     status: Literal["effective"]
-    execution_status: Literal["not_required", "pending"]
+    execution_status: Literal[
+        "not_required", "pending", "executing", "completed", "partial"
+    ]
     request_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]
     effective_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
@@ -2044,11 +2046,13 @@ class DataRightsOrderResponse(_StrictWireModel):
         if (self.order_kind == "stop_contact") != (self.scope_kind == "party_contact"):
             raise ValueError("CON-DATA-RIGHTS-SCOPE: scope is inconsistent")
         if (self.order_kind == "delete_related") != (
-            self.execution_status == "pending"
+            self.execution_status != "not_required"
         ):
             raise ValueError("CON-DATA-RIGHTS-STATE: execution is inconsistent")
-        if self.completed_at is not None:
-            raise ValueError("CON-DATA-RIGHTS-STATE: S014 cannot complete deletion")
+        if (self.execution_status in {"completed", "partial"}) != (
+            self.completed_at is not None
+        ):
+            raise ValueError("CON-DATA-RIGHTS-STATE: completion is inconsistent")
         return self
 
 

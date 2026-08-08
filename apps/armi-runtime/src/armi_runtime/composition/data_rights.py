@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
 
@@ -29,6 +30,8 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest, Purpose
 
+from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
+from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
 from armi_runtime.adapters.persistence.data_rights import (
     DataRightsOrderRepository,
     DataRightsOrderSnapshot,
@@ -39,26 +42,31 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
+from .data_deletion import LocalDataDeletionExecutor
+
 
 class DataRightsOrderService(DataRightsOrderPort):
-    __slots__ = ("_creator_party_id", "_repository", "_uow_factory")
+    __slots__ = ("_creator_party_id", "_deletion", "_repository", "_uow_factory")
 
     def __init__(
         self,
         *,
         creator_party_id: UUID,
+        deletion: LocalDataDeletionExecutor,
         repository: DataRightsOrderRepository,
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     ) -> None:
         if creator_party_id.version != 7:
             raise DataRightsViolation("DATA-RIGHTS-COMPOSITION")
         self._creator_party_id = creator_party_id
+        self._deletion = deletion
         self._repository = repository
         self._uow_factory = unit_of_work_factory
 
     async def open(self) -> None:
         try:
             await self._uow_factory.open()
+            await self._deletion.resume_pending()
         except DatabaseTransactionError:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
@@ -116,6 +124,47 @@ class DataRightsOrderService(DataRightsOrderPort):
     ) -> DataRightsOrderResult:
         if type(command) is not DataRightsOrderCommand:
             raise DataRightsViolation("DATA-RIGHTS-COMMAND")
+        result = await self._record_request(
+            requester_kind=requester_kind,
+            party_key=party_key,
+            command=command,
+        )
+        if (
+            result.order_kind is DataRightsOrderKind.DELETE_RELATED
+            and result.execution_status
+            in {DataRightsExecutionStatus.PENDING, DataRightsExecutionStatus.EXECUTING}
+        ):
+            await self._deletion.execute(result.order_id)
+            refreshed = await self._get(
+                requester_kind=requester_kind,
+                party_key=party_key,
+                order_id=result.order_id,
+            )
+            if refreshed is None:
+                raise DataRightsViolation("DATA-RIGHTS-STATE")
+            return DataRightsOrderResult(
+                refreshed.order_id,
+                refreshed.requester_party_id,
+                refreshed.requester_kind,
+                refreshed.order_kind,
+                refreshed.scope_kind,
+                refreshed.scope_party_id,
+                refreshed.status,
+                refreshed.execution_status,
+                refreshed.request_digest,
+                refreshed.effective_at,
+                refreshed.completed_at,
+                result.newly_created,
+            )
+        return result
+
+    async def _record_request(
+        self,
+        *,
+        requester_kind: DataRightsRequesterKind,
+        party_key: OtherHumanPartyKey | None,
+        command: DataRightsOrderCommand,
+    ) -> DataRightsOrderResult:
         try:
             async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
                 requester_party_id = await self._requester_party(
@@ -166,6 +215,14 @@ class DataRightsOrderService(DataRightsOrderPort):
                     request_digest=request_digest,
                     trace_id=command.trace_id.value,
                 )
+                if command.order_kind is DataRightsOrderKind.DELETE_RELATED:
+                    await unit_of_work._connection_for_repository().execute(  # pyright: ignore[reportPrivateUsage]
+                        """
+                        UPDATE armi.subjects
+                        SET state_epoch = state_epoch + 1
+                        WHERE singleton_key = 1
+                        """
+                    )
                 await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
@@ -283,25 +340,36 @@ def build_data_rights_order_service(
     *,
     environment_id: UUID,
     creator_party_id: UUID,
+    data_root: Path,
+    max_object_bytes: int,
     pool_min: int,
     pool_max: int,
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
 ) -> DataRightsOrderService:
+    unit_of_work_factory = PostgreSQLUnitOfWorkFactory(
+        conninfo,
+        environment_id=environment_id,
+        lock_acquirer=_unused_lock_acquirer,
+        pool_min=pool_min,
+        pool_max=pool_max,
+        acquire_timeout_seconds=acquire_timeout_seconds,
+        statement_timeout_seconds=statement_timeout_seconds,
+        authority_admission=authority_admission,
+    )
+    deletion = LocalDataDeletionExecutor(
+        repository=LocalDataDeletionRepository(),
+        storage=ContentAddressedArtifactStore(
+            data_root / "artifacts", max_object_bytes=max_object_bytes
+        ),
+        unit_of_work_factory=unit_of_work_factory,
+    )
     return DataRightsOrderService(
         creator_party_id=creator_party_id,
+        deletion=deletion,
         repository=DataRightsOrderRepository(),
-        unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
-            conninfo,
-            environment_id=environment_id,
-            lock_acquirer=_unused_lock_acquirer,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            acquire_timeout_seconds=acquire_timeout_seconds,
-            statement_timeout_seconds=statement_timeout_seconds,
-            authority_admission=authority_admission,
-        ),
+        unit_of_work_factory=unit_of_work_factory,
     )
 
 

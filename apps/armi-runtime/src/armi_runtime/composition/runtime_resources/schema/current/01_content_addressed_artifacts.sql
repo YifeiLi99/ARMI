@@ -32,11 +32,14 @@ CREATE TABLE armi.artifacts (
     integrity_status text NOT NULL DEFAULT 'verified'
         CHECK (integrity_status IN ('verified', 'missing', 'corrupt')),
     retention_status text NOT NULL DEFAULT 'retained'
-        CHECK (retention_status = 'retained'),
+        CHECK (retention_status IN ('retained', 'deleted')),
     created_at timestamptz(6) NOT NULL DEFAULT clock_timestamp(),
     deleted_at timestamptz(6),
     schema_version smallint NOT NULL DEFAULT 1 CHECK (schema_version = 1),
-    CHECK (deleted_at IS NULL),
+    CHECK (
+        (retention_status = 'retained' AND deleted_at IS NULL)
+        OR (retention_status = 'deleted' AND deleted_at IS NOT NULL)
+    ),
     CHECK (
         storage_locator =
             'objects/sha256/'
@@ -67,3 +70,4 @@ GRANT INSERT (
 ) ON armi.artifacts TO armi_runtime;
 
 GRANT UPDATE (integrity_status) ON armi.artifacts TO armi_runtime;
+GRANT UPDATE (retention_status, deleted_at) ON armi.artifacts TO armi_runtime;

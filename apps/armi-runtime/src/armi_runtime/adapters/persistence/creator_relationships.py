@@ -138,6 +138,12 @@ class PostgreSQLCreatorRelationshipQuery:
                           AND relationship.other_party_id = %s
                           AND relationship.scope = 'creator_social'
                           AND revision.privacy_scope = 'private'
+                          AND NOT EXISTS (
+                              SELECT 1 FROM armi.deletion_items AS deletion_item
+                              WHERE deletion_item.target_kind = 'relationship'
+                                AND deletion_item.target_ref = relationship.relationship_id
+                                AND deletion_item.result_status IN ('completed', 'partial')
+                          )
                         LIMIT 2
                         """,
                         (subject_id, self._creator_party_id),
@@ -178,9 +184,17 @@ class PostgreSQLCreatorRelationshipQuery:
                     await connection.execute(
                         """
                         SELECT 1
-                        FROM armi.relationships
-                        WHERE relationship_id = %s AND subject_id = %s
-                          AND other_party_id = %s AND scope = 'creator_social'
+                        FROM armi.relationships AS relationship
+                        WHERE relationship.relationship_id = %s
+                          AND relationship.subject_id = %s
+                          AND relationship.other_party_id = %s
+                          AND relationship.scope = 'creator_social'
+                          AND NOT EXISTS (
+                              SELECT 1 FROM armi.deletion_items AS deletion_item
+                              WHERE deletion_item.target_kind = 'relationship'
+                                AND deletion_item.target_ref = relationship.relationship_id
+                                AND deletion_item.result_status IN ('completed', 'partial')
+                          )
                         """,
                         (relationship_id, subject_id, self._creator_party_id),
                     )

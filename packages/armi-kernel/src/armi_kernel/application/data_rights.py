@@ -31,6 +31,9 @@ class DataRightsScopeKind(StrEnum):
 class DataRightsExecutionStatus(StrEnum):
     NOT_REQUIRED = "not_required"
     PENDING = "pending"
+    EXECUTING = "executing"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
 
 
 class DataRightsViolation(RuntimeError):
@@ -85,7 +88,6 @@ class DataRightsOrderResult:
             or type(self.execution_status) is not DataRightsExecutionStatus
             or type(self.request_digest) is not Digest
             or type(self.effective_at) is not Instant
-            or self.completed_at is not None
             or type(self.newly_created) is not bool
             or (
                 self.order_kind is DataRightsOrderKind.STOP_CONTACT
@@ -95,8 +97,22 @@ class DataRightsOrderResult:
                 self.order_kind is not DataRightsOrderKind.STOP_CONTACT
                 and self.scope_kind is not DataRightsScopeKind.PARTY_LOCAL_DATA
             )
-            or (self.order_kind is DataRightsOrderKind.DELETE_RELATED)
-            != (self.execution_status is DataRightsExecutionStatus.PENDING)
+            or (
+                self.order_kind is DataRightsOrderKind.DELETE_RELATED
+                and self.execution_status is DataRightsExecutionStatus.NOT_REQUIRED
+            )
+            or (
+                self.order_kind is not DataRightsOrderKind.DELETE_RELATED
+                and self.execution_status is not DataRightsExecutionStatus.NOT_REQUIRED
+            )
+            or (
+                self.execution_status
+                in {
+                    DataRightsExecutionStatus.COMPLETED,
+                    DataRightsExecutionStatus.PARTIAL,
+                }
+            )
+            != (self.completed_at is not None)
         ):
             raise DataRightsViolation("DATA-RIGHTS-RESULT")
 

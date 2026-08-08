@@ -111,6 +111,18 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
         staging = self.root / "staging"
         self.assertEqual(list(staging.iterdir()), [])
 
+    async def test_exact_verified_delete_is_idempotent_and_removes_only_target(
+        self,
+    ) -> None:
+        content = b"erase-me"
+        staged = await self.store.stage(_chunks(content), _policy())
+        await self.store.publish(staged)
+
+        self.assertTrue(await self.store.delete_verified(_reference(content)))
+        self.assertFalse(await self.store.delete_verified(_reference(content)))
+        with self.assertRaisesRegex(ArtifactViolation, "ART-MISSING"):
+            await self.store.open_verified(_reference(content))
+
     async def test_corrupt_object_is_quarantined_before_bytes_are_released(
         self,
     ) -> None:

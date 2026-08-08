@@ -1781,7 +1781,8 @@ export interface components {
        * Execution Status
        * @enum {string}
        */
-      execution_status: "not_required" | "pending";
+      execution_status:
+        "not_required" | "pending" | "executing" | "completed" | "partial";
       /** Newly Created */
       newly_created: boolean;
       /** Order Id */

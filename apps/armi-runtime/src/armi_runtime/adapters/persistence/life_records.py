@@ -302,6 +302,12 @@ class PostgreSQLLifeRecordQuery:
                               ON commit.subject_commit_id =
                                  experience.subject_commit_id
                             WHERE commit.subject_id = %s
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM armi.deletion_items AS deletion_item
+                                  WHERE deletion_item.target_kind = 'experience'
+                                    AND deletion_item.target_ref = experience.experience_id
+                                    AND deletion_item.result_status IN ('completed', 'partial')
+                              )
                             UNION ALL
                             SELECT memory.memory_id,
                                    'memory'::text,
@@ -314,6 +320,12 @@ class PostgreSQLLifeRecordQuery:
                               ON revision.memory_revision_id =
                                  memory.current_revision_id
                             WHERE memory.subject_id = %s
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM armi.deletion_items AS deletion_item
+                                  WHERE deletion_item.target_kind = 'memory'
+                                    AND deletion_item.target_ref = memory.memory_id
+                                    AND deletion_item.result_status IN ('completed', 'partial')
+                              )
                             UNION ALL
                             SELECT material.life_material_id,
                                    'material'::text,
@@ -343,6 +355,12 @@ class PostgreSQLLifeRecordQuery:
                               ON revision.relationship_revision_id =
                                  relationship.current_revision_id
                             WHERE relationship.subject_id = %s
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM armi.deletion_items AS deletion_item
+                                  WHERE deletion_item.target_kind = 'relationship'
+                                    AND deletion_item.target_ref = relationship.relationship_id
+                                    AND deletion_item.result_status IN ('completed', 'partial')
+                              )
                             UNION ALL
                             SELECT revision.component_revision_id,
                                    'self_change'::text,
@@ -595,6 +613,12 @@ class PostgreSQLLifeRecordQuery:
                         JOIN armi.subjective_memory_revisions AS revision
                           ON revision.memory_revision_id = memory.current_revision_id
                         WHERE memory.subject_id = %s
+                          AND NOT EXISTS (
+                              SELECT 1 FROM armi.deletion_items AS deletion_item
+                              WHERE deletion_item.target_kind = 'memory'
+                                AND deletion_item.target_ref = memory.memory_id
+                                AND deletion_item.result_status IN ('completed', 'partial')
+                          )
                           AND (%s::text IS NULL OR revision.summary ILIKE
                                '%%' || %s || '%%')
                           AND (
@@ -674,8 +698,14 @@ class PostgreSQLLifeRecordQuery:
                 visible = await (
                     await connection.execute(
                         """
-                        SELECT 1 FROM armi.subjective_memories
-                        WHERE memory_id = %s AND subject_id = %s
+                        SELECT 1 FROM armi.subjective_memories AS memory
+                        WHERE memory.memory_id = %s AND memory.subject_id = %s
+                          AND NOT EXISTS (
+                              SELECT 1 FROM armi.deletion_items AS deletion_item
+                              WHERE deletion_item.target_kind = 'memory'
+                                AND deletion_item.target_ref = memory.memory_id
+                                AND deletion_item.result_status IN ('completed', 'partial')
+                          )
                         """,
                         (memory_id, subject_id),
                     )
