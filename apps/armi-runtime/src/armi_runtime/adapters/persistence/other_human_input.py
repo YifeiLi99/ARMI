@@ -274,10 +274,10 @@ class OtherHumanInputRepository:
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
                 creator_party_id, other_party_id, purpose, eligibility_status,
-                current_disposition, source_kind, source_ref, source_version,
-                source_digest, reconsideration_no, schema_version
+                current_disposition, root_opportunity_id, source_kind, source_ref,
+                source_version, source_digest, reconsideration_no, schema_version
             ) VALUES (%s,%s,%s,%s,NULL,%s,'consider_other_human_input',
-                      'eligible','open','external_evidence',%s,1,%s,0,1)
+                      'eligible','open',%s,'external_evidence',%s,1,%s,0,1)
             """,
             (
                 opportunity_id,
@@ -285,6 +285,7 @@ class OtherHumanInputRepository:
                 context.subject_id,
                 context.scene_id,
                 context.party_id,
+                opportunity_id,
                 evidence_id,
                 content_digest.value,
             ),

@@ -53,6 +53,8 @@ ALTER TABLE armi.interaction_scenes
     ADD CONSTRAINT interaction_scenes_party_key_unique
         UNIQUE (subject_id, primary_party_id, scene_key);
 
+DROP INDEX armi.interaction_scenes_one_default_idx;
+
 CREATE TABLE armi.other_human_input_interactions (
     other_human_interaction_id uuid PRIMARY KEY
         CHECK (uuid_extract_version(other_human_interaction_id) = 7),

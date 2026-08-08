@@ -187,6 +187,8 @@ reply 的 content 是给当前精确对方的纯文本; silence 是主观不回�
 end_conversation 是关闭当前交流且本轮不发送正文。
 可选 experience 只概括本轮真实经历; 只有同时提供 experience 时才能给出一项
 relationship_change。关系只属于当前精确对方; other 表示当前对方, 不表示 Creator。
+首次为当前对方形成 relationship_change 时必须同时提供 interpretation, 不能只提供 fact;
+只有 Context 已包含该对方的既有关系时, 后续 relationship_change 才可省略 interpretation。
 对方明确拒绝、限制或退出可收紧其边界; 沉默、推断或消息送达不能构成同意。
 承诺只记录精确承担方与内容, 不授予权限, 也不能从另一段关系继承。不要输出合同外字段。
 """

@@ -175,7 +175,7 @@ class LifeSchedulingSnapshot:
             or type(self.model_concurrency) is not int
             or self.model_concurrency < 1
             or type(self.model_in_flight) is not int
-            or not 0 <= self.model_in_flight <= self.model_concurrency
+            or self.model_in_flight < 0
         ):
             raise LifeViolation("LIFE-SCHEDULER-SNAPSHOT")
 

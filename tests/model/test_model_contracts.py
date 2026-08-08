@@ -39,9 +39,15 @@ from armi_runtime.composition.model_contract import (
 from armi_runtime.composition.other_human_dialogue_candidate_contract import (
     HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+    OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
 )
 
 _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
+
+
+def test_other_human_instructions_require_first_relationship_interpretation() -> None:
+    assert "首次为当前对方形成 relationship_change" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
+    assert "必须同时提供 interpretation" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
 
 
 def test_other_human_social_contract_versions_relationship_context_refs() -> None:
@@ -308,10 +314,12 @@ def test_only_evolving_binding_is_active_and_digest_is_stable() -> None:
 def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     legacy = load_active_binding()
     dialogue = load_purpose_binding("consider_creator_input")
+    life_query_result = load_purpose_binding("consider_life_query_result")
     assert dialogue.model_id == legacy.model_id == ACTIVE_MODEL_ID
     assert dialogue.profile == "creator_dialogue"
     assert dialogue.response_contract_version == DIALOGUE_CANDIDATE_VERSION
     assert dialogue.output_token_limit == 1024
+    assert life_query_result == dialogue
     dialogue_schema = candidate_schema(DIALOGUE_CANDIDATE_VERSION)
     legacy_schema = candidate_schema()
     dialogue_schema_text = json.dumps(dialogue_schema, separators=(",", ":"))
@@ -882,6 +890,9 @@ def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) 
         ).read_text(encoding="utf-8")
     )
     manifest["purpose_profiles"]["consider_creator_input"][
+        "response_contract_version"
+    ] = WEB_DIALOGUE_CANDIDATE_VERSION
+    manifest["purpose_profiles"]["consider_life_query_result"][
         "response_contract_version"
     ] = WEB_DIALOGUE_CANDIDATE_VERSION
     path = tmp_path / "model-bindings.manifest.json"

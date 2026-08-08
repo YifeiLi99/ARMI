@@ -110,7 +110,7 @@ class LocalDataDeletionRepository:
                         CASE WHEN %s = 'completed' THEN statement_timestamp() END
                     )
                     ON CONFLICT (deletion_order_id, target_kind, target_ref)
-                    DO UPDATE SET target_ref = EXCLUDED.target_ref
+                    DO UPDATE SET result_status = armi.deletion_items.result_status
                     RETURNING deletion_item_id, result_status, required_action
                     """,
                     (

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from datetime import UTC, datetime
 from typing import cast
 from uuid import uuid7
@@ -16,6 +17,7 @@ from armi_kernel.application import (
     DataRightsViolation,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
+from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
 from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWork
 
@@ -113,6 +115,12 @@ def test_delete_related_tracks_pending_and_terminal_s015_execution() -> None:
             None,
             True,
         )
+
+
+def test_deletion_item_retry_only_updates_a_granted_settlement_column() -> None:
+    statement = inspect.getsource(LocalDataDeletionRepository.prepare)
+    assert "SET result_status = armi.deletion_items.result_status" in statement
+    assert "SET target_ref = EXCLUDED.target_ref" not in statement
 
 
 @pytest.mark.parametrize("blocked", [False, True])

@@ -45,6 +45,11 @@
       "profile": "creator_dialogue",
       "response_contract_version": "armi.creator-dialogue-candidate.v17"
     },
+    "consider_life_query_result": {
+      "output_token_limit": 1024,
+      "profile": "creator_dialogue",
+      "response_contract_version": "armi.creator-dialogue-candidate.v17"
+    },
     "consider_creator_outreach": {
       "output_token_limit": 512,
       "profile": "creator_outreach",

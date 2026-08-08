@@ -142,7 +142,14 @@ def probe_continuity(
     )
     if tuple(str(value) for value in row[1:4]) != expected:
         return ContinuityState.INVALID
-    if tuple(int(value) for value in row[4:]) != (1, 2, 3, 1, 3, 3, 1):
+    counts = tuple(int(value) for value in row[4:])
+    if (
+        counts[0:3] != (1, 2, 3)
+        or counts[3] < 1
+        or counts[4] != 3
+        or counts[5] < 3
+        or counts[6] != 1
+    ):
         return ContinuityState.INVALID
     return ContinuityState.BORN
 

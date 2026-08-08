@@ -569,12 +569,15 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             ResponseViolation,
             EffectViolation,
             LifeViolation,
-        ):
+        ) as error:
             diagnostic.emit(
                 "runtime.creator_interface.unavailable",
                 level=logging.ERROR,
                 result_code="CREATOR_INTERFACE_UNAVAILABLE",
-                reason_codes=("RUNTIME_CREATOR_INTERFACE_UNAVAILABLE",),
+                reason_codes=(
+                    "RUNTIME_CREATOR_INTERFACE_UNAVAILABLE",
+                    error.code,
+                ),
             )
             if scene_timeline_query is not None:
                 await scene_timeline_query.close()

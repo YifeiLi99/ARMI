@@ -546,9 +546,6 @@ class PostgreSQLLifeOpportunityRepository:
                     OR EXISTS (
                         SELECT 1
                         FROM armi.opportunities AS candidate_root
-                        JOIN armi.cognitive_episodes AS candidate_episode
-                          ON candidate_episode.opportunity_id =
-                             candidate_root.opportunity_id
                         WHERE candidate_root.subject_id = activity.subject_id
                           AND candidate_root.source_kind = 'activity_revision'
                           AND candidate_root.source_ref = revision.activity_revision_id
@@ -556,10 +553,31 @@ class PostgreSQLLifeOpportunityRepository:
                           AND candidate_root.purpose = 'consider_activity_attention'
                           AND candidate_root.reconsideration_no = 0
                           AND candidate_root.current_disposition = 'resolved'
-                          AND candidate_root.resolved_at + interval '60 seconds'
-                              <= statement_timestamp()
-                          AND candidate_episode.status IN (
-                              'failed', 'candidate_rejected'
+                          AND (
+                            EXISTS (
+                              SELECT 1 FROM armi.cognitive_episodes AS failed_episode
+                              WHERE failed_episode.opportunity_id =
+                                    candidate_root.opportunity_id
+                                AND failed_episode.status IN (
+                                    'failed', 'candidate_rejected'
+                                )
+                                AND candidate_root.resolved_at + interval '60 seconds'
+                                    <= statement_timestamp()
+                            )
+                            OR EXISTS (
+                              SELECT 1
+                              FROM armi.cognitive_episodes AS waiting_episode
+                              JOIN armi.activity_attention_decisions AS decision
+                                USING (cognitive_episode_id)
+                              WHERE waiting_episode.opportunity_id =
+                                    candidate_root.opportunity_id
+                                AND waiting_episode.status = 'completed'
+                                AND decision.decision_kind = 'need_information'
+                                AND EXISTS (
+                                  SELECT 1 FROM armi.creator_input_interactions AS input
+                                  WHERE input.received_at > decision.decided_at
+                                )
+                            )
                           )
                           AND NOT EXISTS (
                               SELECT 1
@@ -657,15 +675,29 @@ class PostgreSQLLifeOpportunityRepository:
                     """
                     SELECT root.opportunity_id, root.source_digest,
                            root.current_disposition,
-                           root.resolved_at IS NOT NULL
-                               AND root.resolved_at + interval '60 seconds'
-                                   <= statement_timestamp(),
-                           EXISTS (
-                               SELECT 1 FROM armi.cognitive_episodes AS episode
-                               WHERE episode.opportunity_id = root.opportunity_id
-                                 AND episode.status IN (
+                           (
+                             EXISTS (
+                               SELECT 1 FROM armi.cognitive_episodes AS failed_episode
+                               WHERE failed_episode.opportunity_id = root.opportunity_id
+                                 AND failed_episode.status IN (
                                      'failed', 'candidate_rejected'
                                  )
+                                 AND root.resolved_at + interval '60 seconds'
+                                     <= statement_timestamp()
+                             )
+                             OR EXISTS (
+                               SELECT 1
+                               FROM armi.cognitive_episodes AS waiting_episode
+                               JOIN armi.activity_attention_decisions AS decision
+                                 USING (cognitive_episode_id)
+                               WHERE waiting_episode.opportunity_id = root.opportunity_id
+                                 AND waiting_episode.status = 'completed'
+                                 AND decision.decision_kind = 'need_information'
+                                 AND EXISTS (
+                                   SELECT 1 FROM armi.creator_input_interactions AS input
+                                   WHERE input.received_at > decision.decided_at
+                                 )
+                             )
                            ),
                            successor.opportunity_id
                     FROM armi.opportunities AS root
@@ -682,15 +714,11 @@ class PostgreSQLLifeOpportunityRepository:
             ).fetchone()
             if existing is None or str(existing[1]) != source_digest.value:
                 raise LifeViolation("LIFE-SOURCE-DRIFT")
-            if existing[5] is not None:
+            if existing[4] is not None:
                 return OpportunityAdmissionOutcome(
-                    OpportunityAdmissionStatus.DUPLICATE, existing[5]
+                    OpportunityAdmissionStatus.DUPLICATE, existing[4]
                 )
-            if (
-                str(existing[2]) == "resolved"
-                and bool(existing[3])
-                and bool(existing[4])
-            ):
+            if str(existing[2]) == "resolved" and bool(existing[3]):
                 retry_id = uuid7()
                 retried = await (
                     await connection.execute(

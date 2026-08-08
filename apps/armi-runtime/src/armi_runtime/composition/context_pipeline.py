@@ -374,16 +374,15 @@ class ContextPipeline(OpportunitySelector):
         source: ContextSceneTurnSource,
         snapshot: ContextEpisodeSnapshot,
     ) -> bytes:
-        expected_kind = (
-            "creator.input.text"
-            if source.speaker == "creator"
-            else "creator.response.text"
+        expected_kind, expected_privacy = _recent_scene_artifact_contract(
+            snapshot.purpose,
+            source.speaker,
         )
         if (
             source.ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
             or source.ref.media_type != "text/plain"
             or source.ref.logical_kind != expected_kind
-            or source.ref.privacy_scope is not ArtifactPrivacyScope.CREATOR_VISIBLE
+            or source.ref.privacy_scope is not expected_privacy
         ):
             raise ContextViolation("CTX-SOURCE-READ-FAILED")
         value = await self._read_source(
@@ -434,6 +433,23 @@ class ContextPipeline(OpportunitySelector):
                 )
         except ContextViolation, DatabaseTransactionError, WorkViolation:
             self._diagnostic("context.prepare.failure_settlement_deferred")
+
+
+def _recent_scene_artifact_contract(
+    purpose: str,
+    speaker: str,
+) -> tuple[str, ArtifactPrivacyScope]:
+    if purpose == "consider_other_human_input":
+        if speaker == "other_human":
+            return "other_human.input.text", ArtifactPrivacyScope.PRIVATE
+        if speaker == "armi":
+            return "other-human.response.text", ArtifactPrivacyScope.PRIVATE
+    else:
+        if speaker == "creator":
+            return "creator.input.text", ArtifactPrivacyScope.CREATOR_VISIBLE
+        if speaker == "armi":
+            return "creator.response.text", ArtifactPrivacyScope.PRIVATE
+    raise ContextViolation("CTX-SOURCE-READ-FAILED")
 
 
 def _context_request(

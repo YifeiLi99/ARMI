@@ -162,6 +162,7 @@ def test_scheduler_preserves_one_cognition_slot_and_single_focus() -> None:
             "FOCUS-HELD",
         ),
         (LifeSchedulingSnapshot(now, (ready,), (), False, 2, 1), "COGNITION-CAPACITY"),
+        (LifeSchedulingSnapshot(now, (ready,), (), False, 2, 3), "COGNITION-CAPACITY"),
     ):
         decision = scheduler.select(constrained)
         assert decision.disposition is LifeSchedulingDisposition.BACKPRESSURE

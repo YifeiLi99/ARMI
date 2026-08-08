@@ -6,8 +6,9 @@ from types import SimpleNamespace
 from typing import cast
 from uuid import uuid7
 
+import pytest
 import rfc8785
-from armi_kernel.application import ContextItemDisposition
+from armi_kernel.application import ContextItemDisposition, ContextViolation
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime.adapters.persistence.capability_context import (
     _capability_state_payload,
@@ -18,7 +19,11 @@ from armi_runtime.adapters.persistence.context import (
     ContextSceneTurnSource,
 )
 from armi_runtime.composition.context_compiler import DeterministicContextCompiler
-from armi_runtime.composition.context_pipeline import _context_request
+from armi_runtime.composition.context_pipeline import (
+    ContextPipeline,
+    _context_request,
+    _recent_scene_artifact_contract,
+)
 
 
 def _snapshot(
@@ -720,6 +725,30 @@ def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
     assert "beta only" not in cast(str, alpha_turns[0])
     assert "beta only" in cast(str, beta_turns[0])
     assert "alpha only" not in cast(str, beta_turns[0])
+
+
+def test_recent_scene_artifact_contract_separates_creator_and_other_human() -> None:
+    from armi_kernel.application import ArtifactPrivacyScope
+
+    assert _recent_scene_artifact_contract("consider_creator_input", "creator") == (
+        "creator.input.text",
+        ArtifactPrivacyScope.CREATOR_VISIBLE,
+    )
+    assert _recent_scene_artifact_contract("consider_creator_input", "armi") == (
+        "creator.response.text",
+        ArtifactPrivacyScope.PRIVATE,
+    )
+    assert _recent_scene_artifact_contract(
+        "consider_other_human_input", "other_human"
+    ) == ("other_human.input.text", ArtifactPrivacyScope.PRIVATE)
+    assert _recent_scene_artifact_contract("consider_other_human_input", "armi") == (
+        "other-human.response.text",
+        ArtifactPrivacyScope.PRIVATE,
+    )
+
+    with pytest.raises(ContextViolation, match="CTX-SOURCE-READ-FAILED"):
+        _recent_scene_artifact_contract("consider_other_human_input", "creator")
+    assert callable(ContextPipeline._publish)
 
 
 def test_context_hides_forgotten_commitment_but_keeps_open_issue() -> None:

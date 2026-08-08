@@ -140,6 +140,10 @@ class ModelPipeline:
             "consider_creator_input",
             expected_dialogue_version=dialogue_version,
         )
+        life_query_result_binding = load_purpose_binding(
+            "consider_life_query_result",
+            expected_dialogue_version=dialogue_version,
+        )
         outreach_binding = load_purpose_binding(
             "consider_creator_outreach",
             expected_dialogue_version=dialogue_version,
@@ -279,6 +283,25 @@ class ModelPipeline:
                 locator=credential_locator,
                 candidate_schema=candidate_schema(
                     dialogue_binding.response_contract_version
+                ),
+                candidate_parser=parse_dialogue,
+                instructions=(
+                    WEB_DIALOGUE_INSTRUCTIONS
+                    if web_search_active
+                    else DIALOGUE_INSTRUCTIONS
+                ),
+                schema_name=(
+                    "armi_creator_dialogue_candidate_v14"
+                    if web_search_active
+                    else "armi_creator_dialogue_candidate_v13"
+                ),
+            ),
+            "consider_life_query_result": VolcengineArkModelAdapter(
+                binding=life_query_result_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    life_query_result_binding.response_contract_version
                 ),
                 candidate_parser=parse_dialogue,
                 instructions=(
@@ -648,7 +671,7 @@ class ModelPipeline:
     def _adapter_for(self, purpose: str) -> VolcengineArkModelAdapter:
         adapter = self._adapters.get(purpose, self._adapters["__default__"])
         if (
-            purpose == "consider_creator_input"
+            purpose in {"consider_creator_input", "consider_life_query_result"}
             and adapter.binding.response_contract_version != self._dialogue_version
         ):
             raise ModelViolation("MODEL-BINDING")

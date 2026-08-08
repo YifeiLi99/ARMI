@@ -322,7 +322,7 @@ class CreatorInputRepository:
                     LIMIT 1
                 ) AS opportunity ON true
                 JOIN armi.external_evidence AS evidence
-                  ON evidence.evidence_id = opportunity.evidence_id
+                  ON evidence.evidence_id = requested.evidence_id
                 JOIN armi.creator_input_interactions AS interaction
                   ON interaction.creator_interaction_id
                     = evidence.creator_interaction_id
@@ -344,7 +344,7 @@ class CreatorInputRepository:
                 WHERE requested.opportunity_id = %s
                   AND requested.root_opportunity_id = requested.opportunity_id
                   AND opportunity.creator_party_id = %s
-                  AND opportunity.purpose IN (
+                  AND requested.purpose IN (
                       'consider_creator_input', 'consider_codex_task'
                   )
                   AND opportunity.eligibility_status = 'eligible'

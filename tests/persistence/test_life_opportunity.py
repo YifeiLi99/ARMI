@@ -26,6 +26,9 @@ class _Cursor:
     async def fetchone(self) -> tuple[object, ...] | None:
         return self._row
 
+    async def fetchall(self) -> list[tuple[object, ...]]:
+        return [] if self._row is None else [self._row]
+
 
 class _Connection:
     def __init__(
@@ -196,6 +199,76 @@ def test_active_in_progress_activity_admits_one_durable_internal_work_step() -> 
     assert first.status is OpportunityAdmissionStatus.ADMITTED
     assert replay.status is OpportunityAdmissionStatus.DUPLICATE
     assert replay.opportunity_id == first.opportunity_id
+    assert len(unit_of_work.audit.events) == 1
+
+
+class _AttentionRetryConnection:
+    def __init__(self, *, activity_id: UUID, revision_id: UUID) -> None:
+        self.activity_id = activity_id
+        self.revision_id = revision_id
+        self.root_id = uuid7()
+        self.retry_id: UUID | None = None
+        self.source_digest: str | None = None
+        self.saw_signal_query = False
+        self.insert_count = 0
+
+    async def execute(
+        self,
+        statement: str,
+        parameters: tuple[object, ...] = (),
+    ) -> _Cursor:
+        if "SELECT revision.semantic_payload" in statement:
+            return _Cursor(({"active_activities": []}, False, 0, False))
+        if "max(previous.available_after)" in statement:
+            self.saw_signal_query = (
+                "decision.decision_kind = 'need_information'" in statement
+                and "input.received_at > decision.decided_at" in statement
+            )
+            return _Cursor(
+                (
+                    self.activity_id,
+                    self.revision_id,
+                    1,
+                    "ready",
+                    datetime.now(UTC) - timedelta(minutes=2),
+                    datetime.now(UTC) - timedelta(minutes=1),
+                    None,
+                    None,
+                    False,
+                    "review evidence over time",
+                    None,
+                    "classify one example",
+                    None,
+                    None,
+                )
+            )
+        if "INSERT INTO armi.opportunities" in statement:
+            self.insert_count += 1
+            if self.insert_count == 1:
+                self.source_digest = cast(str, parameters[5])
+                return _Cursor(None)
+            self.retry_id = cast(UUID, parameters[0])
+            return _Cursor((self.retry_id,))
+        if "SELECT root.opportunity_id" in statement:
+            assert self.source_digest is not None
+            return _Cursor((self.root_id, self.source_digest, "resolved", True, None))
+        raise AssertionError(statement)
+
+
+def test_attention_need_information_retries_after_new_creator_input() -> None:
+    connection = _AttentionRetryConnection(activity_id=uuid7(), revision_id=uuid7())
+    unit_of_work = _UnitOfWork(cast(_Connection, connection))
+
+    outcome = asyncio.run(
+        PostgreSQLLifeOpportunityRepository().admit_activity_attention(
+            cast(PostgreSQLUnitOfWork, unit_of_work),
+            model_concurrency=2,
+        )
+    )
+
+    assert outcome.status is OpportunityAdmissionStatus.ADMITTED
+    assert outcome.opportunity_id == connection.retry_id
+    assert connection.saw_signal_query
     assert len(unit_of_work.audit.events) == 1
 
 
