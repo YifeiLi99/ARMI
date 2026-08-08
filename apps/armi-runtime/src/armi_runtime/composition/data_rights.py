@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
@@ -15,8 +16,14 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CreatorEventResourceKind,
+    CreatorProjectionInvalidation,
+    CreatorProjectionNotifier,
+    DataRightsDeletionItemResult,
     DataRightsExecutionStatus,
+    DataRightsItemStatus,
     DataRightsOrderCommand,
+    DataRightsOrderDetail,
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResult,
@@ -28,7 +35,7 @@ from armi_kernel.application import (
     OtherHumanPartyKey,
     RuntimeFence,
 )
-from armi_kernel.contracts import Digest, Purpose
+from armi_kernel.contracts import Digest, Instant, Purpose
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
@@ -46,7 +53,13 @@ from .data_deletion import LocalDataDeletionExecutor
 
 
 class DataRightsOrderService(DataRightsOrderPort):
-    __slots__ = ("_creator_party_id", "_deletion", "_repository", "_uow_factory")
+    __slots__ = (
+        "_creator_party_id",
+        "_deletion",
+        "_notifier",
+        "_repository",
+        "_uow_factory",
+    )
 
     def __init__(
         self,
@@ -55,6 +68,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         deletion: LocalDataDeletionExecutor,
         repository: DataRightsOrderRepository,
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+        notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         if creator_party_id.version != 7:
             raise DataRightsViolation("DATA-RIGHTS-COMPOSITION")
@@ -62,6 +76,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self._deletion = deletion
         self._repository = repository
         self._uow_factory = unit_of_work_factory
+        self._notifier = notifier
 
     async def open(self) -> None:
         try:
@@ -142,7 +157,7 @@ class DataRightsOrderService(DataRightsOrderPort):
             )
             if refreshed is None:
                 raise DataRightsViolation("DATA-RIGHTS-STATE")
-            return DataRightsOrderResult(
+            final = DataRightsOrderResult(
                 refreshed.order_id,
                 refreshed.requester_party_id,
                 refreshed.requester_kind,
@@ -156,7 +171,153 @@ class DataRightsOrderService(DataRightsOrderPort):
                 refreshed.completed_at,
                 result.newly_created,
             )
+            await self._notify(final.order_id)
+            return final
+        if result.newly_created:
+            await self._notify(result.order_id)
         return result
+
+    async def list_creator(self) -> tuple[DataRightsOrderDetail, ...]:
+        return await self._list(requester_party_id=None)
+
+    async def detail_creator(self, order_id: UUID) -> DataRightsOrderDetail | None:
+        return await self._detail(order_id=order_id, requester_party_id=None)
+
+    async def list_other_human(
+        self, party_key: OtherHumanPartyKey
+    ) -> tuple[DataRightsOrderDetail, ...]:
+        if type(party_key) is not OtherHumanPartyKey:
+            raise DataRightsViolation("DATA-RIGHTS-REQUESTER")
+        return await self._list_for_other(party_key)
+
+    async def detail_other_human(
+        self, party_key: OtherHumanPartyKey, order_id: UUID
+    ) -> DataRightsOrderDetail | None:
+        if type(party_key) is not OtherHumanPartyKey:
+            raise DataRightsViolation("DATA-RIGHTS-REQUESTER")
+        return await self._detail_for_other(party_key, order_id)
+
+    async def _list_for_other(
+        self, party_key: OtherHumanPartyKey
+    ) -> tuple[DataRightsOrderDetail, ...]:
+        try:
+            async with self._uow_factory.unit_of_work(
+                LockPlan(), read_only=True
+            ) as unit:
+                party_id = await self._requester_party(
+                    unit, DataRightsRequesterKind.OTHER_HUMAN, party_key
+                )
+                return await self._details(unit, party_id)
+        except DataRightsViolation:
+            raise
+        except DatabaseTransactionError:
+            raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+
+    async def _detail_for_other(
+        self, party_key: OtherHumanPartyKey, order_id: UUID
+    ) -> DataRightsOrderDetail | None:
+        if type(order_id) is not UUID or order_id.version != 7:
+            raise DataRightsViolation("DATA-RIGHTS-ORDER-ID")
+        try:
+            async with self._uow_factory.unit_of_work(
+                LockPlan(), read_only=True
+            ) as unit:
+                party_id = await self._requester_party(
+                    unit, DataRightsRequesterKind.OTHER_HUMAN, party_key
+                )
+                return await self._detail_in_unit(unit, order_id, party_id)
+        except DataRightsViolation:
+            raise
+        except DatabaseTransactionError:
+            raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+
+    async def _list(
+        self, requester_party_id: UUID | None
+    ) -> tuple[DataRightsOrderDetail, ...]:
+        try:
+            async with self._uow_factory.unit_of_work(
+                LockPlan(), read_only=True
+            ) as unit:
+                return await self._details(unit, requester_party_id)
+        except DatabaseTransactionError:
+            raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+
+    async def _detail(
+        self, *, order_id: UUID, requester_party_id: UUID | None
+    ) -> DataRightsOrderDetail | None:
+        if type(order_id) is not UUID or order_id.version != 7:
+            raise DataRightsViolation("DATA-RIGHTS-ORDER-ID")
+        try:
+            async with self._uow_factory.unit_of_work(
+                LockPlan(), read_only=True
+            ) as unit:
+                return await self._detail_in_unit(unit, order_id, requester_party_id)
+        except DatabaseTransactionError:
+            raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+
+    async def _details(
+        self, unit: PostgreSQLUnitOfWork, requester_party_id: UUID | None
+    ) -> tuple[DataRightsOrderDetail, ...]:
+        orders = await self._repository.list_orders(
+            unit, requester_party_id=requester_party_id
+        )
+        return tuple(
+            [await self._detail_from_snapshot(unit, order) for order in orders]
+        )
+
+    async def _detail_in_unit(
+        self,
+        unit: PostgreSQLUnitOfWork,
+        order_id: UUID,
+        requester_party_id: UUID | None,
+    ) -> DataRightsOrderDetail | None:
+        snapshot = (
+            await self._repository.get_any(unit, order_id)
+            if requester_party_id is None
+            else await self._repository.get(
+                unit, requester_party_id=requester_party_id, order_id=order_id
+            )
+        )
+        return (
+            None
+            if snapshot is None
+            else await self._detail_from_snapshot(unit, snapshot)
+        )
+
+    async def _detail_from_snapshot(
+        self, unit: PostgreSQLUnitOfWork, snapshot: DataRightsOrderSnapshot
+    ) -> DataRightsOrderDetail:
+        items = await self._repository.deletion_items(unit, snapshot.order_id)
+        return DataRightsOrderDetail(
+            order=self._result(snapshot, False),
+            items=tuple(
+                DataRightsDeletionItemResult(
+                    item.item_id,
+                    item.target_kind,
+                    item.required_action,
+                    DataRightsItemStatus(item.result_status),
+                    item.remaining_location,
+                    item.created_at,
+                    item.completed_at,
+                )
+                for item in items
+            ),
+        )
+
+    async def _notify(self, order_id: UUID) -> None:
+        if self._notifier is None:
+            return
+        try:
+            await self._notifier.notify(
+                CreatorProjectionInvalidation(
+                    CreatorEventResourceKind.DATA_RIGHTS,
+                    str(order_id),
+                    Instant(datetime.now(UTC)),
+                    "data-rights-order.v2",
+                )
+            )
+        except Exception:
+            return
 
     async def _record_request(
         self,
@@ -347,6 +508,7 @@ def build_data_rights_order_service(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsOrderService:
     unit_of_work_factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
@@ -370,6 +532,7 @@ def build_data_rights_order_service(
         deletion=deletion,
         repository=DataRightsOrderRepository(),
         unit_of_work_factory=unit_of_work_factory,
+        notifier=notifier,
     )
 
 

@@ -45,6 +45,7 @@ class CreatorEventResourceKind(StrEnum):
     OTHER_HUMAN_RECORD = "other_human_record"
     EFFECT = "effect"
     SUBJECT_SUMMARY = "subject_summary"
+    DATA_RIGHTS = "data_rights"
 
 
 _PROJECTIONS = {
@@ -59,6 +60,7 @@ _PROJECTIONS = {
     CreatorEventResourceKind.OTHER_HUMAN_RECORD: "other-human-record.v1",
     CreatorEventResourceKind.EFFECT: "creator-effect.v2",
     CreatorEventResourceKind.SUBJECT_SUMMARY: "subject-summary.v1",
+    CreatorEventResourceKind.DATA_RIGHTS: "data-rights-order.v2",
 }
 
 

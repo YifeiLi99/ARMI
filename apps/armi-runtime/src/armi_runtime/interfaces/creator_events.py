@@ -35,6 +35,7 @@ EVENT_KINDS = {
     "other_human_record": "other_human.record.invalidated",
     "effect": "effect.invalidated",
     "subject_summary": "subject.summary.invalidated",
+    "data_rights": "data.rights.invalidated",
 }
 _EVENT_ID = re.compile(
     r"^sse-v1\.([A-Za-z0-9_-]{22})\.([1-9][0-9]*)$",

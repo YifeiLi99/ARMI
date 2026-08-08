@@ -243,6 +243,7 @@ def validate_openapi(schema: dict[str, object]) -> None:
         "createCreatorExport",
         "getCreatorExport",
         "createDataRightsOrder",
+        "listDataRightsOrders",
         "getDataRightsOrder",
         "listCapabilityRequests",
         "listCreatorActivities",

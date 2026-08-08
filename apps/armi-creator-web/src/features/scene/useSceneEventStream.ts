@@ -82,6 +82,7 @@ export function useSceneEventStream({
             "other-human-record-parties",
             "other-human-record-scenes",
             "other-human-record-timeline",
+            "data-rights-orders",
           ].includes(String(query.queryKey[0])),
       });
     }
@@ -151,6 +152,15 @@ export function useSceneEventStream({
             String(query.queryKey[0]).startsWith("other-human-record-") &&
             (query.queryKey[0] === "other-human-record-parties" ||
               query.queryKey.includes(resourceRef)),
+        });
+        return;
+      }
+      if (resourceKind === "data_rights") {
+        queryClient.removeQueries({
+          predicate: (query) => query.queryKey[0] !== "data-rights-orders",
+        });
+        await queryClient.resetQueries({
+          predicate: (query) => query.queryKey[0] === "data-rights-orders",
         });
         return;
       }

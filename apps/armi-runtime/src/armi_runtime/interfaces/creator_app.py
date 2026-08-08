@@ -57,6 +57,7 @@ from armi_kernel.application import (
     CreatorSceneStatusCommand,
     CreatorSceneView,
     DataRightsOrderCommand,
+    DataRightsOrderDetail,
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResult,
@@ -162,8 +163,12 @@ from .creator_contract import (
     CreatorSceneCollectionResponse,
     CreatorSceneCreateRequest,
     CreatorSceneResponse,
+    DataRightsDeletionItemResponse,
+    DataRightsOrderCollectionResponse,
+    DataRightsOrderDetailResponse,
     DataRightsOrderRequest,
     DataRightsOrderResponse,
+    DataRightsTimelineItemResponse,
     EffectResponse,
     LifeRecordItemResponse,
     LifeRecordPageResponse,
@@ -771,6 +776,74 @@ def _data_rights_response(result: DataRightsOrderResult) -> DataRightsOrderRespo
             None if result.completed_at is None else result.completed_at.to_wire()
         ),
         newly_created=result.newly_created,
+    )
+
+
+def _data_rights_detail_response(
+    detail: DataRightsOrderDetail,
+) -> DataRightsOrderDetailResponse:
+    order = detail.order
+    items = [
+        DataRightsDeletionItemResponse(
+            item_id=str(item.item_id),
+            target_kind=cast(Any, item.target_kind),
+            required_action=cast(Any, item.required_action),
+            result_status=item.result_status.value,
+            remaining_location=cast(Any, item.remaining_location),
+            created_at=item.created_at.to_wire(),
+            completed_at=None
+            if item.completed_at is None
+            else item.completed_at.to_wire(),
+        )
+        for item in detail.items
+    ]
+    timeline = [
+        DataRightsTimelineItemResponse(
+            event_kind="order_effective",
+            occurred_at=order.effective_at.to_wire(),
+            item_id=None,
+            status="effective",
+        )
+    ]
+    timeline.extend(
+        DataRightsTimelineItemResponse(
+            event_kind="item_status",
+            occurred_at=(item.completed_at or item.created_at).to_wire(),
+            item_id=str(item.item_id),
+            status=item.result_status.value,
+        )
+        for item in detail.items
+    )
+    timeline.sort(key=lambda item: (item.occurred_at, item.item_id or ""))
+    return DataRightsOrderDetailResponse(
+        contract_version="1.0",
+        projection_version="data-rights-order.v2",
+        order_id=str(order.order_id),
+        requester_party_id=str(order.requester_party_id),
+        requester_kind=order.requester_kind.value,
+        order_kind=order.order_kind.value,
+        scope_kind=order.scope_kind.value,
+        scope_party_id=str(order.scope_party_id),
+        status="effective",
+        execution_status=order.execution_status.value,
+        request_digest=order.request_digest.value,
+        effective_at=order.effective_at.to_wire(),
+        completed_at=None
+        if order.completed_at is None
+        else order.completed_at.to_wire(),
+        newly_created=order.newly_created,
+        items=items,
+        timeline=timeline,
+        remaining_locations=cast(
+            Any,
+            sorted(
+                {
+                    item.remaining_location
+                    for item in detail.items
+                    if item.remaining_location is not None
+                }
+            ),
+        ),
     )
 
 
@@ -1890,6 +1963,42 @@ def create_runtime_app(
 
     del create_creator_export, get_creator_export
 
+    @app.get("/v1/data-rights/orders")
+    async def list_creator_data_rights_orders(request: Request) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or data_rights is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            status = (
+                403 if browser_sessions is not None and data_rights is not None else 503
+            )
+            return JSONResponse(
+                status_code=status,
+                content=_rejected("AUTH_BROWSER_BOUNDARY")
+                if status == 403
+                else _unavailable("DEPENDENCY_DATA_RIGHTS_UNAVAILABLE"),
+            )
+        try:
+            token = _bearer(request)
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            details = await data_rights.list_creator()
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code, content=_rejected(error.code)
+            )
+        except DataRightsViolation as error:
+            return _data_rights_error(error)
+        return JSONResponse(
+            content=DataRightsOrderCollectionResponse(
+                contract_version="1.0",
+                projection_version="data-rights-order.v2",
+                orders=[_data_rights_detail_response(detail) for detail in details],
+            ).model_dump(mode="json")
+        )
+
     @app.post("/v1/data-rights/orders")
     async def create_creator_data_rights_order(request: Request) -> JSONResponse:
         if (
@@ -1969,7 +2078,7 @@ def create_runtime_app(
                 order_uuid = UUID(order_id)
             except ValueError:
                 raise DataRightsViolation("DATA-RIGHTS-ORDER-ID") from None
-            result = await data_rights.get_creator(order_uuid)
+            result = await data_rights.detail_creator(order_uuid)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -1983,10 +2092,11 @@ def create_runtime_app(
                 content=_rejected("SCOPE_DATA_RIGHTS_ORDER_NOT_FOUND"),
             )
         return JSONResponse(
-            content=_data_rights_response(result).model_dump(mode="json")
+            content=_data_rights_detail_response(result).model_dump(mode="json")
         )
 
-    del create_creator_data_rights_order, get_creator_data_rights_order
+    del list_creator_data_rights_orders, create_creator_data_rights_order
+    del get_creator_data_rights_order
 
     @app.get("/v1/capability-requests")
     async def list_capability_requests(request: Request) -> JSONResponse:
@@ -3803,6 +3913,29 @@ def create_runtime_app(
             content=_data_rights_response(result).model_dump(mode="json"),
         )
 
+    @app.get("/v1/local/other-humans/{party_key}/data-rights/orders")
+    async def list_other_human_data_rights_orders(party_key: str) -> JSONResponse:
+        if data_rights is None:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_DATA_RIGHTS_UNAVAILABLE"),
+            )
+        try:
+            details = await data_rights.list_other_human(OtherHumanPartyKey(party_key))
+        except (ValueError, DataRightsViolation) as error:
+            if isinstance(error, DataRightsViolation):
+                return _data_rights_error(error)
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_DATA_RIGHTS_INVALID")
+            )
+        return JSONResponse(
+            content=DataRightsOrderCollectionResponse(
+                contract_version="1.0",
+                projection_version="data-rights-order.v2",
+                orders=[_data_rights_detail_response(detail) for detail in details],
+            ).model_dump(mode="json")
+        )
+
     @app.get("/v1/local/other-humans/{party_key}/data-rights/orders/{order_id}")
     async def get_other_human_data_rights_order(
         party_key: str, order_id: str
@@ -3813,7 +3946,7 @@ def create_runtime_app(
                 content=_unavailable("DEPENDENCY_DATA_RIGHTS_UNAVAILABLE"),
             )
         try:
-            result = await data_rights.get_other_human(
+            result = await data_rights.detail_other_human(
                 OtherHumanPartyKey(party_key), UUID(order_id)
             )
         except (ValueError, ContractViolation, DataRightsViolation) as error:
@@ -3829,11 +3962,12 @@ def create_runtime_app(
                 content=_rejected("SCOPE_DATA_RIGHTS_ORDER_NOT_FOUND"),
             )
         return JSONResponse(
-            content=_data_rights_response(result).model_dump(mode="json")
+            content=_data_rights_detail_response(result).model_dump(mode="json")
         )
 
     del register_other_human_party, set_other_human_scene, accept_other_human_message
-    del create_other_human_data_rights_order, get_other_human_data_rights_order
+    del create_other_human_data_rights_order, list_other_human_data_rights_orders
+    del get_other_human_data_rights_order
 
     @app.post("/v1/scenes/{scene_key}/messages")
     async def accept_creator_message(

@@ -36,6 +36,14 @@ class DataRightsExecutionStatus(StrEnum):
     PARTIAL = "partial"
 
 
+class DataRightsItemStatus(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    TOO_LATE = "too_late"
+    UNKNOWN = "unknown"
+
+
 class DataRightsViolation(RuntimeError):
     __slots__ = ("code",)
 
@@ -117,6 +125,67 @@ class DataRightsOrderResult:
             raise DataRightsViolation("DATA-RIGHTS-RESULT")
 
 
+@dataclass(frozen=True, slots=True)
+class DataRightsDeletionItemResult:
+    item_id: UUID
+    target_kind: str
+    required_action: str
+    result_status: DataRightsItemStatus
+    remaining_location: str | None
+    created_at: Instant
+    completed_at: Instant | None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.item_id) is not UUID
+            or self.item_id.version != 7
+            or self.target_kind
+            not in {
+                "interaction",
+                "evidence",
+                "experience",
+                "memory",
+                "relationship",
+                "scene",
+                "artifact",
+                "effect",
+            }
+            or self.required_action not in {"delete", "tombstone", "retain"}
+            or type(self.result_status) is not DataRightsItemStatus
+            or self.remaining_location
+            not in {
+                None,
+                "shared_local_reference",
+                "objective_history",
+                "local_artifact_store",
+            }
+            or type(self.created_at) is not Instant
+            or (
+                self.completed_at is not None and type(self.completed_at) is not Instant
+            )
+            or (self.result_status is DataRightsItemStatus.PENDING)
+            != (self.completed_at is None)
+        ):
+            raise DataRightsViolation("DATA-RIGHTS-ITEM-RESULT")
+
+
+@dataclass(frozen=True, slots=True)
+class DataRightsOrderDetail:
+    order: DataRightsOrderResult
+    items: tuple[DataRightsDeletionItemResult, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.order) is not DataRightsOrderResult or any(
+            type(item) is not DataRightsDeletionItemResult for item in self.items
+        ):
+            raise DataRightsViolation("DATA-RIGHTS-DETAIL")
+        if (
+            self.order.order_kind is not DataRightsOrderKind.DELETE_RELATED
+            and self.items
+        ):
+            raise DataRightsViolation("DATA-RIGHTS-DETAIL")
+
+
 @runtime_checkable
 class DataRightsOrderPort(Protocol):
     async def request_creator(
@@ -137,10 +206,25 @@ class DataRightsOrderPort(Protocol):
         order_id: UUID,
     ) -> DataRightsOrderResult | None: ...
 
+    async def list_creator(self) -> tuple[DataRightsOrderDetail, ...]: ...
+
+    async def detail_creator(self, order_id: UUID) -> DataRightsOrderDetail | None: ...
+
+    async def list_other_human(
+        self, party_key: OtherHumanPartyKey
+    ) -> tuple[DataRightsOrderDetail, ...]: ...
+
+    async def detail_other_human(
+        self, party_key: OtherHumanPartyKey, order_id: UUID
+    ) -> DataRightsOrderDetail | None: ...
+
 
 __all__ = (
+    "DataRightsDeletionItemResult",
     "DataRightsExecutionStatus",
+    "DataRightsItemStatus",
     "DataRightsOrderCommand",
+    "DataRightsOrderDetail",
     "DataRightsOrderKind",
     "DataRightsOrderPort",
     "DataRightsOrderResult",

@@ -44,6 +44,9 @@ export type CreatorOperation =
 export type SubjectSummary = components["schemas"]["SubjectSummaryResponse"];
 export type CreatorPrompt = components["schemas"]["CreatorPromptResponse"];
 export type CreatorExport = components["schemas"]["CreatorExportResponse"];
+export type DataRightsOrder = components["schemas"]["DataRightsOrderResponse"];
+export type DataRightsOrderCollection =
+  components["schemas"]["DataRightsOrderCollectionResponse"];
 export type CapabilityRequestPage =
   components["schemas"]["CapabilityRequestPageResponse"];
 export type CapabilityRequest =
@@ -90,6 +93,36 @@ export async function getCreatorExport(
   signal?: AbortSignal,
 ): Promise<CreatorExport> {
   const response = await fetch(`/v1/exports/${encodeURIComponent(exportId)}`, {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function createDataRightsOrder(
+  token: string,
+  orderKind: "stop_contact" | "stop_use" | "delete_related",
+  idempotencyKey: string,
+): Promise<DataRightsOrder> {
+  const response = await fetch("/v1/data-rights/orders", {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify({ contract_version: "1.0", order_kind: orderKind }),
+  });
+  return requireJson(response);
+}
+
+export async function getDataRightsOrders(
+  token: string,
+  signal?: AbortSignal,
+): Promise<DataRightsOrderCollection> {
+  const response = await fetch("/v1/data-rights/orders", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),

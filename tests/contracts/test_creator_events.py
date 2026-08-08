@@ -100,6 +100,16 @@ class CreatorEventContractTests(unittest.TestCase):
         )
         self.assertEqual(invalidation.resource_ref, str(material_id))
 
+    def test_data_rights_invalidation_carries_only_order_identity(self) -> None:
+        order_id = uuid7()
+        invalidation = CreatorProjectionInvalidation(
+            resource_kind=CreatorEventResourceKind.DATA_RIGHTS,
+            resource_ref=str(order_id),
+            occurred_at=Instant(datetime(2026, 8, 8, tzinfo=UTC)),
+            projection_version="data-rights-order.v2",
+        )
+        self.assertEqual(invalidation.resource_ref, str(order_id))
+
 
 if __name__ == "__main__":
     unittest.main()

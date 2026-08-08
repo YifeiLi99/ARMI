@@ -1028,6 +1028,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "other_human.record.invalidated",
         "effect.invalidated",
         "subject.summary.invalidated",
+        "data.rights.invalidated",
     ]
     resource_kind: Literal[
         "activity",
@@ -1041,6 +1042,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "other_human_record",
         "effect",
         "subject_summary",
+        "data_rights",
     ]
     resource_ref: Annotated[str, Field(min_length=1, max_length=64)]
     projection_version: Literal[
@@ -1055,6 +1057,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "other-human-record.v1",
         "creator-effect.v2",
         "subject-summary.v1",
+        "data-rights-order.v2",
     ]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
@@ -1121,6 +1124,11 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             "subject_summary": (
                 "subject.summary.invalidated",
                 "subject-summary.v1",
+                _UUIDV7_PATTERN,
+            ),
+            "data_rights": (
+                "data.rights.invalidated",
+                "data-rights-order.v2",
                 _UUIDV7_PATTERN,
             ),
         }[self.resource_kind]
@@ -2056,6 +2064,98 @@ class DataRightsOrderResponse(_StrictWireModel):
         return self
 
 
+class DataRightsDeletionItemResponse(_StrictWireModel):
+    item_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    target_kind: Literal[
+        "interaction",
+        "evidence",
+        "experience",
+        "memory",
+        "relationship",
+        "scene",
+        "artifact",
+        "effect",
+    ]
+    required_action: Literal["delete", "tombstone", "retain"]
+    result_status: Literal["pending", "completed", "partial", "too_late", "unknown"]
+    remaining_location: (
+        Literal["shared_local_reference", "objective_history", "local_artifact_store"]
+        | None
+    )
+    created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+
+    @model_validator(mode="after")
+    def validate_item(self) -> DataRightsDeletionItemResponse:
+        UUID(self.item_id)
+        Instant.from_wire(self.created_at)
+        if self.completed_at is not None:
+            Instant.from_wire(self.completed_at)
+        if (self.result_status == "pending") != (self.completed_at is None):
+            raise ValueError("CON-DATA-RIGHTS-ITEM: settlement is inconsistent")
+        return self
+
+
+class DataRightsTimelineItemResponse(_StrictWireModel):
+    event_kind: Literal["order_effective", "item_status"]
+    occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    item_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
+    status: Literal[
+        "effective", "pending", "completed", "partial", "too_late", "unknown"
+    ]
+
+
+class DataRightsOrderDetailResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["data-rights-order.v2"]
+    order_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    requester_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    requester_kind: Literal["creator", "other_human"]
+    order_kind: Literal["stop_contact", "stop_use", "delete_related"]
+    scope_kind: Literal["party_contact", "party_local_data"]
+    scope_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    status: Literal["effective"]
+    execution_status: Literal[
+        "not_required", "pending", "executing", "completed", "partial"
+    ]
+    request_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]
+    effective_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+    newly_created: bool
+    items: list[DataRightsDeletionItemResponse]
+    timeline: Annotated[list[DataRightsTimelineItemResponse], Field(min_length=1)]
+    remaining_locations: Annotated[
+        list[
+            Literal[
+                "shared_local_reference", "objective_history", "local_artifact_store"
+            ]
+        ],
+        Field(max_length=3),
+    ]
+
+    @model_validator(mode="after")
+    def validate_detail(self) -> DataRightsOrderDetailResponse:
+        if self.requester_party_id != self.scope_party_id:
+            raise ValueError("CON-DATA-RIGHTS-SCOPE: scope must be requester-owned")
+        if (self.order_kind == "stop_contact") != (self.scope_kind == "party_contact"):
+            raise ValueError("CON-DATA-RIGHTS-SCOPE: scope is inconsistent")
+        if (self.order_kind == "delete_related") != (
+            self.execution_status != "not_required"
+        ):
+            raise ValueError("CON-DATA-RIGHTS-STATE: execution is inconsistent")
+        if (self.execution_status in {"completed", "partial"}) != (
+            self.completed_at is not None
+        ):
+            raise ValueError("CON-DATA-RIGHTS-STATE: completion is inconsistent")
+        return self
+
+
+class DataRightsOrderCollectionResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["data-rights-order.v2"]
+    orders: list[DataRightsOrderDetailResponse]
+
+
 def build_creator_openapi() -> dict[str, object]:
     """Build the schema locally without exporting or starting an ASGI app."""
 
@@ -2289,9 +2389,25 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.get(
+        "/v1/data-rights/orders",
+        operation_id="listDataRightsOrders",
+        response_model=DataRightsOrderCollectionResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def list_data_rights_orders() -> DataRightsOrderCollectionResponse:
+        raise NotImplementedError
+
+    del list_data_rights_orders
+
+    @app.get(
         "/v1/data-rights/orders/{order_id}",
         operation_id="getDataRightsOrder",
-        response_model=DataRightsOrderResponse,
+        response_model=DataRightsOrderDetailResponse,
         responses={
             400: {"model": RejectedOutcomeResponse},
             401: {"model": RejectedOutcomeResponse},
@@ -2301,7 +2417,7 @@ def build_creator_openapi() -> dict[str, object]:
         },
         dependencies=[Security(bearer)],
     )
-    async def get_data_rights_order(order_id: str) -> DataRightsOrderResponse:
+    async def get_data_rights_order(order_id: str) -> DataRightsOrderDetailResponse:
         del order_id
         raise NotImplementedError
 
@@ -3088,8 +3204,12 @@ __all__ = (
     "CreatorSceneCollectionResponse",
     "CreatorSceneCreateRequest",
     "CreatorSceneResponse",
+    "DataRightsDeletionItemResponse",
+    "DataRightsOrderCollectionResponse",
+    "DataRightsOrderDetailResponse",
     "DataRightsOrderRequest",
     "DataRightsOrderResponse",
+    "DataRightsTimelineItemResponse",
     "EffectResponse",
     "ErrorDescriptorResponse",
     "FailedOutcomeResponse",

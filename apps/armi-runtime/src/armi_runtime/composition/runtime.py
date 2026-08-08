@@ -342,18 +342,19 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 authority_admission=authority.require_writable,
             )
             await creator_export_service.open()
-            data_rights_order_service = compose_data_rights_order_service(
-                prepared,
-                creator_party_id=creator_context.party_id,
-                authority_admission=authority.require_writable,
-            )
-            await data_rights_order_service.open()
             creator_events = CreatorEventBroker(
                 diagnostic=lambda event: diagnostic.emit(
                     event,
                     result_code="CREATOR_EVENT_STREAM",
                 )
             )
+            data_rights_order_service = compose_data_rights_order_service(
+                prepared,
+                creator_party_id=creator_context.party_id,
+                authority_admission=authority.require_writable,
+                notifier=creator_events,
+            )
+            await data_rights_order_service.open()
             capability_policy = compose_capability_policy(
                 prepared,
                 authority_admission=authority.require_writable,

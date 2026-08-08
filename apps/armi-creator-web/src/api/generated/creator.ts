@@ -165,7 +165,8 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    get?: never;
+    /** List Data Rights Orders */
+    get: operations["listDataRightsOrders"];
     put?: never;
     /** Create Data Rights Order */
     post: operations["createDataRightsOrder"];
@@ -1424,7 +1425,8 @@ export interface components {
         | "operation.invalidated"
         | "other_human.record.invalidated"
         | "effect.invalidated"
-        | "subject.summary.invalidated";
+        | "subject.summary.invalidated"
+        | "data.rights.invalidated";
       /** Occurred At */
       occurred_at: string;
       /**
@@ -1442,7 +1444,8 @@ export interface components {
         | "creator-operation.v1"
         | "other-human-record.v1"
         | "creator-effect.v2"
-        | "subject-summary.v1";
+        | "subject-summary.v1"
+        | "data-rights-order.v2";
       /**
        * Resource Kind
        * @enum {string}
@@ -1458,7 +1461,8 @@ export interface components {
         | "operation"
         | "other_human_record"
         | "effect"
-        | "subject_summary";
+        | "subject_summary"
+        | "data_rights";
       /** Resource Ref */
       resource_ref: string;
     };
@@ -1753,6 +1757,123 @@ export interface components {
        */
       status: "open" | "closed";
     };
+    /** DataRightsDeletionItemResponse */
+    DataRightsDeletionItemResponse: {
+      /** Completed At */
+      completed_at: string | null;
+      /** Created At */
+      created_at: string;
+      /** Item Id */
+      item_id: string;
+      /** Remaining Location */
+      remaining_location:
+        | (
+            | "shared_local_reference"
+            | "objective_history"
+            | "local_artifact_store"
+          )
+        | null;
+      /**
+       * Required Action
+       * @enum {string}
+       */
+      required_action: "delete" | "tombstone" | "retain";
+      /**
+       * Result Status
+       * @enum {string}
+       */
+      result_status:
+        "pending" | "completed" | "partial" | "too_late" | "unknown";
+      /**
+       * Target Kind
+       * @enum {string}
+       */
+      target_kind:
+        | "interaction"
+        | "evidence"
+        | "experience"
+        | "memory"
+        | "relationship"
+        | "scene"
+        | "artifact"
+        | "effect";
+    };
+    /** DataRightsOrderCollectionResponse */
+    DataRightsOrderCollectionResponse: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Orders */
+      orders: components["schemas"]["DataRightsOrderDetailResponse"][];
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "data-rights-order.v2";
+    };
+    /** DataRightsOrderDetailResponse */
+    DataRightsOrderDetailResponse: {
+      /** Completed At */
+      completed_at: string | null;
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Effective At */
+      effective_at: string;
+      /**
+       * Execution Status
+       * @enum {string}
+       */
+      execution_status:
+        "not_required" | "pending" | "executing" | "completed" | "partial";
+      /** Items */
+      items: components["schemas"]["DataRightsDeletionItemResponse"][];
+      /** Newly Created */
+      newly_created: boolean;
+      /** Order Id */
+      order_id: string;
+      /**
+       * Order Kind
+       * @enum {string}
+       */
+      order_kind: "stop_contact" | "stop_use" | "delete_related";
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "data-rights-order.v2";
+      /** Remaining Locations */
+      remaining_locations: (
+        "shared_local_reference" | "objective_history" | "local_artifact_store"
+      )[];
+      /** Request Digest */
+      request_digest: string;
+      /**
+       * Requester Kind
+       * @enum {string}
+       */
+      requester_kind: "creator" | "other_human";
+      /** Requester Party Id */
+      requester_party_id: string;
+      /**
+       * Scope Kind
+       * @enum {string}
+       */
+      scope_kind: "party_contact" | "party_local_data";
+      /** Scope Party Id */
+      scope_party_id: string;
+      /**
+       * Status
+       * @constant
+       */
+      status: "effective";
+      /** Timeline */
+      timeline: components["schemas"]["DataRightsTimelineItemResponse"][];
+    };
     /** DataRightsOrderRequest */
     DataRightsOrderRequest: {
       /**
@@ -1818,6 +1939,29 @@ export interface components {
        * @constant
        */
       status: "effective";
+    };
+    /** DataRightsTimelineItemResponse */
+    DataRightsTimelineItemResponse: {
+      /**
+       * Event Kind
+       * @enum {string}
+       */
+      event_kind: "order_effective" | "item_status";
+      /** Item Id */
+      item_id: string | null;
+      /** Occurred At */
+      occurred_at: string;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status:
+        | "effective"
+        | "pending"
+        | "completed"
+        | "partial"
+        | "too_late"
+        | "unknown";
     };
     /** EffectResponse */
     EffectResponse: {
@@ -3105,6 +3249,53 @@ export interface operations {
       };
     };
   };
+  listDataRightsOrders: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DataRightsOrderCollectionResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
   createDataRightsOrder: {
     parameters: {
       query?: never;
@@ -3211,7 +3402,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["DataRightsOrderResponse"];
+          "application/json": components["schemas"]["DataRightsOrderDetailResponse"];
         };
       };
       /** @description Bad Request */

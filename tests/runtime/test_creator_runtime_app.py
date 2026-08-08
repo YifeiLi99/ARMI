@@ -50,6 +50,7 @@ from armi_kernel.application import (
     CreatorSceneView,
     DataRightsExecutionStatus,
     DataRightsOrderCommand,
+    DataRightsOrderDetail,
     DataRightsOrderKind,
     DataRightsOrderResult,
     DataRightsRequesterKind,
@@ -826,6 +827,33 @@ class _DataRightsOrders:
             else None
         )
 
+    async def list_creator(self) -> tuple[DataRightsOrderDetail, ...]:
+        return tuple(
+            DataRightsOrderDetail(result, ())
+            for result in reversed(tuple(self.results.values()))
+        )
+
+    async def detail_creator(self, order_id: UUID) -> DataRightsOrderDetail | None:
+        result = self.results.get(order_id)
+        return None if result is None else DataRightsOrderDetail(result, ())
+
+    async def list_other_human(
+        self, party_key: OtherHumanPartyKey
+    ) -> tuple[DataRightsOrderDetail, ...]:
+        if party_key.value != "friend-1":
+            raise DataRightsViolation("DATA-RIGHTS-REQUESTER-NOT-FOUND")
+        return tuple(
+            DataRightsOrderDetail(result, ())
+            for result in reversed(tuple(self.results.values()))
+            if result.requester_kind is DataRightsRequesterKind.OTHER_HUMAN
+        )
+
+    async def detail_other_human(
+        self, party_key: OtherHumanPartyKey, order_id: UUID
+    ) -> DataRightsOrderDetail | None:
+        result = await self.get_other_human(party_key, order_id)
+        return None if result is None else DataRightsOrderDetail(result, ())
+
     def _request(
         self,
         party_id: UUID,
@@ -1322,6 +1350,17 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/local/other-humans/friend-1/data-rights/orders/"
                 f"{other_order.json()['order_id']}"
             )
+            creator_results = client.get(
+                "/v1/data-rights/orders",
+                headers=self._browser_headers(session.json()["browser_session_token"]),
+            )
+            creator_reads_other = client.get(
+                f"/v1/data-rights/orders/{other_order.json()['order_id']}",
+                headers=self._browser_headers(session.json()["browser_session_token"]),
+            )
+            other_results = client.get(
+                "/v1/local/other-humans/friend-1/data-rights/orders"
+            )
             wrong_party = client.get(
                 "/v1/local/other-humans/stranger/data-rights/orders/"
                 f"{other_order.json()['order_id']}"
@@ -1337,6 +1376,12 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(other_order.json()["execution_status"], "pending")
         self.assertIsNone(other_order.json()["completed_at"])
         self.assertEqual(other_query.status_code, 200)
+        self.assertEqual(len(creator_results.json()["orders"]), 2)
+        self.assertEqual(creator_reads_other.json()["requester_kind"], "other_human")
+        self.assertEqual(len(other_results.json()["orders"]), 1)
+        self.assertEqual(
+            other_results.json()["orders"][0]["requester_kind"], "other_human"
+        )
         self.assertEqual(wrong_party.status_code, 404)
 
     def test_full_issue_exchange_status_and_logout_flow(self) -> None:

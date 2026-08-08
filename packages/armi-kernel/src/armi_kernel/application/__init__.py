@@ -213,8 +213,11 @@ from .credentials import (
     SecretHandle,
 )
 from .data_rights import (
+    DataRightsDeletionItemResult,
     DataRightsExecutionStatus,
+    DataRightsItemStatus,
     DataRightsOrderCommand,
+    DataRightsOrderDetail,
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResult,
@@ -648,8 +651,11 @@ __all__: tuple[str, ...] = (
     "CredentialLocator",
     "CredentialPort",
     "CredentialPurpose",
+    "DataRightsDeletionItemResult",
     "DataRightsExecutionStatus",
+    "DataRightsItemStatus",
     "DataRightsOrderCommand",
+    "DataRightsOrderDetail",
     "DataRightsOrderKind",
     "DataRightsOrderPort",
     "DataRightsOrderResult",

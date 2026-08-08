@@ -995,6 +995,7 @@ def compose_data_rights_order_service(
     *,
     creator_party_id: UUID,
     authority_admission: Callable[[], RuntimeFence],
+    notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsOrderService:
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
@@ -1024,6 +1025,7 @@ def compose_data_rights_order_service(
                     ),
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    notifier=notifier,
                 )
 
             return handle.consume(create)

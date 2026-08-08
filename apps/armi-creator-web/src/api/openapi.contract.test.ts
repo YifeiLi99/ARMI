@@ -41,6 +41,7 @@ describe("generated Creator OpenAPI types", () => {
       | "other_human.record.invalidated"
       | "effect.invalidated"
       | "subject.summary.invalidated"
+      | "data.rights.invalidated"
     >();
   });
 });

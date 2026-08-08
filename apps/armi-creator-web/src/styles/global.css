@@ -816,6 +816,42 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.data-rights-order {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.data-rights-order h3 {
+  margin: 0 0 0.65rem;
+}
+
+.data-rights-timeline {
+  display: grid;
+  gap: 0.45rem;
+  padding-left: 1.2rem;
+}
+
+.data-rights-timeline li {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.data-rights-timeline time {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.confirmation-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.confirmation-row input {
+  width: auto;
+}
+
 .capability-list {
   display: grid;
   gap: 1rem;

@@ -190,6 +190,14 @@ function promptResponse(): object {
   };
 }
 
+function dataRightsResponse(): object {
+  return {
+    contract_version: "1.0",
+    projection_version: "data-rights-order.v2",
+    orders: [],
+  };
+}
+
 function optionalLifeProjectionResponse(url: string): Response | undefined {
   if (url === "/v1/scenes") {
     return jsonResponse({
@@ -307,6 +315,7 @@ describe("Creator browser session shell", () => {
         }),
       )
       .mockResolvedValueOnce(jsonResponse(promptResponse()))
+      .mockResolvedValueOnce(jsonResponse(dataRightsResponse()))
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
@@ -330,7 +339,7 @@ describe("Creator browser session shell", () => {
     expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
     expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(14);
+    expect(fetchMock).toHaveBeenCalledTimes(15);
     expect(screen.getByText("权威版本")).toBeInTheDocument();
   });
 
@@ -420,6 +429,7 @@ describe("Creator browser session shell", () => {
         }),
       )
       .mockResolvedValueOnce(jsonResponse(promptResponse()))
+      .mockResolvedValueOnce(jsonResponse(dataRightsResponse()))
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
@@ -519,6 +529,7 @@ describe("Creator browser session shell", () => {
         }),
       )
       .mockResolvedValueOnce(jsonResponse(promptResponse()))
+      .mockResolvedValueOnce(jsonResponse(dataRightsResponse()))
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
@@ -556,7 +567,7 @@ describe("Creator browser session shell", () => {
     await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(15);
+    expect(fetchMock).toHaveBeenCalledTimes(16);
   });
 
   it("uses an Activity invalidation only to refetch its read projection", async () => {

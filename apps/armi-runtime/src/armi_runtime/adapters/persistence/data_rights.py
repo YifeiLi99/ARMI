@@ -34,6 +34,17 @@ class DataRightsOrderSnapshot:
     completed_at: Instant | None
 
 
+@dataclass(frozen=True, slots=True)
+class DataRightsDeletionItemSnapshot:
+    item_id: UUID
+    target_kind: str
+    required_action: str
+    result_status: str
+    remaining_location: str | None
+    created_at: Instant
+    completed_at: Instant | None
+
+
 class DataRightsOrderRepository:
     __slots__ = ()
 
@@ -173,6 +184,78 @@ class DataRightsOrderRepository:
         ).fetchone()
         return None if row is None else _snapshot(row)
 
+    async def list_orders(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        requester_party_id: UUID | None,
+    ) -> tuple[DataRightsOrderSnapshot, ...]:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        scope = "" if requester_party_id is None else "WHERE requester_party_id = %s"
+        parameters: tuple[object, ...] = (
+            () if requester_party_id is None else (requester_party_id,)
+        )
+        rows = await (
+            await connection.execute(
+                f"""
+                SELECT deletion_order_id, requester_party_id, requester_kind,
+                       order_kind, scope_kind, scope_party_id, execution_status,
+                       idempotency_key, request_digest, effective_at, completed_at
+                FROM armi.deletion_orders
+                {scope}
+                ORDER BY effective_at DESC, deletion_order_id DESC
+                """,
+                parameters,
+            )
+        ).fetchall()
+        return tuple(_snapshot(row) for row in rows)
+
+    async def get_any(
+        self, unit_of_work: PostgreSQLUnitOfWork, order_id: UUID
+    ) -> DataRightsOrderSnapshot | None:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                SELECT deletion_order_id, requester_party_id, requester_kind,
+                       order_kind, scope_kind, scope_party_id, execution_status,
+                       idempotency_key, request_digest, effective_at, completed_at
+                FROM armi.deletion_orders WHERE deletion_order_id = %s
+                """,
+                (order_id,),
+            )
+        ).fetchone()
+        return None if row is None else _snapshot(row)
+
+    async def deletion_items(
+        self, unit_of_work: PostgreSQLUnitOfWork, order_id: UUID
+    ) -> tuple[DataRightsDeletionItemSnapshot, ...]:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        rows = await (
+            await connection.execute(
+                """
+                SELECT deletion_item_id, target_kind, required_action,
+                       result_status, remaining_location, created_at, completed_at
+                FROM armi.deletion_items
+                WHERE deletion_order_id = %s
+                ORDER BY created_at, deletion_item_id
+                """,
+                (order_id,),
+            )
+        ).fetchall()
+        return tuple(
+            DataRightsDeletionItemSnapshot(
+                item_id=row[0],
+                target_kind=str(row[1]),
+                required_action=str(row[2]),
+                result_status=str(row[3]),
+                remaining_location=None if row[4] is None else str(row[4]),
+                created_at=Instant(row[5]),
+                completed_at=None if row[6] is None else Instant(row[6]),
+            )
+            for row in rows
+        )
+
     async def blocks_new_interaction(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
@@ -217,4 +300,8 @@ def _snapshot(row: tuple[Any, ...]) -> DataRightsOrderSnapshot:
     )
 
 
-__all__ = ("DataRightsOrderRepository", "DataRightsOrderSnapshot")
+__all__ = (
+    "DataRightsDeletionItemSnapshot",
+    "DataRightsOrderRepository",
+    "DataRightsOrderSnapshot",
+)

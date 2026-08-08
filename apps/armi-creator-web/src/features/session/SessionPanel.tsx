@@ -25,6 +25,7 @@ import { RelationshipPanel } from "../relationship/RelationshipPanel";
 import { CapabilityInbox } from "../capability/CapabilityInbox";
 import { EffectDetail } from "../effect/EffectDetail";
 import { ExportPanel } from "../export/ExportPanel";
+import { DataRightsPanel } from "../dataRights/DataRightsPanel";
 import { OperationPanel } from "../operation/OperationPanel";
 import { OtherHumanRecordPanel } from "../otherHuman/OtherHumanRecordPanel";
 import { PromptPanel } from "../prompt/PromptPanel";
@@ -358,6 +359,12 @@ export function SessionPanel() {
           />
           <ExportPanel
             token={view.stored.token}
+            onUnauthorized={unauthorized}
+          />
+          <DataRightsPanel
+            token={view.stored.token}
+            environmentId={view.session.environment_id}
+            creatorPartyId={view.session.creator_party_id}
             onUnauthorized={unauthorized}
           />
           <MaintenancePanel
