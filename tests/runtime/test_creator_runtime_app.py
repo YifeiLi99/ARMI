@@ -48,6 +48,13 @@ from armi_kernel.application import (
     CreatorSceneCreateCommand,
     CreatorSceneStatusCommand,
     CreatorSceneView,
+    DataRightsExecutionStatus,
+    DataRightsOrderCommand,
+    DataRightsOrderKind,
+    DataRightsOrderResult,
+    DataRightsRequesterKind,
+    DataRightsScopeKind,
+    DataRightsViolation,
     EffectArtifactKind,
     EvidenceId,
     LifeMaterialKind,
@@ -68,6 +75,7 @@ from armi_kernel.application import (
     OtherHumanInputCommand,
     OtherHumanInputViolation,
     OtherHumanInteractionId,
+    OtherHumanPartyKey,
     OtherHumanPartyRecord,
     OtherHumanPartyRecordPage,
     OtherHumanPartyView,
@@ -774,6 +782,101 @@ class _CreatorExport:
         return self.results.get(export_id)
 
 
+class _DataRightsOrders:
+    def __init__(self, other_party_id: UUID) -> None:
+        self.other_party_id = other_party_id
+        self.results: dict[UUID, DataRightsOrderResult] = {}
+        self.idempotent: dict[tuple[UUID, str], DataRightsOrderResult] = {}
+
+    async def request_creator(
+        self, command: DataRightsOrderCommand
+    ) -> DataRightsOrderResult:
+        return self._request(UUID(CREATOR_ID), DataRightsRequesterKind.CREATOR, command)
+
+    async def request_other_human(
+        self, party_key: OtherHumanPartyKey, command: DataRightsOrderCommand
+    ) -> DataRightsOrderResult:
+        if party_key.value != "friend-1":
+            raise DataRightsViolation("DATA-RIGHTS-REQUESTER-NOT-FOUND")
+        return self._request(
+            self.other_party_id,
+            DataRightsRequesterKind.OTHER_HUMAN,
+            command,
+        )
+
+    async def get_creator(self, order_id: UUID) -> DataRightsOrderResult | None:
+        result = self.results.get(order_id)
+        return (
+            result
+            if result is not None
+            and result.requester_kind is DataRightsRequesterKind.CREATOR
+            else None
+        )
+
+    async def get_other_human(
+        self, party_key: OtherHumanPartyKey, order_id: UUID
+    ) -> DataRightsOrderResult | None:
+        if party_key.value != "friend-1":
+            raise DataRightsViolation("DATA-RIGHTS-REQUESTER-NOT-FOUND")
+        result = self.results.get(order_id)
+        return (
+            result
+            if result is not None
+            and result.requester_kind is DataRightsRequesterKind.OTHER_HUMAN
+            else None
+        )
+
+    def _request(
+        self,
+        party_id: UUID,
+        requester_kind: DataRightsRequesterKind,
+        command: DataRightsOrderCommand,
+    ) -> DataRightsOrderResult:
+        key = (party_id, command.idempotency_key.value)
+        existing = self.idempotent.get(key)
+        if existing is not None:
+            return DataRightsOrderResult(
+                existing.order_id,
+                existing.requester_party_id,
+                existing.requester_kind,
+                existing.order_kind,
+                existing.scope_kind,
+                existing.scope_party_id,
+                existing.status,
+                existing.execution_status,
+                existing.request_digest,
+                existing.effective_at,
+                existing.completed_at,
+                False,
+            )
+        now = Instant(datetime.now(UTC))
+        result = DataRightsOrderResult(
+            uuid7(),
+            party_id,
+            requester_kind,
+            command.order_kind,
+            (
+                DataRightsScopeKind.PARTY_CONTACT
+                if command.order_kind is DataRightsOrderKind.STOP_CONTACT
+                else DataRightsScopeKind.PARTY_LOCAL_DATA
+            ),
+            party_id,
+            "effective",
+            (
+                DataRightsExecutionStatus.PENDING
+                if command.order_kind is DataRightsOrderKind.DELETE_RELATED
+                else DataRightsExecutionStatus.NOT_REQUIRED
+            ),
+            Digest.from_bytes(command.order_kind.value.encode()),
+            now,
+            None,
+            True,
+        )
+        self.idempotent[key] = result
+        self.results[result.order_id] = result
+        return result
+
+
 class CreatorRuntimeAppTests(unittest.TestCase):
     def setUp(self) -> None:
         self.lifecycle = LifecycleController(environment_id=ENVIRONMENT_ID)
@@ -801,6 +904,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.events = CreatorEventBroker(epoch=b"\x06" * 16)
         self.creator_input = _CreatorInput()
         self.other_human_input = _OtherHumanInput()
+        self.data_rights = _DataRightsOrders(self.other_human_input.party_id)
         self.other_human_record_query = _OtherHumanRecordQuery()
         self.creator_scenes = _CreatorScenes()
         self.creator_codex_task = _CreatorCodexTask()
@@ -868,6 +972,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_operations=self.creator_input,
             creator_prompt=self.creator_prompt,
             creator_export=self.creator_export,
+            data_rights=self.data_rights,
             capability_policy=self.capability_policy,
         )
 
@@ -1177,6 +1282,62 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(invalid.status_code, 400)
         self.assertEqual(wrong_origin.status_code, 403)
         self.assertEqual(len(self.creator_export.commands), 1)
+
+    def test_creator_and_other_human_data_rights_are_requester_scoped(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            issued = client.post(
+                "/v1/browser-bootstrap-codes",
+                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+                content=b"",
+            )
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+            )
+            creator_headers = {
+                **self._browser_headers(session.json()["browser_session_token"]),
+                "Idempotency-Key": "creator-stop-use-1",
+            }
+            creator_order = client.post(
+                "/v1/data-rights/orders",
+                headers=creator_headers,
+                json={"contract_version": "1.0", "order_kind": "stop_use"},
+            )
+            creator_repeat = client.post(
+                "/v1/data-rights/orders",
+                headers=creator_headers,
+                json={"contract_version": "1.0", "order_kind": "stop_use"},
+            )
+            creator_query = client.get(
+                f"/v1/data-rights/orders/{creator_order.json()['order_id']}",
+                headers=self._browser_headers(session.json()["browser_session_token"]),
+            )
+            other_order = client.post(
+                "/v1/local/other-humans/friend-1/data-rights/orders",
+                headers={"Idempotency-Key": "friend-delete-1"},
+                json={"order_kind": "delete_related"},
+            )
+            other_query = client.get(
+                "/v1/local/other-humans/friend-1/data-rights/orders/"
+                f"{other_order.json()['order_id']}"
+            )
+            wrong_party = client.get(
+                "/v1/local/other-humans/stranger/data-rights/orders/"
+                f"{other_order.json()['order_id']}"
+            )
+
+        self.assertEqual(creator_order.status_code, 201)
+        self.assertEqual(creator_order.json()["scope_kind"], "party_local_data")
+        self.assertEqual(creator_order.json()["execution_status"], "not_required")
+        self.assertEqual(creator_repeat.status_code, 200)
+        self.assertFalse(creator_repeat.json()["newly_created"])
+        self.assertEqual(creator_query.status_code, 200)
+        self.assertEqual(other_order.status_code, 201)
+        self.assertEqual(other_order.json()["execution_status"], "pending")
+        self.assertIsNone(other_order.json()["completed_at"])
+        self.assertEqual(other_query.status_code, 200)
+        self.assertEqual(wrong_party.status_code, 404)
 
     def test_full_issue_exchange_status_and_logout_flow(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

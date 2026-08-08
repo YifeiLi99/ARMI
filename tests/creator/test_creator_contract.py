@@ -94,6 +94,8 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/prompts/creator-guidance/deactivation",
                 "/v1/exports",
                 "/v1/exports/{export_id}",
+                "/v1/data-rights/orders",
+                "/v1/data-rights/orders/{order_id}",
                 "/v1/effects/{effect_id}",
                 "/v1/effects/{effect_id}/artifacts/{artifact_kind}",
                 "/v1/subject/summary",
@@ -154,6 +156,18 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(export_query["operationId"], "getCreatorExport")
         self.assertEqual(
             set(export_query["responses"]),
+            {"200", "400", "401", "403", "404", "503"},
+        )
+        data_rights = paths["/v1/data-rights/orders"]["post"]
+        self.assertEqual(data_rights["operationId"], "createDataRightsOrder")
+        self.assertEqual(
+            set(data_rights["responses"]),
+            {"200", "201", "400", "401", "403", "409", "413", "503"},
+        )
+        data_rights_query = paths["/v1/data-rights/orders/{order_id}"]["get"]
+        self.assertEqual(data_rights_query["operationId"], "getDataRightsOrder")
+        self.assertEqual(
+            set(data_rights_query["responses"]),
             {"200", "400", "401", "403", "404", "503"},
         )
         timeline = paths["/v1/scenes/{scene_key}/timeline"]["get"]

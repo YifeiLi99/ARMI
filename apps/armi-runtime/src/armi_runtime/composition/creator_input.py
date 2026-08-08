@@ -50,6 +50,7 @@ from armi_runtime.adapters.persistence.creator_input import (
     CreatorInputContext,
     CreatorInputRepository,
 )
+from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWork,
     PostgreSQLUnitOfWorkFactory,
@@ -80,6 +81,7 @@ class EvidenceAcceptanceTransaction(
     __slots__ = (
         "_catalog",
         "_creator_party_id",
+        "_data_rights",
         "_diagnostic",
         "_fault_injector",
         "_notifier",
@@ -105,6 +107,7 @@ class EvidenceAcceptanceTransaction(
         if creator_party_id.version != 7:
             raise CreatorInputViolation("CON-INPUT-CREATOR")
         self._creator_party_id = creator_party_id
+        self._data_rights = DataRightsOrderRepository()
         self._storage = storage
         self._catalog = catalog
         self._repository = repository
@@ -244,6 +247,10 @@ class EvidenceAcceptanceTransaction(
             )
             if existing is not None:
                 return existing
+            if await self._data_rights.blocks_new_interaction(
+                unit_of_work, self._creator_party_id
+            ):
+                raise CreatorInputViolation("SCOPE-DATA-RIGHTS-BLOCKED")
             registration = await self._catalog.register(
                 unit_of_work,
                 ArtifactId(uuid7()),

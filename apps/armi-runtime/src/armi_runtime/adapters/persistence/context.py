@@ -233,6 +233,28 @@ class PostgreSQLContextRepository:
                       , 'consider_other_human_input'
                   )
                   AND opportunity.available_after <= transaction_timestamp()
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM armi.deletion_orders AS deletion_order
+                      WHERE deletion_order.requester_party_id = COALESCE(
+                                opportunity.other_party_id,
+                                opportunity.creator_party_id
+                            )
+                        AND deletion_order.status = 'effective'
+                        AND (
+                            deletion_order.order_kind IN (
+                                'stop_use', 'delete_related'
+                            )
+                            OR (
+                                deletion_order.order_kind = 'stop_contact'
+                                AND opportunity.purpose IN (
+                                    'consider_creator_input',
+                                    'consider_other_human_input',
+                                    'consider_creator_outreach'
+                                )
+                            )
+                        )
+                  )
                   AND (
                       opportunity.expires_at IS NULL
                       OR opportunity.expires_at > transaction_timestamp()
@@ -789,9 +811,7 @@ class PostgreSQLContextRepository:
                     "scene_kind": str(row[16]),
                     "audience_scope": str(row[17]),
                     "status": str(row[18]),
-                    "primary_party_id": str(
-                        row[37] if row[37] is not None else row[4]
-                    ),
+                    "primary_party_id": str(row[37] if row[37] is not None else row[4]),
                 }
             )
         )

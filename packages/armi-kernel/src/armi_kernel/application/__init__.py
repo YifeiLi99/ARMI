@@ -212,6 +212,16 @@ from .credentials import (
     CredentialPurpose,
     SecretHandle,
 )
+from .data_rights import (
+    DataRightsExecutionStatus,
+    DataRightsOrderCommand,
+    DataRightsOrderKind,
+    DataRightsOrderPort,
+    DataRightsOrderResult,
+    DataRightsRequesterKind,
+    DataRightsScopeKind,
+    DataRightsViolation,
+)
 from .durable_work import (
     DurableWorkPort,
     DurableWorkWriter,
@@ -638,6 +648,14 @@ __all__: tuple[str, ...] = (
     "CredentialLocator",
     "CredentialPort",
     "CredentialPurpose",
+    "DataRightsExecutionStatus",
+    "DataRightsOrderCommand",
+    "DataRightsOrderKind",
+    "DataRightsOrderPort",
+    "DataRightsOrderResult",
+    "DataRightsRequesterKind",
+    "DataRightsScopeKind",
+    "DataRightsViolation",
     "DurableWorkPort",
     "DurableWorkWriter",
     "EffectAdapterReceipt",

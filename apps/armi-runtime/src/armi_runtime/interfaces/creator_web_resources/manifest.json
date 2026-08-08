@@ -33,11 +33,11 @@
   "entrypoint": "static/index.html",
   "generated_types": {
     "path": "apps/armi-creator-web/src/api/generated/creator.ts",
-    "sha256": "e9be390902d9db3f37715498a64c01c521a0b9c4fe1498cc899a742fff5c6c0a"
+    "sha256": "08514ce3c00723b7964679fd86bbe12ac839bc90fd6432913c5912d80d611927"
   },
   "openapi": {
     "path": "openapi.json",
-    "sha256": "2904d7816b40b78a00309bb575184a0c62e8907d8a086d8d9063575573e12f12"
+    "sha256": "396a9c4d2753d1ad8bd46084f9e17c823f878873f6b91771b672f1bfd627cd7b"
   },
   "package_lock_sha256": "fcbf9d8b21e025af368f76edf270fffd54cc24ffa5c3f7a0a4ee57328ab59ae4",
   "runtime_discovery": false,

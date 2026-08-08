@@ -19,6 +19,7 @@ from armi_kernel.application import (
     CreatorRelationshipViolation,
     CredentialPort,
     CredentialPurpose,
+    DataRightsViolation,
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeViolation,
@@ -91,6 +92,7 @@ from .creator_input import (
 )
 from .creator_prompts import CreatorPromptService, build_creator_prompt_service
 from .creator_scenes import CreatorSceneService, build_creator_scene_service
+from .data_rights import DataRightsOrderService, build_data_rights_order_service
 from .effect_pipeline import (
     EffectRegistrationPipeline,
     build_effect_registration_pipeline,
@@ -988,6 +990,45 @@ def compose_creator_export_service(
         raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
 
+def compose_data_rights_order_service(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+    authority_admission: Callable[[], RuntimeFence],
+) -> DataRightsOrderService:
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> DataRightsOrderService:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+                config = prepared.effective.config
+                return build_data_rights_order_service(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+
+
 def compose_life_opportunity_pipeline(
     prepared: PreparedEnvironment,
     *,
@@ -1630,6 +1671,7 @@ __all__ = (
     "compose_creator_prompt_service",
     "compose_creator_relationship_query",
     "compose_creator_scene_service",
+    "compose_data_rights_order_service",
     "compose_effect_registration_pipeline",
     "compose_exact_life_query_pipeline",
     "compose_life_opportunity_pipeline",

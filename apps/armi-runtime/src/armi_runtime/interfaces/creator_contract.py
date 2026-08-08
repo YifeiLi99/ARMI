@@ -2001,6 +2001,57 @@ class CreatorExportResponse(_StrictWireModel):
         return self
 
 
+class DataRightsOrderRequest(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    order_kind: Literal["stop_contact", "stop_use", "delete_related"]
+
+
+class DataRightsOrderResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["data-rights-order.v1"]
+    order_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    requester_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    requester_kind: Literal["creator", "other_human"]
+    order_kind: Literal["stop_contact", "stop_use", "delete_related"]
+    scope_kind: Literal["party_contact", "party_local_data"]
+    scope_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    status: Literal["effective"]
+    execution_status: Literal["not_required", "pending"]
+    request_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]
+    effective_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+    newly_created: bool
+
+    @field_validator("order_id", "requester_party_id", "scope_party_id")
+    @classmethod
+    def validate_data_rights_id(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 7 or str(parsed) != value:
+            raise ValueError("CON-DATA-RIGHTS-ID: identity must be UUIDv7")
+        return value
+
+    @field_validator("effective_at", "completed_at")
+    @classmethod
+    def validate_data_rights_time(cls, value: str | None) -> str | None:
+        if value is not None and Instant.from_wire(value).to_wire() != value:
+            raise ValueError("CON-DATA-RIGHTS-TIME: instant must be canonical")
+        return value
+
+    @model_validator(mode="after")
+    def validate_data_rights_scope(self) -> DataRightsOrderResponse:
+        if self.requester_party_id != self.scope_party_id:
+            raise ValueError("CON-DATA-RIGHTS-SCOPE: scope must be requester-owned")
+        if (self.order_kind == "stop_contact") != (self.scope_kind == "party_contact"):
+            raise ValueError("CON-DATA-RIGHTS-SCOPE: scope is inconsistent")
+        if (self.order_kind == "delete_related") != (
+            self.execution_status == "pending"
+        ):
+            raise ValueError("CON-DATA-RIGHTS-STATE: execution is inconsistent")
+        if self.completed_at is not None:
+            raise ValueError("CON-DATA-RIGHTS-STATE: S014 cannot complete deletion")
+        return self
+
+
 def build_creator_openapi() -> dict[str, object]:
     """Build the schema locally without exporting or starting an ASGI app."""
 
@@ -2208,6 +2259,46 @@ def build_creator_openapi() -> dict[str, object]:
     )
     async def get_creator_export(export_id: str) -> CreatorExportResponse:
         del export_id
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/data-rights/orders",
+        operation_id="createDataRightsOrder",
+        status_code=201,
+        response_model=DataRightsOrderResponse,
+        responses={
+            200: {"model": DataRightsOrderResponse},
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def create_data_rights_order(
+        _request: DataRightsOrderRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> DataRightsOrderResponse:
+        del _request, idempotency_key
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/data-rights/orders/{order_id}",
+        operation_id="getDataRightsOrder",
+        response_model=DataRightsOrderResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def get_data_rights_order(order_id: str) -> DataRightsOrderResponse:
+        del order_id
         raise NotImplementedError
 
     @app.get(
@@ -2839,6 +2930,8 @@ def build_creator_openapi() -> dict[str, object]:
         deactivate_creator_prompt,
         create_creator_export,
         get_creator_export,
+        create_data_rights_order,
+        get_data_rights_order,
         list_creator_activities,
         get_creator_activity_timeline,
         get_creator_relationship_current,
@@ -2903,6 +2996,10 @@ def build_creator_openapi() -> dict[str, object]:
     ].pop("422", None)
     schema["paths"]["/v1/exports"]["post"]["responses"].pop("422", None)
     schema["paths"]["/v1/exports/{export_id}"]["get"]["responses"].pop("422", None)
+    schema["paths"]["/v1/data-rights/orders"]["post"]["responses"].pop("422", None)
+    schema["paths"]["/v1/data-rights/orders/{order_id}"]["get"]["responses"].pop(
+        "422", None
+    )
     schema["paths"]["/v1/life-records"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/materials/{material_id}"]["get"]["responses"].pop("422", None)
     schema["paths"]["/v1/memories"]["get"]["responses"].pop("422", None)
@@ -2987,6 +3084,8 @@ __all__ = (
     "CreatorSceneCollectionResponse",
     "CreatorSceneCreateRequest",
     "CreatorSceneResponse",
+    "DataRightsOrderRequest",
+    "DataRightsOrderResponse",
     "EffectResponse",
     "ErrorDescriptorResponse",
     "FailedOutcomeResponse",

@@ -40,6 +40,7 @@ from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
+from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.other_human_input import (
     OtherHumanInputContext,
     OtherHumanInputRepository,
@@ -59,6 +60,7 @@ async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
 class OtherHumanInputService(OtherHumanInputPort):
     __slots__ = (
         "_catalog",
+        "_data_rights",
         "_notifier",
         "_repository",
         "_storage",
@@ -77,6 +79,7 @@ class OtherHumanInputService(OtherHumanInputPort):
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._storage = storage
+        self._data_rights = DataRightsOrderRepository()
         self._catalog = catalog
         self._repository = repository
         self._uow_factory = unit_of_work_factory
@@ -283,6 +286,10 @@ class OtherHumanInputService(OtherHumanInputPort):
             )
             if existing is not None:
                 return existing
+            if await self._data_rights.blocks_new_interaction(
+                unit_of_work, current.party_id
+            ):
+                raise OtherHumanInputViolation("SCOPE-DATA-RIGHTS-BLOCKED")
             registration = await self._catalog.register(
                 unit_of_work, ArtifactId(uuid7()), published
             )

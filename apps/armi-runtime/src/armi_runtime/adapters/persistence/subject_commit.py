@@ -474,6 +474,14 @@ class PostgreSQLSubjectCommitRepository:
         ):
             raise SubjectCommitViolation("SUBJECT-CHANGE-SET-IDENTITY")
 
+        if await _data_rights_block_subject_commit(connection, snapshot):
+            return await _settle_data_rights_blocked(
+                unit_of_work,
+                lease=lease,
+                snapshot=snapshot,
+                observed_version=change_set.base_subject_version,
+            )
+
         subject = await (
             await connection.execute(
                 """
@@ -1185,9 +1193,10 @@ async def _settle_without_commit(
     if (
         snapshot.opportunity_purpose != "consider_other_human_input"
         and not change_set.activity_decisions
-        and status in {
-        CandidateApplicationStatus.DECLINED,
-        CandidateApplicationStatus.NO_ACTION,
+        and status
+        in {
+            CandidateApplicationStatus.DECLINED,
+            CandidateApplicationStatus.NO_ACTION,
         }
     ):
         await _insert_formal_no_action(
@@ -1231,6 +1240,99 @@ async def _settle_without_commit(
         completion,
         successor_opportunity_id=successor_id,
     )
+
+
+async def _data_rights_block_subject_commit(
+    connection: Any,
+    snapshot: SubjectCommitSnapshot,
+) -> bool:
+    party_id = snapshot.other_party_id or snapshot.creator_party_id
+    if party_id is None:
+        return False
+    await connection.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+        (f"data-rights:{party_id}",),
+    )
+    row = await (
+        await connection.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM armi.deletion_orders
+                WHERE requester_party_id = %s
+                  AND status = 'effective'
+                  AND (
+                      order_kind IN ('stop_use', 'delete_related')
+                      OR (
+                          order_kind = 'stop_contact'
+                          AND %s IN (
+                              'consider_creator_input',
+                              'consider_other_human_input',
+                              'consider_creator_outreach'
+                          )
+                      )
+                  )
+            )
+            """,
+            (party_id, snapshot.opportunity_purpose),
+        )
+    ).fetchone()
+    return bool(row is not None and row[0])
+
+
+async def _settle_data_rights_blocked(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    lease: WorkLease,
+    snapshot: SubjectCommitSnapshot,
+    observed_version: int,
+) -> SubjectCommitResult:
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    status = CandidateApplicationStatus.NO_ACTION
+    completion = _completion_digest(
+        "data_rights_blocked",
+        snapshot.validation_id,
+        snapshot.change_set_digest,
+        observed_version,
+    )
+    application_id = CandidateApplicationId(uuid7())
+    await _insert_application(
+        connection,
+        unit_of_work=unit_of_work,
+        application_id=application_id,
+        snapshot=snapshot,
+        lease=lease,
+        status=status,
+        observed_version=observed_version,
+        completion_digest=completion,
+        successor_id=None,
+    )
+    if snapshot.opportunity_purpose == "consider_other_human_input":
+        await _insert_other_human_terminal_decision(
+            connection,
+            snapshot=snapshot,
+            application_id=application_id,
+            status=status,
+        )
+    await _finish_episode_and_work(
+        unit_of_work,
+        lease=lease,
+        snapshot=snapshot,
+        status=status,
+        result_ref=application_id.value,
+    )
+    await unit_of_work.audit.append(
+        _audit(
+            unit_of_work,
+            snapshot,
+            "cognition.subject.data_rights_blocked",
+            "candidate_application",
+            application_id.value,
+            AuditResultStatus.REJECTED,
+            completion,
+        )
+    )
+    return SubjectCommitResult(application_id, status, completion)
 
 
 async def _finish_episode_and_work(
@@ -3365,9 +3467,7 @@ async def _insert_other_human_terminal_decision(
             snapshot.subject_id,
             snapshot.scene_id,
             snapshot.other_party_id,
-            "silence"
-            if status is CandidateApplicationStatus.NO_ACTION
-            else "defer",
+            "silence" if status is CandidateApplicationStatus.NO_ACTION else "defer",
         ),
     )
 

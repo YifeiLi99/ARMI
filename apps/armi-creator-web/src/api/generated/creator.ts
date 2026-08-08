@@ -158,6 +158,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/data-rights/orders": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Create Data Rights Order */
+    post: operations["createDataRightsOrder"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/data-rights/orders/{order_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Data Rights Order */
+    get: operations["getDataRightsOrder"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/effects/{effect_id}": {
     parameters: {
       query?: never;
@@ -1719,6 +1753,71 @@ export interface components {
        */
       status: "open" | "closed";
     };
+    /** DataRightsOrderRequest */
+    DataRightsOrderRequest: {
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /**
+       * Order Kind
+       * @enum {string}
+       */
+      order_kind: "stop_contact" | "stop_use" | "delete_related";
+    };
+    /** DataRightsOrderResponse */
+    DataRightsOrderResponse: {
+      /** Completed At */
+      completed_at: string | null;
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Effective At */
+      effective_at: string;
+      /**
+       * Execution Status
+       * @enum {string}
+       */
+      execution_status: "not_required" | "pending";
+      /** Newly Created */
+      newly_created: boolean;
+      /** Order Id */
+      order_id: string;
+      /**
+       * Order Kind
+       * @enum {string}
+       */
+      order_kind: "stop_contact" | "stop_use" | "delete_related";
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "data-rights-order.v1";
+      /** Request Digest */
+      request_digest: string;
+      /**
+       * Requester Kind
+       * @enum {string}
+       */
+      requester_kind: "creator" | "other_human";
+      /** Requester Party Id */
+      requester_party_id: string;
+      /**
+       * Scope Kind
+       * @enum {string}
+       */
+      scope_kind: "party_contact" | "party_local_data";
+      /** Scope Party Id */
+      scope_party_id: string;
+      /**
+       * Status
+       * @constant
+       */
+      status: "effective";
+    };
     /** EffectResponse */
     EffectResponse: {
       /** Attempt Count */
@@ -2987,6 +3086,162 @@ export interface operations {
       };
       /** @description Content Too Large */
       413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  createDataRightsOrder: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DataRightsOrderRequest"];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DataRightsOrderResponse"];
+        };
+      };
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DataRightsOrderResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Content Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getDataRightsOrder: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        order_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DataRightsOrderResponse"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

@@ -144,6 +144,10 @@ class PostgreSQLResponseAdmissionRepository:
             status = ResponseAdmissionStatus.FAILED
             grant_id = None
             reason = "RESPONSE-ARTIFACT-INTEGRITY"
+        elif await _data_rights_block_response(connection, snapshot.creator_party_id):
+            status = ResponseAdmissionStatus.UNAUTHORIZED
+            grant_id = None
+            reason = "DATA-RIGHTS-BLOCKED"
         else:
             capability = await (
                 await connection.execute(
@@ -305,6 +309,32 @@ class PostgreSQLResponseAdmissionRepository:
             grant_ref=grant_id,
             reason_code=reason,
         )
+
+
+async def _data_rights_block_response(
+    connection: Any,
+    creator_party_id: UUID,
+) -> bool:
+    await connection.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+        (f"data-rights:{creator_party_id}",),
+    )
+    row = await (
+        await connection.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM armi.deletion_orders
+                WHERE requester_party_id = %s
+                  AND status = 'effective'
+                  AND order_kind IN (
+                      'stop_contact', 'stop_use', 'delete_related'
+                  )
+            )
+            """,
+            (creator_party_id,),
+        )
+    ).fetchone()
+    return bool(row is not None and row[0])
 
 
 async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:

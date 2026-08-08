@@ -159,7 +159,8 @@ class OtherHumanDeliveryPipeline:
                                effect.scene_id, effect.other_party_id,
                                effect.payload_artifact_id, effect.payload_digest,
                                effect.registration_digest, work.trace_id,
-                               EXISTS (
+                               (
+                                 EXISTS (
                                    SELECT 1
                                    FROM armi.relationships AS relationship
                                    JOIN armi.relationship_revisions AS revision
@@ -181,6 +182,7 @@ class OtherHumanDeliveryPipeline:
                                              )
                                          )
                                      )
+                                 )
                                ) AS contact_blocked
                         FROM armi.durable_work AS work
                         JOIN armi.other_human_effects AS effect
@@ -207,14 +209,40 @@ class OtherHumanDeliveryPipeline:
                 ).fetchone()
                 if row is None:
                     return True
-                if bool(row[8]):
+                await connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (f"data-rights:{row[3]}",),
+                )
+                data_rights = await (
+                    await connection.execute(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM armi.deletion_orders
+                            WHERE requester_party_id = %s
+                              AND status = 'effective'
+                              AND order_kind IN (
+                                  'stop_contact', 'stop_use', 'delete_related'
+                              )
+                        )
+                        """,
+                        (row[3],),
+                    )
+                ).fetchone()
+                data_rights_blocked = bool(data_rights and data_rights[0])
+                if bool(row[8]) or data_rights_blocked:
+                    block_reason = (
+                        "data_rights"
+                        if data_rights_blocked
+                        else "relationship_boundary"
+                    )
                     settlement = Digest.from_bytes(
                         rfc8785.dumps(
                             {
                                 "effect_id": str(row[0]),
                                 "registration_digest": str(row[6]),
                                 "status": "failed",
-                                "reason": "relationship_boundary",
+                                "reason": block_reason,
                             }
                         )
                     )
@@ -246,7 +274,7 @@ class OtherHumanDeliveryPipeline:
                             AuditEventId(uuid7()),
                             AuditReference("runtime", unit.environment_id),
                             Purpose("other_human.local_delivery"),
-                            "other_human.delivery.relationship_boundary",
+                            f"other_human.delivery.{block_reason}",
                             AuditReference("other_human_effect", row[0]),
                             AuditResultStatus.REJECTED,
                             TraceId(str(row[7])),
