@@ -13,7 +13,8 @@ SCHEMA_ROOT = (
 )
 BASELINE_ROOT = SCHEMA_ROOT / "baseline"
 MIGRATIONS_ROOT = SCHEMA_ROOT / "migrations"
-BASELINE_ID = "0001_baseline"
+BASELINE_ID = "baseline"
+BASELINE_PATH = BASELINE_ROOT / "baseline.sql"
 TABLE_PATTERN = re.compile(rb"\bCREATE TABLE armi\.([a-z][a-z0-9_]*)\s*\(")
 DROP_PATTERN = re.compile(rb"\bDROP TABLE armi\.([a-z][a-z0-9_]*)\b")
 MIGRATION_ID = re.compile(r"^[0-9]{4}_[a-z0-9_]+$")
@@ -43,37 +44,33 @@ def write_json(path: Path, value: object) -> None:
 
 def main() -> int:
     baseline_files = sorted(BASELINE_ROOT.glob("*.sql"))
-    if not baseline_files:
-        raise RuntimeError("schema baseline is empty")
-    tables: set[str] = set()
-    files: list[dict[str, str]] = []
-    for path in baseline_files:
-        raw = path.read_bytes()
-        created, dropped = table_changes(raw)
-        if dropped:
-            raise RuntimeError("baseline SQL cannot drop tables")
-        overlap = tables.intersection(created)
-        if overlap:
-            raise RuntimeError(f"baseline creates duplicate tables: {sorted(overlap)}")
-        tables.update(created)
-        files.append({"path": path.name, "sha256": digest(raw)})
+    if baseline_files != [BASELINE_PATH]:
+        raise RuntimeError("schema baseline must be the single baseline.sql document")
+    raw = BASELINE_PATH.read_bytes()
+    created, dropped = table_changes(raw)
+    if dropped:
+        raise RuntimeError("baseline SQL cannot drop tables")
+    tables = set(created)
     write_json(
         BASELINE_ROOT / "manifest.json",
         {
             "baseline_id": BASELINE_ID,
-            "files": files,
+            "path": BASELINE_PATH.name,
             "schema_version": "armi.schema-baseline.v1",
+            "sha256": digest(raw),
             "tables": sorted(tables),
         },
     )
 
     MIGRATIONS_ROOT.mkdir(exist_ok=True)
     migrations: list[dict[str, object]] = []
-    previous_id = BASELINE_ID
+    previous_id: str | None = None
     target_tables = set(tables)
     for path in sorted(MIGRATIONS_ROOT.glob("*.sql")):
         migration_id = path.stem
-        if MIGRATION_ID.fullmatch(migration_id) is None or migration_id <= previous_id:
+        if MIGRATION_ID.fullmatch(migration_id) is None or (
+            previous_id is not None and migration_id <= previous_id
+        ):
             raise RuntimeError(f"invalid migration order: {path.name}")
         raw = path.read_bytes()
         created, dropped = table_changes(raw)

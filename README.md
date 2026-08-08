@@ -72,7 +72,7 @@ uv run armi creator-session issue --environment-root C:\path\to\environment
 uv run armi stop --environment-root C:\path\to\environment
 ```
 
-`db install` 只向空数据库安装冻结的 `0001_baseline`；基线建立前的开发数据库应在确认可丢弃后重建，不提供兼容登记入口。以后源码引入编号 migration 时，先停止 Runtime，再执行 `armi db migrate --apply`。普通启动只检查数据库是否已到当前目标，不会暗中修改结构。
+`db install` 只向空数据库安装冻结的 `baseline.sql`；基线建立前的开发数据库应在确认可丢弃后重建，不提供兼容登记入口。以后源码引入编号 migration 时，先停止 Runtime，再执行 `armi db migrate --apply`。普通启动只检查数据库是否已到当前目标，不会暗中修改结构。
 
 日常开发从改动相关的最小检查开始；仓库快速质量入口为：
 

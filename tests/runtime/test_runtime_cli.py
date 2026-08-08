@@ -439,9 +439,9 @@ class RuntimeCliTests(unittest.TestCase):
             report = SimpleNamespace(
                 safe_view=lambda: {
                     "status": "current",
-                    "baseline_id": "0001_baseline",
+                    "baseline_id": "baseline",
                     "migration_count": 0,
-                    "target_id": "0001_baseline",
+                    "target_id": "baseline",
                     "table_count": 43,
                 }
             )

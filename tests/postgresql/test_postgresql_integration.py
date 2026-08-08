@@ -423,7 +423,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             shutil.copytree(source / "baseline", schema_root / "baseline")
             migrations_root = schema_root / "migrations"
             migrations_root.mkdir()
-            migration_id = "0002_test_probe"
+            migration_id = "0001_test_probe"
             definition = (
                 "CREATE TABLE armi.migration_test_probe (\n"
                 "    probe_id bigint PRIMARY KEY\n"
@@ -441,7 +441,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             (migrations_root / "manifest.json").write_text(
                 json.dumps(
                     {
-                        "baseline_id": "0001_baseline",
+                        "baseline_id": "baseline",
                         "migrations": [
                             {
                                 "creates_tables": ["migration_test_probe"],
@@ -515,7 +515,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             shutil.copytree(source / "baseline", schema_root / "baseline")
             migrations_root = schema_root / "migrations"
             migrations_root.mkdir()
-            migration_id = "0002_failing_probe"
+            migration_id = "0001_failing_probe"
             definition = (
                 "CREATE TABLE armi.failing_migration_probe (\n"
                 "    probe_id bigint PRIMARY KEY\n"
@@ -531,7 +531,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             (migrations_root / "manifest.json").write_text(
                 json.dumps(
                     {
-                        "baseline_id": "0001_baseline",
+                        "baseline_id": "baseline",
                         "migrations": [
                             {
                                 "creates_tables": ["failing_migration_probe"],
@@ -565,7 +565,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT migration_id FROM armi.schema_migrations ORDER BY sequence_no"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0001_baseline",)])
+            self.assertEqual(history, [("baseline",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()

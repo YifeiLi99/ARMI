@@ -1,5 +1,5 @@
 {
-  "baseline_id": "0001_baseline",
+  "baseline_id": "baseline",
   "migrations": [],
   "schema_version": "armi.schema-migrations.v1"
 }

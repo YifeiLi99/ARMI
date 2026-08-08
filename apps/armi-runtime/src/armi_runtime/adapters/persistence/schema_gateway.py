@@ -32,6 +32,8 @@ _EXPECTED_ENCODING: Final = "UTF8"
 _EXPECTED_TIMEZONE: Final = "UTC"
 _EXPECTED_LOCALE: Final = "C.UTF-8"
 _IDENTIFIER = re.compile(r"^[0-9]{4}_[a-z0-9_]+$", re.ASCII)
+_BASELINE_ID: Final = "baseline"
+_BASELINE_PATH: Final = "baseline.sql"
 _TABLE = re.compile(r"^[a-z][a-z0-9_]*$", re.ASCII)
 _TABLE_PATTERN = re.compile(rb"\bCREATE TABLE armi\.([a-z][a-z0-9_]*)\s*\(")
 
@@ -67,8 +69,7 @@ class _Migration:
 class _SchemaPlan:
     baseline_id: str
     baseline_checksum: str
-    baseline_definitions: tuple[bytes, ...]
-    history_definition: bytes
+    baseline_definition: bytes
     baseline_tables: frozenset[str]
     migrations: tuple[_Migration, ...]
 
@@ -141,67 +142,49 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
     baseline = _strict_json(baseline_raw, code="DB-SCHEMA-RESOURCE")
     migrations_value = _strict_json(migrations_raw, code="DB-SCHEMA-RESOURCE")
     try:
-        if set(baseline) != {"schema_version", "baseline_id", "files", "tables"}:
+        if set(baseline) != {
+            "schema_version",
+            "baseline_id",
+            "path",
+            "sha256",
+            "tables",
+        }:
             raise ValueError
         baseline_id = baseline["baseline_id"]
         if (
             baseline["schema_version"] != "armi.schema-baseline.v1"
             or type(baseline_id) is not str
-            or _IDENTIFIER.fullmatch(baseline_id) is None
+            or baseline_id != _BASELINE_ID
+            or baseline["path"] != _BASELINE_PATH
+            or type(baseline["sha256"]) is not str
         ):
-            raise ValueError
-        file_values = baseline["files"]
-        if type(file_values) is not list or not file_values:
             raise ValueError
         declared_tables = _text_list(baseline["tables"])
         if declared_tables != sorted(set(declared_tables)) or any(
             _TABLE.fullmatch(name) is None for name in declared_tables
         ):
             raise ValueError
-        definitions: list[bytes] = []
-        paths: list[str] = []
-        discovered_tables: set[str] = set()
-        history_definition: bytes | None = None
-        for item in cast(list[object], file_values):
-            if type(item) is not dict:
-                raise ValueError
-            entry = cast(dict[str, object], item)
-            if set(entry) != {"path", "sha256"}:
-                raise ValueError
-            path = entry["path"]
-            checksum = entry["sha256"]
-            if (
-                type(path) is not str
-                or not path.endswith(".sql")
-                or "/" in path
-                or "\\" in path
-                or type(checksum) is not str
-            ):
-                raise ValueError
-            definition = baseline_root.joinpath(path).read_bytes()
-            if not definition.strip() or _digest(definition) != checksum:
-                raise ValueError
-            paths.append(path)
-            definitions.append(definition)
-            discovered_tables.update(
-                match.group(1).decode("ascii")
-                for match in _TABLE_PATTERN.finditer(definition)
-            )
-            if _HISTORY_TABLE in {
-                match.group(1).decode("ascii")
-                for match in _TABLE_PATTERN.finditer(definition)
-            }:
-                if history_definition is not None:
-                    raise ValueError
-                history_definition = definition
+        baseline_definition = baseline_root.joinpath(_BASELINE_PATH).read_bytes()
+        if (
+            not baseline_definition.strip()
+            or _digest(baseline_definition) != baseline["sha256"]
+        ):
+            raise ValueError
+        discovered_tables = {
+            match.group(1).decode("ascii")
+            for match in _TABLE_PATTERN.finditer(baseline_definition)
+        }
         actual_paths = sorted(
             entry.name
             for entry in baseline_root.iterdir()
             if entry.name.endswith(".sql")
         )
-        if paths != sorted(paths) or paths != actual_paths:
+        if actual_paths != [_BASELINE_PATH]:
             raise ValueError
-        if discovered_tables != set(declared_tables) or history_definition is None:
+        if (
+            discovered_tables != set(declared_tables)
+            or _HISTORY_TABLE not in discovered_tables
+        ):
             raise ValueError
 
         if set(migrations_value) != {"schema_version", "baseline_id", "migrations"}:
@@ -216,7 +199,7 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
         migration_paths: list[str] = []
         migrations: list[_Migration] = []
         target_tables = set(declared_tables)
-        previous_id = baseline_id
+        previous_id: str | None = None
         for item in cast(list[object], migration_values):
             if type(item) is not dict:
                 raise ValueError
@@ -237,7 +220,7 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
             if (
                 type(migration_id) is not str
                 or _IDENTIFIER.fullmatch(migration_id) is None
-                or migration_id <= previous_id
+                or (previous_id is not None and migration_id <= previous_id)
                 or type(path) is not str
                 or path != f"{migration_id}.sql"
                 or type(checksum) is not str
@@ -246,8 +229,11 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
                 or any(_TABLE.fullmatch(name) is None for name in (*creates, *drops))
             ):
                 raise ValueError
-            definition = migrations_root.joinpath(path).read_bytes()
-            if not definition.strip() or _digest(definition) != checksum:
+            migration_definition = migrations_root.joinpath(path).read_bytes()
+            if (
+                not migration_definition.strip()
+                or _digest(migration_definition) != checksum
+            ):
                 raise ValueError
             if set(creates).intersection(target_tables) or not set(drops).issubset(
                 target_tables
@@ -259,7 +245,7 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
                 _Migration(
                     migration_id,
                     checksum,
-                    definition,
+                    migration_definition,
                     frozenset(creates),
                     frozenset(drops),
                 )
@@ -279,9 +265,8 @@ def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
         ) from None
     return _SchemaPlan(
         baseline_id=baseline_id,
-        baseline_checksum=_digest(baseline_raw),
-        baseline_definitions=tuple(definitions),
-        history_definition=history_definition,
+        baseline_checksum=_digest(baseline_definition),
+        baseline_definition=baseline_definition,
         baseline_tables=frozenset(declared_tables),
         migrations=tuple(migrations),
     )
@@ -332,14 +317,14 @@ class PostgreSQLSchemaGateway:
                 try:
                     with connection.transaction():
                         connection.execute("SET LOCAL ROLE armi_owner")
-                        for definition in self._plan.baseline_definitions:
-                            self._execute(connection, definition)
+                        self._execute(connection, self._plan.baseline_definition)
                         self._record(
                             connection,
                             self._plan.baseline_id,
                             "baseline",
                             self._plan.baseline_checksum,
                         )
+                        connection.execute("RESET ALL")
                 except psycopg.Error, UnicodeDecodeError:
                     raise DatabaseViolation(
                         "DB-SCHEMA-INSTALL-FAILED",

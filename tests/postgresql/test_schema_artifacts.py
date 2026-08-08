@@ -21,7 +21,7 @@ def test_frozen_baseline_and_migration_plan_are_the_only_schema_sources() -> Non
     baseline = RESOURCE / "baseline"
     migrations = RESOURCE / "migrations"
     definitions = sorted(baseline.glob("*.sql"))
-    assert definitions
+    assert [path.name for path in definitions] == ["baseline.sql"]
     assert not (RESOURCE / "current").exists()
     assert (baseline / "manifest.json").is_file()
     assert (migrations / "manifest.json").is_file()
@@ -40,20 +40,18 @@ def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
     baseline = json.loads(after[0])
     migrations = json.loads(after[1])
     assert baseline["schema_version"] == "armi.schema-baseline.v1"
-    assert baseline["baseline_id"] == "0001_baseline"
+    assert baseline["baseline_id"] == "baseline"
+    assert baseline["path"] == "baseline.sql"
     assert "schema_migrations" in baseline["tables"]
     assert migrations == {
-        "baseline_id": "0001_baseline",
+        "baseline_id": "baseline",
         "migrations": [],
         "schema_version": "armi.schema-migrations.v1",
     }
 
 
 def test_baseline_contains_authoritative_schema_and_migration_ledger() -> None:
-    sql = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted((RESOURCE / "baseline").glob("*.sql"))
-    )
+    sql = (RESOURCE / "baseline/baseline.sql").read_text(encoding="utf-8")
     assert "CREATE SCHEMA armi" in sql
     assert "CREATE TABLE armi.schema_migrations" in sql
     assert "CREATE TABLE armi.subjects" in sql
@@ -65,6 +63,9 @@ def test_baseline_contains_authoritative_schema_and_migration_ledger() -> None:
     assert "CREATE TABLE armi.other_human_dialogue_decisions" in sql
     assert "CREATE TABLE armi.creator_exports" in sql
     assert "CREATE TABLE armi.deletion_orders" in sql
+    assert "INSERT INTO armi.capabilities VALUES" in sql
+    assert "'creator.scene.reply'" in sql
+    assert "'codex.delegated-work'" in sql
 
 
 def test_gateway_exposes_baseline_install_and_explicit_migration() -> None:
@@ -75,9 +76,9 @@ def test_gateway_exposes_baseline_install_and_explicit_migration() -> None:
 def test_gateway_rejects_baseline_digest_drift(tmp_path: Path) -> None:
     schema = tmp_path / "schema"
     shutil.copytree(RESOURCE, schema)
-    foundation = schema / "baseline/00_foundation.sql"
-    foundation.write_text(
-        foundation.read_text(encoding="utf-8") + "\n",
+    baseline = schema / "baseline/baseline.sql"
+    baseline.write_text(
+        baseline.read_text(encoding="utf-8") + "\n",
         encoding="utf-8",
         newline="\n",
     )
