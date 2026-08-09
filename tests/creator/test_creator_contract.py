@@ -506,7 +506,7 @@ class CreatorContractTests(unittest.TestCase):
             "event_kind": "scene.timeline.invalidated",
             "resource_kind": "scene_timeline",
             "resource_ref": "default",
-            "projection_version": "scene-timeline.v4",
+            "projection_version": "scene-timeline.v5",
             "occurred_at": INSTANT,
         }
         model = CreatorProjectionEventResponse.model_validate(sample)
@@ -757,7 +757,7 @@ class CreatorContractTests(unittest.TestCase):
                 {**effect.model_dump(), "capability_kind": "codex.delegated-work"}
             )
 
-    def test_timeline_v4_exposes_operation_and_effect_refs_explicitly(self) -> None:
+    def test_timeline_v5_exposes_creator_text_and_public_refs(self) -> None:
         operation_ref = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad"
         item = {
             "timeline_item_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ab",
@@ -766,13 +766,15 @@ class CreatorContractTests(unittest.TestCase):
             "status": "accepted",
             "occurred_at": INSTANT,
             "operation_ref": operation_ref,
+            "message": "Creator 原始输入",
         }
         parsed = SceneTimelineItemResponse.model_validate(item)
         self.assertEqual(parsed.operation_ref, operation_ref)
+        self.assertEqual(parsed.message, "Creator 原始输入")
         page = SceneTimelinePageResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "scene-timeline.v4",
+                "projection_version": "scene-timeline.v5",
                 "scene_key": "default",
                 "items": [item],
             }
@@ -793,6 +795,10 @@ class CreatorContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             SceneTimelineItemResponse.model_validate(
                 {key: value for key, value in item.items() if key != "operation_ref"}
+            )
+        with self.assertRaises(ValidationError):
+            SceneTimelineItemResponse.model_validate(
+                {key: value for key, value in item.items() if key != "message"}
             )
         with self.assertRaises(ValidationError):
             SceneTimelinePageResponse.model_validate(

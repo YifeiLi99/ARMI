@@ -890,7 +890,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(creator_status["readiness"], "ready")
                     p1_read_projections = {
                         "/v1/scenes": "creator-scenes.v1",
-                        "/v1/scenes/default/timeline?limit=1": "scene-timeline.v4",
+                        "/v1/scenes/default/timeline?limit=1": "scene-timeline.v5",
                         "/v1/activities": "creator-activity.v1",
                         "/v1/life-records?limit=1": "life-record-query.v2",
                         "/v1/memories?limit=1": "creator-memory.v1",
@@ -3975,6 +3975,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
                 creator_party_id=scene[1],
                 cursor_key=b"s" * 32,
+                data_root=Path.cwd().resolve(),
+                max_object_bytes=1024 * 1024,
                 pool_timeout_seconds=2,
             )
             await gateway.open()
@@ -6505,12 +6507,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             timeline["items"][0]["source_ref"],
                             timeline["items"][0]["status"],
                             timeline["items"][0]["operation_ref"],
+                            timeline["items"][0]["message"],
                         ),
                         (
                             "creator_input",
                             accepted["details"]["interaction_id"],
                             "accepted",
                             accepted["result_ref"],
+                            message,
                         ),
                     )
                     self.assertEqual(stream_response.readline(), b": keepalive\n")

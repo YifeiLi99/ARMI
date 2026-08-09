@@ -3413,7 +3413,7 @@ def create_runtime_app(
             )
         response = SceneTimelinePageResponse(
             contract_version="1.0",
-            projection_version="scene-timeline.v4",
+            projection_version="scene-timeline.v5",
             scene_key=page.scene_key.value,
             items=[
                 SceneTimelineItemResponse(
@@ -3430,6 +3430,7 @@ def create_runtime_app(
                     effect_ref=(
                         str(item.effect_ref) if item.effect_ref is not None else None
                     ),
+                    message=item.message,
                 )
                 for item in page.items
             ],

@@ -14,7 +14,7 @@ const DATA = JSON.stringify({
   event_kind: "scene.timeline.invalidated",
   resource_kind: "scene_timeline",
   resource_ref: "default",
-  projection_version: "scene-timeline.v4",
+  projection_version: "scene-timeline.v5",
   occurred_at: "2026-07-30T10:00:00.000000Z",
 });
 const FRAME = `retry: 1000\n\n: keepalive\n\nid: ${EVENT_ID}\nevent: scene.timeline.invalidated\ndata: ${DATA}\n\n`;
@@ -69,7 +69,7 @@ describe("authenticated Creator event stream parser", () => {
       "scene.timeline.invalidated",
       "scene_timeline",
       "default",
-      "scene-timeline.v4",
+      "scene-timeline.v5",
     ],
     [
       "capability.request.invalidated",

@@ -22,7 +22,7 @@ def invalidation(scene_key: str = "default") -> CreatorProjectionInvalidation:
         resource_kind=CreatorEventResourceKind.SCENE_TIMELINE,
         resource_ref=scene_key,
         occurred_at=Instant(datetime(2026, 7, 30, 12, 0, tzinfo=UTC)),
-        projection_version="scene-timeline.v4",
+        projection_version="scene-timeline.v5",
     )
 
 

@@ -157,6 +157,7 @@ class SceneTimelineItemResponse(_StrictWireModel):
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    message: Annotated[str, Field(min_length=1, max_length=65536)] | None = None
 
     @field_validator("timeline_item_id", "source_ref", "operation_ref", "effect_ref")
     @classmethod
@@ -180,6 +181,10 @@ class SceneTimelineItemResponse(_StrictWireModel):
             raise ValueError(
                 "CON-SCENE-EFFECT: response-backed item must expose its effect"
             )
+        if (self.source_kind == "creator_input") != (self.message is not None):
+            raise ValueError(
+                "CON-SCENE-MESSAGE: Creator input must expose its visible text"
+            )
         return self
 
     @field_validator("occurred_at")
@@ -192,7 +197,7 @@ class SceneTimelineItemResponse(_StrictWireModel):
 
 class SceneTimelinePageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["scene-timeline.v4"]
+    projection_version: Literal["scene-timeline.v5"]
     scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
     items: Annotated[list[SceneTimelineItemResponse], Field(max_length=100)]
     next_cursor: (
@@ -1033,7 +1038,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "creator-maintenance.v2",
         "life-record-query.v2",
         "creator-relationship.v1",
-        "scene-timeline.v4",
+        "scene-timeline.v5",
         "capability-request.v4",
         "creator-operation.v1",
         "other-human-record.v1",
@@ -1080,7 +1085,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
             ),
             "scene_timeline": (
                 "scene.timeline.invalidated",
-                "scene-timeline.v4",
+                "scene-timeline.v5",
                 _SCENE_KEY_PATTERN,
             ),
             "capability_request": (

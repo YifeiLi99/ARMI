@@ -1404,7 +1404,7 @@ export interface components {
         | "creator-maintenance.v2"
         | "life-record-query.v2"
         | "creator-relationship.v1"
-        | "scene-timeline.v4"
+        | "scene-timeline.v5"
         | "capability-request.v4"
         | "creator-operation.v1"
         | "other-human-record.v1"
@@ -2574,6 +2574,8 @@ export interface components {
     SceneTimelineItemResponse: {
       /** Effect Ref */
       effect_ref?: string | null;
+      /** Message */
+      message?: string | null;
       /** Occurred At */
       occurred_at: string;
       /** Operation Ref */
@@ -2601,7 +2603,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "scene-timeline.v4";
+      projection_version: "scene-timeline.v5";
       /** Scene Key */
       scene_key: string;
     };

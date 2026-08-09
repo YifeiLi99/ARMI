@@ -113,8 +113,10 @@ class SceneTimelineContractTests(unittest.TestCase):
             AuditResultStatus.ACCEPTED,
             occurred,
             operation_ref,
+            message="原始输入",
         )
         self.assertEqual(item.operation_ref, operation_ref)
+        self.assertEqual(item.message, "原始输入")
         with self.assertRaises(SceneQueryViolation) as missing:
             SceneTimelineItem(
                 TimelineItemId(uuid7()),
@@ -124,6 +126,16 @@ class SceneTimelineContractTests(unittest.TestCase):
                 occurred,
             )
         self.assertEqual(missing.exception.code, "CON-SCENE-OPERATION")
+        with self.assertRaises(SceneQueryViolation) as missing_message:
+            SceneTimelineItem(
+                TimelineItemId(uuid7()),
+                "creator_input",
+                uuid7(),
+                AuditResultStatus.ACCEPTED,
+                occurred,
+                operation_ref,
+            )
+        self.assertEqual(missing_message.exception.code, "CON-SCENE-MESSAGE")
 
     def test_creator_response_requires_a_public_effect_reference(self) -> None:
         occurred = Instant(datetime(2026, 7, 30, 10, tzinfo=UTC))

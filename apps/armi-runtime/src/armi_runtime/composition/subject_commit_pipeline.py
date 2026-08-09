@@ -512,7 +512,7 @@ class SubjectCommitPipeline:
                         CreatorEventResourceKind.SCENE_TIMELINE,
                         SceneKey(snapshot.scene_key).value,
                         now,
-                        "scene-timeline.v4",
+                        "scene-timeline.v5",
                     )
                 )
             invalidations.append(

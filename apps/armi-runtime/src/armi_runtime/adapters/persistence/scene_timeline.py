@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
@@ -14,6 +15,11 @@ import psycopg
 import rfc8785
 from armi_kernel.application import (
     PROJECTION_VERSION,
+    ArtifactId,
+    ArtifactIntegrityStatus,
+    ArtifactPrivacyScope,
+    ArtifactRef,
+    ArtifactViolation,
     AuditResultStatus,
     SceneQueryViolation,
     SceneTimelineItem,
@@ -21,9 +27,11 @@ from armi_kernel.application import (
     SceneTimelineQuery,
     TimelineItemId,
 )
-from armi_kernel.contracts import Instant, OpaqueCursor
+from armi_kernel.contracts import Digest, Instant, OpaqueCursor
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
+
+from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 
 from .role_policy import physical_role_name
 
@@ -182,6 +190,7 @@ class PostgreSQLSceneTimelineQuery:
         "_expected_role",
         "_pool",
         "_pool_timeout_seconds",
+        "_storage",
     )
 
     def __init__(
@@ -191,11 +200,17 @@ class PostgreSQLSceneTimelineQuery:
         environment_id: UUID,
         creator_party_id: UUID,
         cursor_key: bytes,
+        data_root: Path,
+        max_object_bytes: int,
         pool_timeout_seconds: int,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
+        self._storage = ContentAddressedArtifactStore(
+            data_root / "artifacts",
+            max_object_bytes=max_object_bytes,
+        )
         self._codec = SceneTimelineCursorCodec(
             key=cursor_key,
             environment_id=environment_id,
@@ -302,7 +317,14 @@ class PostgreSQLSceneTimelineQuery:
                                 CASE
                                   WHEN item.source_kind = 'party_response'
                                   THEN item.source_ref
-                                END
+                                END,
+                                artifact.artifact_id,
+                                artifact.content_digest,
+                                artifact.byte_size,
+                                artifact.media_type,
+                                artifact.logical_kind,
+                                artifact.privacy_scope,
+                                artifact.integrity_status
                             FROM armi.scene_timeline_items AS item
                             LEFT JOIN armi.party_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
@@ -316,6 +338,10 @@ class PostgreSQLSceneTimelineQuery:
                              AND evidence.scene_id = interaction.scene_id
                              AND evidence.context_party_id =
                                  interaction.source_party_id
+                            LEFT JOIN armi.artifacts AS artifact
+                              ON artifact.artifact_id = evidence.artifact_id
+                             AND artifact.content_digest =
+                                 interaction.content_digest
                             LEFT JOIN armi.opportunities AS opportunity
                               ON opportunity.evidence_id = evidence.evidence_id
                              AND opportunity.subject_id = evidence.subject_id
@@ -367,7 +393,14 @@ class PostgreSQLSceneTimelineQuery:
                                 CASE
                                   WHEN item.source_kind = 'party_response'
                                   THEN item.source_ref
-                                END
+                                END,
+                                artifact.artifact_id,
+                                artifact.content_digest,
+                                artifact.byte_size,
+                                artifact.media_type,
+                                artifact.logical_kind,
+                                artifact.privacy_scope,
+                                artifact.integrity_status
                             FROM armi.scene_timeline_items AS item
                             LEFT JOIN armi.party_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
@@ -381,6 +414,10 @@ class PostgreSQLSceneTimelineQuery:
                              AND evidence.scene_id = interaction.scene_id
                              AND evidence.context_party_id =
                                  interaction.source_party_id
+                            LEFT JOIN armi.artifacts AS artifact
+                              ON artifact.artifact_id = evidence.artifact_id
+                             AND artifact.content_digest =
+                                 interaction.content_digest
                             LEFT JOIN armi.opportunities AS opportunity
                               ON opportunity.evidence_id = evidence.evidence_id
                              AND opportunity.subject_id = evidence.subject_id
@@ -427,9 +464,47 @@ class PostgreSQLSceneTimelineQuery:
                 != isinstance(row[5], UUID)
             )
             or ((str(row[1]) == "creator_response") != isinstance(row[6], UUID))
+            or (
+                (str(row[1]) == "creator_input")
+                != all(value is not None for value in row[7:14])
+            )
             for row in visible
         ):
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
+        messages: dict[UUID, str] = {}
+        try:
+            for row in visible:
+                if str(row[1]) != "creator_input":
+                    continue
+                ref = ArtifactRef(
+                    ArtifactId(cast(UUID, row[7])),
+                    Digest(str(row[8])),
+                    int(row[9]),
+                    str(row[10]),
+                    str(row[11]),
+                    ArtifactPrivacyScope(str(row[12])),
+                    ArtifactIntegrityStatus(str(row[13])),
+                )
+                if (
+                    ref.media_type != "text/plain"
+                    or ref.logical_kind != "creator.input.text"
+                    or ref.privacy_scope is not ArtifactPrivacyScope.CREATOR_VISIBLE
+                    or ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
+                ):
+                    raise ValueError
+                async with await self._storage.open_verified(ref) as stream:
+                    value = await stream.read()
+                message = value.decode("utf-8", errors="strict")
+                if (
+                    not value
+                    or len(value) > 65536
+                    or "\x00" in message
+                    or not any(not character.isspace() for character in message)
+                ):
+                    raise ValueError
+                messages[cast(UUID, row[0])] = message
+        except ArtifactViolation, OSError, TypeError, UnicodeError, ValueError:
+            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
         items = tuple(
             SceneTimelineItem(
                 timeline_item_id=TimelineItemId(row[0]),
@@ -439,6 +514,7 @@ class PostgreSQLSceneTimelineQuery:
                 occurred_at=Instant(cast(datetime, row[4])),
                 operation_ref=cast(UUID | None, row[5]),
                 effect_ref=cast(UUID | None, row[6]),
+                message=messages.get(cast(UUID, row[0])),
             )
             for row in reversed(visible)
         )

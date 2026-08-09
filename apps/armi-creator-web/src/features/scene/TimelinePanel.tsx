@@ -18,7 +18,6 @@ type TimelinePanelProps = {
   environmentId: string;
   creatorPartyId: string;
   sceneKey: string;
-  acceptedMessages: Record<string, string>;
   onUnauthorized: () => void;
   onOperationSelected: (operationRef: string) => void;
   onEffectSelected: (effectRef: string) => void;
@@ -30,7 +29,6 @@ export function TimelinePanel({
   environmentId,
   creatorPartyId,
   sceneKey,
-  acceptedMessages,
   onUnauthorized,
   onOperationSelected,
   onEffectSelected,
@@ -142,7 +140,6 @@ export function TimelinePanel({
               key={item.timeline_item_id}
               item={item}
               token={token}
-              acceptedMessages={acceptedMessages}
               onOperationSelected={onOperationSelected}
               onEffectSelected={onEffectSelected}
             />
@@ -167,13 +164,11 @@ type TimelineItem = SceneTimelinePage["items"][number];
 function ChatTimelineItem({
   item,
   token,
-  acceptedMessages,
   onOperationSelected,
   onEffectSelected,
 }: {
   item: TimelineItem;
   token: string;
-  acceptedMessages: Record<string, string>;
   onOperationSelected: (operationRef: string) => void;
   onEffectSelected: (effectRef: string) => void;
 }) {
@@ -195,9 +190,7 @@ function ChatTimelineItem({
   );
   const operationRef = item.operation_ref ?? undefined;
   const body = creatorInput
-    ? operationRef
-      ? (acceptedMessages[operationRef] ?? "已发送的消息")
-      : "已发送的消息"
+    ? (item.message ?? "消息正文不可用")
     : creatorResponse
       ? (response.data?.response_text ??
         (response.isPending ? "正在组织回复…" : "回复暂时不可见"))

@@ -388,7 +388,7 @@ class EffectRegistrationPipeline:
                 (
                     CreatorEventResourceKind.SCENE_TIMELINE,
                     SceneKey(snapshot.scene_key).value,
-                    "scene-timeline.v4",
+                    "scene-timeline.v5",
                 ),
             )
         await self._notify(invalidations)

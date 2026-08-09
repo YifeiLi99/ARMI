@@ -12,7 +12,7 @@ from armi_kernel.contracts import Instant, OpaqueCursor, TraceId
 
 from .auditing import AuditResultStatus
 
-PROJECTION_VERSION = "scene-timeline.v4"
+PROJECTION_VERSION = "scene-timeline.v5"
 SCENE_COLLECTION_PROJECTION_VERSION = "creator-scenes.v1"
 _KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 _KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
@@ -173,6 +173,7 @@ class SceneTimelineItem:
     occurred_at: Instant
     operation_ref: UUID | None = None
     effect_ref: UUID | None = None
+    message: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.timeline_item_id) is not TimelineItemId:
@@ -197,6 +198,20 @@ class SceneTimelineItem:
             raise SceneQueryViolation("CON-SCENE-OPERATION")
         if (self.source_kind == "creator_response") != (self.effect_ref is not None):
             raise SceneQueryViolation("CON-SCENE-EFFECT")
+        if (self.source_kind == "creator_input") != (self.message is not None):
+            raise SceneQueryViolation("CON-SCENE-MESSAGE")
+        if self.message is not None:
+            try:
+                encoded = self.message.encode("utf-8", errors="strict")
+            except UnicodeEncodeError:
+                raise SceneQueryViolation("CON-SCENE-MESSAGE") from None
+            if (
+                not encoded
+                or len(encoded) > 65536
+                or "\x00" in self.message
+                or not any(not character.isspace() for character in self.message)
+            ):
+                raise SceneQueryViolation("CON-SCENE-MESSAGE")
 
 
 @dataclass(frozen=True, slots=True)

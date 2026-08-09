@@ -25,7 +25,7 @@ type MessageComposerProps = {
   queryClient: QueryClient;
   timelineQueryKey: QueryKey;
   onUnauthorized: () => void;
-  onOperationAccepted: (operationRef: string, body: string) => void;
+  onOperationAccepted: (operationRef: string) => void;
 };
 
 function rejectedMessage(error: ApiFailure): string {
@@ -72,10 +72,9 @@ export function MessageComposer({
           ? await acceptCreatorCodexTask(token, sceneKey, intentKey, message)
           : await acceptCreatorMessage(token, sceneKey, intentKey, message);
       const operationRef = accepted.result_ref;
-      const acceptedBody = message;
       setMessage("");
       setState({ kind: "accepted", operationRef, mode });
-      onOperationAccepted(operationRef, acceptedBody);
+      onOperationAccepted(operationRef);
       await queryClient.resetQueries({
         queryKey: timelineQueryKey,
         exact: true,

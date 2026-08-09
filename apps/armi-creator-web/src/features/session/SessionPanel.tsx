@@ -65,9 +65,6 @@ export function SessionPanel() {
   const [activePage, setActivePage] = useState<WorkspacePage>("conversation");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
-  const [acceptedMessages, setAcceptedMessages] = useState<
-    Record<string, string>
-  >({});
   const [selectedScene, setSelectedScene] = useState<{
     key: string;
     status: "open" | "closed";
@@ -260,7 +257,6 @@ export function SessionPanel() {
                 environmentId={view.session.environment_id}
                 creatorPartyId={view.session.creator_party_id}
                 sceneKey={activeScene.key}
-                acceptedMessages={acceptedMessages}
                 onUnauthorized={unauthorized}
                 onOperationSelected={(operationRef) => {
                   setSelectedEffect(null);
@@ -286,13 +282,9 @@ export function SessionPanel() {
                   activeScene.key,
                 ]}
                 onUnauthorized={unauthorized}
-                onOperationAccepted={(operationRef, body) => {
+                onOperationAccepted={(operationRef) => {
                   setSelectedEffect(null);
                   setSelectedOperation(operationRef);
-                  setAcceptedMessages((current) => ({
-                    ...current,
-                    [operationRef]: body,
-                  }));
                 }}
               />
             </div>
