@@ -31,6 +31,7 @@ from armi_runtime.composition.model_contract import (
     ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     DIALOGUE_CANDIDATE_VERSION,
+    DIALOGUE_INSTRUCTIONS,
     MAINTENANCE_WORK_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CognitionCandidateV7,
@@ -383,6 +384,13 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         "$ref": "#/$defs/DialogueSummaryListReplacement"
     }
     assert DIALOGUE_MODEL_OUTPUT_VERSION == "armi.creator-dialogue-model-output.v1"
+    assert "只用一句短句" in DIALOGUE_INSTRUCTIONS
+    assert "四十个汉字" in DIALOGUE_INSTRUCTIONS
+    assert "只回应一个重点" in DIALOGUE_INSTRUCTIONS
+    assert "回应和追问通常二选一" in DIALOGUE_INSTRUCTIONS
+    assert "最多问一个问题" in DIALOGUE_INSTRUCTIONS
+    assert "不要复述已知情境" in DIALOGUE_INSTRUCTIONS
+    assert "能直接说就直接说" in DIALOGUE_INSTRUCTIONS
 
     request = json.loads(_request(dialogue).canonical_bytes)
     assert "candidate_base" not in request
