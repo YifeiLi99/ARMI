@@ -363,8 +363,16 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert '"schema_version"' not in dialogue_schema_text
     assert '"reason_summary"' not in dialogue_schema_text
     assert '"decision"' not in dialogue_schema_text
-    assert len(json.dumps(model_output_schema, separators=(",", ":"))) < 2500
-    assert len(json.dumps(model_output_schema)) * 3 < len(json.dumps(dialogue_schema))
+    assert model_output_schema == dialogue_schema
+    reply_schema = model_output_schema["$defs"]["DialogueReplyDecision"]
+    mind_change_schema = model_output_schema["$defs"]["DialogueMindChange"]
+    assert reply_schema["properties"]["mind_change"]["anyOf"][0] == {
+        "$ref": "#/$defs/DialogueMindChange"
+    }
+    assert "current_mind_ref" not in mind_change_schema["properties"]
+    assert mind_change_schema["properties"]["emotions"]["anyOf"][0] == {
+        "$ref": "#/$defs/DialogueSummaryListReplacement"
+    }
     assert DIALOGUE_MODEL_OUTPUT_VERSION == "armi.creator-dialogue-model-output.v1"
 
     request = json.loads(_request(dialogue).canonical_bytes)
