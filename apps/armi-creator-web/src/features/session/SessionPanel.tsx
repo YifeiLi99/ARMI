@@ -32,6 +32,8 @@ import { PromptPanel } from "../prompt/PromptPanel";
 import { TimelinePanel } from "../scene/TimelinePanel";
 import { SceneSelector } from "../scene/SceneSelector";
 import { SubjectSummaryPanel } from "../subject/SubjectSummaryPanel";
+import { PageHeader, WorkspaceNavigation } from "../../app/WorkspaceNavigation";
+import type { WorkspacePage } from "../../app/WorkspaceNavigation";
 
 type ViewState =
   | { kind: "bootstrap"; message?: string }
@@ -65,6 +67,9 @@ export function SessionPanel() {
     null,
   );
   const [selectedEffect, setSelectedEffect] = useState<string | null>(null);
+  const [activePage, setActivePage] = useState<WorkspacePage>("conversation");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [selectedScene, setSelectedScene] = useState<{
     key: string;
     status: "open" | "closed";
@@ -260,183 +265,269 @@ export function SessionPanel() {
     status: "open" as const,
   };
 
+  function navigate(page: WorkspacePage) {
+    setActivePage(page);
+    if (page !== "operation") {
+      setSelectedEffect(null);
+    }
+  }
+
   return (
     <div className="authenticated-view">
-      <section className="session-summary" aria-labelledby="session-heading">
-        <p className="runtime-status" role="status" aria-live="polite">
-          <span className="status-marker is-ready" aria-hidden="true" />
-          浏览器会话已建立
-        </p>
-        <h2 id="session-heading">本机 Runtime 状态</h2>
-        <dl>
-          <div>
-            <dt>生命周期</dt>
-            <dd>{view.runtime.runtime_state}</dd>
+      <WorkspaceNavigation
+        activePage={activePage}
+        collapsed={sidebarCollapsed}
+        mobileOpen={mobileNavigationOpen}
+        onNavigate={navigate}
+        onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+        onCloseMobile={() => setMobileNavigationOpen(false)}
+      />
+      <section className="workspace-main">
+        <div className="workspace-toolbar">
+          <div className="environment-context">
+            <span className="status-dot" aria-hidden="true" />
+            <span>{view.session.environment_id}</span>
+            <span className="context-separator">/</span>
+            <span>{view.runtime.runtime_state}</span>
           </div>
-          <div>
-            <dt>接纳状态</dt>
-            <dd>{view.runtime.readiness}</dd>
-          </div>
-          <div>
-            <dt>会话到期</dt>
-            <dd>{view.session.expires_at}</dd>
-          </div>
-        </dl>
-        <div className="session-actions">
           <button
             type="button"
-            onClick={() => void loadAuthenticated(view.stored)}
-          >
-            重新读取状态
-          </button>
-          <button
-            type="button"
-            className="secondary"
+            className="account-button"
             onClick={() => void logout()}
           >
-            注销
+            <span className="account-avatar" aria-hidden="true">
+              C
+            </span>
+            <span>注销</span>
           </button>
         </div>
-        <p className="boundary-note">
-          当前只显示经认证的本机 Runtime 安全状态。
-        </p>
+        <PageHeader
+          page={activePage}
+          onOpenMobile={() => setMobileNavigationOpen(true)}
+        />
+        <div className="page-content">
+          <div hidden={activePage !== "conversation"}>
+            <div className="conversation-page">
+              <SceneSelector
+                token={view.stored.token}
+                environmentId={view.session.environment_id}
+                creatorPartyId={view.session.creator_party_id}
+                selectedSceneKey={activeScene.key}
+                onSelected={(key, status) => {
+                  abortStream();
+                  setSelectedOperation(null);
+                  setSelectedEffect(null);
+                  setSelectedScene({ key, status });
+                }}
+                onUnauthorized={unauthorized}
+              />
+              <MessageComposer
+                key={activeScene.key}
+                token={view.stored.token}
+                sceneKey={activeScene.key}
+                sceneOpen={activeScene.status === "open"}
+                queryClient={queryClient}
+                timelineQueryKey={[
+                  "scene-timeline",
+                  view.session.environment_id,
+                  view.session.creator_party_id,
+                  activeScene.key,
+                ]}
+                onUnauthorized={unauthorized}
+                onOperationAccepted={(operationRef) => {
+                  setSelectedEffect(null);
+                  setSelectedOperation(operationRef);
+                  setActivePage("operation");
+                }}
+              />
+              <TimelinePanel
+                token={view.stored.token}
+                environmentId={view.session.environment_id}
+                creatorPartyId={view.session.creator_party_id}
+                sceneKey={activeScene.key}
+                onUnauthorized={unauthorized}
+                onOperationSelected={(operationRef) => {
+                  setSelectedEffect(null);
+                  setSelectedOperation(operationRef);
+                  setActivePage("operation");
+                }}
+                onEffectSelected={(effectRef) => {
+                  setSelectedEffect(effectRef);
+                  setActivePage("operation");
+                }}
+                registerStreamAbort={registerStreamAbort}
+              />
+            </div>
+          </div>
+          <div hidden={activePage !== "prompt"}>
+            <PromptPanel
+              token={view.stored.token}
+              environmentId={view.session.environment_id}
+              creatorPartyId={view.session.creator_party_id}
+              onUnauthorized={unauthorized}
+            />
+          </div>
+          <div hidden={activePage !== "export"}>
+            <ExportPanel
+              token={view.stored.token}
+              onUnauthorized={unauthorized}
+            />
+          </div>
+          <div hidden={activePage !== "data-rights"}>
+            <DataRightsPanel
+              token={view.stored.token}
+              environmentId={view.session.environment_id}
+              creatorPartyId={view.session.creator_party_id}
+              onUnauthorized={unauthorized}
+            />
+          </div>
+          <div hidden={activePage !== "maintenance"}>
+            <div className="page-stack">
+              <section
+                className="session-summary content-panel"
+                aria-labelledby="session-heading"
+              >
+                <div className="panel-heading-row">
+                  <div>
+                    <p className="eyebrow">连接</p>
+                    <h2 id="session-heading">本机 Runtime 状态</h2>
+                  </div>
+                  <span className="state-badge">
+                    <span className="status-dot" />
+                    浏览器会话已建立
+                  </span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>生命周期</dt>
+                    <dd>{view.runtime.runtime_state}</dd>
+                  </div>
+                  <div>
+                    <dt>接纳状态</dt>
+                    <dd>{view.runtime.readiness}</dd>
+                  </div>
+                  <div>
+                    <dt>会话到期</dt>
+                    <dd>{view.session.expires_at}</dd>
+                  </div>
+                </dl>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => void loadAuthenticated(view.stored)}
+                >
+                  重新读取状态
+                </button>
+              </section>
+              <MaintenancePanel
+                token={view.stored.token}
+                environmentId={view.session.environment_id}
+                creatorPartyId={view.session.creator_party_id}
+                onUnauthorized={unauthorized}
+              />
+            </div>
+          </div>
+          <div hidden={activePage !== "activities"}>
+            <ActivityPanel
+              token={view.stored.token}
+              environmentId={view.session.environment_id}
+              creatorPartyId={view.session.creator_party_id}
+              onUnauthorized={unauthorized}
+            />
+          </div>
+          <div hidden={activePage !== "memory"}>
+            <MemoryPanel
+              token={view.stored.token}
+              environmentId={view.session.environment_id}
+              creatorPartyId={view.session.creator_party_id}
+              onUnauthorized={unauthorized}
+            />
+          </div>
+          <div hidden={activePage !== "materials"}>
+            <MaterialPanel
+              token={view.stored.token}
+              environmentId={view.session.environment_id}
+              creatorPartyId={view.session.creator_party_id}
+              onUnauthorized={unauthorized}
+            />
+          </div>
+          <div hidden={activePage !== "relationships"}>
+            <RelationshipPanel
+              token={view.stored.token}
+              environmentId={view.session.environment_id}
+              creatorPartyId={view.session.creator_party_id}
+              onUnauthorized={unauthorized}
+              onOperationAccepted={(operationRef) => {
+                setSelectedEffect(null);
+                setSelectedOperation(operationRef);
+                setActivePage("operation");
+              }}
+            />
+          </div>
+          <div hidden={activePage !== "people"}>
+            <OtherHumanRecordPanel
+              token={view.stored.token}
+              environmentId={view.session.environment_id}
+              creatorPartyId={view.session.creator_party_id}
+              onUnauthorized={unauthorized}
+            />
+          </div>
+          <div hidden={activePage !== "capabilities"}>
+            <CapabilityInbox
+              token={view.stored.token}
+              environmentId={view.session.environment_id}
+              creatorPartyId={view.session.creator_party_id}
+              onUnauthorized={unauthorized}
+            />
+          </div>
+          <div hidden={activePage !== "operation"}>
+            <div className="page-stack">
+              {selectedOperation === null ? (
+                <section className="content-panel empty-page">
+                  <h2>尚未选择操作</h2>
+                  <p>
+                    从对话记录或关系操作中打开一项操作后，可在这里核验完整责任链。
+                  </p>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => navigate("conversation")}
+                  >
+                    返回对话
+                  </button>
+                </section>
+              ) : (
+                <>
+                  <OperationPanel
+                    token={view.stored.token}
+                    operationRef={selectedOperation}
+                    onEffectSelected={setSelectedEffect}
+                    onUnauthorized={unauthorized}
+                    effectTriggerRef={effectTrigger}
+                  />
+                  <EffectDetail
+                    token={view.stored.token}
+                    effectRef={selectedEffect}
+                    onClose={() => {
+                      setSelectedEffect(null);
+                      effectTrigger.current?.focus();
+                    }}
+                    onUnauthorized={unauthorized}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+          <div hidden={activePage !== "subject"}>
+            <SubjectSummaryPanel
+              token={view.stored.token}
+              environmentId={view.session.environment_id}
+              creatorPartyId={view.session.creator_party_id}
+              onUnauthorized={unauthorized}
+            />
+          </div>
+        </div>
       </section>
-      <div className="workspace-grid">
-        <div className="scene-column">
-          <SceneSelector
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            selectedSceneKey={activeScene.key}
-            onSelected={(key, status) => {
-              abortStream();
-              setSelectedOperation(null);
-              setSelectedEffect(null);
-              setSelectedScene({ key, status });
-            }}
-            onUnauthorized={unauthorized}
-          />
-          <MessageComposer
-            key={activeScene.key}
-            token={view.stored.token}
-            sceneKey={activeScene.key}
-            sceneOpen={activeScene.status === "open"}
-            queryClient={queryClient}
-            timelineQueryKey={[
-              "scene-timeline",
-              view.session.environment_id,
-              view.session.creator_party_id,
-              activeScene.key,
-            ]}
-            onUnauthorized={unauthorized}
-            onOperationAccepted={(operationRef) => {
-              setSelectedEffect(null);
-              setSelectedOperation(operationRef);
-            }}
-          />
-          <TimelinePanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            sceneKey={activeScene.key}
-            onUnauthorized={unauthorized}
-            onOperationSelected={(operationRef) => {
-              setSelectedEffect(null);
-              setSelectedOperation(operationRef);
-            }}
-            onEffectSelected={(effectRef) => {
-              setSelectedEffect(effectRef);
-            }}
-            registerStreamAbort={registerStreamAbort}
-          />
-        </div>
-        <div className="authority-column">
-          <PromptPanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-          />
-          <ExportPanel
-            token={view.stored.token}
-            onUnauthorized={unauthorized}
-          />
-          <DataRightsPanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-          />
-          <MaintenancePanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-          />
-          <ActivityPanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-          />
-          <MemoryPanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-          />
-          <MaterialPanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-          />
-          <RelationshipPanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-            onOperationAccepted={(operationRef) => {
-              setSelectedEffect(null);
-              setSelectedOperation(operationRef);
-            }}
-          />
-          <OtherHumanRecordPanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-          />
-          <CapabilityInbox
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-          />
-          <OperationPanel
-            token={view.stored.token}
-            operationRef={selectedOperation}
-            onEffectSelected={setSelectedEffect}
-            onUnauthorized={unauthorized}
-            effectTriggerRef={effectTrigger}
-          />
-          <EffectDetail
-            token={view.stored.token}
-            effectRef={selectedEffect}
-            onClose={() => {
-              setSelectedEffect(null);
-              effectTrigger.current?.focus();
-            }}
-            onUnauthorized={unauthorized}
-          />
-          <SubjectSummaryPanel
-            token={view.stored.token}
-            environmentId={view.session.environment_id}
-            creatorPartyId={view.session.creator_party_id}
-            onUnauthorized={unauthorized}
-          />
-        </div>
-      </div>
     </div>
   );
 }

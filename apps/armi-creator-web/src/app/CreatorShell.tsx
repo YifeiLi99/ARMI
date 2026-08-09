@@ -13,9 +13,16 @@ export function CreatorShell() {
   return (
     <QueryClientProvider client={queryClient}>
       <main className="creator-shell">
-        <section className="status-card" aria-labelledby="creator-title">
-          <p className="eyebrow">安全 Loopback 入口</p>
-          <h1 id="creator-title">ARMI Creator</h1>
+        <section className="creator-entry" aria-labelledby="creator-title">
+          <div className="entry-brand">
+            <div className="entry-mark" aria-hidden="true">
+              A
+            </div>
+            <div>
+              <p className="eyebrow">本机 Creator 工作台</p>
+              <h1 id="creator-title">ARMI Creator</h1>
+            </div>
+          </div>
           <SessionPanel />
         </section>
       </main>

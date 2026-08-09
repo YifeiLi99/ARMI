@@ -333,14 +333,19 @@ describe("Creator browser session shell", () => {
     await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText("浏览器会话已建立")).toBeInTheDocument();
-    expect(screen.getAllByText("ready")).toHaveLength(2);
+    expect(screen.getAllByText("ready")).toHaveLength(3);
     const stored = sessionStorage.getItem("armi.browser-session.v1");
     expect(stored).toContain(TOKEN);
     expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
     expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(15);
-    expect(screen.getByText("权威版本")).toBeInTheDocument();
+    expect(
+      screen.getByRole("navigation", { name: "Creator 功能" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("权威版本")).not.toBeVisible();
+    await user.click(screen.getByRole("button", { name: "主体状态" }));
+    expect(screen.getByText("权威版本")).toBeVisible();
   });
 
   it("clears an invalid restored session after a 401", async () => {
@@ -930,6 +935,7 @@ describe("Creator browser session shell", () => {
     expect(
       await screen.findByText("Context 已准备，等待模型步骤"),
     ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "对话" }));
     await user.click(screen.getByRole("button", { name: "查看效果详情" }));
     expect(await screen.findByText("授权依据")).toBeInTheDocument();
     expect(screen.getByText("creator.scene.reply")).toBeInTheDocument();
@@ -937,6 +943,7 @@ describe("Creator browser session shell", () => {
     expect(keys[0]).toMatch(/^creator-input-v1\.[A-Za-z0-9_-]{22}$/);
     expect(document.body.textContent).not.toContain("保留原样");
 
+    await user.click(screen.getByRole("button", { name: "对话" }));
     await user.click(screen.getByRole("button", { name: "开始新输入" }));
     await user.type(composer, "生成一份明确的 Codex 交付物");
     await user.click(
