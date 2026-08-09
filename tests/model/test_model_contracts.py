@@ -363,7 +363,16 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert '"schema_version"' not in dialogue_schema_text
     assert '"reason_summary"' not in dialogue_schema_text
     assert '"decision"' not in dialogue_schema_text
-    assert model_output_schema == dialogue_schema
+    assert model_output_schema != dialogue_schema
+    encoded_model_schema = json.dumps(model_output_schema, separators=(",", ":"))
+    assert '"default"' not in encoded_model_schema
+    assert '"discriminator"' not in encoded_model_schema
+    assert len(encoded_model_schema) < len(dialogue_schema_text) * 3 // 4
+    assert "title" not in model_output_schema["$defs"]["DialogueReplyDecision"]
+    assert (
+        "title"
+        in model_output_schema["$defs"]["DialogueMaterialContentChange"]["properties"]
+    )
     reply_schema = model_output_schema["$defs"]["DialogueReplyDecision"]
     mind_change_schema = model_output_schema["$defs"]["DialogueMindChange"]
     assert reply_schema["properties"]["mind_change"]["anyOf"][0] == {

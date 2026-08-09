@@ -8,7 +8,7 @@ strict dispatch table and make compatibility drift easier.
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import (
     BaseModel,
@@ -934,17 +934,36 @@ def dialogue_candidate_schema(
 
 
 def dialogue_model_output_schema(*, web_search: bool) -> dict[str, Any]:
-    """Return exactly the dialogue candidate contract accepted by Runtime.
+    """Return the Runtime candidate shape without non-validating annotations.
 
     Structured output is an untrusted transport constraint, not a second and looser
-    candidate language. Keeping both sides on the same schema prevents a provider-valid
-    state proposal from being deterministically rejected by the durable parser.
+    candidate language. Pydantic titles, defaults and discriminator hints add provider
+    tokens but do not change the accepted shape: required fields, unions and constants
+    already carry those semantics.
     """
 
     version = (
         WEB_DIALOGUE_CANDIDATE_VERSION if web_search else DIALOGUE_CANDIDATE_VERSION
     )
-    return dialogue_candidate_schema(version)
+    return cast(
+        dict[str, Any],
+        _strip_provider_schema_annotations(dialogue_candidate_schema(version)),
+    )
+
+
+def _strip_provider_schema_annotations(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_strip_provider_schema_annotations(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _strip_provider_schema_annotations(item)
+            for key, item in value.items()
+            if not (
+                key in {"default", "discriminator"}
+                or (key == "title" and isinstance(item, str))
+            )
+        }
+    return value
 
 
 def parse_dialogue_candidate(
