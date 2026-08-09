@@ -25,7 +25,7 @@ type MessageComposerProps = {
   queryClient: QueryClient;
   timelineQueryKey: QueryKey;
   onUnauthorized: () => void;
-  onOperationAccepted: (operationRef: string) => void;
+  onOperationAccepted: (operationRef: string, body: string) => void;
 };
 
 function rejectedMessage(error: ApiFailure): string {
@@ -72,9 +72,10 @@ export function MessageComposer({
           ? await acceptCreatorCodexTask(token, sceneKey, intentKey, message)
           : await acceptCreatorMessage(token, sceneKey, intentKey, message);
       const operationRef = accepted.result_ref;
+      const acceptedBody = message;
       setMessage("");
       setState({ kind: "accepted", operationRef, mode });
-      onOperationAccepted(operationRef);
+      onOperationAccepted(operationRef, acceptedBody);
       await queryClient.resetQueries({
         queryKey: timelineQueryKey,
         exact: true,
@@ -131,26 +132,29 @@ export function MessageComposer({
   }
 
   const locked =
-    !sceneOpen ||
-    state.kind === "sending" ||
-    state.kind === "unconfirmed" ||
-    state.kind === "accepted";
+    !sceneOpen || state.kind === "sending" || state.kind === "unconfirmed";
 
   return (
-    <section className="message-composer" aria-labelledby="composer-heading">
-      <h2 id="composer-heading">向 ARMI 提供输入</h2>
+    <section className="message-composer" aria-label="发送消息">
       <form onSubmit={submit}>
-        <label htmlFor="creator-message">输入内容</label>
+        <label className="visually-hidden" htmlFor="creator-message">
+          输入内容
+        </label>
         <textarea
           id="creator-message"
           name="creator-message"
-          rows={5}
+          rows={2}
+          placeholder={sceneOpen ? "给 ARMI 发消息…" : "这个场合已关闭"}
           value={message}
           readOnly={locked}
           aria-describedby="composer-note"
           onChange={(event) => {
             setMessage(event.currentTarget.value);
-            if (state.kind === "rejected" || state.kind === "idle") {
+            if (
+              state.kind === "rejected" ||
+              state.kind === "accepted" ||
+              state.kind === "idle"
+            ) {
               setState({ kind: "idle" });
             }
           }}
@@ -158,9 +162,9 @@ export function MessageComposer({
           onCompositionStart={compositionStart}
           onCompositionEnd={compositionEnd}
         />
-        <p id="composer-note" className="field-note">
+        <p id="composer-note" className="composer-note">
           {sceneOpen
-            ? "Enter 发送，Shift+Enter 换行。已接纳正文不会由 timeline 回显。"
+            ? "Enter 发送 · Shift+Enter 换行"
             : "这个场合已关闭；历史 timeline 仍可读取，重新打开后才能继续输入。"}
         </p>
         {state.kind === "unconfirmed" ? (
@@ -177,8 +181,8 @@ export function MessageComposer({
           </div>
         ) : (
           <div className="composer-actions">
-            <button type="submit" disabled={locked}>
-              {state.kind === "sending" ? "正在接纳" : "提交输入"}
+            <button type="submit" aria-label="提交输入" disabled={locked}>
+              {state.kind === "sending" ? "发送中" : "发送"}
             </button>
             <button
               type="button"
@@ -186,7 +190,7 @@ export function MessageComposer({
               disabled={locked}
               onClick={() => void send("codex")}
             >
-              请求 ARMI 委托 Codex
+              委托 Codex
             </button>
           </div>
         )}
@@ -197,20 +201,11 @@ export function MessageComposer({
           <p role="status">{state.message}</p>
         ) : null}
         {state.kind === "accepted" ? (
-          <div className="composer-recovery">
-            <p role="status">
-              {state.mode === "codex"
-                ? "Codex 委托请求已由 Runtime 耐久接纳；若 ARMI 形成正式委托，你仍须在权限区批准。"
-                : "输入已由 Runtime 耐久接纳，可在下方核验责任。"}
-            </p>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => setState({ kind: "idle" })}
-            >
-              开始新输入
-            </button>
-          </div>
+          <p className="composer-status" role="status">
+            {state.mode === "codex"
+              ? "Codex 委托请求已由 Runtime 耐久接纳；若 ARMI 形成正式委托，你仍须在权限区批准。"
+              : "消息已发送"}
+          </p>
         ) : null}
       </form>
     </section>

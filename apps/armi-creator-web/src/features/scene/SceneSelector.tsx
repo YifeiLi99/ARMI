@@ -95,22 +95,28 @@ export function SceneSelector({
         className="scene-selector"
         aria-labelledby="scene-selector-heading"
       >
-        <div className="panel-heading-row">
-          <div>
-            <p className="eyebrow">Creator 场合</p>
-            <h2 id="scene-selector-heading">{selectedSceneKey}</h2>
+        <div className="conversation-titlebar">
+          <div className="conversation-identity">
+            <span className="armi-avatar" aria-hidden="true">
+              A
+            </span>
+            <div>
+              <h1 id="scene-selector-heading">ARMI</h1>
+              <p>
+                <span className="status-dot" aria-hidden="true" />{" "}
+                {selectedSceneKey}
+              </p>
+            </div>
           </div>
           <button
             type="button"
             className="secondary"
+            aria-label="管理场合"
             onClick={() => setManaging(true)}
           >
-            管理场合
+            场合
           </button>
         </div>
-        <p className="boundary-note">
-          当前输入、timeline 与事件流都绑定到这个场合。
-        </p>
       </section>
     );
   }

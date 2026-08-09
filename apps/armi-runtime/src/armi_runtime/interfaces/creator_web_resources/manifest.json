@@ -4,28 +4,28 @@
       "cache_class": "metadata-no-store",
       "media_type": "application/json",
       "path": "static/.vite/manifest.json",
-      "sha256": "dfcd52b76e07c5efc121ff1d2e0492794233458c70f0b63c8bf23cac396f080e",
+      "sha256": "5ce97210b0155176140f972fb57c6db9e8571ced8208c5868aab5f729473f3ba",
       "size": 185
     },
     {
       "cache_class": "immutable",
-      "media_type": "text/javascript",
-      "path": "static/assets/index-C82tbZCy.js",
-      "sha256": "be25b44e67f5c751e9f2db8e79c5b26dab71caaa85de33bc7742f4b00b81b021",
-      "size": 327339
+      "media_type": "text/css",
+      "path": "static/assets/index-BLSxax68.css",
+      "sha256": "50fcb10727f0ca390c966fa6f841c514b7a2412631cd0bbe2f0f8d4a884017ad",
+      "size": 24512
     },
     {
       "cache_class": "immutable",
-      "media_type": "text/css",
-      "path": "static/assets/index-DLlHi9jP.css",
-      "sha256": "0f307329897f986485e59f8738e9855ba003500eb0c1bc00729ed6c9ae1f8049",
-      "size": 20824
+      "media_type": "text/javascript",
+      "path": "static/assets/index-CmS26p9F.js",
+      "sha256": "4141dc5207576a7445dc865b0de4fe557e558fb160e3d6c3a975b09ee389532d",
+      "size": 328332
     },
     {
       "cache_class": "entrypoint-no-store",
       "media_type": "text/html",
       "path": "static/index.html",
-      "sha256": "888a7ce7142ce9dd8e6a10fc397f6ebc0a0ab66b54e4f58a3446179b6e7590d2",
+      "sha256": "4b7ad5f273b3fe6311983d90376b3dee1d80c57ff9b847f3d9da801be675fac2",
       "size": 455
     }
   ],
@@ -51,5 +51,5 @@
     "typescript": "5.9.3",
     "vite": "8.1.5"
   },
-  "vite_manifest_sha256": "dfcd52b76e07c5efc121ff1d2e0492794233458c70f0b63c8bf23cac396f080e"
+  "vite_manifest_sha256": "5ce97210b0155176140f972fb57c6db9e8571ced8208c5868aab5f729473f3ba"
 }

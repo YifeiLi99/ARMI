@@ -2636,6 +2636,117 @@ async def _insert_capability_requests(
                 request_digest,
             )
         )
+        if isinstance(scope, CreatorSceneReplyScope):
+            await _grant_local_creator_reply(
+                unit_of_work,
+                snapshot=snapshot,
+                request_id=request_id,
+                capability_id=catalog[0],
+                scope=scope,
+            )
+
+
+async def _grant_local_creator_reply(
+    unit_of_work: PostgreSQLUnitOfWork,
+    *,
+    snapshot: SubjectCommitSnapshot,
+    request_id: UUID,
+    capability_id: UUID,
+    scope: CreatorSceneReplyScope,
+) -> None:
+    """Authorize the subject's same-scene reply without a Creator approval loop."""
+
+    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    now_row = await (
+        await connection.execute("SELECT statement_timestamp()")
+    ).fetchone()
+    if now_row is None:
+        raise SubjectCommitViolation("SUBJECT-DATABASE")
+    now = now_row[0]
+    grant_id = uuid7()
+    decision_id = uuid7()
+    scope_digest = Digest.from_bytes(rfc8785.dumps(cast(Any, _scope_wire(scope))))
+    command_digest = Digest.from_bytes(
+        rfc8785.dumps(
+            cast(
+                Any,
+                {
+                    "schema_version": "armi.local-creator-reply-grant.v1",
+                    "request_id": str(request_id),
+                    "decision": "grant",
+                    "reason": "same_scene_creator_conversation",
+                },
+            )
+        )
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.permission_grants (
+            grant_id, capability_request_id, creator_party_id,
+            capability_id, subject_id, interaction_scene_id,
+            operation_class, audience_scope, data_scope, purpose,
+            workspace_scope, artifact_scope, network_access,
+            valid_from, valid_until, max_uses, max_payload_bytes,
+            scope_digest) VALUES (
+            %s, %s, %s, %s, %s, %s, 'send', 'creator',
+            'creator_visible_response', 'respond_to_creator',
+            NULL, NULL, NULL, %s, %s, %s, %s, %s)
+        """,
+        (
+            grant_id,
+            request_id,
+            snapshot.creator_party_id,
+            capability_id,
+            snapshot.subject_id,
+            snapshot.scene_id,
+            now,
+            now + timedelta(seconds=scope.valid_for_seconds),
+            scope.max_uses,
+            scope.max_payload_bytes,
+            scope_digest.value,
+        ),
+    )
+    await connection.execute(
+        """
+        UPDATE armi.capability_requests
+        SET current_status = 'granted', request_version = 2,
+            resolved_by_party_id = creator_party_id,
+            resolution_reason_class = 'same_scene_creator_conversation',
+            resolved_at = statement_timestamp()
+        WHERE capability_request_id = %s
+          AND current_status = 'pending' AND request_version = 1
+        """,
+        (request_id,),
+    )
+    await connection.execute(
+        """
+        INSERT INTO armi.capability_request_decisions (
+            capability_decision_id, capability_request_id,
+            creator_party_id, expected_request_version,
+            resulting_request_version, decision_kind, command_digest,
+            scope_digest, reason_code) VALUES (
+            %s, %s, %s, 1, 2, 'grant', %s, %s,
+            'same_scene_creator_conversation')
+        """,
+        (
+            decision_id,
+            request_id,
+            snapshot.creator_party_id,
+            command_digest.value,
+            scope_digest.value,
+        ),
+    )
+    await unit_of_work.audit.append(
+        _audit(
+            unit_of_work,
+            snapshot,
+            "capability.request.granted",
+            "capability_request",
+            request_id,
+            AuditResultStatus.APPLIED,
+            command_digest,
+        )
+    )
 
 
 async def _insert_response_intent(

@@ -65,6 +65,9 @@ export function SessionPanel() {
   const [activePage, setActivePage] = useState<WorkspacePage>("conversation");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [acceptedMessages, setAcceptedMessages] = useState<
+    Record<string, string>
+  >({});
   const [selectedScene, setSelectedScene] = useState<{
     key: string;
     status: "open" | "closed";
@@ -226,11 +229,17 @@ export function SessionPanel() {
             <span>本机</span>
           </div>
         </div>
-        <PageHeader
-          page={activePage}
-          onOpenMobile={() => setMobileNavigationOpen(true)}
-        />
-        <div className="page-content">
+        {activePage === "conversation" ? null : (
+          <PageHeader
+            page={activePage}
+            onOpenMobile={() => setMobileNavigationOpen(true)}
+          />
+        )}
+        <div
+          className={`page-content${
+            activePage === "conversation" ? " is-conversation" : ""
+          }`}
+        >
           <div hidden={activePage !== "conversation"}>
             <div className="conversation-page">
               <SceneSelector
@@ -246,6 +255,24 @@ export function SessionPanel() {
                 }}
                 onUnauthorized={unauthorized}
               />
+              <TimelinePanel
+                token={view.stored.token}
+                environmentId={view.session.environment_id}
+                creatorPartyId={view.session.creator_party_id}
+                sceneKey={activeScene.key}
+                acceptedMessages={acceptedMessages}
+                onUnauthorized={unauthorized}
+                onOperationSelected={(operationRef) => {
+                  setSelectedEffect(null);
+                  setSelectedOperation(operationRef);
+                  setActivePage("operation");
+                }}
+                onEffectSelected={(effectRef) => {
+                  setSelectedEffect(effectRef);
+                  setActivePage("operation");
+                }}
+                registerStreamAbort={registerStreamAbort}
+              />
               <MessageComposer
                 key={activeScene.key}
                 token={view.stored.token}
@@ -259,28 +286,14 @@ export function SessionPanel() {
                   activeScene.key,
                 ]}
                 onUnauthorized={unauthorized}
-                onOperationAccepted={(operationRef) => {
+                onOperationAccepted={(operationRef, body) => {
                   setSelectedEffect(null);
                   setSelectedOperation(operationRef);
-                  setActivePage("operation");
+                  setAcceptedMessages((current) => ({
+                    ...current,
+                    [operationRef]: body,
+                  }));
                 }}
-              />
-              <TimelinePanel
-                token={view.stored.token}
-                environmentId={view.session.environment_id}
-                creatorPartyId={view.session.creator_party_id}
-                sceneKey={activeScene.key}
-                onUnauthorized={unauthorized}
-                onOperationSelected={(operationRef) => {
-                  setSelectedEffect(null);
-                  setSelectedOperation(operationRef);
-                  setActivePage("operation");
-                }}
-                onEffectSelected={(effectRef) => {
-                  setSelectedEffect(effectRef);
-                  setActivePage("operation");
-                }}
-                registerStreamAbort={registerStreamAbort}
               />
             </div>
           </div>

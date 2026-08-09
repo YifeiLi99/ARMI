@@ -1,7 +1,16 @@
 import { useEffect, useMemo } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
-import { ApiFailure, getSceneTimeline } from "../../api/client";
+import {
+  ApiFailure,
+  getEffectDetail,
+  getSceneTimeline,
+} from "../../api/client";
+import type { SceneTimelinePage } from "../../api/client";
 import { useSceneEventStream } from "./useSceneEventStream";
 
 type TimelinePanelProps = {
@@ -9,6 +18,7 @@ type TimelinePanelProps = {
   environmentId: string;
   creatorPartyId: string;
   sceneKey: string;
+  acceptedMessages: Record<string, string>;
   onUnauthorized: () => void;
   onOperationSelected: (operationRef: string) => void;
   onEffectSelected: (effectRef: string) => void;
@@ -20,6 +30,7 @@ export function TimelinePanel({
   environmentId,
   creatorPartyId,
   sceneKey,
+  acceptedMessages,
   onUnauthorized,
   onOperationSelected,
   onEffectSelected,
@@ -56,23 +67,29 @@ export function TimelinePanel({
   if (timeline.isPending) {
     return (
       <section className="timeline-panel" aria-labelledby="timeline-heading">
-        <h2 id="timeline-heading">耐久可见记录</h2>
-        <p role="status">正在读取权威 timeline</p>
+        <h2 id="timeline-heading" className="visually-hidden">
+          对话
+        </h2>
+        <p className="chat-loading" role="status">
+          正在读取对话…
+        </p>
       </section>
     );
   }
   if (timeline.isError) {
     return (
       <section className="timeline-panel" aria-labelledby="timeline-heading">
-        <h2 id="timeline-heading">耐久可见记录</h2>
-        <p role="status">当前无法核验权威 timeline。</p>
+        <h2 id="timeline-heading" className="visually-hidden">
+          对话
+        </h2>
+        <p role="status">当前无法读取对话。</p>
         <button
           type="button"
           onClick={() =>
             void queryClient.resetQueries({ queryKey, exact: true })
           }
         >
-          重新读取 timeline
+          重新读取
         </button>
       </section>
     );
@@ -92,8 +109,14 @@ export function TimelinePanel({
 
   return (
     <section className="timeline-panel" aria-labelledby="timeline-heading">
-      <div className="timeline-heading-row">
-        <h2 id="timeline-heading">耐久可见记录</h2>
+      <div className="chat-utility-row">
+        <h2 id="timeline-heading" className="visually-hidden">
+          对话
+        </h2>
+        <p className={`live-update is-${liveUpdate}`} role="status">
+          <span className="status-dot" aria-hidden="true" />
+          {liveUpdate === "connected" ? "实时" : "连接中"}
+        </p>
         <button
           type="button"
           className="secondary"
@@ -101,48 +124,28 @@ export function TimelinePanel({
             void queryClient.resetQueries({ queryKey, exact: true })
           }
         >
-          刷新
+          刷新对话
         </button>
       </div>
-      <p className={`live-update is-${liveUpdate}`} role="status">
-        {liveUpdate === "connecting"
-          ? "正在建立实时更新"
-          : liveUpdate === "connected"
-            ? "实时更新已连接"
-            : "实时更新已断开，正在定期核验"}
-      </p>
       {items.length === 0 ? (
-        <p className="timeline-empty" role="status">
-          尚无耐久可见记录
-        </p>
+        <div className="chat-empty" role="status">
+          <span className="armi-avatar" aria-hidden="true">
+            A
+          </span>
+          <h3>开始和 ARMI 对话</h3>
+          <p>消息会在这里按时间顺序显示。</p>
+        </div>
       ) : (
-        <ol className="timeline-list">
+        <ol className="chat-list">
           {items.map((item) => (
-            <li key={item.timeline_item_id}>
-              <span>{item.source_kind}</span>
-              <strong>{item.status}</strong>
-              <time dateTime={item.occurred_at}>{item.occurred_at}</time>
-              {item.operation_ref === undefined ||
-              item.operation_ref === null ? null : (
-                <button
-                  type="button"
-                  className="secondary timeline-operation"
-                  onClick={() => onOperationSelected(item.operation_ref!)}
-                >
-                  查看 operation
-                </button>
-              )}
-              {item.effect_ref === undefined ||
-              item.effect_ref === null ? null : (
-                <button
-                  type="button"
-                  className="secondary timeline-operation"
-                  onClick={() => onEffectSelected(item.effect_ref!)}
-                >
-                  查看效果详情
-                </button>
-              )}
-            </li>
+            <ChatTimelineItem
+              key={item.timeline_item_id}
+              item={item}
+              token={token}
+              acceptedMessages={acceptedMessages}
+              onOperationSelected={onOperationSelected}
+              onEffectSelected={onEffectSelected}
+            />
           ))}
         </ol>
       )}
@@ -156,5 +159,88 @@ export function TimelinePanel({
         </button>
       ) : null}
     </section>
+  );
+}
+
+type TimelineItem = SceneTimelinePage["items"][number];
+
+function ChatTimelineItem({
+  item,
+  token,
+  acceptedMessages,
+  onOperationSelected,
+  onEffectSelected,
+}: {
+  item: TimelineItem;
+  token: string;
+  acceptedMessages: Record<string, string>;
+  onOperationSelected: (operationRef: string) => void;
+  onEffectSelected: (effectRef: string) => void;
+}) {
+  const response = useQuery({
+    queryKey: ["effect", item.effect_ref],
+    queryFn: ({ signal }) => getEffectDetail(token, item.effect_ref!, signal),
+    enabled:
+      ["creator_response", "party_response"].includes(item.source_kind) &&
+      Boolean(item.effect_ref),
+    retry: false,
+  });
+
+  if (item.source_kind === "subject_commit") {
+    return null;
+  }
+  const creatorInput = item.source_kind === "creator_input";
+  const creatorResponse = ["creator_response", "party_response"].includes(
+    item.source_kind,
+  );
+  const operationRef = item.operation_ref ?? undefined;
+  const body = creatorInput
+    ? operationRef
+      ? (acceptedMessages[operationRef] ?? "已发送的消息")
+      : "已发送的消息"
+    : creatorResponse
+      ? (response.data?.response_text ??
+        (response.isPending ? "正在组织回复…" : "回复暂时不可见"))
+      : item.source_kind;
+
+  return (
+    <li
+      className={
+        creatorInput ? "chat-message is-creator" : "chat-message is-armi"
+      }
+    >
+      {!creatorInput ? (
+        <span className="armi-avatar" aria-hidden="true">
+          A
+        </span>
+      ) : null}
+      <div className="chat-bubble">
+        <p>{body}</p>
+        <div className="chat-message-meta">
+          <time dateTime={item.occurred_at}>
+            {new Date(item.occurred_at).toLocaleTimeString("zh-CN", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </time>
+          {operationRef ? (
+            <button
+              type="button"
+              onClick={() => onOperationSelected(operationRef)}
+            >
+              详情
+            </button>
+          ) : null}
+          {item.effect_ref ? (
+            <button
+              type="button"
+              onClick={() => onEffectSelected(item.effect_ref!)}
+            >
+              记录
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </li>
   );
 }

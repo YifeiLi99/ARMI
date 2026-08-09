@@ -287,7 +287,11 @@ class PostgreSQLSceneTimelineQuery:
                             """
                             SELECT
                                 item.timeline_item_id,
-                                item.source_kind,
+                                CASE
+                                  WHEN item.source_kind = 'party_response'
+                                  THEN 'creator_response'
+                                  ELSE item.source_kind
+                                END,
                                 item.source_ref,
                                 item.result_status,
                                 item.occurred_at,
@@ -296,7 +300,7 @@ class PostgreSQLSceneTimelineQuery:
                                     commit_opportunity.root_opportunity_id
                                 ),
                                 CASE
-                                  WHEN item.source_kind = 'creator_response'
+                                  WHEN item.source_kind = 'party_response'
                                   THEN item.source_ref
                                 END
                             FROM armi.scene_timeline_items AS item
@@ -348,7 +352,11 @@ class PostgreSQLSceneTimelineQuery:
                             """
                             SELECT
                                 item.timeline_item_id,
-                                item.source_kind,
+                                CASE
+                                  WHEN item.source_kind = 'party_response'
+                                  THEN 'creator_response'
+                                  ELSE item.source_kind
+                                END,
                                 item.source_ref,
                                 item.result_status,
                                 item.occurred_at,
@@ -357,7 +365,7 @@ class PostgreSQLSceneTimelineQuery:
                                     commit_opportunity.root_opportunity_id
                                 ),
                                 CASE
-                                  WHEN item.source_kind = 'creator_response'
+                                  WHEN item.source_kind = 'party_response'
                                   THEN item.source_ref
                                 END
                             FROM armi.scene_timeline_items AS item

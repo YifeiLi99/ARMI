@@ -56,6 +56,10 @@ def probe_continuity(
     birth_contract_digest: Digest,
     creator_asset_digest: Digest,
 ) -> ContinuityState:
+    # The packaged Creator UI is a replaceable read interface, not part of the
+    # subject's identity or life continuity. Keep accepting the historical
+    # argument while older activation rows still record its digest.
+    del creator_asset_digest
     try:
         with psycopg.connect(conninfo, autocommit=True) as connection:
             rows = connection.execute(
@@ -135,12 +139,8 @@ def probe_continuity(
     if len(rows) != 1:
         return ContinuityState.INVALID
     row = rows[0]
-    expected = (
-        composition_digest.value,
-        birth_contract_digest.value,
-        creator_asset_digest.value,
-    )
-    if tuple(str(value) for value in row[1:4]) != expected:
+    expected = (composition_digest.value, birth_contract_digest.value)
+    if tuple(str(value) for value in row[1:3]) != expected:
         return ContinuityState.INVALID
     counts = tuple(int(value) for value in row[4:])
     if (
