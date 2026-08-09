@@ -433,7 +433,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
         (
             "evidence",
             "current_evidence",
-            {"message_id": source_id, "text": "你想聊些什么?"},
+            "你想聊些什么?",
             "external_claim",
         ),
     )

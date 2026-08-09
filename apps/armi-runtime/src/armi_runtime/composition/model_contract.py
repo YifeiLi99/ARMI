@@ -1473,7 +1473,10 @@ def _dialogue_messages(
     current_creator_text: str | None = None
     if task == "respond_to_creator" and len(groups["current_input"]) == 1:
         content = groups["current_input"][0]["content"]
-        if isinstance(content, dict) and set(content) == {"text"}:
+        if isinstance(content, str) and content:
+            current_creator_text = content
+            groups["current_input"] = []
+        elif isinstance(content, dict) and set(content) == {"text"}:
             text = content.get("text")
             if isinstance(text, str) and text:
                 current_creator_text = text
