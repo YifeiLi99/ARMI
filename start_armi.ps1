@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$EnvironmentRoot = $env:ARMI_ENVIRONMENT_ROOT
+    [string]$EnvironmentRoot = $env:ARMI_ENVIRONMENT_ROOT,
+    [switch]$OpenBrowser
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,18 +21,6 @@ $resolvedEnvironmentRoot = [IO.Path]::GetFullPath($EnvironmentRoot)
 if (-not (Test-Path -LiteralPath $resolvedEnvironmentRoot -PathType Container)) {
     throw "ARMI-START-ENVIRONMENT: environment root does not exist: $resolvedEnvironmentRoot"
 }
-$requiredEnvironmentEntries = @(
-    'environment.toml',
-    'data',
-    'secrets',
-    'bootstrap/birth-manifest.json'
-)
-foreach ($entry in $requiredEnvironmentEntries) {
-    if (-not (Test-Path -LiteralPath (Join-Path $resolvedEnvironmentRoot $entry))) {
-        throw "ARMI-START-ENVIRONMENT: environment is not initialized; missing $entry"
-    }
-}
-
 $managedUv = Join-Path $workspace '.armi-tools/installs/uv/0.11.33/uv.exe'
 if (-not (Test-Path -LiteralPath $managedUv -PathType Leaf)) {
     throw 'ARMI-START-TOOLCHAIN: run tools/bootstrap_toolchain.ps1 before starting ARMI.'
@@ -58,7 +47,7 @@ function Invoke-ArmiJson {
 Push-Location $workspace
 try {
     Write-Host 'Synchronizing locked Python dependencies...'
-    & $managedUv sync --frozen
+    & $managedUv sync --frozen --all-packages
     if ($LASTEXITCODE -ne 0) {
         throw 'ARMI-START-SYNC: uv sync failed.'
     }
@@ -102,6 +91,9 @@ try {
     }
 
     $creatorUrl = "http://$($config.config.creator.bind_host):$($config.config.creator.port)/ui/"
+    if ($OpenBrowser) {
+        Start-Process -FilePath $creatorUrl
+    }
     [pscustomobject]@{
         status = 'ready'
         environment_root = $resolvedEnvironmentRoot

@@ -51,6 +51,12 @@ docs/                       私有叙述性设计与外部研究资料
 .\start_armi.ps1
 ```
 
+需要启动后直接打开 Creator 工作台时使用：
+
+```powershell
+.\start_armi.ps1 -OpenBrowser
+```
+
 默认环境根是源码仓库同级的 `ARMI-Environment`。也可以通过 `-EnvironmentRoot` 或 `ARMI_ENVIRONMENT_ROOT` 显式覆盖。脚本会同步锁定依赖、检查环境、启动并等待 PostgreSQL、检查数据库、启动 Runtime，并以业务 readiness 为最终成功条件；它不会暗中执行数据库安装或出生初始化。
 
 开发数据库固定使用 Docker 中的 PostgreSQL 18.4 + pgvector 0.8.6：
