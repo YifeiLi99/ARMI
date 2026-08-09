@@ -402,12 +402,15 @@ class CandidateValidationPipeline:
                 ).fetchone()
                 if now is None:
                     raise CandidateViolation("CANDIDATE-DATABASE")
-                await unit_of_work.work.release(
-                    lease,
+                terminal = await self._repository.release_or_fail(
+                    unit_of_work,
+                    lease=lease,
                     not_before=Instant(now[0] + timedelta(seconds=1)),
                     error_code=code,
                 )
-        except DatabaseTransactionError, WorkViolation:
+                if terminal:
+                    self._diagnostic("candidate.worker.terminal_failure")
+        except CandidateViolation, DatabaseTransactionError, WorkViolation:
             self._diagnostic("candidate.settlement.deferred")
 
 

@@ -178,8 +178,7 @@ class PostgreSQLCandidateValidationRepository:
                     attempt.candidate_schema_version,
                     episode.trace_id,
                     episode.purpose,
-                    episode.opportunity_id,
-                    episode.context_party_id
+                    episode.opportunity_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -438,7 +437,7 @@ class PostgreSQLCandidateValidationRepository:
                 (
                     row[2],
                     row[3],
-                    row[15] if row[13] == "consider_other_human_input" else row[9],
+                    row[9],
                     (
                         "other_human_social"
                         if row[13] == "consider_other_human_input"
@@ -536,6 +535,10 @@ class PostgreSQLCandidateValidationRepository:
         ).fetchone()
         if subject_prompt_row is None:
             raise CandidateViolation("CANDIDATE-SUBJECT-PROMPT-CONTEXT")
+        creator_party_id, other_party_id = _relationship_party_ids(
+            str(row[13]),
+            row[9],
+        )
         return CandidateEpisodeSnapshot(
             row[0],
             row[1],
@@ -546,8 +549,8 @@ class PostgreSQLCandidateValidationRepository:
             int(row[6]),
             Digest(str(row[7])),
             row[8],
-            row[9],
-            row[15],
+            creator_party_id,
+            other_party_id,
             await _artifact_ref(connection, row[10]),
             str(row[11]),
             TraceId(str(row[12])),
@@ -624,6 +627,69 @@ class PostgreSQLCandidateValidationRepository:
             None if maintenance_row is None else int(maintenance_row[2]),
             None if maintenance_row is None else str(maintenance_row[3]),
         )
+
+    async def release_or_fail(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        lease: WorkLease,
+        not_before: Instant,
+        error_code: str,
+    ) -> bool:
+        """Release retryable validation work or terminally fail its episode."""
+
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                SELECT work.owner_ref,
+                       work.attempt_count >= work.max_attempts
+                           OR work.deadline_at <= statement_timestamp()
+                FROM armi.durable_work AS work
+                WHERE work.work_id = %s
+                  AND work.work_kind = 'cognition.candidate.validate'
+                  AND work.owner_kind = 'cognitive_episode'
+                  AND work.status = 'leased'
+                  AND work.current_attempt_id = %s
+                  AND work.lease_owner = %s
+                  AND work.lease_token = %s
+                  AND work.lease_expires_at >= statement_timestamp()
+                FOR UPDATE OF work
+                """,
+                (
+                    lease.work_id.value,
+                    lease.attempt_id.value,
+                    lease.owner,
+                    lease.token,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise CandidateViolation("CANDIDATE-WORK-STALE")
+        episode_id, exhausted = row
+        if not bool(exhausted):
+            await unit_of_work.work.release(
+                lease,
+                not_before=not_before,
+                error_code=error_code,
+            )
+            return False
+        await unit_of_work.work.fail(lease, error_code=error_code)
+        updated = await (
+            await connection.execute(
+                """
+                UPDATE armi.cognitive_episodes
+                SET status = 'failed', failure_code = %s
+                WHERE cognitive_episode_id = %s
+                  AND status IN ('model_returned', 'validating')
+                RETURNING cognitive_episode_id
+                """,
+                (error_code, episode_id),
+            )
+        ).fetchone()
+        if updated is None:
+            raise CandidateViolation("CANDIDATE-EPISODE-STATE")
+        return True
 
     async def settle(
         self,
@@ -1442,6 +1508,15 @@ def _material_metadata(value: object) -> tuple[tuple[str, str], ...]:
     return tuple(
         sorted((cast(str, key), cast(str, item)) for key, item in metadata.items())
     )
+
+
+def _relationship_party_ids(
+    purpose: str,
+    context_party_id: UUID | None,
+) -> tuple[UUID | None, UUID | None]:
+    if purpose == "consider_other_human_input":
+        return None, context_party_id
+    return context_party_id, None
 
 
 __all__ = (

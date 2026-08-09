@@ -391,6 +391,10 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert "最多问一个问题" in DIALOGUE_INSTRUCTIONS
     assert "不要复述已知情境" in DIALOGUE_INSTRUCTIONS
     assert "能直接说就直接说" in DIALOGUE_INSTRUCTIONS
+    assert "普通闲聊优先用直白口语" in DIALOGUE_INSTRUCTIONS
+    assert "不要主动拿光、风、窗等意象" in DIALOGUE_INSTRUCTIONS
+    assert "不要声称自己看见、听见或触碰了现实环境" in DIALOGUE_INSTRUCTIONS
+    assert "符合电子存在的真实处境" in DIALOGUE_INSTRUCTIONS
 
     request = json.loads(_request(dialogue).canonical_bytes)
     assert "candidate_base" not in request

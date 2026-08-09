@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid7
 
 import pytest
@@ -49,6 +52,8 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.persistence.candidate_validation import (
+    PostgreSQLCandidateValidationRepository,
+    _relationship_party_ids,
     _validation_drafts,
 )
 from armi_runtime.composition.candidate_validator import (
@@ -81,6 +86,62 @@ def _self_state(*, name: str | None = None) -> dict[str, object]:
         "self_narrative": None,
         "tensions": [],
     }
+
+
+def test_relationship_party_ids_assign_context_party_to_exact_role() -> None:
+    party_id = uuid7()
+
+    assert _relationship_party_ids("consider_creator_input", party_id) == (
+        party_id,
+        None,
+    )
+    assert _relationship_party_ids("consider_other_human_input", party_id) == (
+        None,
+        party_id,
+    )
+
+
+def test_terminal_validation_failure_also_fails_owning_episode() -> None:
+    episode_id = uuid7()
+    lease = SimpleNamespace(
+        work_id=SimpleNamespace(value=uuid7()),
+        attempt_id=SimpleNamespace(value=uuid7()),
+        owner=uuid7(),
+        token=7,
+    )
+    connection = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=(
+                SimpleNamespace(fetchone=AsyncMock(return_value=(episode_id, True))),
+                SimpleNamespace(fetchone=AsyncMock(return_value=(episode_id,))),
+            )
+        )
+    )
+    work = SimpleNamespace(fail=AsyncMock(), release=AsyncMock())
+    unit_of_work = SimpleNamespace(
+        _connection_for_repository=lambda: connection,
+        work=work,
+    )
+
+    terminal = asyncio.run(
+        PostgreSQLCandidateValidationRepository().release_or_fail(
+            cast(Any, unit_of_work),
+            lease=cast(Any, lease),
+            not_before=cast(Any, None),
+            error_code="CON-CANDIDATE-RELATIONSHIP-CONTEXT",
+        )
+    )
+
+    assert terminal is True
+    work.fail.assert_awaited_once_with(
+        lease,
+        error_code="CON-CANDIDATE-RELATIONSHIP-CONTEXT",
+    )
+    work.release.assert_not_awaited()
+    assert (
+        "UPDATE armi.cognitive_episodes"
+        in connection.execute.await_args_list[1].args[0]
+    )
 
 
 def _mind_state(*, thoughts: list[str] | None = None) -> dict[str, object]:
