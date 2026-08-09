@@ -226,6 +226,75 @@ class RuntimeCliTests(unittest.TestCase):
             prepare.call_args.kwargs["environment"],
         )
 
+    def test_creator_send_uses_runtime_control_without_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "armi_runtime.cli.prepare_environment", wraps=prepare_environment
+                ) as prepare,
+                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                redirect_stdout(output),
+            ):
+                manager_type.return_value.send_creator_input.return_value = {
+                    "status": "succeeded",
+                    "interaction_id": "interaction-1",
+                    "newly_accepted": True,
+                }
+                exit_code = main(
+                    (
+                        "creator",
+                        "send",
+                        "--environment-root",
+                        str(root.resolve()),
+                        "--message",
+                        "你好, ARMI",
+                        "--idempotency-key",
+                        "automation-message-1",
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "succeeded")
+        self.assertEqual(prepare.call_args.kwargs["credential_scope"], {})
+        manager_type.return_value.send_creator_input.assert_called_once_with(
+            "你好, ARMI",
+            idempotency_key="automation-message-1",
+        )
+
+    def test_creator_send_can_read_utf8_message_from_stdin(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("armi_runtime.cli.sys.stdin", io.StringIO("来自标准输入")),
+                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                redirect_stdout(io.StringIO()),
+            ):
+                manager_type.return_value.send_creator_input.return_value = {
+                    "status": "succeeded"
+                }
+                exit_code = main(
+                    (
+                        "creator",
+                        "send",
+                        "--environment-root",
+                        str(root.resolve()),
+                        "--message-file",
+                        "-",
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        manager_type.return_value.send_creator_input.assert_called_once_with(
+            "来自标准输入",
+            idempotency_key=None,
+        )
+
     def test_birth_command_is_explicit_and_returns_only_stable_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

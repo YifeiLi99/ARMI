@@ -49,6 +49,7 @@
 - Codex 一次性 workspace 默认可操作，但不得逃出 workspace、触碰 forbidden paths、宿主秘密、管理面、用户配置或未经授权的外部写入。纯内容任务可形成结构化 `result.md`，代码与文件任务按 task manifest 和独立 validator 核验。
 - Codex 内置 Web Search 是按委托显式启用的只读模型工具，不等于 shell 获得任意网络。它与 ARMI 自身的网页证据能力是两条独立链路。
 - Codex→ARMI 管理 MCP 与 ARMI→Codex 执行适配器必须隔离，不能互相发现、调用、继承凭据或串联权限。
+- 用户要求通过 Codex 自动向运行中的 ARMI 发话或执行本机日常控制时，使用当前可用的 Admin MCP 或 `armi` CLI 正式入口，二者均可。Creator 输入必须经过正式 intake 并携带稳定幂等键，不能直接写数据库或伪造浏览器会话；只有用户明确要求操作或验证界面时才使用浏览器。
 - 外部服务、凭据或真实数据缺失时保持明确失败。已明确启动的任务可使用该任务已获准的 provider、模型、API 地址、credential locator 与隔离环境完成必要真实验证；更换账号、凭据、provider 或连接生产资源仍需另行授权。
 
 ## 6. 文档与变更

@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import Any, BinaryIO, cast
 from uuid import uuid7
 
+from armi_kernel.application import CreatorInputCommand, CreatorInputViolation
+from armi_kernel.contracts import ContractViolation, IdempotencyKey, TraceId
+
 from .runtime_errors import RuntimeViolation
 
 _CONTROL_SCHEMA = "armi.runtime-admin-control.v1"
@@ -320,7 +323,44 @@ class RuntimeProcessManager:
                 "runtime did not stop before the graceful deadline",
             )
 
-    def _send_control(self, command: str) -> dict[str, Any]:
+    def send_creator_input(
+        self,
+        message: str,
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit one message through the Runtime's formal Creator intake."""
+
+        key = idempotency_key or f"cli-{uuid7()}"
+        try:
+            command = CreatorInputCommand(
+                scene_key="default",
+                message=message,
+                idempotency_key=IdempotencyKey(key),
+                trace_id=TraceId(os.urandom(16).hex()),
+            )
+        except (ContractViolation, CreatorInputViolation) as exc:
+            raise RuntimeViolation(
+                "CLI-CREATOR-INPUT",
+                "creator input is invalid",
+            ) from exc
+        response = self._send_control(
+            "input",
+            {
+                "message": command.message,
+                "idempotency_key": command.idempotency_key.to_wire(),
+            },
+        )
+        return {
+            "status": "succeeded",
+            **cast(dict[str, Any], response["result"]),
+        }
+
+    def _send_control(
+        self,
+        command: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         descriptor = self._read_required(
             self._descriptor_path(), "CLI-RUNTIME-DESCRIPTOR"
         )
@@ -371,7 +411,7 @@ class RuntimeProcessManager:
                 "instance_id": descriptor["instance_id"],
                 "token": token,
                 "command": command,
-                "arguments": {},
+                "arguments": arguments or {},
             },
             ensure_ascii=False,
             separators=(",", ":"),

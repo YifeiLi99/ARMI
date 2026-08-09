@@ -16,6 +16,7 @@ from armi_admin.mcp.contracts import (
     ApplyCorrectionRequest,
     CorrectionStatusRequest,
     HealthRequest,
+    InjectCreatorInputRequest,
     PreviewCorrectionRequest,
     ReplaceSubjectComponentSpec,
     RuntimeControlRequest,
@@ -173,6 +174,33 @@ class AdminToolServiceTests(unittest.TestCase):
             request.model_copy(update={"purpose": "admin.runtime_stop"}),
         )
         self.assertEqual(wrong_purpose.error_code, "ADMIN-PURPOSE")
+
+    def test_creator_input_uses_formal_runtime_intake(self) -> None:
+        service = _service()
+        request = InjectCreatorInputRequest(
+            environment_id=ENVIRONMENT_ID,
+            environment_incarnation=1,
+            idempotency_key="automation-message-1",
+            purpose="admin.inject_creator_input",
+            message="你好, ARMI",
+        )
+        with patch(
+            "armi_admin.application.control_plane.AdminControlPlane.send_control",
+            return_value={
+                "interaction_id": "interaction-1",
+                "newly_accepted": True,
+            },
+        ) as send:
+            result = service.mutate("inject_creator_input", request)
+
+        self.assertEqual(result.status, "succeeded")
+        send.assert_called_once_with(
+            "input",
+            {
+                "message": "你好, ARMI",
+                "idempotency_key": "automation-message-1",
+            },
+        )
 
     def test_health_and_current_schema_are_read_only_safe_results(self) -> None:
         service = _service()

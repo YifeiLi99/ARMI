@@ -76,8 +76,11 @@ uv run armi db migrate --environment-root C:\path\to\environment --apply
 uv run armi bootstrap birth --environment-root C:\path\to\environment
 uv run armi start --environment-root C:\path\to\environment
 uv run armi status --environment-root C:\path\to\environment
+uv run armi creator send --environment-root C:\path\to\environment --message "你好"
 uv run armi stop --environment-root C:\path\to\environment
 ```
+
+自动化 Creator 对话不需要驱动浏览器。运行中的环境可通过 `armi creator send` 把输入送入与工作台相同的正式 Creator intake；重复调用需要自行传入稳定的 `--idempotency-key`。消息也可通过 `--message-file <path>` 读取，或用 `--message-file -` 从标准输入读取。Codex 管理会话可使用 Admin MCP 的 `inject_creator_input`，两条入口最终进入同一 Runtime intake，不直接写数据库。
 
 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。
 

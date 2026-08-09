@@ -122,6 +122,47 @@ class RuntimeProcessManagerTests(unittest.TestCase):
             self.assertEqual(calls, ["drain", "stop"])
             self.assertEqual(result["status"], "stopped")
 
+    def test_creator_input_uses_formal_control_command_and_stable_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = RuntimeProcessManager(root, "environment-1")
+            with patch.object(
+                RuntimeProcessManager,
+                "_send_control",
+                return_value={
+                    "result": {
+                        "interaction_id": "interaction-1",
+                        "newly_accepted": True,
+                    }
+                },
+            ) as send:
+                result = manager.send_creator_input(
+                    "你好, ARMI",
+                    idempotency_key="automation-message-1",
+                )
+
+        send.assert_called_once_with(
+            "input",
+            {
+                "message": "你好, ARMI",
+                "idempotency_key": "automation-message-1",
+            },
+        )
+        self.assertEqual(result["status"], "succeeded")
+        self.assertTrue(result["newly_accepted"])
+
+    def test_creator_input_rejects_invalid_message_before_control(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = RuntimeProcessManager(Path(temporary), "environment-1")
+            with (
+                patch.object(RuntimeProcessManager, "_send_control") as send,
+                self.assertRaises(RuntimeViolation) as raised,
+            ):
+                manager.send_creator_input("   ")
+
+        self.assertEqual(raised.exception.code, "CLI-CREATOR-INPUT")
+        send.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

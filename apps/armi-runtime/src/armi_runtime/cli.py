@@ -58,6 +58,14 @@ def _parser() -> argparse.ArgumentParser:
     for lifecycle_command in ("start", "status", "stop"):
         lifecycle = command.add_parser(lifecycle_command)
         lifecycle.add_argument("--environment-root", type=Path)
+    creator = command.add_parser("creator")
+    creator_command = creator.add_subparsers(dest="creator_command", required=True)
+    creator_send = creator_command.add_parser("send")
+    creator_send.add_argument("--environment-root", type=Path)
+    creator_source = creator_send.add_mutually_exclusive_group(required=True)
+    creator_source.add_argument("--message")
+    creator_source.add_argument("--message-file")
+    creator_send.add_argument("--idempotency-key")
     database = command.add_parser("db")
     database_command = database.add_subparsers(dest="database_command", required=True)
     database_status = database_command.add_parser("status")
@@ -155,6 +163,24 @@ def _safe_failure(
     )
 
 
+def _creator_message(args: argparse.Namespace) -> str:
+    if args.message is not None:
+        return str(args.message)
+    source = str(args.message_file)
+    try:
+        if source == "-":
+            return sys.stdin.read()
+        path = Path(source)
+        if not path.is_file() or path.is_symlink():
+            raise OSError
+        return path.read_text(encoding="utf-8", errors="strict")
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeViolation(
+            "CLI-CREATOR-MESSAGE-FILE",
+            "creator message file is unavailable",
+        ) from exc
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "recovery" and args.recovery_command in {"verify", "drill"}:
@@ -203,7 +229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {"database.recovery": "database.migrator"}
     elif args.command == "bootstrap":
         credential_scope = {"database.birth": "database.runtime"}
-    elif args.command in {"status", "stop", "capacity"}:
+    elif args.command in {"status", "stop", "capacity", "creator"}:
         credential_scope = {}
     else:
         credential_scope = {
@@ -349,6 +375,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         try:
             result = getattr(process, args.command)()
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 3
+        print(
+            json.dumps(
+                result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    if args.command == "creator":
+        process = RuntimeProcessManager(
+            prepared.root,
+            str(prepared.effective.config.environment.environment_id),
+        )
+        try:
+            result = process.send_creator_input(
+                _creator_message(args),
+                idempotency_key=args.idempotency_key,
+            )
         except RuntimeViolation as error:
             _safe_failure(error)
             return 3
