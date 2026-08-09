@@ -161,7 +161,6 @@ def validate_openapi(schema: dict[str, object]) -> None:
     if not isinstance(paths, dict) or set(paths) != {
         "/health/live",
         "/health/ready",
-        "/v1/browser-bootstrap-codes",
         "/v1/browser-sessions",
         "/v1/browser-sessions/current",
         "/v1/activities",
@@ -212,10 +211,8 @@ def validate_openapi(schema: dict[str, object]) -> None:
         if isinstance(operation, dict)
     }
     if operation_ids != {
-        "createBrowserBootstrapCode",
         "createBrowserSession",
         "createCreatorScene",
-        "deleteCurrentBrowserSession",
         "getCurrentBrowserSession",
         "getHealthLive",
         "getHealthReady",

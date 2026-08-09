@@ -857,22 +857,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(ui_response.status, 200)
                     self.assertIn(b"ARMI Creator", ui)
                     self.assertEqual(ui_response.getheader("X-Frame-Options"), "DENY")
-                    connection.request(
-                        "POST",
-                        "/v1/browser-bootstrap-codes",
-                        body=b"",
-                        headers={
-                            "Authorization": f"Bearer {creator_bearer}",
-                            "Content-Length": "0",
-                        },
-                    )
-                    bootstrap_response = connection.getresponse()
-                    bootstrap = json.loads(bootstrap_response.read())
-                    self.assertEqual(bootstrap_response.status, 200)
-                    session_body = json.dumps(
-                        {"bootstrap_code": bootstrap["bootstrap_code"]},
-                        separators=(",", ":"),
-                    ).encode()
                     browser_headers = {
                         "Origin": f"http://127.0.0.1:{runtime_port}",
                         "Sec-Fetch-Site": "same-origin",
@@ -882,11 +866,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.request(
                         "POST",
                         "/v1/browser-sessions",
-                        body=session_body,
+                        body=b"",
                         headers={
                             **browser_headers,
-                            "Content-Type": "application/json",
-                            "Content-Length": str(len(session_body)),
+                            "Content-Length": "0",
                         },
                     )
                     session_response = connection.getresponse()
@@ -6285,23 +6268,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     timeout=5,
                 )
                 try:
-                    connection.request(
-                        "POST",
-                        "/v1/browser-bootstrap-codes",
-                        body=b"",
-                        headers={
-                            "Authorization": f"Bearer {creator_bearer}",
-                            "Content-Length": "0",
-                        },
-                    )
-                    issued_response = connection.getresponse()
-                    issued = json.loads(issued_response.read())
-                    self.assertEqual(issued_response.status, 200)
-                    code = issued["bootstrap_code"]
-                    body = json.dumps(
-                        {"bootstrap_code": code},
-                        separators=(",", ":"),
-                    ).encode()
                     browser_boundary_headers = {
                         "Origin": f"http://127.0.0.1:{runtime_port}",
                         "Sec-Fetch-Site": "same-origin",
@@ -6311,11 +6277,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.request(
                         "POST",
                         "/v1/browser-sessions",
-                        body=body,
+                        body=b"",
                         headers={
                             **browser_boundary_headers,
-                            "Content-Type": "application/json",
-                            "Content-Length": str(len(body)),
+                            "Content-Length": "0",
                         },
                     )
                     session_response = connection.getresponse()
@@ -6550,21 +6515,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(stream_response.readline(), b": keepalive\n")
                     self.assertEqual(stream_response.readline(), b"\n")
-                    logout_connection = http.client.HTTPConnection(
-                        "127.0.0.1",
-                        runtime_port,
-                        timeout=5,
-                    )
-                    logout_connection.request(
-                        "DELETE",
-                        "/v1/browser-sessions/current",
-                        headers=authenticated_headers,
-                    )
-                    logout_response = logout_connection.getresponse()
-                    logout_response.read()
-                    self.assertEqual(logout_response.status, 204)
-                    self.assertEqual(stream_response.readline(), b"")
-                    logout_connection.close()
                     stream_connection.close()
                 finally:
                     connection.close()
@@ -6590,14 +6540,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "runtime.lifecycle.recovering",
                     "runtime.recovery.safe",
                     "runtime.lifecycle.degraded",
-                    "creator.bootstrap.issued",
                     "creator.session.established",
                     "creator.event_stream.connected",
                     "creator.input.accepted",
                     "creator.input.idempotent",
                     "runtime.authority.heartbeat",
                     "creator.event_stream.closed",
-                    "creator.session.revoked",
                     "runtime.lifecycle.draining",
                     "creator.session.revoked_all",
                     "runtime.authority.released",

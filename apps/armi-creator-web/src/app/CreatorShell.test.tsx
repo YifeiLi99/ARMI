@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CreatorShell } from "./CreatorShell";
 
 const TOKEN = `browser-v1.${"a".repeat(43)}`;
-const CODE = `bootstrap-v1.${"b".repeat(22)}`;
 const ENVIRONMENT_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef7";
 const CREATOR_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef8";
 const OPPORTUNITY_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef9";
@@ -276,22 +275,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Creator browser session shell", () => {
-  it("starts with only the manual bootstrap form", async () => {
+describe("Creator local connection shell", () => {
+  it("shows a retry state instead of a login form when Runtime is unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockRejectedValue(new Error("down")),
+    );
     render(<CreatorShell />);
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "ARMI Creator" }),
+      await screen.findByText("当前无法连接本机 Runtime，请稍后重试。"),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Bootstrap code")).toHaveAttribute(
-      "type",
-      "password",
-    );
+    expect(
+      screen.getByRole("button", { name: "重新连接" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
-    expect(screen.queryByText(/timeline/i)).not.toBeInTheDocument();
   });
 
-  it("exchanges a code, stores only the short session, and reads status", async () => {
+  it("connects automatically, stores the local token, and reads status", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
@@ -329,26 +331,21 @@ describe("Creator browser session shell", () => {
     const user = userEvent.setup();
     render(<CreatorShell />);
 
-    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
-    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
-
-    expect(await screen.findByText("浏览器会话已建立")).toBeInTheDocument();
+    expect(await screen.findByText("本机连接正常")).toBeInTheDocument();
     expect(screen.getAllByText("ready")).toHaveLength(3);
     const stored = sessionStorage.getItem("armi.browser-session.v1");
     expect(stored).toContain(TOKEN);
-    expect(stored).not.toContain(CODE);
     expect(document.body.textContent).not.toContain(TOKEN);
-    expect(screen.getByText("尚无耐久可见记录")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(15);
+    expect(fetchMock).toHaveBeenCalledTimes(14);
     expect(
       screen.getByRole("navigation", { name: "Creator 功能" }),
     ).toBeInTheDocument();
-    expect(screen.queryByText("权威版本")).not.toBeVisible();
+    expect(screen.queryByText("权威版本")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "主体状态" }));
     expect(screen.getByText("权威版本")).toBeVisible();
   });
 
-  it("clears an invalid restored session after a 401", async () => {
+  it("clears an invalid restored connection and retries automatically", async () => {
     sessionStorage.setItem(
       "armi.browser-session.v1",
       JSON.stringify({
@@ -366,7 +363,7 @@ describe("Creator browser session shell", () => {
     render(<CreatorShell />);
 
     expect(
-      await screen.findByText("会话已失效，请使用新的 bootstrap code。"),
+      await screen.findByText("本机连接已失效，正在重新连接。"),
     ).toBeInTheDocument();
     await waitFor(() =>
       expect(sessionStorage.getItem("armi.browser-session.v1")).toBeNull(),
@@ -464,15 +461,13 @@ describe("Creator browser session shell", () => {
     const user = userEvent.setup();
     render(<CreatorShell />);
 
-    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
-    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
     expect(await screen.findByText("newer.event")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "加载更早记录" }));
     expect(await screen.findByText("older.event")).toBeInTheDocument();
     expect(screen.getByText("newer.event")).toBeInTheDocument();
   });
 
-  it("clears the whole session when the timeline rejects authentication", async () => {
+  it("reconnects when the timeline rejects the local token", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
@@ -489,13 +484,10 @@ describe("Creator browser session shell", () => {
       )
       .mockResolvedValueOnce(new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
     render(<CreatorShell />);
 
-    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
-    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
     expect(
-      await screen.findByText("会话已失效，请使用新的 bootstrap code。"),
+      await screen.findByText("当前无法连接本机 Runtime，请稍后重试。"),
     ).toBeInTheDocument();
     expect(sessionStorage.getItem("armi.browser-session.v1")).toBeNull();
   });
@@ -565,11 +557,7 @@ describe("Creator browser session shell", () => {
         }),
       );
     vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
     render(<CreatorShell />);
-
-    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
-    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(16);
@@ -648,11 +636,7 @@ describe("Creator browser session shell", () => {
       throw new Error(`unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
     render(<CreatorShell />);
-
-    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
-    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText("新活动投影")).toBeInTheDocument();
     expect(screen.queryByText("旧活动投影")).toBeNull();
@@ -760,18 +744,14 @@ describe("Creator browser session shell", () => {
       throw new Error(`unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
     render(<CreatorShell />);
-
-    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
-    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
 
     expect(await screen.findByText(/正在维护 · 状态检查/)).toBeInTheDocument();
     expect(screen.getByText(/当前有 1 条输入等待处理/)).toBeInTheDocument();
     expect(maintenanceReads).toBe(2);
   });
 
-  it("clears session state when the authenticated stream returns 401", async () => {
+  it("reconnects when the event stream rejects the local token", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
@@ -805,14 +785,10 @@ describe("Creator browser session shell", () => {
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
     render(<CreatorShell />);
 
-    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
-    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
-
     expect(
-      await screen.findByText("会话已失效，请使用新的 bootstrap code。"),
+      await screen.findByText("当前无法连接本机 Runtime，请稍后重试。"),
     ).toBeInTheDocument();
     expect(sessionStorage.getItem("armi.browser-session.v1")).toBeNull();
   });
@@ -921,8 +897,6 @@ describe("Creator browser session shell", () => {
     const user = userEvent.setup();
     render(<CreatorShell />);
 
-    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
-    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
     const composer = await screen.findByLabelText("输入内容");
     await user.type(composer, "  保留原样\n内容  ");
     await user.click(screen.getByRole("button", { name: "提交输入" }));
@@ -1022,8 +996,6 @@ describe("Creator browser session shell", () => {
     const user = userEvent.setup();
     render(<CreatorShell />);
 
-    await user.type(await screen.findByLabelText("Bootstrap code"), CODE);
-    await user.click(screen.getByRole("button", { name: "建立浏览器会话" }));
     await user.type(await screen.findByLabelText("输入内容"), "需要确认");
     await user.click(screen.getByRole("button", { name: "提交输入" }));
     expect(await screen.findByText(/结果尚未确认/)).toBeInTheDocument();

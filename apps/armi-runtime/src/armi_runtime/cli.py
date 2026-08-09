@@ -17,8 +17,8 @@ from armi_runtime.composition.configuration import ConfigurationViolation
 from armi_runtime.composition.creator_session import (
     CREATOR_BEARER_LOCATOR,
     CREATOR_CURSOR_PURPOSE,
+    CREATOR_VERIFY_PURPOSE,
 )
-from armi_runtime.composition.creator_session_cli import issue_browser_bootstrap
 from armi_runtime.composition.database import (
     DatabaseViolation,
     inspect_operator_schema,
@@ -127,13 +127,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     bootstrap_birth = bootstrap_command.add_parser("birth")
     bootstrap_birth.add_argument("--environment-root", type=Path, required=True)
-    creator_session = command.add_parser("creator-session")
-    creator_session_command = creator_session.add_subparsers(
-        dest="creator_session_command",
-        required=True,
-    )
-    creator_session_issue = creator_session_command.add_parser("issue")
-    creator_session_issue.add_argument("--environment-root", type=Path, required=True)
     return parser
 
 
@@ -210,16 +203,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {"database.recovery": "database.migrator"}
     elif args.command == "bootstrap":
         credential_scope = {"database.birth": "database.runtime"}
-    elif args.command == "creator-session":
-        credential_scope = {
-            "creator.bootstrap.issue": CREATOR_BEARER_LOCATOR,
-        }
     elif args.command in {"status", "stop", "capacity"}:
         credential_scope = {}
     else:
         credential_scope = {
             "database.runtime": "database.runtime",
-            "creator.bootstrap.verify": CREATOR_BEARER_LOCATOR,
+            CREATOR_VERIFY_PURPOSE: CREATOR_BEARER_LOCATOR,
             CREATOR_CURSOR_PURPOSE: CREATOR_BEARER_LOCATOR,
             "model.request": "model.ark_api_key",
             "web.search": "model.ark_api_key",
@@ -352,22 +341,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 separators=(",", ":"),
             )
         )
-        return 0
-    if args.command == "creator-session":
-        if not sys.stdout.isatty():
-            _safe_failure(
-                RuntimeViolation(
-                    "CLI-CREATOR-TTY",
-                    "bootstrap code output requires an interactive terminal",
-                )
-            )
-            return EXIT_INVOCATION_REJECTED
-        try:
-            result = issue_browser_bootstrap(prepared)
-        except BrowserSessionViolation as error:
-            _safe_failure(error)
-            return 3 if error.status_code >= 500 else EXIT_INVOCATION_REJECTED
-        print(result.bootstrap_code)
         return 0
     if args.command in {"start", "status", "stop"}:
         process = RuntimeProcessManager(

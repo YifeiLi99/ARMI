@@ -119,7 +119,6 @@ from armi_runtime.interfaces.creator_app import (
 )
 from armi_runtime.interfaces.creator_contract import (
     Readiness,
-    RejectedOutcomeResponse,
     RuntimeStatusResponse,
 )
 from armi_runtime.interfaces.creator_events import CreatorEventBroker
@@ -926,10 +925,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             }
         )
         self.sessions = BrowserSessionStore(
-            creator_bearer=CREATOR_BEARER.encode(),
             environment_id=UUID(ENVIRONMENT_ID),
             creator_party_id=UUID(CREATOR_ID),
-            bootstrap_ttl_seconds=120,
             session_ttl_seconds=28_800,
         )
         self.events = CreatorEventBroker(epoch=b"\x06" * 16)
@@ -1019,6 +1016,15 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             headers["Authorization"] = f"Bearer {token}"
         return headers
 
+    def _connect_browser(self, client: TestClient) -> str:
+        response = client.post(
+            "/v1/browser-sessions",
+            headers=self._browser_headers(),
+            content=b"",
+        )
+        self.assertEqual(response.status_code, 200)
+        return str(response.json()["browser_session_token"])
+
     def test_local_other_human_party_scene_and_input_are_role_scoped(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
             wrong_role = client.post(
@@ -1091,15 +1097,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     def test_creator_reads_other_human_records_by_party_and_scene(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-                content=b"",
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             headers = self._browser_headers(session.json()["browser_session_token"])
             parties = client.get("/v1/other-human-records?limit=20", headers=headers)
@@ -1140,15 +1141,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     def test_capability_request_list_and_decision_are_session_bound(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-                content=b"",
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             page = client.get(
@@ -1185,15 +1181,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     def test_creator_prompt_create_revise_stale_and_deactivate(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-                content=b"",
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             headers = self._browser_headers(token)
@@ -1268,15 +1259,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     def test_creator_local_export_is_session_bound_and_queryable(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-                content=b"",
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             headers = {
                 **self._browser_headers(session.json()["browser_session_token"]),
@@ -1316,15 +1302,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     def test_creator_and_other_human_data_rights_are_requester_scoped(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-                content=b"",
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             creator_headers = {
                 **self._browser_headers(session.json()["browser_session_token"]),
@@ -1387,19 +1368,12 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         )
         self.assertEqual(wrong_party.status_code, 404)
 
-    def test_full_issue_exchange_status_and_logout_flow(self) -> None:
+    def test_same_origin_browser_connects_without_login(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-                content=b"",
-            )
-            self.assertEqual(issued.status_code, 200)
-            code = issued.json()["bootstrap_code"]
             established = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": code},
+                content=b"",
             )
             self.assertEqual(established.status_code, 200)
             token = established.json()["browser_session_token"]
@@ -1413,14 +1387,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/runtime/status",
                 headers=self._browser_headers(token),
             )
-            logged_out = client.delete(
-                "/v1/browser-sessions/current",
-                headers=self._browser_headers(token),
-            )
-            stale = client.get(
-                "/v1/browser-sessions/current",
-                headers=self._browser_headers(token),
-            )
 
         self.assertEqual(current.status_code, 200)
         self.assertEqual(current.json()["creator_party_id"], CREATOR_ID)
@@ -1428,20 +1394,13 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertNotIn("browser_session_token", current.json())
         self.assertEqual(status.status_code, 200)
         self.assertEqual(status.json()["runtime_state"], "blocked")
-        self.assertEqual(logged_out.status_code, 204)
-        self.assertEqual(stale.status_code, 401)
 
     def test_timeline_is_authenticated_and_query_parameters_are_exact(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-                content=b"",
-            )
             established = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = established.json()["browser_session_token"]
             timeline = client.get(
@@ -1471,14 +1430,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     def test_creator_can_create_select_close_and_reopen_named_scene(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             headers = self._browser_headers(token)
@@ -1513,14 +1468,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self,
     ) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             activities = client.get(
@@ -1553,14 +1504,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self,
     ) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             records = client.get(
@@ -1600,14 +1547,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self,
     ) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             visible = client.get(
@@ -1654,14 +1597,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self,
     ) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             headers = self._browser_headers(token)
@@ -1729,14 +1668,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     def test_maintenance_status_timeline_and_wake_are_session_bound(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             status = client.get(
@@ -1784,14 +1719,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     def test_creator_message_acceptance_and_operation_are_authoritative(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             accepted = client.post(
@@ -1878,14 +1809,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     def test_creator_codex_task_is_explicit_authenticated_intake(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             accepted = client.post(
@@ -1943,23 +1870,23 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(blank.status_code, 400)
         self.assertEqual(wrong_origin.status_code, 403)
 
-    def test_replay_wrong_kind_and_boundary_requests_are_rejected(self) -> None:
+    def test_reconnect_reuses_local_token_and_boundary_requests_are_rejected(
+        self,
+    ) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-                content=b"",
-            )
-            code = issued.json()["bootstrap_code"]
             first = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": code},
+                content=b"",
             )
-            replay = client.post(
+            reconnect = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": code},
+                content=b"",
+            )
+            current = client.get(
+                "/v1/browser-sessions/current",
+                headers=self._browser_headers(first.json()["browser_session_token"]),
             )
             wrong_origin = client.post(
                 "/v1/browser-sessions",
@@ -1967,7 +1894,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     **self._browser_headers(),
                     "Origin": "http://localhost:45678",
                 },
-                json={"bootstrap_code": code},
+                content=b"",
             )
             wrong_kind = client.get(
                 "/v1/runtime/status",
@@ -1979,13 +1906,13 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             )
 
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(replay.status_code, 401)
+        self.assertEqual(reconnect.status_code, 200)
+        self.assertEqual(current.status_code, 200)
         self.assertEqual(wrong_origin.status_code, 403)
         self.assertEqual(wrong_kind.status_code, 401)
         self.assertEqual(proxy.status_code, 421)
-        RejectedOutcomeResponse.model_validate(replay.json())
 
-    def test_duplicate_json_cookie_url_and_oversize_are_rejected(self) -> None:
+    def test_connection_ignores_body_while_other_boundary_checks_remain(self) -> None:
         headers = {
             **self._browser_headers(),
             "Content-Type": "application/json",
@@ -1994,7 +1921,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             duplicate = client.post(
                 "/v1/browser-sessions",
                 headers=headers,
-                content=b'{"bootstrap_code":"x","bootstrap_code":"y"}',
+                content=b'{"ignored":"value"}',
             )
             cookie = client.get(
                 "/v1/runtime/status",
@@ -2009,21 +1936,17 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             )
             oversized = client.get("/health/live", headers={"Content-Length": "1025"})
 
-        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(duplicate.status_code, 200)
         self.assertEqual(cookie.status_code, 403)
         self.assertEqual(query.status_code, 400)
         self.assertEqual(oversized.status_code, 413)
 
     def test_event_stream_validates_boundary_accept_and_replay_header(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            issued = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
-            )
             session = client.post(
                 "/v1/browser-sessions",
                 headers=self._browser_headers(),
-                json={"bootstrap_code": issued.json()["bootstrap_code"]},
+                content=b"",
             )
             token = session.json()["browser_session_token"]
             base = self._browser_headers(token)
@@ -2065,7 +1988,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(invisible.status_code, 404)
 
     def test_host_fetch_origin_preflight_and_creator_route_matrix(self) -> None:
-        code_body = {"bootstrap_code": f"bootstrap-v1.{'a' * 22}"}
+        ignored_body = {"ignored": "value"}
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
             host_variants = tuple(
                 client.get(
@@ -2086,7 +2009,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "Origin": f"http://{AUTHORITY}",
                     "Content-Type": "application/json",
                 },
-                json=code_body,
+                json=ignored_body,
             )
             cross_site = client.post(
                 "/v1/browser-sessions",
@@ -2094,7 +2017,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     **self._browser_headers(),
                     "Sec-Fetch-Site": "cross-site",
                 },
-                json=code_body,
+                json=ignored_body,
             )
             preflight = client.options(
                 "/v1/browser-sessions",
@@ -2103,19 +2026,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "Access-Control-Request-Method": "POST",
                 },
             )
-            creator_from_browser = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={
-                    "Authorization": f"Bearer {CREATOR_BEARER}",
-                    **self._browser_headers(),
-                },
-            )
-
         self.assertEqual(host_variants, (421, 421, 421, 421, 421))
         self.assertEqual(missing_fetch.status_code, 403)
         self.assertEqual(cross_site.status_code, 403)
         self.assertEqual(preflight.status_code, 405)
-        self.assertEqual(creator_from_browser.status_code, 403)
         self.assertNotIn("access-control-allow-origin", preflight.headers)
 
     def test_missing_session_capability_is_unavailable(self) -> None:
@@ -2124,8 +2038,9 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             base_url=f"http://{AUTHORITY}",
         ) as client:
             response = client.post(
-                "/v1/browser-bootstrap-codes",
-                headers={"Authorization": f"Bearer {CREATOR_BEARER}"},
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                content=b"",
             )
         self.assertEqual(response.status_code, 503)
 

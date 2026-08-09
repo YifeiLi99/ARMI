@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiFailure,
   createBrowserSession,
-  deleteCurrentBrowserSession,
   getCurrentBrowserSession,
   getRuntimeStatus,
 } from "../../api/client";
@@ -36,11 +34,9 @@ import { PageHeader, WorkspaceNavigation } from "../../app/WorkspaceNavigation";
 import type { WorkspacePage } from "../../app/WorkspaceNavigation";
 
 type ViewState =
-  | { kind: "bootstrap"; message?: string }
   | { kind: "loading"; message: string }
   | {
       kind: "unavailable";
-      stored: StoredBrowserSession;
       message: string;
     }
   | {
@@ -53,7 +49,7 @@ type ViewState =
 
 function safeMessage(error: unknown): string {
   if (error instanceof ApiFailure && error.status === 401) {
-    return "会话已失效，请使用新的 bootstrap code。";
+    return "本机连接已失效，正在重新连接。";
   }
   return "当前无法连接本机 Runtime，请稍后重试。";
 }
@@ -62,7 +58,6 @@ export function SessionPanel() {
   const queryClient = useQueryClient();
   const streamAbort = useRef<(() => void) | null>(null);
   const effectTrigger = useRef<HTMLButtonElement>(null);
-  const [code, setCode] = useState("");
   const [selectedOperation, setSelectedOperation] = useState<string | null>(
     null,
   );
@@ -76,7 +71,7 @@ export function SessionPanel() {
   } | null>(null);
   const [view, setView] = useState<ViewState>({
     kind: "loading",
-    message: "正在核对浏览器会话",
+    message: "正在连接本机 Runtime",
   });
   const registerStreamAbort = useCallback((abort: (() => void) | null) => {
     streamAbort.current = abort;
@@ -100,10 +95,7 @@ export function SessionPanel() {
         setSelectedOperation(null);
         setSelectedEffect(null);
         setSelectedScene(null);
-        setView({
-          kind: "bootstrap",
-          message: "运行环境已变化，请重新建立会话。",
-        });
+        await connect(signal);
         return;
       }
       const runtime = await getRuntimeStatus(stored.token, signal);
@@ -122,76 +114,48 @@ export function SessionPanel() {
         setSelectedOperation(null);
         setSelectedEffect(null);
         setSelectedScene(null);
-        setView({ kind: "bootstrap", message: safeMessage(error) });
+        await connect(signal);
         return;
       }
       setView({
         kind: "unavailable",
-        stored,
         message: safeMessage(error),
       });
     }
   }
 
   useEffect(() => {
+    const controller = new AbortController();
     const stored = loadStoredSession();
     if (stored === null) {
-      setView({ kind: "bootstrap" });
-      return;
+      void connect(controller.signal);
+    } else {
+      void loadAuthenticated(stored, controller.signal);
     }
-    const controller = new AbortController();
-    void loadAuthenticated(stored, controller.signal);
     return () => controller.abort();
   }, []);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const submittedCode = code;
-    setCode("");
-    setView({ kind: "loading", message: "正在建立安全浏览器会话" });
+  async function connect(signal?: AbortSignal) {
+    setView({ kind: "loading", message: "正在连接本机 Runtime" });
     try {
-      const established = await createBrowserSession(submittedCode);
+      const established = await createBrowserSession(signal);
       const stored = {
         token: established.browser_session_token,
         expiresAt: established.expires_at,
         environmentId: established.environment_id,
       };
       saveStoredSession(stored);
-      await loadAuthenticated(stored);
+      await loadAuthenticated(stored, signal);
     } catch (error) {
+      if (signal?.aborted) {
+        return;
+      }
       clearStoredSession();
       queryClient.clear();
       setSelectedOperation(null);
       setSelectedEffect(null);
       setSelectedScene(null);
-      setView({
-        kind: "bootstrap",
-        message:
-          error instanceof ApiFailure && error.status === 429
-            ? "尝试过于频繁，请稍后再试。"
-            : error instanceof ApiFailure && error.status === 401
-              ? "bootstrap code 无效或已过期。"
-              : safeMessage(error),
-      });
-    }
-  }
-
-  async function logout() {
-    if (view.kind !== "authenticated") {
-      return;
-    }
-    const token = view.stored.token;
-    abortStream();
-    clearStoredSession();
-    queryClient.clear();
-    setSelectedOperation(null);
-    setSelectedEffect(null);
-    setSelectedScene(null);
-    setView({ kind: "bootstrap", message: "浏览器会话已注销。" });
-    try {
-      await deleteCurrentBrowserSession(token);
-    } catch {
-      // Local credential removal is authoritative for this tab.
+      setView({ kind: "unavailable", message: safeMessage(error) });
     }
   }
 
@@ -202,10 +166,7 @@ export function SessionPanel() {
     setSelectedOperation(null);
     setSelectedEffect(null);
     setSelectedScene(null);
-    setView({
-      kind: "bootstrap",
-      message: "会话已失效，请使用新的 bootstrap code。",
-    });
+    void connect();
   }
 
   if (view.kind === "loading") {
@@ -217,43 +178,11 @@ export function SessionPanel() {
     );
   }
 
-  if (view.kind === "bootstrap") {
-    return (
-      <form className="session-form" onSubmit={submit}>
-        <label htmlFor="bootstrap-code">Bootstrap code</label>
-        <p className="field-note">
-          在受信终端运行 Creator session 签发命令，再在此输入一次性 code。
-        </p>
-        <input
-          id="bootstrap-code"
-          name="bootstrap-code"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          required
-          pattern="bootstrap-v1\.[A-Za-z0-9_-]{22}"
-          maxLength={35}
-          value={code}
-          onChange={(event) => setCode(event.currentTarget.value)}
-        />
-        {view.message ? (
-          <p className="session-message" role="status">
-            {view.message}
-          </p>
-        ) : null}
-        <button type="submit">建立浏览器会话</button>
-      </form>
-    );
-  }
-
   if (view.kind === "unavailable") {
     return (
       <section className="session-state" aria-live="polite">
         <p role="status">{view.message}</p>
-        <button
-          type="button"
-          onClick={() => void loadAuthenticated(view.stored)}
-        >
+        <button type="button" onClick={() => void connect()}>
           重新连接
         </button>
       </section>
@@ -290,16 +219,12 @@ export function SessionPanel() {
             <span className="context-separator">/</span>
             <span>{view.runtime.runtime_state}</span>
           </div>
-          <button
-            type="button"
-            className="account-button"
-            onClick={() => void logout()}
-          >
+          <div className="account-button" aria-label="本机 Creator">
             <span className="account-avatar" aria-hidden="true">
               C
             </span>
-            <span>注销</span>
-          </button>
+            <span>本机</span>
+          </div>
         </div>
         <PageHeader
           page={activePage}
@@ -394,7 +319,7 @@ export function SessionPanel() {
                   </div>
                   <span className="state-badge">
                     <span className="status-dot" />
-                    浏览器会话已建立
+                    本机连接正常
                   </span>
                 </div>
                 <dl>

@@ -70,7 +70,6 @@ class CreatorContractTests(unittest.TestCase):
             {
                 "/health/live",
                 "/health/ready",
-                "/v1/browser-bootstrap-codes",
                 "/v1/browser-sessions",
                 "/v1/browser-sessions/current",
                 "/v1/activities",
@@ -122,11 +121,12 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(runtime["operationId"], "getRuntimeStatus")
         self.assertEqual(runtime["security"], [{"browserSessionBearer": []}])
         self.assertEqual(set(runtime["responses"]), {"200", "401", "403", "503"})
-        self.assertEqual(
-            paths["/v1/browser-bootstrap-codes"]["post"]["security"],
-            [{"creatorBearer": []}],
-        )
         self.assertNotIn("security", paths["/v1/browser-sessions"]["post"])
+        self.assertEqual(
+            set(paths["/v1/browser-sessions"]["post"]["responses"]),
+            {"200", "403", "503"},
+        )
+        self.assertNotIn("delete", paths["/v1/browser-sessions/current"])
         self.assertNotIn("security", paths["/health/live"]["get"])
         self.assertNotIn("security", paths["/health/ready"]["get"])
         prompt = paths["/v1/prompts/creator-guidance"]

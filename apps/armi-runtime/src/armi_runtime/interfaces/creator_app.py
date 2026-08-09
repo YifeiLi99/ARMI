@@ -123,8 +123,6 @@ from .browser_sessions import (
     SessionMetadata,
 )
 from .creator_contract import (
-    BootstrapCodeResponse,
-    BrowserSessionCreateRequest,
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
     CapabilityRequestDecisionRequest,
@@ -368,26 +366,6 @@ def _creator_visible_codex_artifact(
         return projected, "text/plain"
     except UnicodeDecodeError, UnicodeEncodeError, ValueError:
         raise EffectViolation("EFFECT-ARTIFACT-INTEGRITY") from None
-
-
-async def _session_request(request: Request, maximum_bytes: int) -> str:
-    if request.headers.get("content-type") != "application/json":
-        raise BrowserSessionViolation("INPUT_CONTENT_TYPE", status_code=400)
-    body = await request.body()
-    if not body or len(body) > maximum_bytes:
-        raise BrowserSessionViolation("INPUT_BODY", status_code=400)
-    try:
-        value = json.loads(
-            body.decode("utf-8"),
-            object_pairs_hook=_strict_object_pairs,
-            parse_constant=lambda _value: (_ for _ in ()).throw(
-                ValueError("non-finite JSON")
-            ),
-        )
-        model = BrowserSessionCreateRequest.model_validate(value)
-    except UnicodeDecodeError, ValueError, ValidationError:
-        raise BrowserSessionViolation("INPUT_BODY", status_code=400) from None
-    return model.bootstrap_code
 
 
 def _single_header(request: Request, name: bytes) -> str | None:
@@ -1514,46 +1492,6 @@ def create_runtime_app(
             content={"status": current.value},
         )
 
-    @app.post("/v1/browser-bootstrap-codes")
-    async def issue_bootstrap(request: Request) -> JSONResponse:
-        if browser_sessions is None:
-            return JSONResponse(
-                status_code=503,
-                content=_unavailable("DEPENDENCY_CREATOR_SESSION_UNAVAILABLE"),
-            )
-        if (
-            request.headers.get("origin") is not None
-            or any(name.startswith("sec-fetch-") for name in request.headers)
-            or request.headers.get("content-length") not in {None, "0"}
-        ):
-            emit("creator.bootstrap.boundary_rejected")
-            return JSONResponse(
-                status_code=403,
-                content=_rejected("AUTH_CREATOR_REJECTED"),
-            )
-        token = _bearer(request)
-        if token is None:
-            emit("creator.bootstrap.rejected")
-            return JSONResponse(
-                status_code=401,
-                content=_rejected("AUTH_CREATOR_REJECTED"),
-            )
-        try:
-            issued = browser_sessions.issue(token)
-        except BrowserSessionViolation as error:
-            emit("creator.bootstrap.rejected")
-            return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
-            )
-        emit("creator.bootstrap.issued")
-        response = BootstrapCodeResponse(
-            contract_version="1.0",
-            bootstrap_code=issued.code,
-            expires_at=Instant(issued.expires_at).to_wire(),
-        )
-        return JSONResponse(content=response.model_dump(mode="json"))
-
     @app.post("/v1/browser-sessions")
     async def create_browser_session(request: Request) -> JSONResponse:
         if browser_sessions is None:
@@ -1567,15 +1505,7 @@ def create_runtime_app(
                 status_code=403,
                 content=_rejected("AUTH_BROWSER_BOUNDARY"),
             )
-        try:
-            code = await _session_request(request, request_body_max_bytes)
-            established = browser_sessions.exchange(code)
-        except BrowserSessionViolation as error:
-            emit("creator.session.rejected")
-            return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
-            )
+        established = browser_sessions.establish()
         if creator_events is not None:
             await creator_events.close_active()
         emit("creator.session.established")
@@ -1611,34 +1541,6 @@ def create_runtime_app(
             )
         response = BrowserSessionCurrentResponse(**_metadata_wire(metadata))
         return JSONResponse(content=response.model_dump(mode="json"))
-
-    @app.delete("/v1/browser-sessions/current", status_code=204)
-    async def delete_browser_session(request: Request) -> Response:
-        if browser_sessions is None or not _browser_boundary(
-            request, canonical_origin=canonical_origin
-        ):
-            return JSONResponse(
-                status_code=403 if browser_sessions is not None else 503,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if browser_sessions is not None
-                    else _unavailable("DEPENDENCY_CREATOR_SESSION_UNAVAILABLE")
-                ),
-            )
-        token = _bearer(request)
-        try:
-            if token is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.revoke(token)
-        except BrowserSessionViolation as error:
-            return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
-            )
-        if creator_events is not None:
-            await creator_events.close_active()
-        emit("creator.session.revoked")
-        return Response(status_code=204)
 
     @app.get("/v1/runtime/status")
     async def get_runtime_status(request: Request) -> JSONResponse:
@@ -4430,10 +4332,8 @@ def create_runtime_app(
         enforce_local_boundary,
         health_live,
         health_ready,
-        issue_bootstrap,
         create_browser_session,
         current_browser_session,
-        delete_browser_session,
         get_runtime_status,
         get_subject_summary,
         creator_redirect,

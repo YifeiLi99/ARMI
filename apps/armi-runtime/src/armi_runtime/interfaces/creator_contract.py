@@ -43,7 +43,6 @@ _UUIDV7_PATTERN = (
 _TRACE_PATTERN = r"[0-9a-f]{32}"
 _INSTANT_PATTERN = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5]\d\.\d{6}Z"
 _ERROR_CODE_PATTERN = r"[A-Z][A-Z0-9_]{2,127}"
-_BOOTSTRAP_CODE_PATTERN = r"bootstrap-v1\.[A-Za-z0-9_-]{22}"
 _SESSION_TOKEN_PATTERN = r"browser-v1\.[A-Za-z0-9_-]{43}"
 _SCENE_KEY_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"
 _CURSOR_PATTERN = r"v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
@@ -93,23 +92,6 @@ class LiveResponse(_StrictWireModel):
 
 class ReadyResponse(_StrictWireModel):
     status: Readiness
-
-
-class BootstrapCodeResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    bootstrap_code: Annotated[str, Field(pattern=_BOOTSTRAP_CODE_PATTERN)]
-    expires_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-
-    @field_validator("expires_at")
-    @classmethod
-    def validate_expires_at(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-CREATOR-TIME: expires_at must be canonical")
-        return value
-
-
-class BrowserSessionCreateRequest(_StrictWireModel):
-    bootstrap_code: Annotated[str, Field(pattern=_BOOTSTRAP_CODE_PATTERN)]
 
 
 class _BrowserSessionMetadataResponse(_StrictWireModel):
@@ -2168,7 +2150,6 @@ def build_creator_openapi() -> dict[str, object]:
         openapi_url=None,
     )
     bearer = HTTPBearer(scheme_name="browserSessionBearer", auto_error=False)
-    creator_bearer = HTTPBearer(scheme_name="creatorBearer", auto_error=False)
 
     @app.get(
         "/health/live",
@@ -2188,33 +2169,15 @@ def build_creator_openapi() -> dict[str, object]:
         raise NotImplementedError
 
     @app.post(
-        "/v1/browser-bootstrap-codes",
-        operation_id="createBrowserBootstrapCode",
-        response_model=BootstrapCodeResponse,
-        responses={
-            401: {"model": RejectedOutcomeResponse},
-            429: {"model": RejectedOutcomeResponse},
-            503: {"model": UnavailableOutcomeResponse},
-        },
-        dependencies=[Security(creator_bearer)],
-    )
-    async def create_browser_bootstrap_code() -> BootstrapCodeResponse:
-        raise NotImplementedError
-
-    @app.post(
         "/v1/browser-sessions",
         operation_id="createBrowserSession",
         response_model=BrowserSessionResponse,
         responses={
-            400: {"model": RejectedOutcomeResponse},
-            401: {"model": RejectedOutcomeResponse},
             403: {"model": RejectedOutcomeResponse},
-            429: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
         },
     )
-    async def create_browser_session(
-        _request: BrowserSessionCreateRequest,
-    ) -> BrowserSessionResponse:
+    async def create_browser_session() -> BrowserSessionResponse:
         raise NotImplementedError
 
     @app.get(
@@ -2228,19 +2191,6 @@ def build_creator_openapi() -> dict[str, object]:
         dependencies=[Security(bearer)],
     )
     async def current_browser_session() -> BrowserSessionCurrentResponse:
-        raise NotImplementedError
-
-    @app.delete(
-        "/v1/browser-sessions/current",
-        operation_id="deleteCurrentBrowserSession",
-        status_code=204,
-        responses={
-            401: {"model": RejectedOutcomeResponse},
-            403: {"model": RejectedOutcomeResponse},
-        },
-        dependencies=[Security(bearer)],
-    )
-    async def delete_browser_session() -> None:
         raise NotImplementedError
 
     @app.get(
@@ -3039,10 +2989,8 @@ def build_creator_openapi() -> dict[str, object]:
     schema_handlers = (
         health_live,
         health_ready,
-        create_browser_bootstrap_code,
         create_browser_session,
         current_browser_session,
-        delete_browser_session,
         runtime_status,
         subject_summary,
         get_creator_prompt,
@@ -3162,8 +3110,6 @@ def build_creator_openapi() -> dict[str, object]:
 __all__ = (
     "AcceptedOutcomeResponse",
     "AppliedOutcomeResponse",
-    "BootstrapCodeResponse",
-    "BrowserSessionCreateRequest",
     "BrowserSessionCurrentResponse",
     "BrowserSessionResponse",
     "CapabilityRequestDecisionRequest",

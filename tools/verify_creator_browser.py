@@ -28,7 +28,6 @@ VIEWPORTS: tuple[ViewportSize, ...] = (
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     environment_id = "018f47a6-7b2d-7c35-8b18-684e38ab6ef7"
     creator_party_id = "018f47a6-7b2d-7c35-8b18-684e38ab6ef8"
-    bootstrap_code = "bootstrap-v1." + ("b" * 22)
     session_token = "browser-v1." + ("a" * 43)
     event_epoch = "e" * 22
     timeline_reads = 0
@@ -132,15 +131,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             return
         if self.path != "/v1/browser-sessions":
             self.send_error(404)
-            return
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            request = json.loads(self.rfile.read(length))
-        except ValueError, json.JSONDecodeError:
-            self.send_error(400)
-            return
-        if request != {"bootstrap_code": self.bootstrap_code}:
-            self.send_error(401)
             return
         self._json_response(
             200,
@@ -475,17 +465,11 @@ def main() -> int:
                             "heading",
                             name="ARMI Creator",
                         )
-                        code_input = page.get_by_label("Bootstrap code")
-                        if not heading.is_visible() or not code_input.is_visible():
+                        if not heading.is_visible():
                             raise RuntimeError(
-                                "WEB-BROWSER-VISIBLE: session entry is hidden"
+                                "WEB-BROWSER-VISIBLE: Creator entry is hidden"
                             )
-                        code_input.fill(QuietHandler.bootstrap_code)
-                        page.get_by_role(
-                            "button",
-                            name="建立浏览器会话",
-                        ).click()
-                        page.get_by_text("浏览器会话已建立").wait_for()
+                        page.get_by_text("本机连接正常").wait_for()
                         page.get_by_text("browser.event").wait_for()
                         capability_item = page.locator("li.capability-item").filter(
                             has_text="creator.scene.reply"
@@ -593,7 +577,7 @@ def main() -> int:
                                 "SEC-WEB-IDEMPOTENCY-STORAGE: intent key persisted"
                             )
                         page.reload(wait_until="networkidle")
-                        page.get_by_text("浏览器会话已建立").wait_for()
+                        page.get_by_text("本机连接正常").wait_for()
                         page.get_by_text("browser.event").wait_for()
                         overflow = page.evaluate(
                             "() => document.documentElement.scrollWidth > "
@@ -624,19 +608,6 @@ def main() -> int:
                         if any(not request.startswith(origin) for request in requests):
                             raise RuntimeError(
                                 "SEC-WEB-REQUEST: external browser request detected"
-                            )
-                        page.get_by_role("button", name="注销").click()
-                        code_input = page.get_by_label("Bootstrap code")
-                        code_input.wait_for()
-                        if (
-                            page.evaluate(
-                                "() => sessionStorage.getItem("
-                                "'armi.browser-session.v1')"
-                            )
-                            is not None
-                        ):
-                            raise RuntimeError(
-                                "SEC-WEB-LOGOUT: logout retained browser session"
                             )
                         if page.evaluate("() => localStorage.length") != 0:
                             raise RuntimeError(

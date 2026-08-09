@@ -152,48 +152,6 @@
         "title": "AppliedOutcomeResponse",
         "type": "object"
       },
-      "BootstrapCodeResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "bootstrap_code": {
-            "pattern": "bootstrap-v1\\.[A-Za-z0-9_-]{22}",
-            "title": "Bootstrap Code",
-            "type": "string"
-          },
-          "contract_version": {
-            "const": "1.0",
-            "title": "Contract Version",
-            "type": "string"
-          },
-          "expires_at": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Expires At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "contract_version",
-          "bootstrap_code",
-          "expires_at"
-        ],
-        "title": "BootstrapCodeResponse",
-        "type": "object"
-      },
-      "BrowserSessionCreateRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "bootstrap_code": {
-            "pattern": "bootstrap-v1\\.[A-Za-z0-9_-]{22}",
-            "title": "Bootstrap Code",
-            "type": "string"
-          }
-        },
-        "required": [
-          "bootstrap_code"
-        ],
-        "title": "BrowserSessionCreateRequest",
-        "type": "object"
-      },
       "BrowserSessionCurrentResponse": {
         "additionalProperties": false,
         "properties": {
@@ -5234,10 +5192,6 @@
       "browserSessionBearer": {
         "scheme": "bearer",
         "type": "http"
-      },
-      "creatorBearer": {
-        "scheme": "bearer",
-        "type": "http"
       }
     }
   },
@@ -5431,21 +5385,21 @@
         "summary": "Get Creator Activity Timeline"
       }
     },
-    "/v1/browser-bootstrap-codes": {
+    "/v1/browser-sessions": {
       "post": {
-        "operationId": "createBrowserBootstrapCode",
+        "operationId": "createBrowserSession",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BootstrapCodeResponse"
+                  "$ref": "#/components/schemas/BrowserSessionResponse"
                 }
               }
             },
             "description": "Successful Response"
           },
-          "401": {
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -5453,17 +5407,7 @@
                 }
               }
             },
-            "description": "Unauthorized"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Too Many Requests"
+            "description": "Forbidden"
           },
           "503": {
             "content": {
@@ -5476,127 +5420,10 @@
             "description": "Service Unavailable"
           }
         },
-        "security": [
-          {
-            "creatorBearer": []
-          }
-        ],
-        "summary": "Create Browser Bootstrap Code"
-      }
-    },
-    "/v1/browser-sessions": {
-      "post": {
-        "operationId": "createBrowserSession",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BrowserSessionCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BrowserSessionResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          }
-        },
         "summary": "Create Browser Session"
       }
     },
     "/v1/browser-sessions/current": {
-      "delete": {
-        "operationId": "deleteCurrentBrowserSession",
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          }
-        },
-        "security": [
-          {
-            "browserSessionBearer": []
-          }
-        ],
-        "summary": "Delete Browser Session"
-      },
       "get": {
         "operationId": "getCurrentBrowserSession",
         "responses": {

@@ -76,9 +76,10 @@ uv run armi db migrate --environment-root C:\path\to\environment --apply
 uv run armi bootstrap birth --environment-root C:\path\to\environment
 uv run armi start --environment-root C:\path\to\environment
 uv run armi status --environment-root C:\path\to\environment
-uv run armi creator-session issue --environment-root C:\path\to\environment
 uv run armi stop --environment-root C:\path\to\environment
 ```
+
+Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。
 
 `db install` 按 manifest 顺序在同一事务中安装冻结的模块化 v1 基线；任一模块失败都会整体回滚。新环境必须继续执行 `db migrate --apply`，达到当前 catalog 后才能 `bootstrap birth`。安装会拒绝已有用户对象，并核对列、约束、索引、owner/ACL 与扩展身份组成的完整 catalog 指纹。基线建立前的开发数据库应在确认可丢弃后重建，不提供兼容登记入口。此后结构变化只新增编号 migration，迁移前须停止 Runtime 并完成可验证备份与恢复准备。
 
