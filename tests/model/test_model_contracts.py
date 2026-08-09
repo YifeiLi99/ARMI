@@ -380,6 +380,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert request["messages"][1]["content"] == "Hello"
     assert "# 本轮 Runtime Context" in request["messages"][0]["content"]
     assert "`ctx:1`" in request["messages"][0]["content"]
+    assert "最后一条 `user` 消息对应 `ctx:1`" in request["messages"][0]["content"]
     assert str(_BUNDLE_ID) not in json.dumps(request)
     parsed = parse_candidate(
         json.dumps(_dialogue_candidate(), ensure_ascii=False).encode(),
@@ -415,8 +416,19 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
         (
             "memory",
             "current_memory",
-            {"memory_id": source_id, "summary": "我们曾经聊过雨声。"},
+            {
+                "memory_id": source_id,
+                "summary": "我们曾经聊过雨声。",
+                "uncertainty": None,
+                "links": [],
+            },
             "subjective_state",
+        ),
+        (
+            "scene",
+            "recent_scene_turn",
+            {"speaker": "armi", "text": "这是缺少前置 Creator 原话的半轮回复。"},
+            "runtime_authority",
         ),
         (
             "scene",
@@ -428,6 +440,24 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
             "scene",
             "recent_scene_turn",
             {"speaker": "armi", "text": "我也想知道那片光落在哪里。"},
+            "runtime_authority",
+        ),
+        (
+            "activity",
+            "current_activity",
+            {"activities": []},
+            "runtime_authority",
+        ),
+        (
+            "capability",
+            "capability_state_expired",
+            {
+                "capability_kind": "creator.scene.reply",
+                "operation": "send",
+                "availability_status": "available",
+                "authorization_status": "expired",
+                "effective_grant": {"remaining_uses": 0},
+            },
             "runtime_authority",
         ),
         (
@@ -489,11 +519,20 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     ]
     assert "我们曾经聊过雨声。" in messages[0]["content"]
     assert 'ref="ctx:2"' in messages[0]["content"]
+    assert "uncertainty" not in messages[0]["content"]
+    assert "links" not in messages[0]["content"]
     assert "runtime_identity" not in messages[0]["content"]
+    assert "authorization status" not in messages[0]["content"]
+    assert "remaining uses" not in messages[0]["content"]
+    assert "实际发送权限由 Runtime 在模型外核对" in messages[0]["content"]
+    assert "最后一条 `user` 消息对应 `ctx:8`" in messages[0]["content"]
+    assert "这是缺少前置 Creator 原话的半轮回复。" not in json.dumps(
+        messages, ensure_ascii=False
+    )
     assert messages[1]["content"] == "窗外的光很好看。"
     assert messages[2]["content"] == "我也想知道那片光落在哪里。"
     assert messages[3]["content"] == "你想聊些什么?"
-    assert request["available_refs"] == ["ctx:2", "ctx:3", "ctx:4", "ctx:5"]
+    assert request["available_refs"] == ["ctx:2", "ctx:7", "ctx:8"]
     assert source_id not in json.dumps(request, ensure_ascii=False)
 
     assert (

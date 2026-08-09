@@ -1365,6 +1365,20 @@ def _semantic_item_content(item_kind: str, content: object) -> object:
             return content
     parsed = _semantic_model_value(parsed)
     if item_kind.startswith("capability_state_") and isinstance(parsed, dict):
+        if parsed.get("capability_kind") == "creator.scene.reply":
+            return {
+                key: parsed[key]
+                for key in (
+                    "capability_kind",
+                    "operation",
+                    "availability_status",
+                )
+                if key in parsed
+            } | {
+                "current_turn_delivery": (
+                    "可以在本轮独立决定是否回复;实际发送权限由 Runtime 在模型外核对"
+                )
+            }
         grant = parsed.get("effective_grant")
         concise: dict[str, object] = {
             key: parsed[key]
@@ -1382,24 +1396,36 @@ def _semantic_item_content(item_kind: str, content: object) -> object:
     return parsed
 
 
+def _is_empty_model_value(value: object) -> bool:
+    return value is None or (isinstance(value, dict | list) and not value)
+
+
 def _markdown_value(value: object, *, indent: int = 0) -> list[str]:
     prefix = " " * indent
     if isinstance(value, dict):
         lines: list[str] = []
         for key, item in value.items():
+            if _is_empty_model_value(item):
+                continue
             label = str(key).replace("_", " ")
             if isinstance(item, dict | list):
-                lines.append(f"{prefix}- {label}:")
-                lines.extend(_markdown_value(item, indent=indent + 2))
+                nested = _markdown_value(item, indent=indent + 2)
+                if nested:
+                    lines.append(f"{prefix}- {label}:")
+                    lines.extend(nested)
             else:
                 lines.append(f"{prefix}- {label}: <value>{_model_text(item)}</value>")
         return lines
     if isinstance(value, list):
         lines = []
         for item in value:
+            if _is_empty_model_value(item):
+                continue
             if isinstance(item, dict | list):
-                lines.append(f"{prefix}-")
-                lines.extend(_markdown_value(item, indent=indent + 2))
+                nested = _markdown_value(item, indent=indent + 2)
+                if nested:
+                    lines.append(f"{prefix}-")
+                    lines.extend(nested)
             else:
                 lines.append(f"{prefix}- <value>{_model_text(item)}</value>")
         return lines
@@ -1421,6 +1447,7 @@ def _dialogue_context_markdown(
     task: str,
     groups: dict[str, list[dict[str, object]]],
     visible_refs: list[str],
+    current_input_ref: str | None,
 ) -> str:
     lines = [
         "# 本轮 Runtime Context",
@@ -1436,8 +1463,11 @@ def _dialogue_context_markdown(
     for group in _DIALOGUE_GROUP_ORDER:
         if group == "recent_dialogue" or not groups[group]:
             continue
-        lines.extend(("", f"## {_DIALOGUE_GROUP_TITLES[group]}", ""))
+        rendered_items: list[str] = []
         for item in groups[group]:
+            body = _markdown_value(item["content"])
+            if not body:
+                continue
             attributes = [
                 f'ref="{html.escape(str(item["ref"]), quote=True)}"',
                 f'kind="{html.escape(str(item["kind"]), quote=True)}"',
@@ -1447,11 +1477,23 @@ def _dialogue_context_markdown(
                 attributes.append(
                     f'perspective="{html.escape(str(perspective), quote=True)}"'
                 )
-            lines.append(f"<context_item {' '.join(attributes)}>")
-            lines.extend(_markdown_value(item["content"]))
-            lines.extend(("</context_item>", ""))
-        if lines[-1] == "":
-            lines.pop()
+            rendered_items.append(f"<context_item {' '.join(attributes)}>")
+            rendered_items.extend(body)
+            rendered_items.extend(("</context_item>", ""))
+        if rendered_items:
+            if rendered_items[-1] == "":
+                rendered_items.pop()
+            lines.extend(("", f"## {_DIALOGUE_GROUP_TITLES[group]}", ""))
+            lines.extend(rendered_items)
+    if current_input_ref is not None:
+        lines.extend(
+            (
+                "",
+                "## 当前 Creator 输入引用",
+                "",
+                f"最后一条 `user` 消息对应 `{current_input_ref}`。",
+            )
+        )
     if visible_refs:
         lines.extend(
             (
@@ -1471,15 +1513,19 @@ def _dialogue_messages(
     visible_refs: list[str],
 ) -> list[dict[str, str]]:
     current_creator_text: str | None = None
+    current_input_ref: str | None = None
     if task == "respond_to_creator" and len(groups["current_input"]) == 1:
-        content = groups["current_input"][0]["content"]
+        current_item = groups["current_input"][0]
+        content = current_item["content"]
         if isinstance(content, str) and content:
             current_creator_text = content
+            current_input_ref = str(current_item["ref"])
             groups["current_input"] = []
         elif isinstance(content, dict) and set(content) == {"text"}:
             text = content.get("text")
             if isinstance(text, str) and text:
                 current_creator_text = text
+                current_input_ref = str(current_item["ref"])
                 groups["current_input"] = []
 
     messages = [
@@ -1489,10 +1535,20 @@ def _dialogue_messages(
                 task=task,
                 groups=groups,
                 visible_refs=visible_refs,
+                current_input_ref=current_input_ref,
             ),
         }
     ]
-    for item in groups["recent_dialogue"]:
+    recent_dialogue = groups["recent_dialogue"]
+    if (
+        len(recent_dialogue) > 1
+        and _recent_dialogue_speaker(recent_dialogue[0]) == "armi"
+        and any(
+            _recent_dialogue_speaker(item) == "creator" for item in recent_dialogue[1:]
+        )
+    ):
+        recent_dialogue = recent_dialogue[1:]
+    for item in recent_dialogue:
         content = item["content"]
         if not isinstance(content, dict):
             raise ModelViolation("MODEL-CONTEXT")
@@ -1505,6 +1561,11 @@ def _dialogue_messages(
     if current_creator_text is not None:
         messages.append({"role": "user", "content": current_creator_text})
     return messages
+
+
+def _recent_dialogue_speaker(item: dict[str, object]) -> object:
+    content = item.get("content")
+    return content.get("speaker") if isinstance(content, dict) else None
 
 
 def _dialogue_request_value(
@@ -1568,7 +1629,8 @@ def _dialogue_request_value(
         elif trust == "subjective_state":
             semantic_item["perspective"] = "armi_subjective"
         groups[group].append(semantic_item)
-        visible_refs.append(ref)
+        if group != "recent_dialogue" and _markdown_value(content):
+            visible_refs.append(ref)
 
     task = {
         "consider_creator_input": "respond_to_creator",
