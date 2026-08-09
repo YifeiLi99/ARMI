@@ -17,6 +17,7 @@ from armi_kernel.contracts import Digest
 from armi_runtime.adapters.model.volcengine_ark import (
     ArkTransport,
     VolcengineArkModelAdapter,
+    _provider_input,
 )
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.dialogue_candidate_contract import (
@@ -372,16 +373,13 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert "binding" not in request
     assert "context_digest" not in request
     assert "output_contract" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v1"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v2"
     assert request["task"] == "respond_to_creator"
     assert request["available_refs"] == ["ctx:1"]
-    current_input = request["context"]["current_input"][0]
-    assert current_input == {
-        "ref": "ctx:1",
-        "kind": "current_evidence",
-        "content": {"text": "Hello"},
-        "perspective": "external_claim",
-    }
+    assert [message["role"] for message in request["messages"]] == ["system", "user"]
+    assert request["messages"][1]["content"] == "Hello"
+    assert "# 本轮 Runtime Context" in request["messages"][0]["content"]
+    assert "`ctx:1`" in request["messages"][0]["content"]
     assert str(_BUNDLE_ID) not in json.dumps(request)
     parsed = parse_candidate(
         json.dumps(_dialogue_candidate(), ensure_ascii=False).encode(),
@@ -425,6 +423,12 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
             "recent_scene_turn",
             {"speaker": "creator", "text": "窗外的光很好看。"},
             "external_claim",
+        ),
+        (
+            "scene",
+            "recent_scene_turn",
+            {"speaker": "armi", "text": "我也想知道那片光落在哪里。"},
+            "runtime_authority",
         ),
         (
             "evidence",
@@ -476,18 +480,36 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
         )
     )
 
-    assert "runtime_truth" not in request["context"]
-    assert request["context"]["memories"][0]["content"] == {
-        "summary": "我们曾经聊过雨声。"
-    }
-    assert request["context"]["recent_dialogue"][0]["content"]["text"] == (
-        "窗外的光很好看。"
-    )
-    assert request["context"]["current_input"][0]["content"] == {
-        "text": "你想聊些什么?"
-    }
-    assert request["available_refs"] == ["ctx:2", "ctx:3", "ctx:4"]
+    messages = request["messages"]
+    assert [message["role"] for message in messages] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert "我们曾经聊过雨声。" in messages[0]["content"]
+    assert 'ref="ctx:2"' in messages[0]["content"]
+    assert "runtime_identity" not in messages[0]["content"]
+    assert messages[1]["content"] == "窗外的光很好看。"
+    assert messages[2]["content"] == "我也想知道那片光落在哪里。"
+    assert messages[3]["content"] == "你想聊些什么?"
+    assert request["available_refs"] == ["ctx:2", "ctx:3", "ctx:4", "ctx:5"]
     assert source_id not in json.dumps(request, ensure_ascii=False)
+
+    assert (
+        _provider_input(
+            build_request_bytes(
+                binding=binding,
+                compiled_context=compiled,
+                context_digest=Digest.from_bytes(compiled),
+                base_subject_version=9,
+                base_state_epoch=4,
+                bundle_activation_id=_BUNDLE_ID,
+                included_context_refs=tuple(refs),
+            )
+        )
+        == messages
+    )
 
 
 def test_creator_outreach_has_a_narrow_compact_purpose_profile() -> None:
@@ -1047,7 +1069,7 @@ def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) 
     assert binding.response_contract_version == WEB_DIALOGUE_CANDIDATE_VERSION
     request = json.loads(_request(binding).canonical_bytes)
     assert "candidate_base" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v1"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v2"
     assert "output_contract" not in request
 
     manifest["bindings"] = [manifest["bindings"][0]]

@@ -33,6 +33,7 @@ _PURPOSE = CredentialPurpose("model.request")
 _FINGERPRINT_DOMAIN = b"armi.model.credential-fingerprint.v1\0"
 _EVOLVING_MODEL_ID = "doubao-seed-evolving"
 _PROVIDER_MODEL_ID = re.compile(r"^doubao-seed-[a-z0-9-]{1,96}$", re.ASCII)
+_DIALOGUE_INPUT_VERSION = "armi.creator-dialogue-input.v2"
 _INSTRUCTIONS = (
     "你是 ARMI 的不可信认知候选生成器。只能返回符合给定 JSON Schema 的候选。"
     "必须逐字段原样回显请求中的 candidate_base 到输出 base,不能推测或改写。"
@@ -144,6 +145,14 @@ class OpenAIArkTransport:
     ) -> int:
         client = _client(api_key, binding)
         try:
+            provider_input = _provider_input(request_bytes)
+            rendered_input = (
+                provider_input
+                if isinstance(provider_input, str)
+                else json.dumps(
+                    provider_input, ensure_ascii=False, separators=(",", ":")
+                )
+            )
             result_value = await client.post(
                 "/tokenization",
                 cast_to=cast(Any, dict[str, Any]),
@@ -152,7 +161,7 @@ class OpenAIArkTransport:
                     "text": "\n".join(
                         (
                             self._instructions,
-                            request_bytes.decode("utf-8"),
+                            rendered_input,
                             json.dumps(
                                 self._candidate_schema,
                                 ensure_ascii=False,
@@ -206,7 +215,7 @@ class OpenAIArkTransport:
             response = await client.responses.create(
                 model=binding.model_id,
                 instructions=self._instructions,
-                input=request.canonical_bytes.decode("utf-8"),
+                input=cast(Any, _provider_input(request.canonical_bytes)),
                 store=False,
                 max_output_tokens=request.max_output_tokens,
                 tools=[],
@@ -240,6 +249,36 @@ class OpenAIArkTransport:
             },
             "raw": response.model_dump(mode="json"),
         }
+
+
+def _provider_input(request_bytes: bytes) -> str | list[dict[str, str]]:
+    try:
+        text_value = request_bytes.decode("utf-8")
+        request_value = json.loads(text_value)
+    except UnicodeDecodeError, json.JSONDecodeError:
+        raise ModelViolation("MODEL-REQUEST") from None
+    if (
+        not isinstance(request_value, dict)
+        or request_value.get("schema_version") != _DIALOGUE_INPUT_VERSION
+    ):
+        return text_value
+    messages_value = request_value.get("messages")
+    if not isinstance(messages_value, list) or not messages_value:
+        raise ModelViolation("MODEL-REQUEST")
+    messages: list[dict[str, str]] = []
+    for message_value in messages_value:
+        if not isinstance(message_value, dict):
+            raise ModelViolation("MODEL-REQUEST")
+        role = message_value.get("role")
+        content = message_value.get("content")
+        if (
+            role not in {"system", "user", "assistant"}
+            or not isinstance(content, str)
+            or not content
+        ):
+            raise ModelViolation("MODEL-REQUEST")
+        messages.append({"role": role, "content": content})
+    return messages
 
 
 class VolcengineArkModelAdapter(ModelPort):
