@@ -441,8 +441,14 @@ class PostgreSQLContextRepository:
                     subject_prompt.prompt_revision_id,
                     subject_prompt.revision_no,
                     subject_prompt.content_artifact_id,
-                    evidence.interaction_id,
-                    evidence.interaction_id,
+                    CASE
+                      WHEN episode.purpose = 'consider_creator_input'
+                      THEN evidence.interaction_id
+                    END,
+                    CASE
+                      WHEN episode.purpose = 'consider_other_human_input'
+                      THEN evidence.interaction_id
+                    END,
                     episode.context_party_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
@@ -854,7 +860,7 @@ class PostgreSQLContextRepository:
                          prior_input.interaction_id
                      AND prior_evidence.scene_id = item.scene_id
                     LEFT JOIN armi.effects AS response_effect
-                      ON item.source_kind = 'other_human_response'
+                      ON item.source_kind = 'party_response'
                      AND response_effect.effect_id = item.source_ref
                      AND response_effect.scene_id = item.scene_id
                     LEFT JOIN armi.action_intent_revisions AS response_revision
@@ -862,7 +868,7 @@ class PostgreSQLContextRepository:
                          response_effect.action_intent_revision_id
                     WHERE item.scene_id = %s
                       AND item.source_kind IN (
-                          'other_human_input', 'other_human_response'
+                          'other_human_input', 'party_response'
                       )
                       AND (item.occurred_at, item.timeline_item_id) <
                           (current_item.occurred_at, current_item.timeline_item_id)
@@ -901,7 +907,7 @@ class PostgreSQLContextRepository:
                          prior_input.interaction_id
                      AND prior_evidence.scene_id = item.scene_id
                     LEFT JOIN armi.effects AS response_effect
-                      ON item.source_kind = 'creator_response'
+                      ON item.source_kind = 'party_response'
                      AND response_effect.effect_id = item.source_ref
                      AND response_effect.scene_id = item.scene_id
                     LEFT JOIN armi.action_intent_revisions AS response_revision
@@ -909,7 +915,7 @@ class PostgreSQLContextRepository:
                          response_effect.action_intent_revision_id
                     WHERE item.scene_id = %s
                       AND item.source_kind IN (
-                          'creator_input', 'creator_response'
+                          'creator_input', 'party_response'
                       )
                       AND (
                           item.occurred_at, item.timeline_item_id
@@ -948,7 +954,7 @@ class PostgreSQLContextRepository:
                          prior_input.interaction_id
                      AND prior_evidence.scene_id = item.scene_id
                     LEFT JOIN armi.effects AS response_effect
-                      ON item.source_kind = 'creator_response'
+                      ON item.source_kind = 'party_response'
                      AND response_effect.effect_id = item.source_ref
                      AND response_effect.scene_id = item.scene_id
                     LEFT JOIN armi.action_intent_revisions AS response_revision
@@ -956,7 +962,7 @@ class PostgreSQLContextRepository:
                          response_effect.action_intent_revision_id
                     WHERE item.scene_id = %s
                       AND item.source_kind IN (
-                          'creator_input', 'creator_response'
+                          'creator_input', 'party_response'
                       )
                       AND item.occurred_at <= %s
                       AND COALESCE(
