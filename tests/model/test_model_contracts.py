@@ -19,6 +19,10 @@ from armi_runtime.adapters.model.volcengine_ark import (
     VolcengineArkModelAdapter,
 )
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
+from armi_runtime.composition.dialogue_candidate_contract import (
+    DIALOGUE_MODEL_OUTPUT_VERSION,
+    dialogue_model_output_schema,
+)
 from armi_runtime.composition.model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
@@ -278,7 +282,37 @@ def _dialogue_candidate() -> dict[str, object]:
 
 
 def _request(binding: ModelBinding):
-    context = b'{"schema_version":"armi.compiled-context.v1"}\n'
+    context = json.dumps(
+        {
+            "schema_version": "armi.compiled-context.v1",
+            "purpose": "consider_creator_input",
+            "sections": [
+                {
+                    "section": "evidence",
+                    "items": [
+                        {
+                            "item_kind": "current_evidence",
+                            "source": {
+                                "kind": "creator_input",
+                                "reference": "01980f7d-7b8f-7e2a-8a11-2ab8e1234568",
+                                "version": 3,
+                                "digest": Digest.from_bytes(b"hello").value,
+                            },
+                            "trust": "external_claim",
+                            "privacy": "private",
+                            "content": json.dumps(
+                                {
+                                    "message_id": "01980f7d-7b8f-7e2a-8a11-2ab8e1234569",
+                                    "text": "Hello",
+                                }
+                            ),
+                        }
+                    ],
+                }
+            ],
+        },
+        separators=(",", ":"),
+    ).encode()
     context_digest = Digest.from_bytes(context)
     request_bytes = build_request_bytes(
         binding=binding,
@@ -321,17 +355,34 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert dialogue.output_token_limit == 1024
     assert life_query_result == dialogue
     dialogue_schema = candidate_schema(DIALOGUE_CANDIDATE_VERSION)
+    model_output_schema = dialogue_model_output_schema(web_search=False)
     legacy_schema = candidate_schema()
     dialogue_schema_text = json.dumps(dialogue_schema, separators=(",", ":"))
     assert dialogue_schema != legacy_schema
     assert '"schema_version"' not in dialogue_schema_text
     assert '"reason_summary"' not in dialogue_schema_text
     assert '"decision"' not in dialogue_schema_text
+    assert len(json.dumps(model_output_schema, separators=(",", ":"))) < 2500
+    assert len(json.dumps(model_output_schema)) * 3 < len(json.dumps(dialogue_schema))
+    assert DIALOGUE_MODEL_OUTPUT_VERSION == "armi.creator-dialogue-model-output.v1"
 
     request = json.loads(_request(dialogue).canonical_bytes)
     assert "candidate_base" not in request
     assert "included_context_refs" not in request
-    assert request["output_contract"]["schema_version"] == DIALOGUE_CANDIDATE_VERSION
+    assert "binding" not in request
+    assert "context_digest" not in request
+    assert "output_contract" not in request
+    assert request["schema_version"] == "armi.creator-dialogue-input.v1"
+    assert request["task"] == "respond_to_creator"
+    assert request["available_refs"] == ["ctx:1"]
+    current_input = request["context"]["current_input"][0]
+    assert current_input == {
+        "ref": "ctx:1",
+        "kind": "current_evidence",
+        "content": {"text": "Hello"},
+        "perspective": "external_claim",
+    }
+    assert str(_BUNDLE_ID) not in json.dumps(request)
     parsed = parse_candidate(
         json.dumps(_dialogue_candidate(), ensure_ascii=False).encode(),
         allowed_context_refs=frozenset(),
@@ -349,6 +400,94 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         "mind_change": None,
         "subject_prompt_change": None,
     }
+
+
+def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs() -> (
+    None
+):
+    binding = load_purpose_binding("consider_creator_input")
+    source_id = "01980f7d-7b8f-7e2a-8a11-2ab8e1234570"
+    items = (
+        (
+            "runtime_truth",
+            "runtime_identity",
+            {"subject_id": source_id, "subject_version": 9},
+            "runtime_authority",
+        ),
+        (
+            "memory",
+            "current_memory",
+            {"memory_id": source_id, "summary": "我们曾经聊过雨声。"},
+            "subjective_state",
+        ),
+        (
+            "scene",
+            "recent_scene_turn",
+            {"speaker": "creator", "text": "窗外的光很好看。"},
+            "external_claim",
+        ),
+        (
+            "evidence",
+            "current_evidence",
+            {"message_id": source_id, "text": "你想聊些什么?"},
+            "external_claim",
+        ),
+    )
+    sections = []
+    refs = []
+    for ordinal, (section, kind, content, trust) in enumerate(items, 1):
+        sections.append(
+            {
+                "section": section,
+                "items": [
+                    {
+                        "item_kind": kind,
+                        "source": {
+                            "kind": kind,
+                            "reference": source_id,
+                            "version": 1,
+                            "digest": Digest.from_bytes(kind.encode()).value,
+                        },
+                        "trust": trust,
+                        "privacy": "private",
+                        "content": json.dumps(content, ensure_ascii=False),
+                    }
+                ],
+            }
+        )
+        refs.append({"ref": f"ctx:{ordinal}", "section": section, "item_kind": kind})
+    compiled = json.dumps(
+        {
+            "schema_version": "armi.compiled-context.v1",
+            "purpose": "consider_creator_input",
+            "sections": sections,
+        },
+        ensure_ascii=False,
+    ).encode()
+    request = json.loads(
+        build_request_bytes(
+            binding=binding,
+            compiled_context=compiled,
+            context_digest=Digest.from_bytes(compiled),
+            base_subject_version=9,
+            base_state_epoch=4,
+            bundle_activation_id=_BUNDLE_ID,
+            included_context_refs=tuple(refs),
+        )
+    )
+
+    assert "runtime_truth" not in request["context"]
+    assert request["context"]["memories"][0]["content"] == {
+        "summary": "我们曾经聊过雨声。"
+    }
+    assert request["context"]["recent_dialogue"][0]["content"]["text"] == (
+        "窗外的光很好看。"
+    )
+    assert request["context"]["current_input"][0]["content"] == {
+        "text": "你想聊些什么?"
+    }
+    assert request["available_refs"] == ["ctx:2", "ctx:3", "ctx:4"]
+    assert source_id not in json.dumps(request, ensure_ascii=False)
 
 
 def test_creator_outreach_has_a_narrow_compact_purpose_profile() -> None:
@@ -908,9 +1047,8 @@ def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) 
     assert binding.response_contract_version == WEB_DIALOGUE_CANDIDATE_VERSION
     request = json.loads(_request(binding).canonical_bytes)
     assert "candidate_base" not in request
-    assert request["output_contract"]["schema_version"] == (
-        WEB_DIALOGUE_CANDIDATE_VERSION
-    )
+    assert request["schema_version"] == "armi.creator-dialogue-input.v1"
+    assert "output_contract" not in request
 
     manifest["bindings"] = [manifest["bindings"][0]]
     manifest["bindings"][0]["model_id"] = "doubao-seed-2-1-turbo-260628"
@@ -1056,11 +1194,14 @@ async def test_dialogue_artifact_keeps_call_metadata_outside_minimal_candidate()
             secret_roots=(Path.cwd(),),
         ),
         locator=locator,
-        candidate_schema=candidate_schema(DIALOGUE_CANDIDATE_VERSION),
+        candidate_schema=dialogue_model_output_schema(web_search=False),
         candidate_parser=parse_candidate,
         transport=_Transport(
             provider_model_id="doubao-seed-evolving-20260731",
-            candidate=_dialogue_candidate(),
+            candidate={
+                **_dialogue_candidate(),
+                "memory_change": {"action": "recall", "memory_ref": "ctx:1"},
+            },
         ),
     )
 
@@ -1072,6 +1213,7 @@ async def test_dialogue_artifact_keeps_call_metadata_outside_minimal_candidate()
     assert artifact["candidate"] == {
         "kind": "reply",
         "content": "Hello, I am here.",
+        "memory_change": {"action": "recall", "memory_ref": "ctx:1"},
     }
     assert artifact["provider_model_id"] == "doubao-seed-evolving-20260731"
     assert artifact["usage"] == {

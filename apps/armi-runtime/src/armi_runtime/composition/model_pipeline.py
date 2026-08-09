@@ -55,6 +55,7 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
+from .dialogue_candidate_contract import dialogue_model_output_schema
 from .model_contract import (
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     ACTIVITY_ATTENTION_INSTRUCTIONS,
@@ -281,8 +282,8 @@ class ModelPipeline:
                 binding=dialogue_binding,
                 credential_port=credential_port,
                 locator=credential_locator,
-                candidate_schema=candidate_schema(
-                    dialogue_binding.response_contract_version
+                candidate_schema=dialogue_model_output_schema(
+                    web_search=web_search_active
                 ),
                 candidate_parser=parse_dialogue,
                 instructions=(
@@ -291,17 +292,17 @@ class ModelPipeline:
                     else DIALOGUE_INSTRUCTIONS
                 ),
                 schema_name=(
-                    "armi_creator_dialogue_candidate_v14"
+                    "armi_creator_dialogue_model_output_v1_web"
                     if web_search_active
-                    else "armi_creator_dialogue_candidate_v13"
+                    else "armi_creator_dialogue_model_output_v1"
                 ),
             ),
             "consider_life_query_result": VolcengineArkModelAdapter(
                 binding=life_query_result_binding,
                 credential_port=credential_port,
                 locator=credential_locator,
-                candidate_schema=candidate_schema(
-                    life_query_result_binding.response_contract_version
+                candidate_schema=dialogue_model_output_schema(
+                    web_search=web_search_active
                 ),
                 candidate_parser=parse_dialogue,
                 instructions=(
@@ -310,9 +311,9 @@ class ModelPipeline:
                     else DIALOGUE_INSTRUCTIONS
                 ),
                 schema_name=(
-                    "armi_creator_dialogue_candidate_v14"
+                    "armi_creator_dialogue_model_output_v1_web"
                     if web_search_active
-                    else "armi_creator_dialogue_candidate_v13"
+                    else "armi_creator_dialogue_model_output_v1"
                 ),
             ),
             "consider_creator_outreach": VolcengineArkModelAdapter(

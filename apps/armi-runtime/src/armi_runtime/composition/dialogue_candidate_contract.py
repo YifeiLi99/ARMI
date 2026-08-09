@@ -39,6 +39,7 @@ HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.
 HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v16"
 DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v17"
 WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v18"
+DIALOGUE_MODEL_OUTPUT_VERSION = "armi.creator-dialogue-model-output.v1"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[
@@ -932,6 +933,108 @@ def dialogue_candidate_schema(
     raise ValueError("unsupported dialogue candidate version")
 
 
+def dialogue_model_output_schema(*, web_search: bool) -> dict[str, Any]:
+    """Return the deliberately shallow schema shown to the dialogue model.
+
+    The provider only needs enough structure to choose one current-turn decision.
+    Runtime validates every optional state proposal against the full durable candidate
+    contract after receipt, so the provider schema must not duplicate that authority.
+    """
+
+    experience = {
+        "type": "object",
+        "properties": {
+            "first_person_gist": {"type": "string", "minLength": 1, "maxLength": 1024},
+            "uncertainty": {
+                "anyOf": [
+                    {"type": "string", "minLength": 1, "maxLength": 512},
+                    {"type": "null"},
+                ]
+            },
+            "memory_summary": {
+                "anyOf": [
+                    {"type": "string", "minLength": 1, "maxLength": 512},
+                    {"type": "null"},
+                ]
+            },
+        },
+        "required": ["first_person_gist"],
+        "additionalProperties": False,
+    }
+    proposal = {"type": "object", "minProperties": 1}
+    reply = {
+        "type": "object",
+        "properties": {
+            "kind": {"const": "reply"},
+            "content": {"type": "string", "minLength": 1, "maxLength": 65536},
+            "experience": experience,
+            "memory_change": proposal,
+            "relationship_change": proposal,
+            "material_change": proposal,
+            "capability_request": proposal,
+            "self_change": proposal,
+            "mind_change": proposal,
+            "subject_prompt_change": proposal,
+        },
+        "required": ["kind", "content"],
+        "additionalProperties": False,
+    }
+    terminal = {
+        "type": "object",
+        "properties": {
+            "kind": {
+                "enum": [
+                    "decline",
+                    "no_action",
+                    "no_change",
+                    "defer",
+                    "need_information",
+                ]
+            }
+        },
+        "required": ["kind"],
+        "additionalProperties": False,
+    }
+    exact_query = {
+        "type": "object",
+        "properties": {
+            "kind": {"const": "exact_life_query"},
+            "record_kind": {
+                "enum": [
+                    "activity",
+                    "conversation",
+                    "material",
+                    "memory",
+                    "relationship",
+                    "self_change",
+                ]
+            },
+            "query_text": {
+                "anyOf": [
+                    {"type": "string", "minLength": 1, "maxLength": 1024},
+                    {"type": "null"},
+                ]
+            },
+        },
+        "required": ["kind", "record_kind"],
+        "additionalProperties": False,
+    }
+    choices = [reply, terminal, exact_query]
+    if web_search:
+        choices.append(
+            {
+                "type": "object",
+                "properties": {
+                    "kind": {"const": "web_research"},
+                    "query": {"type": "string", "minLength": 1, "maxLength": 16384},
+                },
+                "required": ["kind", "query"],
+                "additionalProperties": False,
+            }
+        )
+    return {"oneOf": choices}
+
+
 def parse_dialogue_candidate(
     value: object,
     *,
@@ -973,6 +1076,7 @@ def parse_dialogue_candidate(
 
 __all__ = (
     "DIALOGUE_CANDIDATE_VERSION",
+    "DIALOGUE_MODEL_OUTPUT_VERSION",
     "HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_DIALOGUE_CANDIDATE_VERSION",
@@ -1042,5 +1146,6 @@ __all__ = (
     "DialogueWebResearchDecisionV16",
     "DialogueWebResearchDecisionV18",
     "dialogue_candidate_schema",
+    "dialogue_model_output_schema",
     "parse_dialogue_candidate",
 )

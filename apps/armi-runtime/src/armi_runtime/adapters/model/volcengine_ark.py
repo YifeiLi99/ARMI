@@ -403,10 +403,14 @@ class VolcengineArkModelAdapter(ModelPort):
         )
         try:
             request_value = json.loads(request.canonical_bytes)
-            allowed_refs = frozenset(
-                str(item["ref"])
-                for item in request_value.get("included_context_refs", ())
-            )
+            available_refs = request_value.get("available_refs")
+            if isinstance(available_refs, list):
+                allowed_refs = frozenset(str(item) for item in available_refs)
+            else:
+                allowed_refs = frozenset(
+                    str(item["ref"])
+                    for item in request_value.get("included_context_refs", ())
+                )
             candidate = self._parse_candidate(
                 output_text.encode("utf-8"),
                 allowed_context_refs=allowed_refs,
