@@ -51,6 +51,23 @@ DISTRIBUTIONS = (
         dependencies=(),
     ),
     Distribution(
+        name="armi-channel-napcat",
+        module="armi_channel_napcat",
+        project_dir=Path("packages/armi-channel-napcat"),
+        layers=(),
+        dependencies=("httpx==0.28.1",),
+    ),
+    Distribution(
+        name="armi-adapter-qq",
+        module="armi_adapter_qq",
+        project_dir=Path("packages/armi-adapter-qq"),
+        layers=(),
+        dependencies=(
+            "armi-channel-napcat==0.0.0",
+            "armi-kernel==0.0.0",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -280,20 +297,25 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
                 field=field,
             )
 
-        if distribution.dependencies:
-            sources = (
-                tool.get("uv", {}).get("sources", {}) if isinstance(tool, dict) else {}
-            )
-            kernel_source = (
-                sources.get("armi-kernel", {}) if isinstance(sources, dict) else {}
+        sources = (
+            tool.get("uv", {}).get("sources", {}) if isinstance(tool, dict) else {}
+        )
+        local_dependencies = tuple(
+            candidate.name
+            for candidate in DISTRIBUTIONS
+            if f"{candidate.name}=={WORKSPACE_VERSION}" in distribution.dependencies
+        )
+        for local_dependency in local_dependencies:
+            source = (
+                sources.get(local_dependency, {}) if isinstance(sources, dict) else {}
             )
             _expect(
                 violations,
-                actual=kernel_source,
+                actual=source,
                 expected={"workspace": True},
                 path=metadata_path,
                 root=root,
-                field="tool.uv.sources.armi-kernel",
+                field=f"tool.uv.sources.{local_dependency}",
             )
 
         required_package_paths = (
@@ -518,7 +540,16 @@ def _check_import(
     reverse_dependency = (
         (
             source_distribution == "armi-kernel"
-            and target_distribution in {"armi-runtime", "armi-admin"}
+            and target_distribution not in {None, "armi-kernel"}
+        )
+        or (
+            source_distribution == "armi-channel-napcat"
+            and target_distribution not in {None, "armi-channel-napcat"}
+        )
+        or (
+            source_distribution == "armi-adapter-qq"
+            and target_distribution
+            not in {None, "armi-kernel", "armi-channel-napcat", "armi-adapter-qq"}
         )
         or (
             source_distribution == "armi-runtime"
@@ -591,17 +622,20 @@ def _check_import(
             )
         )
 
-    if (
-        source_distribution in {"armi-runtime", "armi-admin"}
-        and target_distribution == "armi-kernel"
-    ):
-        if imported_module not in PUBLIC_KERNEL_MODULES:
+    public_modules = {
+        "armi-kernel": PUBLIC_KERNEL_MODULES,
+        "armi-channel-napcat": frozenset({"armi_channel_napcat"}),
+        "armi-adapter-qq": frozenset({"armi_adapter_qq"}),
+    }
+    if crosses_distribution and target_distribution in public_modules:
+        if imported_module not in public_modules[target_distribution]:
             violations.append(
                 Violation(
                     "ARC-SURFACE-DEEP",
                     path,
                     line,
-                    f"cross-distribution import must use an explicit Kernel entry point, not {imported_module!r}",
+                    "cross-distribution import must use an explicit public entry "
+                    f"point, not {imported_module!r}",
                 )
             )
         else:
@@ -723,6 +757,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "packages/armi-kernel/src/armi_kernel/application/__init__.py",
         "armi_kernel.contracts": root
         / "packages/armi-kernel/src/armi_kernel/contracts/__init__.py",
+        "armi_channel_napcat": root
+        / "packages/armi-channel-napcat/src/armi_channel_napcat/__init__.py",
+        "armi_adapter_qq": root
+        / "packages/armi-adapter-qq/src/armi_adapter_qq/__init__.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)

@@ -153,6 +153,22 @@ class WorkspaceBoundaryTests(unittest.TestCase):
         )
         self.assert_rejected(violations, "ARC-SURFACE-KERNEL-TECH")
 
+    def test_napcat_channel_cannot_import_armi(self) -> None:
+        violations = self.analyze(
+            "from armi_kernel.application import ExternalGroupInputPort\n",
+            module="armi_channel_napcat.example",
+            distribution="armi-channel-napcat",
+        )
+        self.assert_rejected(violations, "ARC-SURFACE-REVERSE")
+
+    def test_qq_adapter_cannot_import_runtime(self) -> None:
+        violations = self.analyze(
+            "from armi_runtime.composition import build\n",
+            module="armi_adapter_qq.example",
+            distribution="armi-adapter-qq",
+        )
+        self.assert_rejected(violations, "ARC-SURFACE-REVERSE")
+
     def test_kernel_contract_cannot_import_validation_or_digest_library(self) -> None:
         for package in ("pydantic", "rfc8785", "psycopg"):
             with self.subTest(package=package):

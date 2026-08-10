@@ -4,7 +4,9 @@ requires-python = "==3.14.*"
 
 [manifest]
 members = [
+    "armi-adapter-qq",
     "armi-admin",
+    "armi-channel-napcat",
     "armi-kernel",
     "armi-postgresql-contract",
     "armi-runtime",
@@ -43,6 +45,21 @@ wheels = [
 ]
 
 [[package]]
+name = "armi-adapter-qq"
+version = "0.0.0"
+source = { editable = "packages/armi-adapter-qq" }
+dependencies = [
+    { name = "armi-channel-napcat" },
+    { name = "armi-kernel" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-channel-napcat", editable = "packages/armi-channel-napcat" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+]
+
+[[package]]
 name = "armi-admin"
 version = "0.0.0"
 source = { editable = "apps/armi-admin" }
@@ -66,6 +83,17 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
+
+[[package]]
+name = "armi-channel-napcat"
+version = "0.0.0"
+source = { editable = "packages/armi-channel-napcat" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "httpx", specifier = "==0.28.1" }]
 
 [[package]]
 name = "armi-kernel"

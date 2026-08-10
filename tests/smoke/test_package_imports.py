@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 KERNEL_SOURCE = ROOT / "packages/armi-kernel/src"
 RUNTIME_SOURCE = ROOT / "apps/armi-runtime/src"
 ADMIN_SOURCE = ROOT / "apps/armi-admin/src"
+NAPCAT_SOURCE = ROOT / "packages/armi-channel-napcat/src"
+QQ_ADAPTER_SOURCE = ROOT / "packages/armi-adapter-qq/src"
 
 
 class PackageImportSmokeTests(unittest.TestCase):
@@ -57,6 +59,21 @@ class PackageImportSmokeTests(unittest.TestCase):
             "import armi_admin; "
             "assert armi_admin.__all__ == (); "
             "assert not any(name.startswith('armi_runtime') for name in sys.modules)",
+        )
+
+    def test_napcat_channel_imports_without_armi(self) -> None:
+        self.run_isolated_import(
+            [NAPCAT_SOURCE],
+            "import armi_channel_napcat; "
+            "assert not any(name.startswith('armi_kernel') for name in sys.modules)",
+        )
+
+    def test_qq_adapter_imports_only_public_dependencies(self) -> None:
+        self.run_isolated_import(
+            [QQ_ADAPTER_SOURCE, NAPCAT_SOURCE, KERNEL_SOURCE],
+            "import armi_adapter_qq; "
+            "assert not any(name.startswith(('armi_runtime', 'armi_admin')) "
+            "for name in sys.modules)",
         )
 
 
