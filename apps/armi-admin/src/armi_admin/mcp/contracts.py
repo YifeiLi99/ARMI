@@ -8,7 +8,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$", re.ASCII)
 _TOKEN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$", re.ASCII)
 
 
@@ -19,12 +18,6 @@ def _uuid7(value: str) -> str:
         raise ValueError("ADMIN-INPUT-UUID7") from exc
     if parsed.version != 7 or str(parsed) != value:
         raise ValueError("ADMIN-INPUT-UUID7")
-    return value
-
-
-def _digest(value: str) -> str:
-    if _DIGEST.fullmatch(value) is None:
-        raise ValueError("ADMIN-OUTPUT-DIGEST")
     return value
 
 
@@ -332,9 +325,6 @@ class SettleCorrectionWorkRequest(MutationRequest):
 
 class AdminIdentity(_StrictModel):
     application_version: Literal["0.0.0"] = "0.0.0"
-    config_digest: str
-
-    _config = field_validator("config_digest")(_digest)
 
 
 class HealthPayload(_StrictModel):

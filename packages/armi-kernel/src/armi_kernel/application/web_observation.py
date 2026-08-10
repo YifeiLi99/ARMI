@@ -188,7 +188,6 @@ class WebObservationUsage:
 @dataclass(frozen=True, slots=True)
 class WebObservationInvocationResult:
     status: WebObservationResultStatus
-    provider_request_digest: Digest | None
     provider_model_id: str | None
     canonical_result_bytes: bytes | None
     tool_actions: tuple[WebObservationToolAction, ...]
@@ -201,8 +200,7 @@ class WebObservationInvocationResult:
         success = self.status is WebObservationResultStatus.SUCCEEDED
         if success:
             if (
-                type(self.provider_request_digest) is not Digest
-                or type(self.provider_model_id) is not str
+                type(self.provider_model_id) is not str
                 or not self.provider_model_id.startswith("doubao-seed-evolving")
                 or type(self.canonical_result_bytes) is not bytes
                 or not self.canonical_result_bytes

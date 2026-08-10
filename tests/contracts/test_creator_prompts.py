@@ -14,7 +14,7 @@ from armi_kernel.application import (
     PromptKind,
     PromptRevisionKind,
 )
-from armi_kernel.contracts import Digest, Instant, TraceId
+from armi_kernel.contracts import Instant, TraceId
 
 
 def test_creator_prompt_command_preserves_exact_utf8_content() -> None:
@@ -71,7 +71,6 @@ def test_creator_prompt_view_requires_a_complete_immutable_revision() -> None:
         previous_revision_id=uuid7(),
         revision_kind=PromptRevisionKind.DEACTIVATED,
         content=content,
-        content_digest=Digest.from_bytes(content.encode()),
         activated_at=Instant(datetime.now(UTC)),
     )
 
@@ -79,8 +78,7 @@ def test_creator_prompt_view_requires_a_complete_immutable_revision() -> None:
     assert view.status is PromptDocumentStatus.INACTIVE
 
 
-def test_creator_prompt_view_does_not_rehash_trusted_content() -> None:
-    content_digest = Digest.from_bytes(b"artifact-owner-value")
+def test_creator_prompt_view_carries_trusted_content_without_digest() -> None:
     view = CreatorPromptView(
         prompt_document_id=uuid7(),
         prompt_kind=PromptKind.CREATOR_GUIDANCE,
@@ -90,8 +88,7 @@ def test_creator_prompt_view_does_not_rehash_trusted_content() -> None:
         previous_revision_id=None,
         revision_kind=PromptRevisionKind.CREATED,
         content="真实内容",
-        content_digest=content_digest,
         activated_at=Instant(datetime.now(UTC)),
     )
 
-    assert view.content_digest == content_digest
+    assert view.content == "真实内容"

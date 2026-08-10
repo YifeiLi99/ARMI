@@ -91,10 +91,9 @@ class _MaterialConnection:
                     revision_no,
                     revision[7],
                     revision[8],
-                    revision[9],
-                    json.loads(cast(str, revision[10])),
-                    revision[13],
+                    json.loads(cast(str, revision[9])),
                     revision[12],
+                    revision[11],
                 )
             )
         if "INSERT INTO armi.life_material_revisions" in query:
@@ -209,7 +208,7 @@ async def test_life_material_commit_appends_revision_and_cas_updates_head() -> N
     assert connection.materials[material_id]["head_version"] == 1
     assert connection.revisions[0][3] is None
     assert connection.revisions[0][7] == first_artifact.value
-    assert connection.revisions[0][11] == "created"
+    assert connection.revisions[0][10] == "created"
 
     updated = _draft(
         material_id=material_id,
@@ -232,7 +231,7 @@ async def test_life_material_commit_appends_revision_and_cas_updates_head() -> N
     assert connection.revisions[1][2] == 2
     assert connection.revisions[1][3] == first_revision_id
     assert connection.revisions[1][7] == second_artifact.value
-    assert connection.revisions[1][11] == "updated"
+    assert connection.revisions[1][10] == "updated"
 
 
 @pytest.mark.asyncio
@@ -281,7 +280,7 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         artifacts={},
     )
     assert connection.revisions[1][7] == artifact_id.value
-    assert connection.revisions[1][11:13] == ("privacy_changed", "private")
+    assert connection.revisions[1][10:12] == ("privacy_changed", "private")
 
     private_revision_id = cast(
         UUID, connection.materials[material_id]["current_revision_id"]
@@ -304,7 +303,7 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         artifacts={},
     )
     assert connection.revisions[2][7] == artifact_id.value
-    assert connection.revisions[2][11:13] == ("deleted", "restricted")
+    assert connection.revisions[2][10:12] == ("deleted", "restricted")
     assert connection.materials[material_id]["deleted_at"] == "deleted"
 
     deleted_revision_id = cast(

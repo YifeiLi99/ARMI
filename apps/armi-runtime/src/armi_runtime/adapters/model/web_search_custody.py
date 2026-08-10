@@ -21,7 +21,6 @@ from armi_kernel.application import (
     WebObservationUsage,
     WebObservationViolation,
 )
-from armi_kernel.contracts import Digest
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
 from .web_search import API_BASE, MODEL, TOOL_DECLARATION
@@ -37,7 +36,6 @@ MAX_OUTPUT_TOKENS: Final = 1024
 MAX_COST_MICROYUAN: Final = 1_000_000
 _PURPOSE = CredentialPurpose("web.search")
 _FINGERPRINT_DOMAIN = b"armi.web-search.credential-fingerprint.v1\0"
-_REQUEST_ID_DOMAIN = b"armi.web-search.provider-request.v1\0"
 _ACTIONS = {
     "search": WebObservationToolAction.SEARCH,
     "open_page": WebObservationToolAction.OPEN_PAGE,
@@ -184,14 +182,13 @@ def parse_request_bytes(raw: bytes) -> dict[str, object]:
 def normalize_full_response(
     raw: Mapping[str, object],
 ) -> tuple[
-    bytes, tuple[WebObservationToolAction, ...], WebObservationUsage, Digest, str
+    bytes, tuple[WebObservationToolAction, ...], WebObservationUsage, str
 ]:
     encoded = json.dumps(raw, ensure_ascii=False, separators=(",", ":")).encode()
     if len(encoded) > MAX_RESULT_BYTES:
         raise WebObservationViolation("WEB-RESULT-SIZE")
     _reject_prohibited(raw)
     model = _text(raw.get("model"), "WEB-PROVIDER-MODEL", maximum=128)
-    request_id = _text(raw.get("id"), "WEB-PROVIDER-REQUEST", maximum=256)
     if not model.startswith(MODEL) or raw.get("store") is not False:
         raise WebObservationViolation("WEB-PROVIDER-MODEL")
     if raw.get("status") != "completed":
@@ -298,15 +295,11 @@ def normalize_full_response(
         citation_count,
         cost,
     )
-    provider_request_digest = Digest.from_bytes(
-        _REQUEST_ID_DOMAIN + request_id.encode()
-    )
     result = {
         "schema_version": RESULT_VERSION,
         "provider": "volcengine_ark",
         "model": model,
         "store": False,
-        "provider_request_digest": provider_request_digest.value,
         "tool_calls": calls,
         "messages": messages,
         "usage": {
@@ -321,7 +314,7 @@ def normalize_full_response(
     canonical = rfc8785.dumps(cast(Any, result)) + b"\n"
     if len(canonical) > MAX_RESULT_BYTES:
         raise WebObservationViolation("WEB-RESULT-SIZE")
-    return canonical, tuple(actions), usage, provider_request_digest, model
+    return canonical, tuple(actions), usage, model
 
 
 class ArkWebSearchAdapter:
@@ -365,12 +358,11 @@ class ArkWebSearchAdapter:
                 max_output_tokens=MAX_OUTPUT_TOKENS,
                 extra_body={"thinking": {"type": "disabled"}},
             )
-            canonical, actions, usage, request_digest, model = normalize_full_response(
+            canonical, actions, usage, model = normalize_full_response(
                 cast(dict[str, object], response.model_dump(mode="json"))
             )
             return WebObservationInvocationResult(
                 WebObservationResultStatus.SUCCEEDED,
-                request_digest,
                 model,
                 canonical,
                 actions,
@@ -392,7 +384,6 @@ class ArkWebSearchAdapter:
                 WebObservationResultStatus.FAILED,
                 None,
                 None,
-                None,
                 (),
                 None,
                 code,
@@ -412,7 +403,6 @@ class ArkWebSearchAdapter:
 def _unknown(code: str) -> WebObservationInvocationResult:
     return WebObservationInvocationResult(
         WebObservationResultStatus.OUTCOME_UNKNOWN,
-        None,
         None,
         None,
         (),

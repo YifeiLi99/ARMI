@@ -134,13 +134,17 @@ class WebObservationCustodyTests(unittest.TestCase):
                 "tool_usage": {"web_search": 1},
             },
         }
-        canonical, actions, usage, _, model = normalize_full_response(raw)
+        canonical, actions, usage, model = normalize_full_response(raw)
         self.assertEqual(actions, (WebObservationToolAction.SEARCH,))
         self.assertEqual(usage.web_search_calls, 1)
         self.assertEqual(usage.citation_count, 1)
         self.assertEqual(model, "doubao-seed-evolving")
         decoded = json.loads(canonical)
+        self.assertNotIn("provider_request_digest", decoded)
         self.assertEqual(decoded["messages"][0]["parts"][0]["text"], "公开资料摘要")
+        without_provider_id = dict(raw)
+        without_provider_id.pop("id")
+        self.assertEqual(normalize_full_response(without_provider_id)[0], canonical)
 
     def test_unknown_tools_hidden_reasoning_and_missing_citations_fail(self) -> None:
         base = {

@@ -34,7 +34,6 @@ function promptResponse(
     previous_revision_id: null,
     revision_kind: null,
     content: null,
-    content_digest: null,
     activated_at: null,
     ...overrides,
   };
@@ -73,7 +72,6 @@ describe("Creator Prompt panel", () => {
             revision_no: 1,
             revision_kind: "created",
             content: "请区分事实与推测。",
-            content_digest: `sha256:${"1".repeat(64)}`,
             activated_at: "2026-08-06T10:00:00.000000Z",
           }),
         );
@@ -88,7 +86,6 @@ describe("Creator Prompt panel", () => {
             previous_revision_id: FIRST_REVISION,
             revision_kind: "deactivated",
             content: "请区分事实与推测。",
-            content_digest: `sha256:${"1".repeat(64)}`,
             activated_at: "2026-08-06T10:01:00.000000Z",
           }),
         );
@@ -134,7 +131,6 @@ describe("Creator Prompt panel", () => {
             revision_no: 1,
             revision_kind: "created",
             content: "旧内容",
-            content_digest: `sha256:${"1".repeat(64)}`,
             activated_at: "2026-08-06T10:00:00.000000Z",
           }),
         ),

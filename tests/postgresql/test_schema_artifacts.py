@@ -64,6 +64,7 @@ def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
         "0001_harden_authoritative_schema",
         "0002_external_group_channels",
         "0003_remove_redundant_digests",
+        "0004_remove_remaining_redundant_digests",
     ]
     assert migrations["migrations"][0]["creates_tables"] == ["runtime_recovery_metrics"]
     assert migrations["migrations"][1]["creates_tables"] == [

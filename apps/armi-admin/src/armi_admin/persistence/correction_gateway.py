@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 from typing import Any, cast
+from uuid import UUID
 
 import psycopg
 import rfc8785
@@ -138,8 +139,6 @@ class AdminCorrectionGateway:
                         "subject_version": snapshot["subject_version"],
                         "previous_state_epoch": snapshot["state_epoch"],
                         "state_epoch": int(updated[0]),
-                        "impact_digest": snapshot["impact_digest"],
-                        "postcondition_digest": snapshot["after_digest"],
                         "side_work_id": handler_result.get("side_work_id"),
                         "safe_to_restart": True,
                         "status": "applied",
@@ -193,7 +192,6 @@ class AdminCorrectionGateway:
                     "result_id": token["result_id"],
                     "status": status,
                     "observed_state_epoch": int(subject[2]),
-                    "postcondition_digest": current,
                     "side_work_id": self._existing_side_work(
                         connection, str(token["side_work_id"])
                     ),
@@ -860,9 +858,7 @@ class AdminCorrectionGateway:
                 )
             work_id = handler["side_work_id"]
             outbox_id = snapshot["result_id"]
-            trace_id = hashlib.sha256(str(work_id).encode("ascii")).hexdigest()[:32]
-            if trace_id == "0" * 32:
-                trace_id = "f" + trace_id[1:]
+            trace_id = UUID(str(work_id)).hex
             connection.execute(
                 "INSERT INTO armi.durable_work (work_id, work_kind, owner_kind, owner_ref, "
                 "subject_id, idempotency_key, payload_kind, payload_ref, payload_digest, "

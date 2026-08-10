@@ -81,7 +81,6 @@ class RuntimeCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             make_environment(root)
-            prepared = prepare_environment(root, environment={})
             output = io.StringIO()
             with (
                 patch.dict(os.environ, {}, clear=True),
@@ -94,10 +93,7 @@ class RuntimeCliTests(unittest.TestCase):
         result = json.loads(output.getvalue())
         self.assertEqual(exit_code, 0)
         self.assertEqual(result["status"], "pass")
-        self.assertEqual(
-            result["effective_config_digest"],
-            prepared.effective.digest.to_wire(),
-        )
+        self.assertNotIn("effective_config_digest", result)
         self.assertEqual(
             result["config"]["environment"]["data_root"],
             {"configured": True},

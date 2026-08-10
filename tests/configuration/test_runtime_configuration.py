@@ -164,8 +164,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
                 extra=extra,
                 environment={"ARMI_SECRET_MODEL": "second-" + "value"},
             )
-        self.assertEqual(first.digest, second.digest)
-        self.assertTrue(first.digest.to_wire().startswith("sha256:"))
+        self.assertEqual(first.config, second.config)
 
     def test_redacted_view_hides_absolute_path_and_locator_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

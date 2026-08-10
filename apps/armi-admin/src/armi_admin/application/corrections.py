@@ -130,9 +130,6 @@ class AdminCorrectionCoordinator:
             "side_work_required": snapshot["side_work_required"],
             "subject_version": snapshot["subject_version"],
             "state_epoch": snapshot["state_epoch"],
-            "scope_digest": snapshot["scope_digest"],
-            "impact_digest": snapshot["impact_digest"],
-            "command_digest": payload["command_digest"],
             "preview_token": self._encode(payload),
             "expires_at": payload["expires_at"],
         }

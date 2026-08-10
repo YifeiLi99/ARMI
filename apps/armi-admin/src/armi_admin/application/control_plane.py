@@ -96,8 +96,6 @@ class AdminControlPlane:
             "preview_token": token.decode("ascii"),
             "expires_at": payload["expires_at"],
             "incarnation": payload["incarnation"],
-            "template_digest": payload["template_digest"],
-            "data_root_digest": payload["data_root_digest"],
         }
 
     def validate_reset(self, token: str) -> dict[str, Any]:
@@ -162,7 +160,6 @@ class AdminControlPlane:
         dump_path = recovery_root / "database.dump"
         archived_root = recovery_root / "data-root"
         self._pg_dump(dump_path)
-        dump_digest = self._file_digest(dump_path)
         self._config.environment_root.replace(archived_root)
         try:
             self._restore_template()
@@ -171,7 +168,6 @@ class AdminControlPlane:
             self._write_recovery_manifest(
                 recovery_root,
                 status="blocked",
-                dump_digest=dump_digest,
                 incarnation=self._config.environment_incarnation,
             )
             raise AdminControlError("ADMIN-RESET-REBUILD-BLOCKED") from exc
@@ -180,14 +176,12 @@ class AdminControlPlane:
         self._write_recovery_manifest(
             recovery_root,
             status="complete",
-            dump_digest=dump_digest,
             incarnation=next_incarnation,
         )
         return {
             "environment_id": self._config.environment_id,
             "previous_incarnation": self._config.environment_incarnation,
             "incarnation": next_incarnation,
-            "recovery_digest": dump_digest,
             "status": "reset",
         }
 
@@ -412,15 +406,30 @@ class AdminControlPlane:
             conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
         AdminEnvironmentSchemaGateway.recreate_empty_schema(conninfo)
         self._run_runtime_cli("db", "install", timeout=180, with_migrator=True)
+        self._run_runtime_cli(
+            "db",
+            "migrate",
+            arguments=("--apply",),
+            timeout=180,
+            with_migrator=True,
+        )
 
     def _install_database(self) -> None:
         self._run_runtime_cli("db", "install", timeout=180, with_migrator=True)
+        self._run_runtime_cli(
+            "db",
+            "migrate",
+            arguments=("--apply",),
+            timeout=180,
+            with_migrator=True,
+        )
 
     def _run_runtime_cli(
         self,
         group: str,
         command: str,
         *,
+        arguments: tuple[str, ...] = (),
         timeout: int,
         with_migrator: bool = False,
     ) -> None:
@@ -443,6 +452,7 @@ class AdminControlPlane:
                 "armi_runtime.cli",
                 group,
                 command,
+                *arguments,
                 "--environment-root",
                 os.fspath(self._config.environment_root),
             ],
@@ -462,7 +472,6 @@ class AdminControlPlane:
         root: Path,
         *,
         status: str,
-        dump_digest: str,
         incarnation: int,
     ) -> None:
         self._atomic_json(
@@ -473,8 +482,8 @@ class AdminControlPlane:
                 "source_incarnation": self._config.environment_incarnation,
                 "result_incarnation": incarnation,
                 "status": status,
-                "database_dump_digest": dump_digest,
-                "template_digest": self._file_digest(self._config.template_manifest),
+                "database_dump": "database.dump",
+                "archived_data_root": "data-root",
             },
         )
 

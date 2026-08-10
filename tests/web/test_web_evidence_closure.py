@@ -65,9 +65,11 @@ def test_provider_synthesis_is_deterministic_and_deduplicates_sources() -> None:
     assert len(first.sources) == 1
     source = json.loads(first.sources[0].canonical_bytes)
     assert source["canonical_url"] == "https://www.postgresql.org/docs/18/"
+    assert "provider_request_digest" not in source
     evidence = json.loads(first.canonical_bytes)
     assert evidence["evidence_kind"] == "provider_synthesis"
     assert evidence["trust_class"] == "external_claim"
+    assert "provider_request_digest" not in evidence
     assert "raw_page" not in evidence
 
 

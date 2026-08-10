@@ -226,6 +226,11 @@ _ADMIN_DSN = os.environ.get("S009_ADMIN_DSN")
 _SUMMARY_ENVIRONMENT_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 _ADMIN_PACKAGE_DIGEST = "sha256:" + "1" * 64
 _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
+    ("deployment_environments", "bundle_digest"),
+    ("deployment_environments", "config_digest"),
+    ("deployment_environments", "template_digest"),
+    ("deployment_environments", "data_root_identity_digest"),
+    ("deployment_environments", "database_identity_digest"),
     ("runtime_bundle_activations", "fixed_prompt_set_digest"),
     ("runtime_bundle_activations", "creator_asset_digest"),
     ("runtime_recovery_runs", "summary_digest"),
@@ -245,6 +250,7 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("exact_life_query_intents", "result_digest"),
     ("opportunities", "source_digest"),
     ("life_material_revisions", "semantic_digest"),
+    ("life_material_revisions", "body_digest"),
     ("relationship_revisions", "semantic_digest"),
     ("activity_decisions", "resource_snapshot_digest"),
     ("maintenance_sessions", "schedule_digest"),
@@ -272,7 +278,9 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("creator_exports", "manifest_digest"),
     ("deletion_items", "execution_digest"),
     ("observation_attempts", "result_digest"),
+    ("observation_attempts", "provider_request_digest"),
     ("observation_tool_calls", "action_digest"),
+    ("observation_tool_calls", "provider_identity_digest"),
     ("web_evidence_sources", "title_digest"),
     ("web_evidence_sources", "citation_digest"),
     ("web_observation_requests", "result_digest"),
@@ -715,8 +723,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(migrated.status, "current")
         self.assertEqual(migrated.table_count, installed.table_count + 3)
-        self.assertEqual(migrated.migration_count, 3)
-        self.assertEqual(migrated.target_id, "0003_remove_redundant_digests")
+        self.assertEqual(migrated.migration_count, 4)
+        self.assertEqual(
+            migrated.target_id,
+            "0004_remove_remaining_redundant_digests",
+        )
         self.assertEqual(
             gateway.migrate(
                 fixture.migrator_dsn,
@@ -825,6 +836,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     Digest.from_bytes(b"historical-recovery").value,
                 ),
             )
+            identity = Digest.from_bytes(b"historical-environment").value
+            connection.execute(
+                """
+                INSERT INTO armi.deployment_environments (
+                    environment_id, environment_kind, incarnation,
+                    resettable, test_controls_enabled, bundle_digest,
+                    config_digest, template_digest, data_root_identity_digest,
+                    database_identity_digest
+                ) VALUES (%s, 'acceptance', 3, true, true, %s, %s, %s, %s, %s)
+                """,
+                (fixture.environment_id, identity, identity, identity, identity, identity),
+            )
             connection.execute("SET session_replication_role = origin")
             connection.commit()
 
@@ -865,13 +888,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                        WHERE table_schema = 'armi'"""
                 ).fetchall()
             )
+            environment = connection.execute(
+                """SELECT environment_id, environment_kind, incarnation,
+                          resettable, test_controls_enabled
+                   FROM armi.deployment_environments"""
+            ).fetchone()
         self.assertEqual(len(metrics), 28)
         self.assertEqual(metrics["requeued_work_count"], 7)
         self.assertEqual(metrics["resumable_admin_correction_work_count"], 11)
         self.assertEqual(parent_columns, (10,))
         self.assertEqual(fixed_versions, (0,))
-        self.assertEqual(catalog_shape, (76, 970))
-        self.assertEqual(len(_REMOVED_REDUNDANT_DIGEST_COLUMNS), 50)
+        self.assertEqual(catalog_shape, (76, 962))
+        self.assertEqual(
+            environment,
+            (fixture.environment_id, "acceptance", 3, True, True),
+        )
+        self.assertEqual(len(_REMOVED_REDUNDANT_DIGEST_COLUMNS), 58)
         self.assertTrue(_REMOVED_REDUNDANT_DIGEST_COLUMNS.isdisjoint(current_columns))
 
     def test_authoritative_migration_dirty_data_rolls_back_atomically(self) -> None:
@@ -2029,7 +2061,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             expected_role=fixture.admin_role,
             artifact_root=Path.cwd() / "data" / "artifacts",
         )
-        identity = "sha256:" + "1" * 64
         observation.register_environment(
             {
                 "environment_id": str(fixture.environment_id),
@@ -2037,11 +2068,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "incarnation": 1,
                 "resettable": True,
                 "test_controls_enabled": True,
-                "bundle_digest": identity,
-                "config_digest": identity,
-                "template_digest": identity,
-                "data_root_identity_digest": identity,
-                "database_identity_digest": identity,
             }
         )
         registered = observation.environment()
@@ -2167,6 +2193,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(preview.status, "succeeded")
             assert preview.result is not None
+            self.assertTrue(
+                {"template_digest", "data_root_digest"}.isdisjoint(preview.result)
+            )
             reset = service.mutate(
                 "environment_reset",
                 EnvironmentResetRequest(
@@ -2178,6 +2207,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
             self.assertEqual(reset.status, "succeeded", reset.model_dump_json())
+            assert reset.result is not None
+            self.assertNotIn("recovery_digest", reset.result)
             replay = service.mutate(
                 "environment_reset",
                 EnvironmentResetRequest(
@@ -2216,6 +2247,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             )
             self.assertEqual(len(recovery), 1)
+            recovery_manifest = json.loads(recovery[0].read_text(encoding="utf-8"))
+            self.assertTrue(
+                {"database_dump_digest", "template_digest"}.isdisjoint(
+                    recovery_manifest
+                )
+            )
+            self.assertEqual(recovery_manifest["database_dump"], "database.dump")
+            self.assertEqual(recovery_manifest["archived_data_root"], "data-root")
 
     def test_t07_component_preview_apply_status_and_role_boundary(self) -> None:
         fixture = self.create_database()
@@ -2452,6 +2491,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(preview.status, "succeeded", preview.model_dump_json())
             assert preview.result is not None
+            self.assertTrue(
+                {"scope_digest", "impact_digest", "command_digest"}.isdisjoint(
+                    preview.result
+                )
+            )
             token = str(preview.result["preview_token"])
             apply = service.mutate(
                 "apply_correction",
@@ -2478,6 +2522,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(apply.result["previous_state_epoch"], 0)
             self.assertEqual(apply.result["state_epoch"], 1)
             self.assertEqual(apply.result["subject_version"], 0)
+            self.assertTrue(
+                {"impact_digest", "postcondition_digest"}.isdisjoint(apply.result)
+            )
             status = new_service().observe(
                 "correction_status",
                 CorrectionStatusRequest(
@@ -2488,6 +2535,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(status.status, "succeeded", status.model_dump_json())
             assert status.result is not None
             self.assertEqual(status.result["status"], "applied")
+            self.assertNotIn("postcondition_digest", status.result)
 
             with psycopg.connect(fixture.runtime_dsn) as runtime:
                 self.assertEqual(
@@ -2956,12 +3004,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "tool_usage": {"web_search": 1},
                         },
                     }
-                    canonical, actions, usage, provider_request, model = (
+                    canonical, actions, usage, model = (
                         normalize_full_response(response)
                     )
                     return WebObservationInvocationResult(
                         WebObservationResultStatus.SUCCEEDED,
-                        provider_request,
                         model,
                         canonical,
                         actions,
@@ -3010,7 +3057,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             request.status, request.request_digest,
                             attempt.dispatch_state,
                             attempt.result_status, attempt.provider_model_id,
-                            attempt.provider_request_digest,
                             attempt.input_tokens, attempt.output_tokens,
                             attempt.web_search_calls, attempt.citation_count,
                             attempt.estimated_cost_microyuan,
@@ -3034,20 +3080,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "dispatch_state": str(row[2]),
                     "attempt_result": str(row[3]),
                     "provider_model": str(row[4]) if row[4] else None,
-                    "provider_request_digest": str(row[5]) if row[5] else None,
-                    "input_tokens": int(row[6]) if row[6] is not None else None,
-                    "output_tokens": int(row[7]) if row[7] is not None else None,
-                    "web_search_calls": int(row[8]) if row[8] is not None else None,
-                    "citation_count": int(row[9]) if row[9] is not None else None,
-                    "estimated_model_cost_microyuan": int(row[10])
-                    if row[10] is not None
+                    "input_tokens": int(row[5]) if row[5] is not None else None,
+                    "output_tokens": int(row[6]) if row[6] is not None else None,
+                    "web_search_calls": int(row[7]) if row[7] is not None else None,
+                    "citation_count": int(row[8]) if row[8] is not None else None,
+                    "estimated_model_cost_microyuan": int(row[9])
+                    if row[9] is not None
                     else None,
-                    "request_error_code": str(row[11]) if row[11] else None,
-                    "attempt_error_code": str(row[12]) if row[12] else None,
-                    "request_count": int(row[13]),
-                    "attempt_count": int(row[14]),
-                    "tool_call_count": int(row[15]),
-                    "completed_work_count": int(row[16]),
+                    "request_error_code": str(row[10]) if row[10] else None,
+                    "attempt_error_code": str(row[11]) if row[11] else None,
+                    "request_count": int(row[12]),
+                    "attempt_count": int(row[13]),
+                    "tool_call_count": int(row[14]),
+                    "completed_work_count": int(row[15]),
                 }
 
         with tempfile.TemporaryDirectory(dir=Path(".tmp")) as temporary:
@@ -3232,12 +3277,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.life_material_revisions (
                     life_material_revision_id, life_material_id, revision_no,
                     subject_commit_id, candidate_validation_id, proposal_ref,
-                    artifact_id, body_digest, title, metadata, revision_kind,
+                    artifact_id, title, metadata, revision_kind,
                     privacy_status, material_status, source_kind
                 )
                 SELECT revision_id, material_id, 1, uuidv7(), uuidv7(),
                        'proposal:1', uuidv7(),
-                       'sha256:' || repeat('a', 64),
                        CASE WHEN ordinal = 987
                             THEN 'rare comet material marker'
                             ELSE 'ordinary life material' END,
@@ -6080,6 +6124,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ("0001_harden_authoritative_schema",),
                     ("0002_external_group_channels",),
                     ("0003_remove_redundant_digests",),
+                    ("0004_remove_remaining_redundant_digests",),
                 ],
             )
 

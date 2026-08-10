@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Digest, Instant, TraceId
+from armi_kernel.contracts import Instant, TraceId
 
 CREATOR_PROMPT_PROJECTION_VERSION = "creator-prompt.v1"
 MAX_CREATOR_PROMPT_BYTES = 65_536
@@ -109,7 +109,6 @@ class CreatorPromptView:
     previous_revision_id: UUID | None
     revision_kind: PromptRevisionKind | None
     content: str | None
-    content_digest: Digest | None
     activated_at: Instant | None
 
     def __post_init__(self) -> None:
@@ -118,7 +117,6 @@ class CreatorPromptView:
             self.revision_no,
             self.revision_kind,
             self.content,
-            self.content_digest,
             self.activated_at,
         )
         has_revision = self.current_revision_id is not None

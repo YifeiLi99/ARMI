@@ -11,7 +11,6 @@ from armi_admin.persistence.observation_gateway import AdminObservationGateway
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
-from armi_kernel.contracts import Digest
 
 
 class _Observation(AdminObservationGateway):
@@ -72,7 +71,7 @@ def _material_row(
     privacy_status: str,
     deleted_at: datetime | None,
 ) -> tuple[Any, ...]:
-    artifact_id, content_digest, locator, size = artifact
+    artifact_id, content_digest, _locator, size = artifact
     occurred_at = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
     return (
         uuid7(),
@@ -87,12 +86,10 @@ def _material_row(
         {"mood": "quiet"},
         "active",
         privacy_status,
-        Digest.from_bytes(body.encode("utf-8")).value,
         artifact_id,
         content_digest,
         "application/json",
         size,
-        locator,
         "life.material.content",
         "private",
         "verified",

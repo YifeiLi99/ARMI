@@ -64,8 +64,7 @@ class AdminObservationGateway:
     def environment(self) -> dict[str, Any] | None:
         row = self._one(
             "SELECT environment_id, environment_kind, incarnation, resettable, "
-            "test_controls_enabled, bundle_digest, config_digest, template_digest, "
-            "data_root_identity_digest, database_identity_digest, registered_at "
+            "test_controls_enabled, registered_at "
             "FROM armi.deployment_environments WHERE singleton_key"
         )
         if row is None:
@@ -76,11 +75,6 @@ class AdminObservationGateway:
             "incarnation",
             "resettable",
             "test_controls_enabled",
-            "bundle_digest",
-            "config_digest",
-            "template_digest",
-            "data_root_identity_digest",
-            "database_identity_digest",
             "registered_at",
         )
         return dict(zip(names, (_safe(value) for value in row), strict=True))
@@ -93,20 +87,14 @@ class AdminObservationGateway:
                 connection.execute(
                     "INSERT INTO armi.deployment_environments ("
                     "singleton_key, environment_id, environment_kind, incarnation, "
-                    "resettable, test_controls_enabled, bundle_digest, config_digest, "
-                    "template_digest, data_root_identity_digest, database_identity_digest"
-                    ") VALUES (true, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    "resettable, test_controls_enabled"
+                    ") VALUES (true, %s, %s, %s, %s, %s)",
                     (
                         values["environment_id"],
                         values["environment_kind"],
                         values["incarnation"],
                         values["resettable"],
                         values["test_controls_enabled"],
-                        values["bundle_digest"],
-                        values["config_digest"],
-                        values["template_digest"],
-                        values["data_root_identity_digest"],
-                        values["database_identity_digest"],
                     ),
                 )
                 connection.commit()
@@ -201,9 +189,9 @@ class AdminObservationGateway:
                 "material.material_kind, material.head_version, material.created_at, "
                 "material.updated_at, material.deleted_at, revision.revision_no, "
                 "revision.title, revision.metadata, revision.material_status, "
-                "revision.privacy_status, revision.body_digest, artifact.artifact_id, "
+                "revision.privacy_status, artifact.artifact_id, "
                 "artifact.content_digest, artifact.media_type, artifact.byte_size, "
-                "artifact.storage_locator, artifact.logical_kind, "
+                "artifact.logical_kind, "
                 "artifact.privacy_scope, artifact.integrity_status "
                 "FROM armi.life_materials AS material "
                 "JOIN armi.life_material_revisions AS revision "
@@ -243,8 +231,7 @@ class AdminObservationGateway:
             "metadata": dict(cast(dict[str, str], raw_metadata)),
             "material_status": _safe(row[10]),
             "privacy_status": _safe(row[11]),
-            "body_digest": _safe(row[12]),
-            "artifact_id": _safe(row[13]),
+            "artifact_id": _safe(row[12]),
             "deleted_at": _safe(row[6]),
             "created_at": _safe(row[4]),
             "updated_at": _safe(row[5]),
@@ -253,22 +240,22 @@ class AdminObservationGateway:
     def _read_material_body(self, row: tuple[Any, ...]) -> str:
         try:
             if (
-                str(row[15]) != "application/json"
-                or type(row[16]) is not int
-                or not 1 <= row[16] <= 131_072
-                or str(row[18]) != "life.material.content"
-                or str(row[19]) != "private"
-                or str(row[20]) != "verified"
+                str(row[14]) != "application/json"
+                or type(row[15]) is not int
+                or not 1 <= row[15] <= 131_072
+                or str(row[16]) != "life.material.content"
+                or str(row[17]) != "private"
+                or str(row[18]) != "verified"
             ):
                 raise ValueError
             ref = ArtifactRef(
-                artifact_id=ArtifactId(UUID(str(row[13]))),
-                content_digest=Digest(str(row[14])),
-                byte_size=row[16],
-                media_type=str(row[15]),
-                logical_kind=str(row[18]),
-                privacy_scope=ArtifactPrivacyScope(str(row[19])),
-                integrity_status=ArtifactIntegrityStatus(str(row[20])),
+                artifact_id=ArtifactId(UUID(str(row[12]))),
+                content_digest=Digest(str(row[13])),
+                byte_size=row[15],
+                media_type=str(row[14]),
+                logical_kind=str(row[16]),
+                privacy_scope=ArtifactPrivacyScope(str(row[17])),
+                integrity_status=ArtifactIntegrityStatus(str(row[18])),
             )
             return parse_life_material_artifact(
                 self._storage.read_verified_bytes(ref)

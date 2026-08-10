@@ -97,9 +97,7 @@ class AdminToolService:
             tuple[str, str], tuple[str, AdminToolResult[dict[str, Any]]]
         ] = {}
         self._requires_reload = False
-        self._identity = AdminIdentity(
-            config_digest=config.safe_digest(),
-        )
+        self._identity = AdminIdentity()
 
     @property
     def config(self) -> AdminConfig:
@@ -437,25 +435,12 @@ class AdminToolService:
 
     def _register_environment(self, incarnation: int) -> None:
         gateway = self._observation_gateway()
-        template_digest = _sha256(self._config.template_manifest.read_bytes())
-        effective_config = self._config.model_copy(
-            update={"environment_incarnation": incarnation}
-        )
         values = {
             "environment_id": self._config.environment_id,
             "environment_kind": self._config.environment_kind.value,
             "incarnation": incarnation,
             "resettable": self._config.resettable,
             "test_controls_enabled": self._config.test_controls_enabled,
-            "bundle_digest": self._config.expected.package_digest,
-            "config_digest": effective_config.safe_digest(),
-            "template_digest": template_digest,
-            "data_root_identity_digest": _sha256(
-                self._config.environment_root.as_posix().casefold().encode("utf-8")
-            ),
-            "database_identity_digest": _sha256(
-                self._config.locator.identity().encode("utf-8")
-            ),
         }
         gateway.register_environment(values)
 

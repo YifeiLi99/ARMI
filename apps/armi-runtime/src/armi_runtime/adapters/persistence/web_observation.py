@@ -259,7 +259,6 @@ class PostgreSQLWebObservationRepository:
         if result.status is not WebObservationResultStatus.SUCCEEDED:
             raise WebObservationViolation("WEB-RESULT")
         assert result.usage is not None
-        assert result.provider_request_digest is not None
         assert result.provider_model_id is not None
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await self._assert_lease(connection, lease, snapshot.request_id)
@@ -268,17 +267,14 @@ class PostgreSQLWebObservationRepository:
                 """
                 INSERT INTO armi.observation_tool_calls (
                     observation_tool_call_id, observation_attempt_id, call_no,
-                    action_type, provider_identity_digest,
-                    completion_status) VALUES (%s, %s, %s, %s, %s, 'completed')
+                    action_type, completion_status
+                ) VALUES (%s, %s, %s, %s, 'completed')
                 """,
                 (
                     WebObservationToolCallId(uuid7()).value,
                     attempt_id.value,
                     ordinal,
                     action.value,
-                    Digest.from_bytes(
-                        f"{result.provider_request_digest.value}\t{ordinal}".encode()
-                    ).value,
                 ),
             )
         usage = result.usage
@@ -286,8 +282,8 @@ class PostgreSQLWebObservationRepository:
             await connection.execute(
                 """
                 UPDATE armi.observation_attempts
-                SET dispatch_state = 'settled', provider_request_digest = %s,
-                    provider_model_id = %s, result_artifact_id = %s,
+                SET dispatch_state = 'settled', provider_model_id = %s,
+                    result_artifact_id = %s,
                     input_tokens = %s, output_tokens = %s,
                     web_search_calls = %s, citation_count = %s,
                     estimated_cost_microyuan = %s, result_status = 'succeeded',
@@ -296,7 +292,6 @@ class PostgreSQLWebObservationRepository:
                 RETURNING observation_attempt_id
                 """,
                 (
-                    result.provider_request_digest.value,
                     result.provider_model_id,
                     result_artifact.artifact_id.value,
                     usage.input_tokens,

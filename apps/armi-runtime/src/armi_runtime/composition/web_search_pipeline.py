@@ -531,7 +531,6 @@ def _failure(error: WebObservationViolation) -> WebObservationInvocationResult:
         else WebObservationResultStatus.FAILED,
         None,
         None,
-        None,
         (),
         None,
         error.code,

@@ -359,7 +359,6 @@ class CreatorPromptService(CreatorPromptPort):
             previous_revision_id=snapshot.previous_revision_id,
             revision_kind=snapshot.revision_kind,
             content=content,
-            content_digest=snapshot.content_digest,
             activated_at=snapshot.activated_at,
         )
 

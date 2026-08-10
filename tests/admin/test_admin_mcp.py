@@ -216,6 +216,7 @@ class AdminToolServiceTests(unittest.TestCase):
         assert health.result is not None
         self.assertTrue(health.result.database_reachable)
         self.assertEqual(health.result.role_status, "verified")
+        self.assertNotIn("config_digest", health.result.identity.model_dump())
         self.assertEqual(status.status, "succeeded")
         self.assertIsNotNone(status.result)
         assert status.result is not None

@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Self, cast
 
-import rfc8785
 from armi_kernel.application import CredentialPurpose
 from armi_kernel.contracts import Digest
 from pydantic import ValidationError
@@ -151,7 +150,6 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
 @dataclass(frozen=True, slots=True)
 class EffectiveConfig:
     config: RuntimeConfig
-    digest: Digest
     applied_sources: tuple[str, ...]
 
     def redacted_view(self) -> dict[str, object]:
@@ -248,10 +246,8 @@ def load_effective_config(
         config = RuntimeConfig.model_validate(merged)
     except ValidationError as error:
         raise _translate_validation_error(error) from None
-    canonical = rfc8785.dumps(config.model_dump(mode="json"))
     return EffectiveConfig(
         config=config,
-        digest=Digest.from_bytes(canonical),
         applied_sources=tuple(applied_sources),
     )
 

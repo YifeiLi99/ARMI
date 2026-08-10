@@ -27,7 +27,6 @@ class NormalizedWebSource:
 @dataclass(frozen=True, slots=True)
 class NormalizedWebEvidence:
     canonical_bytes: bytes
-    provider_request_digest: Digest
     sources: tuple[NormalizedWebSource, ...]
 
 
@@ -97,7 +96,6 @@ def normalize_web_evidence(raw: bytes) -> NormalizedWebEvidence:
             "provider",
             "model",
             "store",
-            "provider_request_digest",
             "tool_calls",
             "messages",
             "usage",
@@ -108,7 +106,6 @@ def normalize_web_evidence(raw: bytes) -> NormalizedWebEvidence:
         or rfc8785.dumps(cast(Any, value)) + b"\n" != raw
     ):
         raise WebResearchViolation("WEB-EVIDENCE-RESULT")
-    provider_request_digest = Digest(_text(value["provider_request_digest"], 71))
     model = _text(value["model"], 128)
     if not model.startswith("doubao-seed-evolving"):
         raise WebResearchViolation("WEB-EVIDENCE-RESULT")
@@ -180,7 +177,6 @@ def normalize_web_evidence(raw: bytes) -> NormalizedWebEvidence:
         source_document = {
             "schema_version": WEB_SOURCE_REFERENCE_VERSION,
             **source,
-            "provider_request_digest": provider_request_digest.value,
         }
         canonical = rfc8785.dumps(cast(Any, source_document)) + b"\n"
         normalized = NormalizedWebSource(
@@ -200,7 +196,6 @@ def normalize_web_evidence(raw: bytes) -> NormalizedWebEvidence:
         "trust_class": "external_claim",
         "provider": "volcengine_ark",
         "model": model,
-        "provider_request_digest": provider_request_digest.value,
         "parts": normalized_parts,
         "sources": evidence_source_refs,
     }
@@ -209,7 +204,6 @@ def normalize_web_evidence(raw: bytes) -> NormalizedWebEvidence:
         raise WebResearchViolation("WEB-EVIDENCE-SIZE")
     return NormalizedWebEvidence(
         canonical_evidence,
-        provider_request_digest,
         tuple(sources),
     )
 

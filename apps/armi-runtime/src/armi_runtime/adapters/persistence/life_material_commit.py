@@ -12,7 +12,6 @@ from armi_kernel.application import (
     CandidateLifeMaterialDraft,
     SubjectCommitViolation,
 )
-from armi_kernel.contracts import Digest
 
 
 async def apply_life_materials(
@@ -60,7 +59,6 @@ async def apply_life_materials(
 
         revision_id = uuid7()
         reused_artifact_id: ArtifactId | None = None
-        reused_body_digest: Digest | None = None
         if material.current_revision_id is None:
             existing = await (
                 await connection.execute(
@@ -105,7 +103,6 @@ async def apply_life_materials(
                            material.deleted_at,
                            revision.revision_no,
                            revision.artifact_id,
-                           revision.body_digest,
                            revision.title,
                            revision.metadata,
                            revision.material_status,
@@ -133,18 +130,17 @@ async def apply_life_materials(
                 raise SubjectCommitViolation("SUBJECT-MATERIAL-HEAD-STALE")
             if material.body_bytes is None:
                 if (
-                    str(current[8]) != material.title
-                    or current[9] != dict(material.metadata)
-                    or str(current[10]) != material.material_status.value
+                    str(current[7]) != material.title
+                    or current[8] != dict(material.metadata)
+                    or str(current[9]) != material.material_status.value
                     or (
                         material.revision_kind.value == "privacy_changed"
-                        and str(current[11]) == material.privacy_status
+                        and str(current[10]) == material.privacy_status
                     )
                 ):
                     raise SubjectCommitViolation("SUBJECT-MATERIAL-HEAD-STALE")
                 reused_artifact_id = ArtifactId(current[6])
-                reused_body_digest = Digest(str(current[7]))
-            elif str(current[11]) != material.privacy_status:
+            elif str(current[10]) != material.privacy_status:
                 raise SubjectCommitViolation("SUBJECT-MATERIAL-HEAD-STALE")
             revision_no = int(current[5]) + 1
             previous_revision_id = material.current_revision_id
@@ -153,10 +149,7 @@ async def apply_life_materials(
         artifact_id = reused_artifact_id or (
             None if artifact is None else artifact.artifact_id
         )
-        body_digest = reused_body_digest or (
-            None if artifact is None else artifact.content_digest
-        )
-        if artifact_id is None or body_digest is None:
+        if artifact_id is None:
             raise SubjectCommitViolation("SUBJECT-MATERIAL-ARTIFACT")
         await connection.execute(
             """
@@ -164,11 +157,11 @@ async def apply_life_materials(
                 life_material_revision_id, life_material_id, revision_no,
                 previous_revision_id, subject_commit_id,
                 candidate_validation_id, proposal_ref, artifact_id,
-                body_digest, title, metadata, revision_kind,
+                title, metadata, revision_kind,
                 privacy_status, material_status, source_kind
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s
             )
             """,
             (
@@ -180,7 +173,6 @@ async def apply_life_materials(
                 validation_id,
                 material.proposal_ref,
                 artifact_id.value,
-                body_digest.value,
                 material.title,
                 json.dumps(dict(material.metadata), ensure_ascii=False),
                 material.revision_kind.value,

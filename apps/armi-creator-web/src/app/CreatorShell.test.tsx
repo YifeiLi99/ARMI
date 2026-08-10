@@ -184,7 +184,6 @@ function promptResponse(): object {
     previous_revision_id: null,
     revision_kind: null,
     content: null,
-    content_digest: null,
     activated_at: null,
   };
 }

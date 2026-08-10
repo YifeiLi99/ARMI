@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid7
 
-import rfc8785
 from armi_kernel.application import (
     CodexExecutionId,
     CodexRunStatus,
@@ -80,7 +79,7 @@ def _auth_source() -> bytearray:
     return bytearray(value)
 
 
-def _runtime_binary() -> tuple[Path, str]:
+def _runtime_binary() -> Path:
     sdk = importlib.metadata.distribution("openai-codex")
     runtime = importlib.metadata.distribution("openai-codex-cli-bin")
     files = [
@@ -105,7 +104,7 @@ def _runtime_binary() -> tuple[Path, str]:
     version = completed.stdout.decode("utf-8", errors="strict").strip()
     if completed.returncode != 0 or version != "codex-cli 0.144.4":
         raise RuntimeError("CODEX-PREFLIGHT-RUNTIME")
-    return binary, Digest.from_bytes(binary.read_bytes()).to_wire()
+    return binary
 
 
 def _write_source(root: Path) -> tuple[Path, Path]:
@@ -259,7 +258,6 @@ def _live(root: Path) -> dict[str, object]:
                     safe_code = candidate
             except RuntimeError:
                 pass
-            evidence["runner_error_digest"] = Digest.from_bytes(stderr).to_wire()
             raise RuntimeError(safe_code)
         result = decode_result(stdout)
         if result.status is not CodexRunStatus.SUCCEEDED or result.usage is None:
@@ -342,7 +340,7 @@ def _preflight(root: Path) -> dict[str, object]:
         "error_code": "CODEX-PREFLIGHT-UNEXPECTED",
     }
     try:
-        _binary, binary_digest = _runtime_binary()
+        _binary = _runtime_binary()
         contract_root = preflight_root / "contract"
         contract_root.mkdir()
         default_task, _bundle = _task(
@@ -383,7 +381,6 @@ def _preflight(root: Path) -> dict[str, object]:
         if forbidden & frozenset(runner_environment):
             raise RuntimeError("CODEX-PREFLIGHT-ENVIRONMENT")
         windows = Path(runner_environment["WINDIR"])
-        stderr = b""
         process = subprocess.Popen(
             (str(windows / "System32/cmd.exe"), "/d", "/q", "/c", "exit 0"),
             stdin=subprocess.DEVNULL,
@@ -394,7 +391,7 @@ def _preflight(root: Path) -> dict[str, object]:
         )
         with WindowsJob() as job:
             job.assign(int(process._handle))  # type: ignore[attr-defined]
-            _stdout, stderr = process.communicate(timeout=15)
+            _stdout, _stderr = process.communicate(timeout=15)
         if process.returncode != 0:
             raise RuntimeError("CODEX-PREFLIGHT-JOB")
         _sanitize_platform_home(platform_home)
@@ -406,10 +403,6 @@ def _preflight(root: Path) -> dict[str, object]:
             "model_invocation_count": 0,
             "sdk_version": _SDK_VERSION,
             "runtime_version": _SDK_VERSION,
-            "runtime_binary_digest": binary_digest,
-            "configuration_digest": Digest.from_bytes(
-                rfc8785.dumps(cast(Any, list(runner_config)))
-            ).to_wire(),
             "sandbox": "windows_unelevated",
             "sandbox_runtime_verification": "live_sdk_turn_required",
             "job_object": "pass",
@@ -418,7 +411,6 @@ def _preflight(root: Path) -> dict[str, object]:
             "workspace_write": "configured",
             "network": "configured_disabled",
             "user_extensions": "unavailable",
-            "stderr_digest": Digest.from_bytes(stderr).to_wire(),
             "elapsed_ms": round((time.perf_counter() - started) * 1000),
         }
     except Exception as error:

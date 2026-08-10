@@ -1445,8 +1445,6 @@ export interface components {
       activated_at: string | null;
       /** Content */
       content: string | null;
-      /** Content Digest */
-      content_digest: string | null;
       /**
        * Contract Version
        * @constant

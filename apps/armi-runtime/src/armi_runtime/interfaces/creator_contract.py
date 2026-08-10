@@ -1874,13 +1874,6 @@ class CreatorPromptResponse(_StrictWireModel):
     previous_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
     revision_kind: Literal["created", "revised", "deactivated"] | None
     content: Annotated[str, Field(min_length=1, max_length=65_536)] | None
-    content_digest: (
-        Annotated[
-            str,
-            Field(pattern=r"sha256:[0-9a-f]{64}"),
-        ]
-        | None
-    )
     activated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
 
     @field_validator(
@@ -1910,7 +1903,6 @@ class CreatorPromptResponse(_StrictWireModel):
             self.revision_no,
             self.revision_kind,
             self.content,
-            self.content_digest,
             self.activated_at,
         )
         if (self.current_revision_id is not None) != all(

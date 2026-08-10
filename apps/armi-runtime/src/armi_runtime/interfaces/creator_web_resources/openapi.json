@@ -2006,18 +2006,6 @@
             ],
             "title": "Content"
           },
-          "content_digest": {
-            "anyOf": [
-              {
-                "pattern": "sha256:[0-9a-f]{64}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Content Digest"
-          },
           "contract_version": {
             "const": "1.0",
             "title": "Contract Version",
@@ -2110,7 +2098,6 @@
           "previous_revision_id",
           "revision_kind",
           "content",
-          "content_digest",
           "activated_at"
         ],
         "title": "CreatorPromptResponse",

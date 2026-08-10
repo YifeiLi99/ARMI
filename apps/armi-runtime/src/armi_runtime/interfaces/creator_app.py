@@ -634,9 +634,6 @@ def _creator_prompt_response(view: CreatorPromptView) -> CreatorPromptResponse:
             None if view.revision_kind is None else view.revision_kind.value
         ),
         content=view.content,
-        content_digest=(
-            None if view.content_digest is None else view.content_digest.value
-        ),
         activated_at=(
             None if view.activated_at is None else view.activated_at.to_wire()
         ),

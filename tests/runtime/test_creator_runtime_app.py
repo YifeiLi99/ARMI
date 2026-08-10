@@ -689,7 +689,6 @@ class _CreatorPrompt:
             previous_revision_id=None,
             revision_kind=None,
             content=None,
-            content_digest=None,
             activated_at=None,
         )
 
@@ -718,7 +717,6 @@ class _CreatorPrompt:
                 else PromptRevisionKind.REVISED
             ),
             content=command.content,
-            content_digest=Digest.from_bytes(command.content_bytes),
             activated_at=Instant(datetime.now(UTC)),
         )
         return self.current
@@ -730,7 +728,6 @@ class _CreatorPrompt:
         if command.expected_revision_id != self.current.current_revision_id:
             raise CreatorPromptViolation("CONFLICT-PROMPT-REVISION")
         assert self.current.content is not None
-        assert self.current.content_digest is not None
         revision_id = uuid7()
         self.current = CreatorPromptView(
             prompt_document_id=self.document_id,
@@ -741,7 +738,6 @@ class _CreatorPrompt:
             previous_revision_id=self.current.current_revision_id,
             revision_kind=PromptRevisionKind.DEACTIVATED,
             content=self.current.content,
-            content_digest=self.current.content_digest,
             activated_at=Instant(datetime.now(UTC)),
         )
         return self.current

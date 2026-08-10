@@ -152,13 +152,6 @@ def patch_digest(
     return Digest.from_bytes(rfc8785.dumps(cast(Any, value)))
 
 
-def directory_digest(root: Path) -> str:
-    records: list[str] = []
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        records.append(f"{path.relative_to(root).as_posix()}\t{_sha256_file(path)}\n")
-    return hashlib.sha256("".join(records).encode("utf-8")).hexdigest()
-
-
 def _archive_path(value: str) -> str:
     if not value or "\\" in value or ":" in value:
         raise CodexRunnerViolation("CODEX-SOURCE-PATH")
@@ -223,7 +216,6 @@ def _sha256_file(path: Path) -> str:
 __all__ = (
     "TreeSnapshot",
     "changed_paths",
-    "directory_digest",
     "extract_source_bundle",
     "patch_digest",
     "snapshot_tree",

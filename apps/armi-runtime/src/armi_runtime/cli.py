@@ -263,7 +263,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = {
             "status": "pass",
             "schema_version": prepared.effective.config.schema_version,
-            "effective_config_digest": prepared.effective.digest.to_wire(),
             "composition_digest": prepared.composition.digest,
             "config": prepared.effective.redacted_view(),
         }
