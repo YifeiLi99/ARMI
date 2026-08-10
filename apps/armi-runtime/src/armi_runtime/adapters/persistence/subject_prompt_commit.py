@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
-    ArtifactId,
+    ArtifactRef,
     CandidateSubjectPromptDraft,
     SubjectCommitViolation,
 )
@@ -65,7 +65,7 @@ async def apply_subject_prompts(
     subject_id: UUID,
     commit_id: UUID,
     prompts: tuple[CandidateSubjectPromptDraft, ...],
-    artifact_ids: dict[str, ArtifactId],
+    artifacts: dict[str, ArtifactRef],
 ) -> tuple[UUID, ...]:
     if len(prompts) > 1:
         raise SubjectCommitViolation("SUBJECT-PROMPT-COUNT")
@@ -87,8 +87,8 @@ async def apply_subject_prompts(
     author_party_id = party_row[0]
     revision_ids: list[UUID] = []
     for prompt in prompts:
-        artifact_id = artifact_ids.get(prompt.proposal_ref)
-        if artifact_id is None:
+        artifact = artifacts.get(prompt.proposal_ref)
+        if artifact is None:
             raise SubjectCommitViolation("SUBJECT-PROMPT-ARTIFACT")
         accepted = await (
             await connection.execute(
@@ -105,22 +105,7 @@ async def apply_subject_prompts(
         ).fetchone()
         if accepted is None:
             raise SubjectCommitViolation("SUBJECT-PROMPT-CANDIDATE")
-        artifact = await (
-            await connection.execute(
-                """
-                SELECT content_digest, media_type, privacy_scope
-                FROM armi.artifacts
-                WHERE artifact_id = %s
-                  AND retention_status = 'retained'
-                """,
-                (artifact_id.value,),
-            )
-        ).fetchone()
-        if artifact is None or (
-            str(artifact[0]) != prompt.content_digest.value
-            or str(artifact[1]) != "application/json"
-            or str(artifact[2]) != "private"
-        ):
+        if artifact.media_type != "application/json" or artifact.privacy_scope.value != "private":
             raise SubjectCommitViolation("SUBJECT-PROMPT-ARTIFACT")
         revision_id = uuid7()
         revision_ids.append(revision_id)
@@ -137,8 +122,8 @@ async def apply_subject_prompts(
                 prompt.prompt_document_id,
                 prompt.expected_revision_no + 1,
                 prompt.current_revision_id,
-                artifact_id.value,
-                prompt.content_digest.value,
+                artifact.artifact_id.value,
+                artifact.content_digest.value,
                 author_party_id,
                 commit_id,
                 (

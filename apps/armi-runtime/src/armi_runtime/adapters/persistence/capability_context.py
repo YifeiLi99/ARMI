@@ -8,9 +8,8 @@ from uuid import UUID
 
 import rfc8785
 from armi_kernel.application import ContextViolation
-from armi_kernel.contracts import Digest
 
-type CapabilityStatePayload = tuple[UUID, int, bytes, Digest, str]
+type CapabilityStatePayload = tuple[UUID, int, bytes, str]
 _MAX_JSON_SAFE_INTEGER = (1 << 53) - 1
 
 
@@ -156,7 +155,6 @@ def _capability_state_payload(row: tuple[object, ...]) -> CapabilityStatePayload
         cast(UUID, row[0]),
         source_version,
         payload,
-        Digest.from_bytes(payload),
         request_status or "unauthorized",
     )
 

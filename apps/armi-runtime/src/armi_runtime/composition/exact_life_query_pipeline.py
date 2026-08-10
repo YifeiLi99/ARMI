@@ -147,7 +147,6 @@ class ExactLifeQueryPipeline:
                     snapshot=snapshot,
                     status=status,
                     result_artifact_id=registration.ref.artifact_id,
-                    result_digest=registration.ref.content_digest,
                     result_count=0 if page is None else len(page.items),
                     failure_code=failure_code,
                 )

@@ -8,7 +8,6 @@ from typing import Any, cast
 
 import rfc8785
 from armi_kernel.application import CodexRunnerViolation, CodexUsage
-from armi_kernel.contracts import Digest
 from openai_codex import TurnResult
 
 _FORBIDDEN_ITEM_CODES = {
@@ -34,7 +33,6 @@ class SdkCommandEvidence:
 class SdkTurnEvidence:
     final_response: bytes
     transcript: bytes
-    transcript_digest: Digest
     usage: CodexUsage
     commands: tuple[SdkCommandEvidence, ...]
 
@@ -96,8 +94,6 @@ def normalize_sdk_turn(
                 SdkCommandEvidence(command, output, exit_code, status_value)
             )
             record.update(
-                command_digest=Digest.from_bytes(command.encode("utf-8")).to_wire(),
-                output_digest=Digest.from_bytes(output.encode("utf-8")).to_wire(),
                 exit_code=exit_code,
                 status=status_value,
             )
@@ -106,7 +102,6 @@ def normalize_sdk_turn(
             canonical = rfc8785.dumps(cast(Any, dumped))
             if len(canonical) > _MAX_ITEM_BYTES:
                 raise CodexRunnerViolation("CODEX-SDK-EVENT")
-            record["payload_digest"] = Digest.from_bytes(canonical).to_wire()
         records.append(record)
     transcript = rfc8785.dumps(cast(Any, records))
     if not records or len(transcript) > _MAX_TRANSCRIPT_BYTES:
@@ -114,7 +109,6 @@ def normalize_sdk_turn(
     return SdkTurnEvidence(
         final_response,
         transcript,
-        Digest.from_bytes(transcript),
         normalized_usage,
         tuple(commands),
     )

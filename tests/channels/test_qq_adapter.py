@@ -146,7 +146,6 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             ExternalAccountKey("10001"),
             ExternalConversationKey("20002"),
             content,
-            Digest.from_bytes(content),
             TraceId(uuid7().hex),
         )
         receipt = await adapter.send(request)
@@ -175,7 +174,6 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             "20002",
             Digest.from_bytes(content),
             len(content),
-            Digest.from_bytes(b"request"),
             TraceId(uuid7().hex),
         )
         receipt = await adapter.dispatch(request, content)
@@ -195,7 +193,6 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             "20002",
             Digest.from_bytes(content),
             len(content),
-            Digest.from_bytes(b"request"),
             TraceId(uuid7().hex),
         )
         ambiguous = QQGroupEffectAdapter(

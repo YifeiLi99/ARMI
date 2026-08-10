@@ -285,7 +285,6 @@ class ContentAddressedArtifactCoordinator:
             result_status=AuditResultStatus.APPLIED,
             trace_id=trace_id,
             sensitivity=sensitivity,
-            artifact_digest=ref.content_digest,
         )
 
 

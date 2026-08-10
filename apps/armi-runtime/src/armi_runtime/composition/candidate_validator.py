@@ -226,7 +226,6 @@ class CandidateMemoryContext:
     memory_id: UUID
     current_revision_id: UUID
     head_version: int
-    context_digest: Digest
     fact_class: CandidateFactClass
     source_kind: MemorySourceKind
     summary: str
@@ -241,7 +240,6 @@ class CandidateMemoryContext:
             )
             or type(self.head_version) is not int
             or self.head_version <= 0
-            or type(self.context_digest) is not Digest
             or type(self.fact_class) is not CandidateFactClass
             or type(self.source_kind) is not MemorySourceKind
             or type(self.summary) is not str
@@ -255,12 +253,9 @@ class CandidateMemoryContext:
 @dataclass(frozen=True, slots=True)
 class CandidateRelationshipCommitmentContext:
     commitment: RelationshipCommitment
-    context_digest: Digest | None
 
     def __post_init__(self) -> None:
-        if type(self.commitment) is not RelationshipCommitment or (
-            self.context_digest is not None and type(self.context_digest) is not Digest
-        ):
+        if type(self.commitment) is not RelationshipCommitment:
             raise CandidateViolation("CON-CANDIDATE-COMMITMENT-CONTEXT")
 
 
@@ -269,7 +264,6 @@ class CandidateRelationshipContext:
     relationship_id: UUID
     current_revision_id: UUID
     head_version: int
-    context_digest: Digest
     facts: tuple[RelationshipFact, ...]
     interpretation: str
     boundaries: tuple[RelationshipBoundary, ...]
@@ -285,7 +279,6 @@ class CandidateRelationshipContext:
             )
             or type(self.head_version) is not int
             or self.head_version <= 0
-            or type(self.context_digest) is not Digest
             or type(self.facts) is not tuple
             or not self.facts
             or any(type(value) is not RelationshipFact for value in self.facts)
@@ -319,11 +312,10 @@ class CandidateLifeMaterialContext:
     material_id: UUID
     current_revision_id: UUID
     head_version: int
-    context_digest: Digest
-    body_digest: Digest
     owner_party_id: UUID
     material_kind: LifeMaterialKind
     title: str
+    body_bytes: bytes
     metadata: tuple[tuple[str, str], ...]
     material_status: LifeMaterialStatus
     privacy_status: LifeMaterialPrivacyStatus
@@ -340,13 +332,14 @@ class CandidateLifeMaterialContext:
             )
             or type(self.head_version) is not int
             or self.head_version <= 0
-            or type(self.context_digest) is not Digest
-            or type(self.body_digest) is not Digest
             or type(self.material_kind) is not LifeMaterialKind
             or type(self.title) is not str
             or not 1 <= len(self.title) <= 256
             or not self.title.strip()
             or "\x00" in self.title
+            or type(self.body_bytes) is not bytes
+            or not 1 <= len(self.body_bytes) <= 65_536
+            or b"\x00" in self.body_bytes
             or type(self.metadata) is not tuple
             or len(self.metadata) > 32
             or any(
@@ -382,7 +375,6 @@ class CandidateSubjectPromptContext:
     prompt_document_id: UUID
     current_revision_id: UUID | None
     revision_no: int
-    content_digest: Digest | None
 
     def __post_init__(self) -> None:
         if (
@@ -398,11 +390,6 @@ class CandidateSubjectPromptContext:
             or type(self.revision_no) is not int
             or self.revision_no < 0
             or (self.current_revision_id is None) != (self.revision_no == 0)
-            or (self.current_revision_id is None) != (self.content_digest is None)
-            or (
-                self.content_digest is not None
-                and type(self.content_digest) is not Digest
-            )
         ):
             raise CandidateViolation("CON-CANDIDATE-SUBJECT-PROMPT-CONTEXT")
 
@@ -429,7 +416,6 @@ class CandidateValidationContext:
     current_activity_revision_id: UUID | None = None
     current_activity_head_version: int | None = None
     current_activity_status: ActivityStatus | None = None
-    resource_snapshot_digest: Digest | None = None
     current_memories: tuple[CandidateMemoryContext, ...] = ()
     subject_party_id: UUID | None = None
     current_relationship: CandidateRelationshipContext | None = None
@@ -487,7 +473,6 @@ class CandidateValidationContext:
             self.current_activity_revision_id,
             self.current_activity_head_version,
             self.current_activity_status,
-            self.resource_snapshot_digest,
         )
         if any(value is not None for value in activity_values) and (
             self.current_activity_id is None
@@ -495,7 +480,6 @@ class CandidateValidationContext:
             or type(self.current_activity_head_version) is not int
             or self.current_activity_head_version <= 0
             or type(self.current_activity_status) is not ActivityStatus
-            or type(self.resource_snapshot_digest) is not Digest
         ):
             raise CandidateViolation("CON-CANDIDATE-ACTIVITY-CONTEXT")
         maintenance_values = (
@@ -607,14 +591,10 @@ class DeterministicCandidateValidator:
                 else "CANDIDATE-CONTRACT"
             )
             return _rejected(code)
-        candidate_digest = Digest.from_bytes(
-            rfc8785.dumps(cast(Any, parsed_candidate.model_dump(mode="json")))
-        )
         if isinstance(parsed_candidate, SleepDecisionCandidate):
             return self._validate_sleep(
                 parsed_candidate,
                 bases=bases,
-                candidate_digest=candidate_digest,
             )
         if isinstance(
             parsed_candidate,
@@ -623,7 +603,6 @@ class DeterministicCandidateValidator:
             return self._validate_other_human(
                 parsed_candidate,
                 bases=bases,
-                candidate_digest=candidate_digest,
             )
         if isinstance(
             parsed_candidate,
@@ -637,7 +616,6 @@ class DeterministicCandidateValidator:
             return self._validate_maintenance(
                 parsed_candidate,
                 bases=bases,
-                candidate_digest=candidate_digest,
             )
         if isinstance(
             parsed_candidate,
@@ -652,7 +630,6 @@ class DeterministicCandidateValidator:
             return self._validate_internal_work(
                 parsed_candidate,
                 bases=bases,
-                candidate_digest=candidate_digest,
             )
         if isinstance(
             parsed_candidate,
@@ -661,7 +638,6 @@ class DeterministicCandidateValidator:
             return self._validate_attention(
                 parsed_candidate,
                 bases=bases,
-                candidate_digest=candidate_digest,
             )
         if isinstance(
             parsed_candidate,
@@ -670,7 +646,6 @@ class DeterministicCandidateValidator:
             return self._validate_autonomous(
                 parsed_candidate,
                 bases=bases,
-                candidate_digest=candidate_digest,
             )
         if self._context.scene_id is None or self._context.creator_party_id is None:
             return _rejected("CANDIDATE-SCENE-CONTEXT")
@@ -839,7 +814,6 @@ class DeterministicCandidateValidator:
                         owner,
                         component.payload.expected_version,
                         next_bytes,
-                        Digest.from_bytes(next_bytes),
                     )
                     continue
             if failure is None and owner is CandidateOwner.CAPABILITY:
@@ -888,7 +862,6 @@ class DeterministicCandidateValidator:
                         self._context.scene_id,
                         self._context.creator_party_id,
                         content,
-                        Digest.from_bytes(content),
                     )
                     continue
                 if failure is None and isinstance(
@@ -919,7 +892,6 @@ class DeterministicCandidateValidator:
                         proposal.atomic_group_ref,
                         tuple(basis.ordinal for basis in proposal_bases),
                         query_bytes,
-                        Digest.from_bytes(query_bytes),
                     )
                     continue
             if failure is None and owner is CandidateOwner.CODEX_DELEGATION:
@@ -1173,7 +1145,6 @@ class DeterministicCandidateValidator:
                 "bundle_activation_id": str(self._context.bundle_activation_id),
                 "context_digest": self._context.context_digest.value,
             },
-            "candidate_digest": candidate_digest.value,
             "disposition": disposition.value,
             "experiences": [_experience_wire(item) for item in experiences],
             "components": [_component_wire(item) for item in components],
@@ -1288,7 +1259,6 @@ class DeterministicCandidateValidator:
         canonical = rfc8785.dumps(cast(Any, change_set_value))
         change_set = SubjectChangeSet(
             canonical,
-            Digest.from_bytes(canonical),
             self._context.subject_id,
             self._context.generation_id,
             self._context.episode_id,
@@ -1297,7 +1267,6 @@ class DeterministicCandidateValidator:
             self._context.base_state_epoch,
             self._context.bundle_activation_id,
             self._context.context_digest,
-            candidate_digest,
             disposition,
             experiences,
             components,
@@ -1332,7 +1301,6 @@ class DeterministicCandidateValidator:
         candidate: OtherHumanReplyDecision | OtherHumanTerminalDecision,
         *,
         bases: tuple[CandidateBasis, ...],
-        candidate_digest: Digest,
     ) -> CandidateValidationResult:
         if (
             self._context.purpose != "consider_other_human_input"
@@ -1412,7 +1380,6 @@ class DeterministicCandidateValidator:
                     self._context.scene_id,
                     self._context.other_party_id,
                     content,
-                    Digest.from_bytes(content),
                 ),
             )
         elif candidate.kind == "silence":
@@ -1461,7 +1428,6 @@ class DeterministicCandidateValidator:
                 "bundle_activation_id": str(self._context.bundle_activation_id),
                 "context_digest": self._context.context_digest.value,
             },
-            "candidate_digest": candidate_digest.value,
             "disposition": disposition.value,
             "experiences": [] if experience is None else [_experience_wire(experience)],
             "components": [],
@@ -1485,7 +1451,6 @@ class DeterministicCandidateValidator:
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
             canonical,
-            Digest.from_bytes(canonical),
             self._context.subject_id,
             self._context.generation_id,
             self._context.episode_id,
@@ -1494,7 +1459,6 @@ class DeterministicCandidateValidator:
             self._context.base_state_epoch,
             self._context.bundle_activation_id,
             self._context.context_digest,
-            candidate_digest,
             disposition,
             () if experience is None else (experience,),
             (),
@@ -1520,7 +1484,6 @@ class DeterministicCandidateValidator:
         candidate: StartActivityDecision | AutonomousTerminalDecision,
         *,
         bases: tuple[CandidateBasis, ...],
-        candidate_digest: Digest,
     ) -> CandidateValidationResult:
         if (
             self._context.purpose != "consider_autonomous_life"
@@ -1573,7 +1536,6 @@ class DeterministicCandidateValidator:
                 "bundle_activation_id": str(self._context.bundle_activation_id),
                 "context_digest": self._context.context_digest.value,
             },
-            "candidate_digest": candidate_digest.value,
             "disposition": disposition.value,
             "experiences": [],
             "components": [],
@@ -1586,7 +1548,6 @@ class DeterministicCandidateValidator:
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
             canonical,
-            Digest.from_bytes(canonical),
             self._context.subject_id,
             self._context.generation_id,
             self._context.episode_id,
@@ -1595,7 +1556,6 @@ class DeterministicCandidateValidator:
             self._context.base_state_epoch,
             self._context.bundle_activation_id,
             self._context.context_digest,
-            candidate_digest,
             disposition,
             (),
             (),
@@ -1620,7 +1580,6 @@ class DeterministicCandidateValidator:
         candidate: SleepDecisionCandidate,
         *,
         bases: tuple[CandidateBasis, ...],
-        candidate_digest: Digest,
     ) -> CandidateValidationResult:
         context = self._context
         if (
@@ -1637,11 +1596,10 @@ class DeterministicCandidateValidator:
                 if item.item_kind == "current_maintenance_window"
                 and item.trust_class == "runtime_authority"
                 and item.source_ref is not None
-                and item.source_digest is not None
             ),
             None,
         )
-        if source is None or source.source_ref is None or source.source_digest is None:
+        if source is None or source.source_ref is None:
             return _rejected("CANDIDATE-SLEEP-SOURCE")
         decision = CandidateSleepDecisionDraft(
             "proposal:1",
@@ -1649,7 +1607,6 @@ class DeterministicCandidateValidator:
             (source.ordinal,),
             SleepDecisionKind(candidate.kind),
             source.source_ref,
-            source.source_digest,
         )
         disposition = {
             SleepDecisionKind.SLEEP: CandidateDisposition.CHANGE,
@@ -1669,7 +1626,6 @@ class DeterministicCandidateValidator:
                 "bundle_activation_id": str(context.bundle_activation_id),
                 "context_digest": context.context_digest.value,
             },
-            "candidate_digest": candidate_digest.value,
             "disposition": disposition.value,
             "experiences": [],
             "components": [],
@@ -1684,7 +1640,6 @@ class DeterministicCandidateValidator:
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
             canonical,
-            Digest.from_bytes(canonical),
             context.subject_id,
             context.generation_id,
             context.episode_id,
@@ -1693,7 +1648,6 @@ class DeterministicCandidateValidator:
             context.base_state_epoch,
             context.bundle_activation_id,
             context.context_digest,
-            candidate_digest,
             disposition,
             (),
             (),
@@ -1720,7 +1674,6 @@ class DeterministicCandidateValidator:
         candidate: ActivityAttentionCandidate,
         *,
         bases: tuple[CandidateBasis, ...],
-        candidate_digest: Digest,
     ) -> CandidateValidationResult:
         context = self._context
         if (
@@ -1732,7 +1685,6 @@ class DeterministicCandidateValidator:
             or context.current_activity_revision_id is None
             or context.current_activity_head_version is None
             or context.current_activity_status is None
-            or context.resource_snapshot_digest is None
         ):
             return _rejected("CANDIDATE-ACTIVITY-ATTENTION-CONTEXT")
         source = next(
@@ -1757,7 +1709,6 @@ class DeterministicCandidateValidator:
             context.current_activity_id,
             context.current_activity_revision_id,
             context.current_activity_head_version,
-            context.resource_snapshot_digest,
             kind,
         )
         disposition = (
@@ -1786,7 +1737,6 @@ class DeterministicCandidateValidator:
                 "bundle_activation_id": str(context.bundle_activation_id),
                 "context_digest": context.context_digest.value,
             },
-            "candidate_digest": candidate_digest.value,
             "disposition": disposition.value,
             "experiences": [],
             "components": [],
@@ -1800,7 +1750,6 @@ class DeterministicCandidateValidator:
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
             canonical,
-            Digest.from_bytes(canonical),
             context.subject_id,
             context.generation_id,
             context.episode_id,
@@ -1809,7 +1758,6 @@ class DeterministicCandidateValidator:
             context.base_state_epoch,
             context.bundle_activation_id,
             context.context_digest,
-            candidate_digest,
             disposition,
             (),
             (),
@@ -1835,7 +1783,6 @@ class DeterministicCandidateValidator:
         candidate: ActivityInternalWorkCandidate,
         *,
         bases: tuple[CandidateBasis, ...],
-        candidate_digest: Digest,
     ) -> CandidateValidationResult:
         context = self._context
         if (
@@ -1847,7 +1794,6 @@ class DeterministicCandidateValidator:
             or context.current_activity_revision_id is None
             or context.current_activity_head_version is None
             or context.current_activity_status is not ActivityStatus.IN_PROGRESS
-            or context.resource_snapshot_digest is None
         ):
             return _rejected("CANDIDATE-ACTIVITY-WORK-CONTEXT")
         source = next(
@@ -1899,7 +1845,6 @@ class DeterministicCandidateValidator:
             context.current_activity_id,
             context.current_activity_revision_id,
             context.current_activity_head_version,
-            context.resource_snapshot_digest,
             kind,
             progress,
             next_step,
@@ -1932,7 +1877,6 @@ class DeterministicCandidateValidator:
                 "bundle_activation_id": str(context.bundle_activation_id),
                 "context_digest": context.context_digest.value,
             },
-            "candidate_digest": candidate_digest.value,
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
             "components": [],
@@ -1953,7 +1897,6 @@ class DeterministicCandidateValidator:
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
             canonical_bytes=canonical,
-            digest=Digest.from_bytes(canonical),
             subject_id=context.subject_id,
             generation_id=context.generation_id,
             episode_id=context.episode_id,
@@ -1962,7 +1905,6 @@ class DeterministicCandidateValidator:
             base_state_epoch=context.base_state_epoch,
             bundle_activation_id=context.bundle_activation_id,
             context_digest=context.context_digest,
-            candidate_digest=candidate_digest,
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
             components=(),
@@ -1987,7 +1929,6 @@ class DeterministicCandidateValidator:
         candidate: MaintenanceWorkCandidate,
         *,
         bases: tuple[CandidateBasis, ...],
-        candidate_digest: Digest,
     ) -> CandidateValidationResult:
         context = self._context
         expected_phase = {
@@ -2089,7 +2030,6 @@ class DeterministicCandidateValidator:
                 "bundle_activation_id": str(context.bundle_activation_id),
                 "context_digest": context.context_digest.value,
             },
-            "candidate_digest": candidate_digest.value,
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
             "components": [],
@@ -2115,7 +2055,6 @@ class DeterministicCandidateValidator:
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
             canonical_bytes=canonical,
-            digest=Digest.from_bytes(canonical),
             subject_id=context.subject_id,
             generation_id=context.generation_id,
             episode_id=context.episode_id,
@@ -2124,7 +2063,6 @@ class DeterministicCandidateValidator:
             base_state_epoch=context.base_state_epoch,
             bundle_activation_id=context.bundle_activation_id,
             context_digest=context.context_digest,
-            candidate_digest=candidate_digest,
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
             components=(),
@@ -2763,7 +2701,6 @@ def _bind_dialogue_component_change(
             if item.item_kind == owner.value
             and current is not None
             and item.source_version == current[0]
-            and item.source_digest == Digest.from_bytes(current[1])
         ),
         None,
     )
@@ -2848,7 +2785,6 @@ def _bind_dialogue_subject_prompt(
             if item.item_kind == "self"
             and self_component is not None
             and item.source_version == self_component[0]
-            and item.source_digest == Digest.from_bytes(self_component[1])
         ),
         None,
     )
@@ -2863,7 +2799,6 @@ def _bind_dialogue_subject_prompt(
                 if item.item_kind == "subject_prompt"
                 and item.source_ref == current.current_revision_id
                 and item.source_version == current.revision_no
-                and item.source_digest == current.content_digest
                 and item.trust_class == "policy"
             ),
             None,
@@ -2909,9 +2844,6 @@ def _bind_dialogue_subject_prompt(
             },
         )
     )
-    digest = Digest.from_bytes(content)
-    if digest == current.content_digest:
-        return None, "CANDIDATE-SUBJECT-PROMPT-UNCHANGED"
     basis_ordinals = (
         evidence.ordinal,
         self_basis.ordinal,
@@ -2927,7 +2859,6 @@ def _bind_dialogue_subject_prompt(
             current.current_revision_id,
             current.revision_no,
             content,
-            digest,
         ),
         None,
     )
@@ -2979,7 +2910,6 @@ def _bind_dialogue_material(
                 0,
                 change.title,
                 body_bytes,
-                Digest.from_bytes(body_bytes),
                 tuple(sorted(change.metadata.items())),
                 LifeMaterialStatus(change.material_status),
             ),
@@ -3008,21 +2938,17 @@ def _bind_dialogue_material(
         ),
         None,
     )
-    if current is None or (
-        current.head_version != target_basis.source_version
-        or current.context_digest != target_basis.source_digest
-    ):
+    if current is None or current.head_version != target_basis.source_version:
         return None, "CANDIDATE-MATERIAL-STALE"
     if current.owner_party_id != context.subject_party_id:
         return None, "CANDIDATE-MATERIAL-OWNER"
     if isinstance(change, (DialogueMaterialContentChange, DialogueMaterialChangeV7)):
         body_bytes = change.body.encode("utf-8", errors="strict")
-        body_digest = Digest.from_bytes(body_bytes)
         metadata = tuple(sorted(change.metadata.items()))
         material_status = LifeMaterialStatus(change.material_status)
         if (
             current.title == change.title
-            and current.body_digest == body_digest
+            and current.body_bytes == body_bytes
             and current.metadata == metadata
             and current.material_status is material_status
         ):
@@ -3039,7 +2965,6 @@ def _bind_dialogue_material(
                 current.head_version,
                 change.title,
                 body_bytes,
-                body_digest,
                 metadata,
                 material_status,
                 current.privacy_status.value,
@@ -3072,7 +2997,6 @@ def _bind_dialogue_material(
             current.head_version,
             current.title,
             None,
-            current.body_digest,
             current.metadata,
             current.material_status,
             privacy_status.value,
@@ -3105,7 +3029,6 @@ def _bind_internal_work_material(
                 0,
                 change.title,
                 body_bytes,
-                Digest.from_bytes(body_bytes),
                 tuple(sorted(change.metadata.items())),
                 LifeMaterialStatus(change.material_status),
             ),
@@ -3135,20 +3058,16 @@ def _bind_internal_work_material(
         ),
         None,
     )
-    if current is None or (
-        current.head_version != target_basis.source_version
-        or current.context_digest != target_basis.source_digest
-    ):
+    if current is None or current.head_version != target_basis.source_version:
         return None, "CANDIDATE-MATERIAL-STALE"
     if current.owner_party_id != context.subject_party_id:
         return None, "CANDIDATE-MATERIAL-OWNER"
     body_bytes = change.body.encode("utf-8", errors="strict")
-    body_digest = Digest.from_bytes(body_bytes)
     metadata = tuple(sorted(change.metadata.items()))
     material_status = LifeMaterialStatus(change.material_status)
     if (
         current.title == change.title
-        and current.body_digest == body_digest
+        and current.body_bytes == body_bytes
         and current.metadata == metadata
         and current.material_status is material_status
     ):
@@ -3165,7 +3084,6 @@ def _bind_internal_work_material(
             current.head_version,
             change.title,
             body_bytes,
-            body_digest,
             metadata,
             material_status,
             current.privacy_status.value,
@@ -3201,10 +3119,7 @@ def _bind_dialogue_memory_revision(
         None,
     )
 
-    if current is None or (
-        current.head_version != target_basis.source_version
-        or current.context_digest != target_basis.source_digest
-    ):
+    if current is None or current.head_version != target_basis.source_version:
         return None, "CANDIDATE-MEMORY-STALE"
 
     related_memory_id: UUID | None = None
@@ -3220,7 +3135,6 @@ def _bind_dialogue_memory_revision(
             or not any(
                 item.memory_id == related_basis.source_ref
                 and item.head_version == related_basis.source_version
-                and item.context_digest == related_basis.source_digest
                 for item in context.current_memories
             )
         ):
@@ -3303,10 +3217,7 @@ def _bind_maintenance_memory_revision(
         ),
         None,
     )
-    if current is None or (
-        current.head_version != target_basis.source_version
-        or current.context_digest != target_basis.source_digest
-    ):
+    if current is None or current.head_version != target_basis.source_version:
         return None, "CANDIDATE-MAINTENANCE-MEMORY-STALE"
 
     related_memory_id: UUID | None = None
@@ -3322,7 +3233,6 @@ def _bind_maintenance_memory_revision(
             or not any(
                 item.memory_id == related_basis.source_ref
                 and item.head_version == related_basis.source_version
-                and item.context_digest == related_basis.source_digest
                 for item in context.current_memories
             )
         ):
@@ -3439,7 +3349,6 @@ def _bind_dialogue_relationship(
                 and item.item_kind == "current_relationship"
                 and item.source_ref == current.relationship_id
                 and item.source_version == current.head_version
-                and item.source_digest == current.context_digest
                 and item.trust_class == "subjective_state"
             ),
             None,
@@ -3765,8 +3674,6 @@ def _commitment_context(
             for item in context.current_relationship.commitments
             if item.commitment.commitment_id == basis.source_ref
             and basis.source_version == context.current_relationship.head_version
-            and item.context_digest is not None
-            and item.context_digest == basis.source_digest
         ),
         None,
     )
@@ -3885,7 +3792,6 @@ def _component_failure(
     if not any(
         basis.item_kind == owner.value
         and basis.source_version == version
-        and basis.source_digest == Digest.from_bytes(current_bytes)
         for basis in bases
     ):
         return "CANDIDATE-COMPONENT-BASIS"
@@ -4092,7 +3998,6 @@ def _codex_delegation_failure(
     if not any(
         basis.item_kind == "codex_task_source"
         and basis.source_ref == source_id
-        and basis.source_digest == source[1]
         for basis in bases
     ):
         return "CANDIDATE-CODEX-TASK-BASIS"
@@ -4362,7 +4267,6 @@ def _material_wire(value: CandidateLifeMaterialDraft) -> dict[str, object]:
             if value.body_bytes is None
             else value.body_bytes.decode("utf-8", errors="strict")
         ),
-        "body_digest": value.body_digest.value,
         "metadata": dict(value.metadata),
         "material_status": value.material_status.value,
         "privacy_status": value.privacy_status,
@@ -4416,7 +4320,6 @@ def _activity_decision_wire(
         "activity_id": str(value.activity_id),
         "current_revision_id": str(value.current_revision_id),
         "expected_head_version": value.expected_head_version,
-        "resource_snapshot_digest": value.resource_snapshot_digest.value,
         "decision_kind": value.decision_kind.value,
         "progress_summary": value.progress_summary,
         "next_safe_step": value.next_safe_step,
@@ -4437,7 +4340,6 @@ def _sleep_decision_wire(value: CandidateSleepDecisionDraft) -> dict[str, object
         "basis_ordinals": list(value.basis_ordinals),
         "decision_kind": value.decision_kind.value,
         "cycle_anchor_ref": str(value.cycle_anchor_ref),
-        "source_digest": value.source_digest.value,
     }
 
 
@@ -4467,7 +4369,6 @@ def _web_research_wire(value: WebResearchRequestDraft) -> dict[str, object]:
         "purpose": value.purpose,
         "operation_class": value.operation_class,
         "query": value.query_bytes.decode("utf-8", errors="strict"),
-        "query_digest": value.query_digest.value,
     }
 
 
@@ -4508,7 +4409,6 @@ def _component_wire(value: CandidateComponentDraft) -> dict[str, object]:
         "owner": value.owner.value,
         "expected_version": value.expected_version,
         "next_state": json.loads(value.canonical_next_state),
-        "next_state_digest": value.next_state_digest.value,
     }
 
 
@@ -4526,7 +4426,6 @@ def _prompt_wire(value: CandidateSubjectPromptDraft) -> dict[str, object]:
         ),
         "expected_revision_no": value.expected_revision_no,
         "content": json.loads(value.content_bytes),
-        "content_digest": value.content_digest.value,
     }
 
 
@@ -4598,7 +4497,6 @@ def _action_wire(
             "purpose": value.purpose,
             "media_type": value.media_type,
             "content": value.content_bytes.decode("utf-8"),
-            "content_digest": value.content_digest.value,
         }
     if isinstance(value, OtherHumanReplyDraft):
         return {
@@ -4614,7 +4512,6 @@ def _action_wire(
             "purpose": value.purpose,
             "media_type": value.media_type,
             "content": value.content_bytes.decode("utf-8"),
-            "content_digest": value.content_digest.value,
         }
     if isinstance(value, OtherHumanEndConversationDraft):
         return {

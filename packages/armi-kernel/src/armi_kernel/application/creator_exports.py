@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
+from armi_kernel.contracts import IdempotencyKey, Instant, TraceId
 
 _DIRECTORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", re.ASCII)
 
@@ -53,7 +53,6 @@ class CreatorExportResult:
     status: CreatorExportStatus
     directory_name: str
     destination_path: str
-    manifest_digest: Digest | None
     table_count: int
     row_count: int
     artifact_count: int
@@ -71,10 +70,6 @@ class CreatorExportResult:
             or type(self.destination_path) is not str
             or not self.destination_path
             or type(self.status) is not CreatorExportStatus
-            or (
-                self.manifest_digest is not None
-                and type(self.manifest_digest) is not Digest
-            )
             or any(
                 type(value) is not int or value < 0
                 for value in (self.table_count, self.row_count, self.artifact_count)

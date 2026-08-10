@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid7
 
-import rfc8785
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -116,21 +115,13 @@ class PostgreSQLCodexDelegationRepository:
             draft.manifest_artifact_id.value,
             draft.manifest_digest,
         )
-        scope_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "allowed_paths": list(draft.allowed_paths),
-                    "forbidden_paths": list(draft.forbidden_paths),
-                }
-            )
-        )
         await connection.execute(
             """
             INSERT INTO armi.codex_task_sources (
                 codex_task_source_id, subject_id, source_bundle_artifact_id,
                 source_bundle_digest, source_tree_digest, task_manifest_artifact_id,
-                task_manifest_digest, path_scope_digest, validator_id,
-                deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                task_manifest_digest, validator_id,
+                deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 draft.task_source_id.value,
@@ -140,7 +131,6 @@ class PostgreSQLCodexDelegationRepository:
                 draft.source_tree_digest.value,
                 draft.manifest_artifact_id.value,
                 draft.manifest_digest.value,
-                scope_digest.value,
                 draft.validator_id,
                 draft.deadline_seconds,
                 draft.trace_id.value,
@@ -169,10 +159,10 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
                 context_party_id, purpose, source_kind, source_ref,
-                source_version, source_digest, eligibility_status,
+                source_version, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
-                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0)
+                'external_evidence',%s,1,'eligible','open',%s,NULL,0)
             """,
             (
                 opportunity_id,
@@ -181,7 +171,6 @@ class PostgreSQLCodexDelegationRepository:
                 subject[0],
                 subject[1],
                 evidence_id,
-                draft.manifest_digest.value,
                 opportunity_id,
             ),
         )
@@ -196,7 +185,6 @@ class PostgreSQLCodexDelegationRepository:
                 draft.trace_id,
                 AuditSensitivity.PRIVATE,
                 subject_id=draft.subject_id,
-                artifact_digest=draft.manifest_digest,
             )
         )
         return draft.task_source_id
@@ -331,10 +319,10 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
                 context_party_id, purpose, source_kind, source_ref,
-                source_version, source_digest, eligibility_status,
+                source_version, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
-                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0)
+                'external_evidence',%s,1,'eligible','open',%s,NULL,0)
             """,
             (
                 opportunity_id,
@@ -343,7 +331,6 @@ class PostgreSQLCodexDelegationRepository:
                 context.scene_id,
                 context.creator_party_id,
                 evidence_id,
-                draft.manifest_digest.value,
                 opportunity_id,
             ),
         )
@@ -381,8 +368,6 @@ class PostgreSQLCodexDelegationRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=draft.subject_id,
                 request=AuditReference("creator_input", interaction_id),
-                request_digest=request_digest,
-                artifact_digest=draft.manifest_digest,
             )
         )
         return CreatorInputAcceptance(
@@ -446,15 +431,6 @@ class PostgreSQLCodexDelegationRepository:
             return None
         attempt_id = uuid7()
         claim_token = int(row[17]) + 1
-        request_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "effect_id": str(row[1]),
-                    "task_manifest_digest": str(row[12]),
-                    "source_tree_digest": str(row[10]),
-                }
-            )
-        )
         await connection.execute(
             """
             UPDATE armi.effect_outbox_items
@@ -469,9 +445,9 @@ class PostgreSQLCodexDelegationRepository:
             """
             INSERT INTO armi.effect_attempts (
                 effect_attempt_id, effect_id, attempt_no, adapter_binding,
-                request_digest, claim_token, dispatch_state) VALUES (%s,%s,1,%s,%s,%s,'prepared')
+                claim_token, dispatch_state) VALUES (%s,%s,1,%s,%s,'prepared')
             """,
-            (attempt_id, row[1], _BINDING, request_digest.value, claim_token),
+            (attempt_id, row[1], _BINDING, claim_token),
         )
         await connection.execute(
             """
@@ -620,8 +596,8 @@ class PostgreSQLCodexDelegationRepository:
                 final_tree_digest, patch_digest, event_transcript_artifact_id,
                 final_result_artifact_id, patch_artifact_id,
                 result_bundle_artifact_id, diagnostics_artifact_id,
-                validation_report_artifact_id, validation_digest,
-                changed_path_count, execution_error_code, cleanup_error_code) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                validation_report_artifact_id,
+                changed_path_count, execution_error_code, cleanup_error_code) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 verification_id,
@@ -640,7 +616,6 @@ class PostgreSQLCodexDelegationRepository:
                 result_bundle.artifact_id.value if result_bundle is not None else None,
                 diagnostics.artifact_id.value if diagnostics is not None else None,
                 artifacts["validation_report"].artifact_id.value,
-                validation.value,
                 changed_path_count,
                 execution_error_code,
                 cleanup_error_code,
@@ -656,15 +631,7 @@ class PostgreSQLCodexDelegationRepository:
         reliability = (
             "inconclusive" if status is CodexVerificationStatus.UNKNOWN else "reliable"
         )
-        observation_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "verification_id": str(verification_id),
-                    "status": status.value,
-                    "validation_digest": validation.value,
-                }
-            )
-        )
+        observation_digest = validation
         await connection.execute(
             """
             INSERT INTO armi.effect_observations (
@@ -705,16 +672,6 @@ class PostgreSQLCodexDelegationRepository:
         verification_status = (
             "inconclusive" if status is CodexVerificationStatus.UNKNOWN else "verified"
         )
-        settlement = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "effect_id": str(snapshot.effect_id),
-                    "verification_id": str(verification_id),
-                    "status": status.value,
-                    "observation_digest": observation_digest.value,
-                }
-            )
-        )
         await connection.execute(
             """
             UPDATE armi.effect_attempts
@@ -735,7 +692,7 @@ class PostgreSQLCodexDelegationRepository:
             """
             UPDATE armi.effects
             SET status=%s, verification_status=%s,
-                current_observation_id=%s, settlement_digest=%s,
+                current_observation_id=%s,
                 settled_at=statement_timestamp()
             WHERE effect_id=%s AND current_attempt_id=%s
             """,
@@ -743,7 +700,6 @@ class PostgreSQLCodexDelegationRepository:
                 effect_status,
                 verification_status,
                 observation_id,
-                settlement.value,
                 snapshot.effect_id,
                 snapshot.attempt_id,
             ),
@@ -830,10 +786,10 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
                 context_party_id, purpose, source_kind, source_ref,
-                source_version, source_digest, eligibility_status,
+                source_version, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_codex_result',
-                'external_evidence',%s,1,%s,'eligible','open',%s,NULL,0)
+                'external_evidence',%s,1,'eligible','open',%s,NULL,0)
             """,
             (
                 opportunity_id,
@@ -842,7 +798,6 @@ class PostgreSQLCodexDelegationRepository:
                 snapshot.scene_id,
                 snapshot.creator_party_id,
                 evidence_id,
-                evidence_ref.content_digest.value,
                 opportunity_id,
             ),
         )
@@ -857,7 +812,7 @@ class PostgreSQLCodexDelegationRepository:
             INSERT INTO armi.codex_result_sources (
                 codex_result_source_id, codex_verification_id,
                 evidence_id, opportunity_id, result_kind,
-                evidence_artifact_id, evidence_digest) VALUES (%s,%s,%s,%s,%s,%s,%s)
+                evidence_artifact_id) VALUES (%s,%s,%s,%s,%s,%s)
             """,
             (
                 result_source_id,
@@ -866,7 +821,6 @@ class PostgreSQLCodexDelegationRepository:
                 opportunity_id,
                 result_kind.value,
                 evidence_ref.artifact_id.value,
-                evidence_ref.content_digest.value,
             ),
         )
         await uow.audit.append(
@@ -882,7 +836,6 @@ class PostgreSQLCodexDelegationRepository:
                 snapshot.trace_id,
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.subject_id),
-                response_digest=settlement,
             )
         )
         return verification_id
@@ -908,21 +861,13 @@ async def _require_artifact(connection: Any, artifact_id: UUID, digest: Digest) 
 
 
 async def _insert_task_source(connection: Any, draft: CodexTaskSourceDraft) -> None:
-    scope_digest = Digest.from_bytes(
-        rfc8785.dumps(
-            {
-                "allowed_paths": list(draft.allowed_paths),
-                "forbidden_paths": list(draft.forbidden_paths),
-            }
-        )
-    )
     await connection.execute(
         """
         INSERT INTO armi.codex_task_sources (
             codex_task_source_id, subject_id, source_bundle_artifact_id,
             source_bundle_digest, source_tree_digest, task_manifest_artifact_id,
-            task_manifest_digest, path_scope_digest, validator_id,
-            deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            task_manifest_digest, validator_id,
+            deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
         (
             draft.task_source_id.value,
@@ -932,7 +877,6 @@ async def _insert_task_source(connection: Any, draft: CodexTaskSourceDraft) -> N
             draft.source_tree_digest.value,
             draft.manifest_artifact_id.value,
             draft.manifest_digest.value,
-            scope_digest.value,
             draft.validator_id,
             draft.deadline_seconds,
             draft.trace_id.value,

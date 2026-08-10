@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Digest, Instant
+from armi_kernel.contracts import Instant
 
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
@@ -55,7 +55,6 @@ class CreatorLifeMaterialItem:
     head_version: int
     title: str
     body: str
-    body_digest: Digest
     metadata: tuple[tuple[str, str], ...]
     material_status: LifeMaterialStatus
     privacy_status: LifeMaterialPrivacyStatus
@@ -89,8 +88,6 @@ class CreatorLifeMaterialItem:
             or not 1 <= len(encoded_body) <= 65_536
             or not self.body.strip()
             or "\x00" in self.body
-            or type(self.body_digest) is not Digest
-            or Digest.from_bytes(encoded_body) != self.body_digest
             or not _valid_metadata(self.metadata)
             or type(self.material_status) is not LifeMaterialStatus
             or self.privacy_status is not LifeMaterialPrivacyStatus.CREATOR_VISIBLE
@@ -133,7 +130,6 @@ class CandidateLifeMaterialDraft:
     expected_head_version: int
     title: str
     body_bytes: bytes | None
-    body_digest: Digest
     metadata: tuple[tuple[str, str], ...]
     material_status: LifeMaterialStatus
     privacy_status: str = "creator_visible"
@@ -180,11 +176,6 @@ class CandidateLifeMaterialDraft:
                     or not 1 <= len(self.body_bytes) <= 65_536
                     or b"\x00" in self.body_bytes
                 )
-            )
-            or type(self.body_digest) is not Digest
-            or (
-                self.body_bytes is not None
-                and Digest.from_bytes(self.body_bytes) != self.body_digest
             )
             or type(self.metadata) is not tuple
             or len(self.metadata) > 32

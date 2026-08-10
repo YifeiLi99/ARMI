@@ -16,7 +16,6 @@ from armi_kernel.application import (
     ContextSection,
     ContextViolation,
 )
-from armi_kernel.contracts import Digest
 
 CONTEXT_MANIFEST_VERSION = "armi.context-manifest.v1"
 CONTEXT_POLICY_VERSION = "armi.context-policy.v3"
@@ -111,20 +110,17 @@ class DeterministicContextCompiler(ContextCompiler):
             )
             compiled_bytes = _compiled_bytes(request, results)
 
-        compiled = CompiledContext(compiled_bytes, Digest.from_bytes(compiled_bytes))
+        compiled = CompiledContext(compiled_bytes)
         manifest = {
             "schema_version": CONTEXT_MANIFEST_VERSION,
             "policy": {
                 "schema_version": CONTEXT_POLICY_VERSION,
-                "digest": request.policy_digest.value,
+                "version": request.policy_version,
                 "max_items": request.max_items,
                 "max_item_bytes": request.max_item_bytes,
                 "max_compiled_bytes": request.max_compiled_bytes,
             },
-            "mechanism": {
-                "identity": request.mechanism_identity,
-                "config_digest": request.mechanism_config_digest.value,
-            },
+            "mechanism": {"identity": request.mechanism_identity},
             "snapshot": {
                 "purpose": request.purpose.value,
                 "subject_id": str(request.subject_id),
@@ -132,7 +128,6 @@ class DeterministicContextCompiler(ContextCompiler):
                 "state_epoch": request.base_state_epoch,
                 "bundle_activation_id": str(request.bundle_activation_id),
             },
-            "compiled_digest": compiled.digest.value,
             "items": [_manifest_item(result) for result in results],
         }
         if request.scene_id is not None:
@@ -142,7 +137,6 @@ class DeterministicContextCompiler(ContextCompiler):
         manifest_bytes = rfc8785.dumps(cast(Any, manifest)) + b"\n"
         return ContextResult(
             manifest_bytes,
-            Digest.from_bytes(manifest_bytes),
             compiled,
             tuple(results),
         )
@@ -165,12 +159,10 @@ def _sort_key(candidate: ContextItemCandidate) -> tuple[object, ...]:
 def _source(candidate: ContextItemCandidate) -> dict[str, object]:
     source: dict[str, object] = {"kind": candidate.source.kind}
     if candidate.source.reference is not None:
-        assert candidate.source.digest is not None
         source.update(
             {
                 "reference": str(candidate.source.reference),
                 "version": candidate.source.version,
-                "digest": candidate.source.digest.value,
             }
         )
     return source

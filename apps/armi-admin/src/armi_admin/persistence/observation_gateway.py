@@ -159,7 +159,7 @@ class AdminObservationGateway:
         )
         rows = self._all(
             "SELECT head.component_kind, head.component_version, "
-            "revision.semantic_digest, revision.privacy_scope"
+            "revision.privacy_scope"
             + (", revision.semantic_payload" if private else "")
             + " FROM armi.subject_component_heads AS head "
             "JOIN armi.subject_component_revisions AS revision "
@@ -169,7 +169,6 @@ class AdminObservationGateway:
         component_columns = (
             "component_kind",
             "component_version",
-            "semantic_digest",
             "privacy_scope",
             *(("payload",) if private else ()),
         )
@@ -190,8 +189,7 @@ class AdminObservationGateway:
                 "material.material_kind, material.head_version, material.created_at, "
                 "material.updated_at, material.deleted_at, revision.revision_no, "
                 "revision.title, revision.metadata, revision.material_status, "
-                "revision.privacy_status, revision.semantic_digest, "
-                "revision.body_digest, artifact.artifact_id, "
+                "revision.privacy_status, revision.body_digest, artifact.artifact_id, "
                 "artifact.content_digest, artifact.media_type, artifact.byte_size, "
                 "artifact.storage_locator, artifact.logical_kind, "
                 "artifact.privacy_scope, artifact.integrity_status "
@@ -233,35 +231,34 @@ class AdminObservationGateway:
             "metadata": dict(cast(dict[str, str], raw_metadata)),
             "material_status": _safe(row[10]),
             "privacy_status": _safe(row[11]),
-            "semantic_digest": _safe(row[12]),
-            "body_digest": _safe(row[13]),
-            "artifact_id": _safe(row[14]),
+            "body_digest": _safe(row[12]),
+            "artifact_id": _safe(row[13]),
             "deleted_at": _safe(row[6]),
             "created_at": _safe(row[4]),
             "updated_at": _safe(row[5]),
         }
 
     def _read_material_body(self, row: tuple[Any, ...]) -> str:
-        content_digest = str(row[15])
+        content_digest = str(row[14])
         if (
             len(content_digest) != 71
             or not content_digest.startswith("sha256:")
             or any(
                 character not in "0123456789abcdef" for character in content_digest[7:]
             )
-            or str(row[16]) != "application/json"
-            or type(row[17]) is not int
-            or not 1 <= row[17] <= 131_072
-            or str(row[19]) != "life.material.content"
-            or str(row[20]) != "private"
-            or str(row[21]) != "verified"
+            or str(row[15]) != "application/json"
+            or type(row[16]) is not int
+            or not 1 <= row[16] <= 131_072
+            or str(row[18]) != "life.material.content"
+            or str(row[19]) != "private"
+            or str(row[20]) != "verified"
         ):
             raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
         digest_hex = content_digest[7:]
         expected_locator = (
             f"objects/sha256/{digest_hex[:2]}/{digest_hex[2:4]}/{digest_hex}"
         )
-        if str(row[18]) != expected_locator:
+        if str(row[17]) != expected_locator:
             raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
         path = self._artifact_root / Path(expected_locator)
         resolved_root = self._artifact_root.resolve(strict=True)
@@ -292,7 +289,7 @@ class AdminObservationGateway:
             path.is_symlink()
             or not path.is_file()
             or metadata.st_nlink != 1
-            or metadata.st_size != row[17]
+            or metadata.st_size != row[16]
             or getattr(metadata, "st_file_attributes", 0)
             & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
         ):
@@ -300,7 +297,7 @@ class AdminObservationGateway:
         with path.open("rb") as stream:
             artifact_bytes = stream.read(131_073)
         if (
-            len(artifact_bytes) != row[17]
+            len(artifact_bytes) != row[16]
             or hashlib.sha256(artifact_bytes).hexdigest() != digest_hex
         ):
             raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
@@ -326,7 +323,7 @@ class AdminObservationGateway:
                 ).encode("utf-8")
                 != artifact_bytes
                 or f"sha256:{hashlib.sha256(body.encode('utf-8')).hexdigest()}"
-                != str(row[13])
+                != str(row[12])
             ):
                 raise ValueError
         except UnicodeError, ValueError, json.JSONDecodeError:

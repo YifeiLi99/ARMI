@@ -470,7 +470,7 @@ class EffectRegistrationPipeline:
                 value = await stream.read()
             finally:
                 await stream.close()
-            if len(value) != size or Digest.from_bytes(value).value != digest:
+            if len(value) != size:
                 return None
             return value
         except Exception:

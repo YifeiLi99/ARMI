@@ -78,9 +78,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
         "Creator 已结束本轮交流,并明确表示她现在需要安静休息、不期待收到回复。"
         "当前没有待回答的问题或需要更新的事实。"
     )
-    evidence_digest = Digest.from_bytes(evidence_text.encode("utf-8"))
-    scene_digest = Digest.from_bytes(b"default-creator-scene")
-    purpose_digest = Digest.from_bytes(b"formal-no-action-conformance-v1")
     context_bytes = rfc8785.dumps(
         cast(
             Any,
@@ -97,7 +94,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
                                     "kind": "response_admission_policy",
                                     "reference": "formal-no-action-conformance-v1",
                                     "version": 1,
-                                    "digest": purpose_digest.value,
                                 },
                                 "trust": "policy",
                                 "privacy": "internal",
@@ -131,7 +127,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
                                     "kind": "creator_input",
                                     "reference": str(evidence_id),
                                     "version": 1,
-                                    "digest": evidence_digest.value,
                                 },
                                 "trust": "external_claim",
                                 "privacy": "private",
@@ -148,7 +143,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
                                     "kind": "interaction_scene",
                                     "reference": str(scene_id),
                                     "version": 1,
-                                    "digest": scene_digest.value,
                                 },
                                 "trust": "runtime_authority",
                                 "privacy": "private",
@@ -214,7 +208,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
         raise RuntimeError(invocation.error_code or "MODEL-LIVE-FAILED")
     if (
         invocation.response_bytes is None
-        or invocation.response_digest is None
         or invocation.usage is None
         or invocation.provider_request_id is None
         or invocation.provider_model_id is None
@@ -247,7 +240,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
                 "output_constraint",
                 uuid7(),
                 1,
-                purpose_digest,
                 "policy",
                 "internal",
             ),
@@ -257,7 +249,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
                 "current_evidence",
                 evidence_id,
                 1,
-                evidence_digest,
                 "external_claim",
                 "private",
             ),
@@ -267,7 +258,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
                 "current_scene",
                 scene_id,
                 1,
-                scene_digest,
                 "runtime_authority",
                 "private",
             ),

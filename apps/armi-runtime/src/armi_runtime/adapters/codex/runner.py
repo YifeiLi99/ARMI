@@ -28,7 +28,6 @@ from armi_kernel.application import (
     CredentialPort,
     CredentialPurpose,
 )
-from armi_kernel.contracts import Digest
 from openai_codex import ApprovalMode, AsyncCodex, CodexConfig, Sandbox
 
 from .sdk_codec import SdkTurnEvidence, normalize_sdk_turn, validate_final_output
@@ -43,9 +42,6 @@ from .workspace import (
 
 _PURPOSE = CredentialPurpose("codex.runner.auth")
 _SDK_VERSION: Final = "0.144.4"
-_SDK_IDENTITY = Digest.from_bytes(
-    b"openai-codex==0.144.4\nopenai-codex-cli-bin==0.144.4\n"
-)
 _PLATFORM_STATE = "runner-state.json"
 _PERSISTENT_PLATFORM_CHILDREN = frozenset({".sandbox", _PLATFORM_STATE})
 
@@ -141,11 +137,10 @@ class IsolatedCodexRunner(CodexRunnerPort):
                 execution_id=task.execution_id,
                 status=CodexRunStatus.SUCCEEDED,
                 model_id=_model(task),
-                tool_digest=_SDK_IDENTITY,
+                sdk_version=_SDK_VERSION,
                 source_tree_digest=before.digest,
                 final_tree_digest=after.digest,
                 patch_digest=patch_digest(before, after, paths),
-                output_digest=Digest.from_bytes(evidence.final_response),
                 usage=evidence.usage,
                 modified_file_count=len(paths),
                 validation_passed=True,
@@ -447,12 +442,6 @@ def _custody_artifacts(
                 "schema_version": "armi.codex-diagnostics.v1",
                 "commands": [
                     {
-                        "command_digest": Digest.from_bytes(
-                            command.command.encode("utf-8")
-                        ).value,
-                        "output_digest": Digest.from_bytes(
-                            command.output.encode("utf-8")
-                        ).value,
                         "exit_code": command.exit_code,
                         "status": command.status,
                     }

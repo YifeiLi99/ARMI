@@ -207,7 +207,6 @@ class CodexVerificationResult:
     result_bundle_artifact_id: ArtifactId | None
     diagnostics_artifact_id: ArtifactId | None
     validation_report_artifact_id: ArtifactId | None
-    validation_digest: Digest
     changed_paths: tuple[str, ...]
     completed_at: Instant
     execution_error_code: str | None = None
@@ -220,7 +219,6 @@ class CodexVerificationResult:
             or type(self.status) is not CodexVerificationStatus
             or type(self.cleanup_status) is not CodexCleanupStatus
             or type(self.source_tree_digest) is not Digest
-            or type(self.validation_digest) is not Digest
             or type(self.completed_at) is not Instant
         ):
             raise CodexDelegationViolation("CODEX-VERIFICATION-RESULT")
@@ -249,7 +247,6 @@ class CodexResultEvidence:
     opportunity_id: UUID
     kind: CodexResultEvidenceKind
     evidence_artifact_id: ArtifactId
-    evidence_digest: Digest
 
     def __post_init__(self) -> None:
         if (
@@ -258,7 +255,6 @@ class CodexResultEvidence:
             or type(self.effect_id) is not EffectId
             or type(self.kind) is not CodexResultEvidenceKind
             or type(self.evidence_artifact_id) is not ArtifactId
-            or type(self.evidence_digest) is not Digest
         ):
             raise CodexDelegationViolation("CODEX-RESULT-EVIDENCE")
         _uuid7(self.evidence_id, "CODEX-RESULT-EVIDENCE")

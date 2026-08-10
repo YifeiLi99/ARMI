@@ -33,7 +33,6 @@ from armi_kernel.application import (
     WebObservationViolation,
     WebResearchViolation,
 )
-from armi_kernel.contracts import Digest
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
@@ -81,10 +80,8 @@ from .candidate_pipeline import (
     CandidateValidationPipeline,
     build_candidate_validation_pipeline,
 )
-from .candidate_validator import CANDIDATE_POLICY_VERSION
 from .codex_pipeline import CodexEffectPipeline
 from .configuration import ConfigurationViolation
-from .context_compiler import CONTEXT_POLICY_VERSION
 from .context_pipeline import ContextPipeline, build_context_pipeline
 from .creator_exports import CreatorExportService, build_creator_export_service
 from .creator_input import (
@@ -291,7 +288,6 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
                     conninfo,
                     composition_digest=digests["composition_digest"],
                     birth_contract_digest=digests["birth_contract_digest"],
-                    creator_asset_digest=digests["creator_asset_manifest_digest"],
                 )
 
             return handle.consume(invoke)
@@ -1167,9 +1163,6 @@ def compose_context_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
-                    policy_digest=Digest.from_bytes(
-                        CONTEXT_POLICY_VERSION.encode("ascii")
-                    ),
                     web_search_active=prepared.composition.web_search_active,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1384,9 +1377,6 @@ def compose_candidate_validation_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
-                    policy_digest=Digest.from_bytes(
-                        CANDIDATE_POLICY_VERSION.encode("ascii")
-                    ),
                     web_search_active=prepared.composition.web_search_active,
                     wakeups=wakeups,
                     diagnostic=diagnostic,

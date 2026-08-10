@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -31,7 +30,6 @@ from armi_kernel.application import (
     CandidateOwner,
     CandidateSleepDecisionDraft,
     CapabilityRequestDraft,
-    CodexDelegatedWorkScope,
     CodexDelegationDraft,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
@@ -90,7 +88,6 @@ class SubjectCommitSnapshot:
     creator_party_id: UUID | None
     other_party_id: UUID | None
     change_set_artifact: ArtifactRef
-    change_set_digest: Digest
     base_subject_version: int
     base_state_epoch: int
     context_digest: Digest
@@ -99,7 +96,6 @@ class SubjectCommitSnapshot:
     source_kind: str
     source_ref: UUID
     source_version: int
-    source_digest: Digest
     source_activity_id: UUID | None
 
 
@@ -337,7 +333,6 @@ class PostgreSQLSubjectCommitRepository:
                     scene.scene_key,
                     opportunity.context_party_id,
                     validation.change_set_artifact_id,
-                    validation.change_set_digest,
                     validation.base_subject_version,
                     validation.base_state_epoch,
                     validation.context_digest,
@@ -346,7 +341,6 @@ class PostgreSQLSubjectCommitRepository:
                     opportunity.source_kind,
                     opportunity.source_ref,
                     opportunity.source_version,
-                    opportunity.source_digest,
                     opportunity.activity_id,
                     opportunity.context_party_id
                 FROM armi.durable_work AS work
@@ -368,7 +362,6 @@ class PostgreSQLSubjectCommitRepository:
                   AND episode.status = 'candidate_validated'
                   AND validation.validation_status IN ('accepted', 'partially_accepted')
                   AND validation.change_set_artifact_id IS NOT NULL
-                  AND validation.change_set_digest IS NOT NULL
                   AND NOT EXISTS (
                       SELECT 1
                       FROM armi.cognitive_candidate_applications AS application
@@ -398,19 +391,17 @@ class PostgreSQLSubjectCommitRepository:
             row[9],
             None if row[10] is None else str(row[10]),
             row[11],
-            row[24],
+            row[22],
             await _artifact_ref(connection, row[12]),
-            Digest(str(row[13])),
+            int(row[13]),
             int(row[14]),
-            int(row[15]),
-            Digest(str(row[16])),
-            TraceId(str(row[17])),
+            Digest(str(row[15])),
+            TraceId(str(row[16])),
+            str(row[17]),
             str(row[18]),
-            str(row[19]),
-            row[20],
-            int(row[21]),
-            Digest(str(row[22])),
-            row[23],
+            row[19],
+            int(row[20]),
+            row[21],
         )
 
     async def existing_result(
@@ -424,7 +415,7 @@ class PostgreSQLSubjectCommitRepository:
             await connection.execute(
                 """
                 SELECT candidate_application_id, resolution,
-                       completion_digest, subject_commit_id,
+                       subject_commit_id,
                        observed_subject_version, successor_opportunity_id
                 FROM armi.cognitive_candidate_applications
                 WHERE candidate_validation_id = %s
@@ -435,14 +426,13 @@ class PostgreSQLSubjectCommitRepository:
         if row is None:
             return None
         status = CandidateApplicationStatus(str(row[1]))
-        commit_id = SubjectCommitId(row[3]) if row[3] is not None else None
+        commit_id = SubjectCommitId(row[2]) if row[2] is not None else None
         return SubjectCommitResult(
             CandidateApplicationId(row[0]),
             status,
-            Digest(str(row[2])),
             commit_id,
-            int(row[4]) if commit_id is not None else None,
-            row[5],
+            int(row[3]) if commit_id is not None else None,
+            row[4],
         )
 
     async def settle(
@@ -452,10 +442,10 @@ class PostgreSQLSubjectCommitRepository:
         lease: WorkLease,
         snapshot: SubjectCommitSnapshot,
         change_set: SubjectChangeSet,
-        response_artifact_id: ArtifactId | None = None,
-        research_artifact_id: ArtifactId | None = None,
-        material_artifact_ids: dict[str, ArtifactId] | None = None,
-        prompt_artifact_ids: dict[str, ArtifactId] | None = None,
+        response_artifact: ArtifactRef | None = None,
+        research_artifact: ArtifactRef | None = None,
+        material_artifacts: dict[str, ArtifactRef] | None = None,
+        prompt_artifacts: dict[str, ArtifactRef] | None = None,
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await _assert_lease(connection, lease, snapshot.episode_id)
@@ -463,8 +453,7 @@ class PostgreSQLSubjectCommitRepository:
         if fence is None:
             raise SubjectCommitViolation("SUBJECT-FENCE")
         if (
-            change_set.digest != snapshot.change_set_digest
-            or change_set.subject_id != snapshot.subject_id
+            change_set.subject_id != snapshot.subject_id
             or change_set.generation_id != snapshot.generation_id
             or change_set.episode_id != snapshot.episode_id
             or change_set.bundle_activation_id != snapshot.activation_id
@@ -550,10 +539,10 @@ class PostgreSQLSubjectCommitRepository:
             lease=lease,
             snapshot=snapshot,
             change_set=change_set,
-            response_artifact_id=response_artifact_id,
-            research_artifact_id=research_artifact_id,
-            material_artifact_ids=material_artifact_ids or {},
-            prompt_artifact_ids=prompt_artifact_ids or {},
+            response_artifact=response_artifact,
+            research_artifact=research_artifact,
+            material_artifacts=material_artifacts or {},
+            prompt_artifacts=prompt_artifacts or {},
         )
 
     async def _settle_current(
@@ -563,10 +552,10 @@ class PostgreSQLSubjectCommitRepository:
         lease: WorkLease,
         snapshot: SubjectCommitSnapshot,
         change_set: SubjectChangeSet,
-        response_artifact_id: ArtifactId | None,
-        research_artifact_id: ArtifactId | None,
-        material_artifact_ids: dict[str, ArtifactId],
-        prompt_artifact_ids: dict[str, ArtifactId],
+        response_artifact: ArtifactRef | None,
+        research_artifact: ArtifactRef | None,
+        material_artifacts: dict[str, ArtifactRef],
+        prompt_artifacts: dict[str, ArtifactRef],
     ) -> SubjectCommitResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         disposition_map = {
@@ -608,9 +597,6 @@ class PostgreSQLSubjectCommitRepository:
 
         commit_id = SubjectCommitId(uuid7())
         new_version = change_set.base_subject_version + 1
-        commit_digest = _completion_digest(
-            "applied", snapshot.validation_id, change_set.digest, new_version
-        )
         fence = unit_of_work.runtime_fence
         assert fence is not None
         await connection.execute(
@@ -619,10 +605,10 @@ class PostgreSQLSubjectCommitRepository:
                 subject_commit_id, candidate_validation_id,
                 cognitive_episode_id, subject_id, life_generation_id,
                 bundle_activation_id, base_subject_version,
-                new_subject_version, base_state_epoch, change_set_digest,
-                commit_digest, runtime_instance_id, fence_token, trace_id) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s)
+                new_subject_version, base_state_epoch,
+                runtime_instance_id, fence_token, trace_id) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s)
             """,
             (
                 commit_id.value,
@@ -634,8 +620,6 @@ class PostgreSQLSubjectCommitRepository:
                 change_set.base_subject_version,
                 new_version,
                 change_set.base_state_epoch,
-                change_set.digest.value,
-                commit_digest.value,
                 fence.runtime_instance_id.value,
                 fence.fence_token,
                 snapshot.trace_id.value,
@@ -785,7 +769,7 @@ class PostgreSQLSubjectCommitRepository:
             generation_id=snapshot.generation_id,
             commit_id=commit_id.value,
             materials=change_set.materials,
-            artifact_ids=material_artifact_ids,
+            artifacts=material_artifacts,
         )
         for material in change_set.materials:
             await unit_of_work.audit.append(
@@ -796,7 +780,6 @@ class PostgreSQLSubjectCommitRepository:
                     "life_material",
                     material.material_id,
                     AuditResultStatus.APPLIED,
-                    change_set.digest,
                 )
             )
 
@@ -822,10 +805,10 @@ class PostgreSQLSubjectCommitRepository:
                     component_revision_id, subject_id, component_kind,
                     component_version, previous_revision_id, origin_kind,
                     origin_ref, subject_commit_id, proposal_ref,
-                    semantic_digest, semantic_payload, privacy_scope
+                    semantic_payload, privacy_scope
                 ) VALUES (
                     %s, %s, %s, %s, %s, 'subject_commit', %s,
-                    %s, %s, %s, %s::jsonb, 'private'
+                    %s, %s, %s::jsonb, 'private'
                 )
                 """,
                 (
@@ -837,7 +820,6 @@ class PostgreSQLSubjectCommitRepository:
                     commit_id.value,
                     commit_id.value,
                     component.proposal_ref,
-                    component.next_state_digest.value,
                     component.canonical_next_state.decode("utf-8"),
                 ),
             )
@@ -869,7 +851,7 @@ class PostgreSQLSubjectCommitRepository:
             subject_id=snapshot.subject_id,
             commit_id=commit_id.value,
             prompts=change_set.prompts,
-            artifact_ids=prompt_artifact_ids,
+            artifacts=prompt_artifacts,
         )
         for prompt in change_set.prompts:
             await unit_of_work.audit.append(
@@ -880,7 +862,6 @@ class PostgreSQLSubjectCommitRepository:
                     "prompt_document",
                     prompt.prompt_document_id,
                     AuditResultStatus.APPLIED,
-                    prompt.content_digest,
                 )
             )
 
@@ -908,14 +889,14 @@ class PostgreSQLSubjectCommitRepository:
             snapshot=snapshot,
             commit_id=commit_id,
             change_set=change_set,
-            response_artifact_id=response_artifact_id,
+            response_artifact=response_artifact,
         )
         await _insert_web_research_intent(
             unit_of_work,
             snapshot=snapshot,
             commit_id=commit_id,
             requests=change_set.web_research_requests,
-            query_artifact_id=research_artifact_id,
+            query_artifact=research_artifact,
         )
         await _insert_exact_life_query_intent(
             unit_of_work,
@@ -958,7 +939,6 @@ class PostgreSQLSubjectCommitRepository:
             lease=lease,
             status=CandidateApplicationStatus.APPLIED,
             observed_version=new_version,
-            completion_digest=commit_digest,
             commit_id=commit_id,
         )
         await _insert_activity_attention_decision(
@@ -1018,13 +998,11 @@ class PostgreSQLSubjectCommitRepository:
                 "subject_commit",
                 commit_id.value,
                 AuditResultStatus.APPLIED,
-                commit_digest,
             )
         )
         return SubjectCommitResult(
             application_id,
             CandidateApplicationStatus.APPLIED,
-            commit_digest,
             commit_id,
             new_version,
         )
@@ -1047,11 +1025,11 @@ class PostgreSQLSubjectCommitRepository:
                     creator_party_id, other_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     predecessor_opportunity_id, reconsideration_no,
-                    source_kind, source_ref, source_version, source_digest,
+                    source_kind, source_ref, source_version,
                     activity_id) VALUES (
                     %s, %s, %s, %s, %s, %s, %s,
                     'eligible', 'open', %s, %s, 1,
-                    %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s)
                 """,
                 (
                     successor,
@@ -1066,16 +1044,9 @@ class PostgreSQLSubjectCommitRepository:
                     snapshot.source_kind,
                     snapshot.source_ref,
                     snapshot.source_version,
-                    snapshot.source_digest.value,
                     snapshot.source_activity_id,
                 ),
             )
-        completion = _completion_digest(
-            "stale",
-            snapshot.validation_id,
-            snapshot.change_set_digest,
-            observed_version,
-        )
         application_id = CandidateApplicationId(uuid7())
         await _insert_application(
             connection,
@@ -1085,7 +1056,6 @@ class PostgreSQLSubjectCommitRepository:
             lease=lease,
             status=CandidateApplicationStatus.STALE,
             observed_version=observed_version,
-            completion_digest=completion,
             successor_id=successor,
         )
         await connection.execute(
@@ -1119,13 +1089,11 @@ class PostgreSQLSubjectCommitRepository:
                 "candidate_application",
                 application_id.value,
                 AuditResultStatus.REJECTED,
-                completion,
             )
         )
         return SubjectCommitResult(
             application_id,
             CandidateApplicationStatus.STALE,
-            completion,
             successor_opportunity_id=successor,
         )
 
@@ -1140,12 +1108,6 @@ async def _settle_without_commit(
     change_set: SubjectChangeSet,
 ) -> SubjectCommitResult:
     connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    completion = _completion_digest(
-        status.value,
-        snapshot.validation_id,
-        snapshot.change_set_digest,
-        observed_version,
-    )
     application_id = CandidateApplicationId(uuid7())
     successor_id = await _insert_attention_reconsideration(
         connection,
@@ -1168,7 +1130,6 @@ async def _settle_without_commit(
         lease=lease,
         status=status,
         observed_version=observed_version,
-        completion_digest=completion,
         successor_id=successor_id,
     )
     if snapshot.opportunity_purpose == "consider_other_human_input":
@@ -1206,7 +1167,6 @@ async def _settle_without_commit(
             snapshot=snapshot,
             application_id=application_id,
             change_set=change_set,
-            completion=completion,
         )
     await _finish_episode_and_work(
         unit_of_work,
@@ -1233,13 +1193,11 @@ async def _settle_without_commit(
             "candidate_application",
             application_id.value,
             audit_status,
-            completion,
         )
     )
     return SubjectCommitResult(
         application_id,
         status,
-        completion,
         successor_opportunity_id=successor_id,
     )
 
@@ -1291,12 +1249,6 @@ async def _settle_data_rights_blocked(
 ) -> SubjectCommitResult:
     connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
     status = CandidateApplicationStatus.NO_ACTION
-    completion = _completion_digest(
-        "data_rights_blocked",
-        snapshot.validation_id,
-        snapshot.change_set_digest,
-        observed_version,
-    )
     application_id = CandidateApplicationId(uuid7())
     await _insert_application(
         connection,
@@ -1306,7 +1258,6 @@ async def _settle_data_rights_blocked(
         lease=lease,
         status=status,
         observed_version=observed_version,
-        completion_digest=completion,
         successor_id=None,
     )
     if snapshot.opportunity_purpose == "consider_other_human_input":
@@ -1331,10 +1282,9 @@ async def _settle_data_rights_blocked(
             "candidate_application",
             application_id.value,
             AuditResultStatus.REJECTED,
-            completion,
         )
     )
-    return SubjectCommitResult(application_id, status, completion)
+    return SubjectCommitResult(application_id, status)
 
 
 async def _finish_episode_and_work(
@@ -1369,23 +1319,11 @@ async def _finish_episode_and_work(
         CandidateApplicationStatus.DECLINED,
         CandidateApplicationStatus.NO_ACTION,
     }:
-        completion = await (
-            await connection.execute(
-                """
-                SELECT completion_digest
-                FROM armi.cognitive_candidate_applications
-                WHERE candidate_application_id=%s
-                """,
-                (result_ref,),
-            )
-        ).fetchone()
-        if completion is None:
-            raise SubjectCommitViolation("SUBJECT-CODEX-RESULT-LINK")
         await connection.execute(
             """
             UPDATE armi.action_operations AS operation
             SET phase='terminal', outcome='completed',
-                completion_digest=%s, completed_at=statement_timestamp()
+                completed_at=statement_timestamp()
             FROM armi.codex_result_sources AS source
             JOIN armi.codex_verification_results AS verification
               ON verification.codex_verification_id=source.codex_verification_id
@@ -1394,7 +1332,7 @@ async def _finish_episode_and_work(
               AND operation.phase='result_pending'
               AND operation.outcome IS NULL
             """,
-            (str(completion[0]), snapshot.opportunity_id),
+            (snapshot.opportunity_id,),
         )
     await unit_of_work.work.complete(
         lease, WorkResultRef("candidate_application", result_ref)
@@ -1410,7 +1348,6 @@ async def _insert_application(
     lease: WorkLease,
     status: CandidateApplicationStatus,
     observed_version: int,
-    completion_digest: Digest,
     commit_id: SubjectCommitId | None = None,
     successor_id: UUID | None = None,
 ) -> None:
@@ -1422,9 +1359,9 @@ async def _insert_application(
             candidate_application_id, candidate_validation_id,
             cognitive_episode_id, work_id, resolution, subject_commit_id,
             successor_opportunity_id, base_subject_version,
-            observed_subject_version, completion_digest,
+            observed_subject_version,
             runtime_instance_id, fence_token) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             application_id.value,
@@ -1436,7 +1373,6 @@ async def _insert_application(
             successor_id,
             snapshot.base_subject_version,
             observed_version,
-            completion_digest.value,
             fence.runtime_instance_id.value,
             fence.fence_token,
         ),
@@ -2030,11 +1966,10 @@ async def _update_life_focus(
         INSERT INTO armi.subject_component_revisions (
             component_revision_id, subject_id, component_kind,
             component_version, previous_revision_id, origin_kind, origin_ref,
-            subject_commit_id, proposal_ref, semantic_digest,
-            semantic_payload, privacy_scope
+            subject_commit_id, proposal_ref, semantic_payload, privacy_scope
         ) VALUES (
             %s, %s, 'life_mode', %s, %s, 'subject_commit', %s,
-            %s, %s, %s, %s::jsonb, 'private'
+            %s, %s, %s::jsonb, 'private'
         )
         """,
         (
@@ -2045,7 +1980,6 @@ async def _update_life_focus(
             commit_id.value,
             commit_id.value,
             decision.proposal_ref,
-            Digest.from_bytes(canonical).value,
             canonical.decode("utf-8"),
         ),
     )
@@ -2087,10 +2021,10 @@ async def _insert_attention_reconsideration(
                 creator_party_id, purpose, eligibility_status,
                 current_disposition, available_after, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no, source_kind,
-                source_ref, source_version, source_digest, activity_id) VALUES (
+                source_ref, source_version, activity_id) VALUES (
                 %s, NULL, %s, NULL, NULL, 'consider_activity_attention',
                 'eligible', 'open', statement_timestamp() + interval '60 seconds',
-                %s, %s, 1, 'activity_revision', %s, %s, %s, %s)
+                %s, %s, 1, 'activity_revision', %s, %s, %s)
             ON CONFLICT (predecessor_opportunity_id) DO NOTHING
             RETURNING opportunity_id
             """,
@@ -2101,7 +2035,6 @@ async def _insert_attention_reconsideration(
                 snapshot.opportunity_id,
                 snapshot.source_ref,
                 snapshot.source_version,
-                snapshot.source_digest.value,
                 snapshot.source_activity_id,
             ),
         )
@@ -2123,7 +2056,6 @@ async def _sleep_decision_is_stale(
         snapshot.opportunity_purpose != "consider_sleep"
         or snapshot.source_kind != "maintenance_window"
         or snapshot.source_ref != decision.cycle_anchor_ref
-        or snapshot.source_digest != decision.source_digest
     ):
         return True
     row = await (
@@ -2218,12 +2150,12 @@ async def _insert_sleep_reconsideration(
                 current_disposition, available_after, expires_at,
                 root_opportunity_id, predecessor_opportunity_id,
                 reconsideration_no, source_kind, source_ref, source_version,
-                source_digest, activity_id
+                activity_id
             )
             SELECT %s, NULL, subject_id, NULL, NULL, purpose, 'eligible',
                    'open', statement_timestamp() + interval '1 hour', expires_at,
                    root_opportunity_id, opportunity_id, 1, source_kind,
-                   source_ref, source_version, source_digest, NULL
+                   source_ref, source_version, NULL
             FROM armi.opportunities
             WHERE opportunity_id = %s
               AND statement_timestamp() + interval '1 hour' < expires_at
@@ -2260,8 +2192,9 @@ async def _insert_sleep_decision(
         INSERT INTO armi.sleep_decisions (
             sleep_decision_id, opportunity_id, cognitive_episode_id,
             candidate_validation_id, candidate_application_id, subject_id,
-            life_generation_id, cycle_anchor_ref, source_digest,
-            decision_kind, review_not_before) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            life_generation_id, cycle_anchor_ref,
+            decision_kind, review_not_before) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             decision_id,
@@ -2272,7 +2205,6 @@ async def _insert_sleep_decision(
             snapshot.subject_id,
             snapshot.generation_id,
             decision.cycle_anchor_ref,
-            decision.source_digest.value,
             decision.decision_kind.value,
             review_at,
         ),
@@ -2298,9 +2230,9 @@ async def _insert_sleep_decision(
         INSERT INTO armi.maintenance_sessions (
             maintenance_session_id, subject_id, life_generation_id,
             origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
-            consideration_at, deadline_at, schedule_digest, trigger_kind,
+            consideration_at, deadline_at, trigger_kind,
             sleep_decision_id, started_subject_version, started_state_epoch,
-            current_revision_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+            current_revision_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
                   'subject_choice', %s, %s, %s, %s)
         """,
         (
@@ -2312,7 +2244,6 @@ async def _insert_sleep_decision(
             decision.cycle_anchor_ref,
             window[0],
             window[1],
-            decision.source_digest.value,
             decision_id,
             resulting_subject_version,
             snapshot.base_state_epoch,
@@ -2355,8 +2286,9 @@ async def _insert_activity_attention_decision(
             activity_decision_id, decision_source, opportunity_id, cognitive_episode_id,
             candidate_validation_id, candidate_application_id, activity_id,
             expected_revision_id, expected_head_version,
-            resource_snapshot_digest, decision_kind, result_revision_id,
-            review_not_before) VALUES (%s, 'attention', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            decision_kind, result_revision_id,
+            review_not_before) VALUES (
+            %s, 'attention', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             uuid7(),
@@ -2367,7 +2299,6 @@ async def _insert_activity_attention_decision(
             decision.activity_id,
             decision.current_revision_id,
             decision.expected_head_version,
-            decision.resource_snapshot_digest.value,
             decision.decision_kind.value,
             result_revision_id,
             review_not_before,
@@ -2477,8 +2408,9 @@ async def _insert_activity_internal_work_decision(
             activity_decision_id, decision_source, opportunity_id, cognitive_episode_id,
             candidate_validation_id, candidate_application_id, activity_id,
             expected_revision_id, expected_head_version,
-            resource_snapshot_digest, decision_kind, result_revision_id,
-            output_material_id) VALUES (%s, 'internal_work', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            decision_kind, result_revision_id,
+            output_material_id) VALUES (
+            %s, 'internal_work', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             uuid7(),
@@ -2489,7 +2421,6 @@ async def _insert_activity_internal_work_decision(
             decision.activity_id,
             decision.current_revision_id,
             decision.expected_head_version,
-            decision.resource_snapshot_digest.value,
             outcome,
             result_revision_id,
             None if not materials else materials[0].material_id,
@@ -2550,18 +2481,6 @@ async def _insert_capability_requests(
                 scope.max_uses,
                 None,
             )
-        request_value = {
-            "schema_version": "armi.capability-request.v1",
-            "subject_commit_id": str(commit_id.value),
-            "proposal_ref": draft.proposal_ref,
-            "subject_id": str(snapshot.subject_id),
-            "scene_id": str(snapshot.scene_id),
-            "creator_party_id": str(snapshot.creator_party_id),
-            "capability_kind": draft.capability.value,
-            "operation": draft.operation.value,
-            "scope": json.loads(rfc8785.dumps(cast(Any, _scope_wire(scope)))),
-        }
-        request_digest = Digest.from_bytes(rfc8785.dumps(cast(Any, request_value)))
         inserted = await (
             await connection.execute(
                 """
@@ -2571,10 +2490,9 @@ async def _insert_capability_requests(
                 capability_id, capability_kind, operation_class,
                 audience_scope, data_scope, purpose, workspace_scope,
                 artifact_scope, network_access, requested_valid_for_seconds,
-                requested_max_uses, requested_max_payload_bytes,
-                request_digest) VALUES (
+                requested_max_uses, requested_max_payload_bytes) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (subject_id, capability_kind, operation_class)
             WHERE capability_kind = 'codex.delegated-work'
               AND current_status IN ('pending', 'granted', 'limited')
@@ -2592,7 +2510,6 @@ async def _insert_capability_requests(
                     draft.capability.value,
                     draft.operation.value,
                     *columns,
-                    request_digest.value,
                 ),
             )
         ).fetchone()
@@ -2633,7 +2550,6 @@ async def _insert_capability_requests(
                 "capability_request",
                 request_id,
                 AuditResultStatus.APPLIED,
-                request_digest,
             )
         )
         if isinstance(scope, CreatorSceneReplyScope):
@@ -2665,7 +2581,6 @@ async def _grant_local_creator_reply(
     now = now_row[0]
     grant_id = uuid7()
     decision_id = uuid7()
-    scope_digest = Digest.from_bytes(rfc8785.dumps(cast(Any, _scope_wire(scope))))
     command_digest = Digest.from_bytes(
         rfc8785.dumps(
             cast(
@@ -2686,11 +2601,10 @@ async def _grant_local_creator_reply(
             capability_id, subject_id, interaction_scene_id,
             operation_class, audience_scope, data_scope, purpose,
             workspace_scope, artifact_scope, network_access,
-            valid_from, valid_until, max_uses, max_payload_bytes,
-            scope_digest) VALUES (
+            valid_from, valid_until, max_uses, max_payload_bytes) VALUES (
             %s, %s, %s, %s, %s, %s, 'send', 'creator',
             'creator_visible_response', 'respond_to_creator',
-            NULL, NULL, NULL, %s, %s, %s, %s, %s)
+            NULL, NULL, NULL, %s, %s, %s, %s)
         """,
         (
             grant_id,
@@ -2703,7 +2617,6 @@ async def _grant_local_creator_reply(
             now + timedelta(seconds=scope.valid_for_seconds),
             scope.max_uses,
             scope.max_payload_bytes,
-            scope_digest.value,
         ),
     )
     await connection.execute(
@@ -2724,8 +2637,8 @@ async def _grant_local_creator_reply(
             capability_decision_id, capability_request_id,
             creator_party_id, expected_request_version,
             resulting_request_version, decision_kind, command_digest,
-            scope_digest, reason_code) VALUES (
-            %s, %s, %s, 1, 2, 'grant', %s, %s,
+            reason_code) VALUES (
+            %s, %s, %s, 1, 2, 'grant', %s,
             'same_scene_creator_conversation')
         """,
         (
@@ -2733,7 +2646,6 @@ async def _grant_local_creator_reply(
             request_id,
             snapshot.creator_party_id,
             command_digest.value,
-            scope_digest.value,
         ),
     )
     await unit_of_work.audit.append(
@@ -2744,7 +2656,6 @@ async def _grant_local_creator_reply(
             "capability_request",
             request_id,
             AuditResultStatus.APPLIED,
-            command_digest,
         )
     )
 
@@ -2755,7 +2666,7 @@ async def _insert_response_intent(
     snapshot: SubjectCommitSnapshot,
     commit_id: SubjectCommitId,
     change_set: SubjectChangeSet,
-    response_artifact_id: ArtifactId | None,
+    response_artifact: ArtifactRef | None,
 ) -> None:
     other_replies = tuple(
         item
@@ -2775,7 +2686,7 @@ async def _insert_response_intent(
                 commit_id=commit_id,
                 replies=other_replies,
                 endings=endings,
-                response_artifact_id=response_artifact_id,
+                response_artifact=response_artifact,
             )
         else:
             await _insert_other_human_change_terminal_decision(
@@ -2783,7 +2694,7 @@ async def _insert_response_intent(
                 snapshot=snapshot,
                 commit_id=commit_id,
                 change_set=change_set,
-                response_artifact_id=response_artifact_id,
+                response_artifact=response_artifact,
             )
         return
     replies = tuple(
@@ -2792,10 +2703,10 @@ async def _insert_response_intent(
         if isinstance(item, CreatorReplyDraft)
     )
     if not replies:
-        if response_artifact_id is not None:
+        if response_artifact is not None:
             raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
         return
-    if len(replies) != 1 or response_artifact_id is None:
+    if len(replies) != 1 or response_artifact is None:
         raise SubjectCommitViolation("SUBJECT-RESPONSE-COUNT")
     reply = replies[0]
     if (
@@ -2841,7 +2752,7 @@ async def _insert_response_intent(
         snapshot=snapshot,
         commit_id=commit_id,
         reply=reply,
-        response_artifact_id=response_artifact_id,
+        response_artifact=response_artifact,
         action_id=action_id,
         revision_id=revision_id,
     )
@@ -2853,7 +2764,7 @@ async def _insert_other_human_change_terminal_decision(
     snapshot: SubjectCommitSnapshot,
     commit_id: SubjectCommitId,
     change_set: SubjectChangeSet,
-    response_artifact_id: ArtifactId | None,
+    response_artifact: ArtifactRef | None,
 ) -> None:
     no_actions = tuple(
         item
@@ -2864,7 +2775,7 @@ async def _insert_other_human_change_terminal_decision(
         snapshot.scene_id is None
         or snapshot.other_party_id is None
         or snapshot.creator_party_id is not None
-        or response_artifact_id is not None
+        or response_artifact is not None
         or len(no_actions) > 1
         or len(no_actions) != len(change_set.action_choices)
     ):
@@ -2900,7 +2811,7 @@ async def _insert_other_human_action(
     commit_id: SubjectCommitId,
     replies: tuple[OtherHumanReplyDraft, ...],
     endings: tuple[OtherHumanEndConversationDraft, ...],
-    response_artifact_id: ArtifactId | None,
+    response_artifact: ArtifactRef | None,
 ) -> None:
     if (
         snapshot.scene_id is None
@@ -2948,7 +2859,7 @@ async def _insert_other_human_action(
     if endings:
         if group_route:
             raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-GROUP-END")
-        if response_artifact_id is not None:
+        if response_artifact is not None:
             raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
         updated = await (
             await connection.execute(
@@ -2988,7 +2899,7 @@ async def _insert_other_human_action(
         )
         return
     reply = replies[0]
-    if response_artifact_id is None:
+    if response_artifact is None:
         raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
     blocked = await (
         await connection.execute(
@@ -3060,8 +2971,8 @@ async def _insert_other_human_action(
         (
             revision_id,
             action_id,
-            response_artifact_id.value,
-            reply.content_digest.value,
+            response_artifact.artifact_id.value,
+            response_artifact.content_digest.value,
             len(reply.content_bytes),
             capability_kind,
             audience_scope,
@@ -3128,7 +3039,7 @@ async def _insert_other_human_action(
                     if destination_binding_id is None
                     else str(destination_binding_id)
                 ),
-                "response_digest": reply.content_digest.value,
+                "response_digest": response_artifact.content_digest.value,
             }
         )
     )
@@ -3155,8 +3066,8 @@ async def _insert_other_human_action(
             snapshot.subject_id,
             snapshot.scene_id,
             snapshot.other_party_id,
-            response_artifact_id.value,
-            reply.content_digest.value,
+            response_artifact.artifact_id.value,
+            response_artifact.content_digest.value,
             len(reply.content_bytes),
             effect_kind,
             capability_kind,
@@ -3172,22 +3083,21 @@ async def _insert_other_human_action(
     await connection.execute(
         """
         INSERT INTO armi.effect_outbox_items (
-            effect_outbox_item_id, effect_id, message_kind, payload_digest,
+            effect_outbox_item_id, effect_id, message_kind,
             status, dispatch_deadline, max_attempts) VALUES (
-            %s, %s, 'effect.dispatch', %s, 'ready',
+            %s, %s, 'effect.dispatch', 'ready',
             statement_timestamp() + interval '1 hour', 2)
         """,
-        (uuid7(), effect_id, reply.content_digest.value),
+        (uuid7(), effect_id),
     )
     await connection.execute(
         """
         UPDATE armi.action_operations
         SET phase = 'effect_registered', effect_id = %s,
-            effect_registration_digest = %s,
             effect_registered_at = statement_timestamp()
         WHERE operation_id = %s AND phase = 'admitted' AND outcome IS NULL
         """,
-        (effect_id, registration_digest.value, operation_id),
+        (effect_id, operation_id),
     )
     await connection.execute(
         """UPDATE armi.dialogue_decisions SET effect_id = %s
@@ -3203,7 +3113,7 @@ async def _finish_creator_response_intent(
     snapshot: SubjectCommitSnapshot,
     commit_id: SubjectCommitId,
     reply: CreatorReplyDraft,
-    response_artifact_id: ArtifactId,
+    response_artifact: ArtifactRef,
     action_id: UUID,
     revision_id: UUID,
 ) -> None:
@@ -3224,8 +3134,8 @@ async def _finish_creator_response_intent(
         (
             revision_id,
             action_id,
-            response_artifact_id.value,
-            reply.content_digest.value,
+            response_artifact.artifact_id.value,
+            response_artifact.content_digest.value,
             len(reply.content_bytes),
             snapshot.validation_id,
             reply.proposal_ref,
@@ -3268,7 +3178,7 @@ async def _finish_creator_response_intent(
             _RESPONSE_WORK_KIND,
             WorkOwner("action_intent", action_id),
             IdempotencyKey(f"response-admit:{action_id}"),
-            reply.content_digest,
+            response_artifact.content_digest,
             50,
             Instant(now_row[0]),
             Instant(now_row[0] + timedelta(seconds=3600)),
@@ -3305,7 +3215,6 @@ async def _finish_creator_response_intent(
             "action_intent",
             action_id,
             AuditResultStatus.ACCEPTED,
-            reply.content_digest,
         )
     )
 
@@ -3316,13 +3225,13 @@ async def _insert_web_research_intent(
     snapshot: SubjectCommitSnapshot,
     commit_id: SubjectCommitId,
     requests: tuple[WebResearchRequestDraft, ...],
-    query_artifact_id: ArtifactId | None,
+    query_artifact: ArtifactRef | None,
 ) -> None:
     if not requests:
-        if query_artifact_id is not None:
+        if query_artifact is not None:
             raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-ARTIFACT")
         return
-    if len(requests) != 1 or query_artifact_id is None:
+    if len(requests) != 1 or query_artifact is None:
         raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-COUNT")
     request = requests[0]
     connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
@@ -3352,14 +3261,14 @@ async def _insert_web_research_intent(
             "web.observation.admit",
             WorkOwner("web_research_intent", intent_id),
             IdempotencyKey(f"web-intent:{snapshot.opportunity_id}"),
-            request.query_digest,
+            query_artifact.content_digest,
             40,
             Instant(now_row[0]),
             Instant(now_row[0] + timedelta(seconds=3600)),
             2,
             snapshot.trace_id,
             SubjectId(snapshot.subject_id),
-            WorkPayloadRef("artifact", query_artifact_id.value),
+            WorkPayloadRef("artifact", query_artifact.artifact_id.value),
         )
     )
     await connection.execute(
@@ -3380,8 +3289,8 @@ async def _insert_web_research_intent(
             snapshot.scene_id,
             snapshot.creator_party_id,
             request.proposal_ref,
-            query_artifact_id.value,
-            request.query_digest.value,
+            query_artifact.artifact_id.value,
+            query_artifact.content_digest.value,
             f"intent:{intent_id}",
             work_id.value,
             snapshot.trace_id.value,
@@ -3395,7 +3304,6 @@ async def _insert_web_research_intent(
             "web_research_intent",
             intent_id,
             AuditResultStatus.ACCEPTED,
-            request.query_digest,
         )
     )
 
@@ -3492,7 +3400,6 @@ async def _insert_exact_life_query_intent(
             "exact_life_query_intent",
             intent_id,
             AuditResultStatus.ACCEPTED,
-            query_digest,
         )
     )
 
@@ -3609,7 +3516,6 @@ async def _insert_codex_delegation_intent(
             "action_intent",
             action_id,
             AuditResultStatus.ACCEPTED,
-            draft.task_manifest_digest,
         )
     )
 
@@ -3660,7 +3566,6 @@ async def _insert_formal_no_action(
     snapshot: SubjectCommitSnapshot,
     application_id: CandidateApplicationId,
     change_set: SubjectChangeSet,
-    completion: Digest,
 ) -> None:
     decisions = tuple(
         item
@@ -3689,16 +3594,14 @@ async def _insert_formal_no_action(
     ).fetchall()
     if len(rows) != len(decision.basis_ordinals):
         raise SubjectCommitViolation("SUBJECT-NO-ACTION-BASIS")
-    basis_digest = Digest.from_bytes(
-        rfc8785.dumps(cast(Any, [str(row[0]) for row in rows]))
-    )
     no_action_id = uuid7()
     await connection.execute(
         """
         INSERT INTO armi.dialogue_decisions (
             dialogue_decision_id, opportunity_id, candidate_application_id,
             candidate_validation_id, proposal_ref, decision_kind,
-            reason_class, basis_digest, subject_id, scene_id, context_party_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            reason_class, subject_id, scene_id, context_party_id) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             no_action_id,
@@ -3708,7 +3611,6 @@ async def _insert_formal_no_action(
             decision.proposal_ref,
             "silence" if decision.kind.value == "no_action" else decision.kind.value,
             decision.reason.value,
-            basis_digest.value,
             snapshot.subject_id,
             snapshot.scene_id,
             snapshot.creator_party_id,
@@ -3719,9 +3621,9 @@ async def _insert_formal_no_action(
         INSERT INTO armi.action_operations (
             operation_id, root_opportunity_id, subject_id,
             scene_id, context_party_id, dialogue_decision_id,
-            phase, outcome, completion_digest, completed_at,
-            operation_kind) VALUES (%s, %s, %s, %s, %s, %s, 'terminal', 'no_action', %s,
-                  statement_timestamp(), 'party_response')
+            phase, outcome, completed_at, operation_kind) VALUES (
+            %s, %s, %s, %s, %s, %s, 'terminal', 'no_action',
+            statement_timestamp(), 'party_response')
         """,
         (
             snapshot.root_opportunity_id,
@@ -3730,33 +3632,8 @@ async def _insert_formal_no_action(
             snapshot.scene_id,
             snapshot.creator_party_id,
             no_action_id,
-            completion.value,
         ),
     )
-
-
-def _scope_wire(
-    scope: CreatorSceneReplyScope | CodexDelegatedWorkScope,
-) -> dict[str, object]:
-    if isinstance(scope, CreatorSceneReplyScope):
-        return {
-            "subject_id": str(scope.subject_id),
-            "scene_id": str(scope.scene_id),
-            "creator_party_id": str(scope.creator_party_id),
-            "audience_scope": scope.audience_scope,
-            "data_scope": scope.data_scope,
-            "purpose": scope.purpose,
-            "valid_for_seconds": scope.valid_for_seconds,
-            "max_uses": scope.max_uses,
-            "max_payload_bytes": scope.max_payload_bytes,
-        }
-    return {
-        "workspace_scope": scope.workspace_scope,
-        "artifact_scope": scope.artifact_scope,
-        "network_access": scope.network_access,
-        "valid_for_seconds": scope.valid_for_seconds,
-        "max_uses": scope.max_uses,
-    }
 
 
 async def _assert_lease(connection: Any, lease: WorkLease, episode_id: UUID) -> None:
@@ -3808,28 +3685,6 @@ async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
     )
 
 
-def _completion_digest(
-    status: str,
-    validation_id: UUID,
-    change_set_digest: Digest,
-    observed_version: int,
-) -> Digest:
-    return Digest.from_bytes(
-        rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.candidate-application.v1",
-                    "resolution": status,
-                    "candidate_validation_id": str(validation_id),
-                    "change_set_digest": change_set_digest.value,
-                    "observed_subject_version": observed_version,
-                },
-            )
-        )
-    )
-
-
 def _audit(
     unit_of_work: PostgreSQLUnitOfWork,
     snapshot: SubjectCommitSnapshot,
@@ -3837,7 +3692,6 @@ def _audit(
     target_kind: str,
     target_ref: UUID,
     result: AuditResultStatus,
-    digest: Digest,
 ) -> AuditDraft:
     return AuditDraft(
         AuditEventId(uuid7()),
@@ -3850,7 +3704,6 @@ def _audit(
         AuditSensitivity.PRIVATE,
         subject_id=SubjectId(snapshot.subject_id),
         request=AuditReference("cognitive_episode", snapshot.episode_id),
-        response_digest=digest,
     )
 
 

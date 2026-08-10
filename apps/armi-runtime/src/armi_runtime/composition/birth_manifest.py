@@ -19,7 +19,6 @@ from armi_kernel.contracts import Digest
 from .configuration.paths import has_reparse_point
 
 _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
-_CREATOR_PACKAGE = "armi_runtime.interfaces.creator_web_resources"
 _MAXIMUM_BYTES = 64 * 1024
 _ROOT_FIELDS = {
     "schema_version",
@@ -28,7 +27,6 @@ _ROOT_FIELDS = {
     "creator_party_id",
     "idempotency_key",
     "personality_anchor",
-    "personality_anchor_digest",
 }
 _ANCHOR_FIELDS = {"schema_version", "voice_style", "traits"}
 _FORBIDDEN_FIELDS = {
@@ -56,7 +54,6 @@ def _canonical(value: object) -> bytes:
 
 def packaged_birth_digests() -> dict[str, Digest]:
     resources = files(_RESOURCE_PACKAGE)
-    creator = files(_CREATOR_PACKAGE)
     try:
         return {
             "composition_digest": _digest(
@@ -64,9 +61,6 @@ def packaged_birth_digests() -> dict[str, Digest]:
             ),
             "birth_contract_digest": _digest(
                 resources.joinpath("birth-contract.manifest.json").read_bytes()
-            ),
-            "creator_asset_manifest_digest": _digest(
-                creator.joinpath("manifest.json").read_bytes()
             ),
         }
     except OSError:
@@ -125,8 +119,6 @@ def load_birth_manifest(
             voice_style=cast(str, anchor_fields["voice_style"]),
             traits=traits,
         )
-        declared_anchor_digest = Digest(cast(str, value["personality_anchor_digest"]))
-        actual_anchor_digest = _digest(_canonical(anchor_fields))
         packaged = packaged_birth_digests()
         environment_id = UUID(cast(str, value["environment_id"]))
         manifest = BirthManifest(
@@ -136,7 +128,6 @@ def load_birth_manifest(
             creator_party_id=UUID(cast(str, value["creator_party_id"])),
             idempotency_key=cast(str, value["idempotency_key"]),
             personality_anchor=anchor,
-            personality_anchor_digest=declared_anchor_digest,
             request_digest=_digest(_canonical(value)),
             **packaged,
         )
@@ -146,8 +137,6 @@ def load_birth_manifest(
         raise BirthViolation("BIRTH-MANIFEST") from None
     if environment_id != expected_environment_id:
         raise BirthViolation("BIRTH-ENVIRONMENT")
-    if declared_anchor_digest != actual_anchor_digest:
-        raise BirthViolation("BIRTH-ANCHOR-DIGEST")
     return manifest
 
 

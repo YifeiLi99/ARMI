@@ -394,7 +394,6 @@ class DataRightsOrderService(DataRightsOrderPort):
                         AuditResultStatus.APPLIED,
                         command.trace_id,
                         AuditSensitivity.RESTRICTED,
-                        request_digest=request_digest,
                     )
                 )
                 return self._result(snapshot, newly_created=True)

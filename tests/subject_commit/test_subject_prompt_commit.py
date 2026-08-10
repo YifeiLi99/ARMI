@@ -7,6 +7,9 @@ import pytest
 import rfc8785
 from armi_kernel.application import (
     ArtifactId,
+    ArtifactIntegrityStatus,
+    ArtifactPrivacyScope,
+    ArtifactRef,
     CandidateFactClass,
     CandidateSubjectPromptDraft,
     SubjectCommitViolation,
@@ -34,7 +37,6 @@ class _PromptConnection:
         self.subject_party_id = uuid7()
         self.current_revision_id: UUID | None = None
         self.revision_no = 0
-        self.artifacts: dict[UUID, Digest] = {}
         self.revisions: list[tuple[object, ...]] = []
 
     async def execute(self, query: str, params: tuple[object, ...] = ()) -> _Result:
@@ -48,13 +50,6 @@ class _PromptConnection:
             )
         if "FROM armi.cognitive_candidate_validation_items" in query:
             return _Result((1,))
-        if "FROM armi.artifacts" in query:
-            digest = self.artifacts.get(cast(UUID, params[0]))
-            return _Result(
-                None
-                if digest is None
-                else (digest.value, "application/json", "private")
-            )
         if "INSERT INTO armi.prompt_revisions" in query:
             self.revisions.append(params)
             return _Result()
@@ -98,7 +93,18 @@ def _draft(
         current_revision_id,
         revision_no,
         content,
+    )
+
+
+def _artifact(artifact_id: ArtifactId, content: bytes) -> ArtifactRef:
+    return ArtifactRef(
+        artifact_id,
         Digest.from_bytes(content),
+        len(content),
+        "application/json",
+        "subject_prompt",
+        ArtifactPrivacyScope.PRIVATE,
+        ArtifactIntegrityStatus.VERIFIED,
     )
 
 
@@ -113,14 +119,13 @@ async def test_subject_prompt_commit_creates_then_revises_with_subject_commit() 
     assert not subject_prompt_heads_are_stale(heads, (created,))
     first_artifact = ArtifactId(uuid7())
     first_commit = uuid7()
-    connection.artifacts[first_artifact.value] = created.content_digest
     await apply_subject_prompts(
         connection,
         validation_id=uuid7(),
         subject_id=subject_id,
         commit_id=first_commit,
         prompts=(created,),
-        artifact_ids={created.proposal_ref: first_artifact},
+        artifacts={created.proposal_ref: _artifact(first_artifact, created.content_bytes)},
     )
     first_revision_id = connection.current_revision_id
     assert first_revision_id is not None
@@ -141,14 +146,13 @@ async def test_subject_prompt_commit_creates_then_revises_with_subject_commit() 
     assert not subject_prompt_heads_are_stale(heads, (revised,))
     second_artifact = ArtifactId(uuid7())
     second_commit = uuid7()
-    connection.artifacts[second_artifact.value] = revised.content_digest
     await apply_subject_prompts(
         connection,
         validation_id=uuid7(),
         subject_id=subject_id,
         commit_id=second_commit,
         prompts=(revised,),
-        artifact_ids={revised.proposal_ref: second_artifact},
+        artifacts={revised.proposal_ref: _artifact(second_artifact, revised.content_bytes)},
     )
     assert connection.revision_no == 2
     assert connection.revisions[1][3] == first_revision_id
@@ -176,7 +180,7 @@ async def test_subject_prompt_commit_rejects_stale_or_missing_artifact_without_h
             subject_id=subject_id,
             commit_id=uuid7(),
             prompts=(created,),
-            artifact_ids={},
+            artifacts={},
         )
     assert connection.current_revision_id is None
     assert connection.revisions == []

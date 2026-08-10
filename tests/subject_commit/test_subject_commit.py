@@ -38,7 +38,6 @@ def _change_set(*, disposition: str = "change") -> bytes:
         "self_narrative": None,
         "tensions": [],
     }
-    next_bytes = rfc8785.dumps(cast(Any, next_state))
     document: dict[str, object] = {
         "schema_version": "armi.subject-change-set.v1",
         "subject_id": str(ids[0]),
@@ -51,7 +50,6 @@ def _change_set(*, disposition: str = "change") -> bytes:
             "bundle_activation_id": str(ids[4]),
             "context_digest": Digest.from_bytes(b"context").value,
         },
-        "candidate_digest": Digest.from_bytes(b"candidate").value,
         "disposition": disposition,
         "experiences": [
             {
@@ -73,7 +71,6 @@ def _change_set(*, disposition: str = "change") -> bytes:
                 "owner": "self",
                 "expected_version": 1,
                 "next_state": next_state,
-                "next_state_digest": Digest.from_bytes(next_bytes).value,
             }
         ],
         "rejections": [],
@@ -85,7 +82,7 @@ def test_change_set_parser_is_strict_and_deterministic() -> None:
     value = _change_set()
     first = parse_subject_change_set(value)
     second = parse_subject_change_set(value)
-    assert first.digest == second.digest == Digest.from_bytes(value)
+    assert first.canonical_bytes == second.canonical_bytes == value
     assert first.base_subject_version == 0
     assert len(first.experiences) == 1
     assert len(first.components) == 1
@@ -136,7 +133,6 @@ def test_commit_result_requires_exact_applied_shape_and_redacts_error() -> None:
     result = SubjectCommitResult(
         CandidateApplicationId(uuid7()),
         CandidateApplicationStatus.APPLIED,
-        Digest.from_bytes(b"commit"),
         SubjectCommitId(uuid7()),
         1,
     )
@@ -145,7 +141,6 @@ def test_commit_result_requires_exact_applied_shape_and_redacts_error() -> None:
         SubjectCommitResult(
             CandidateApplicationId(uuid7()),
             CandidateApplicationStatus.NO_CHANGE,
-            Digest.from_bytes(b"no-change"),
             SubjectCommitId(uuid7()),
             1,
         )

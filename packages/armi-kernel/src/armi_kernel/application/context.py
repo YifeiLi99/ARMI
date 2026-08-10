@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Digest, Instant, Purpose
+from armi_kernel.contracts import Instant, Purpose
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^CTX-[A-Z0-9-]+$", re.ASCII)
@@ -83,22 +83,15 @@ class ContextSourceIdentity:
     kind: str
     reference: UUID | None
     version: int | None
-    digest: Digest | None
 
     def __post_init__(self) -> None:
         _require_token(self.kind)
-        present = (
-            self.reference is not None,
-            self.version is not None,
-            self.digest is not None,
-        )
+        present = (self.reference is not None, self.version is not None)
         if any(present) and not all(present):
             raise ContextViolation("CTX-SOURCE-IDENTITY")
         if self.reference is not None:
             _require_uuid7(self.reference)
             if type(self.version) is not int or self.version < 0:
-                raise ContextViolation("CTX-SOURCE-IDENTITY")
-            if type(self.digest) is not Digest:
                 raise ContextViolation("CTX-SOURCE-IDENTITY")
 
 
@@ -154,9 +147,8 @@ class ContextRequest:
     base_subject_version: int
     base_state_epoch: int
     bundle_activation_id: UUID
-    policy_digest: Digest
+    policy_version: str
     mechanism_identity: str
-    mechanism_config_digest: Digest
     max_items: int
     max_item_bytes: int
     max_compiled_bytes: int
@@ -172,11 +164,7 @@ class ContextRequest:
         for value in (self.base_subject_version, self.base_state_epoch):
             if type(value) is not int or value < 0:
                 raise ContextViolation("CTX-REQUEST")
-        if (
-            type(self.policy_digest) is not Digest
-            or type(self.mechanism_config_digest) is not Digest
-        ):
-            raise ContextViolation("CTX-REQUEST")
+        _require_token(self.policy_version)
         _require_token(self.mechanism_identity)
         if (
             type(self.max_items) is not int
@@ -218,19 +206,15 @@ class ContextItemResult:
 @dataclass(frozen=True, slots=True)
 class CompiledContext:
     canonical_bytes: bytes
-    digest: Digest
 
     def __post_init__(self) -> None:
         if type(self.canonical_bytes) is not bytes or not self.canonical_bytes:
-            raise ContextViolation("CTX-COMPILED")
-        if type(self.digest) is not Digest:
             raise ContextViolation("CTX-COMPILED")
 
 
 @dataclass(frozen=True, slots=True)
 class ContextResult:
     manifest_bytes: bytes
-    manifest_digest: Digest
     compiled: CompiledContext
     items: tuple[ContextItemResult, ...]
 
@@ -238,7 +222,6 @@ class ContextResult:
         if (
             type(self.manifest_bytes) is not bytes
             or not self.manifest_bytes
-            or type(self.manifest_digest) is not Digest
             or type(self.compiled) is not CompiledContext
             or type(self.items) is not tuple
             or any(type(item) is not ContextItemResult for item in self.items)

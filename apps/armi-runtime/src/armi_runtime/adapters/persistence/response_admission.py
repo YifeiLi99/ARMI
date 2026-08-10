@@ -203,7 +203,7 @@ class PostgreSQLResponseAdmissionRepository:
                 )
                 grant_id = grant[0] if grant is not None else None
                 reason = None if grant is not None else "POLICY-GRANT-NOT-CURRENT"
-        completion = Digest.from_bytes(
+        registration_work_digest = Digest.from_bytes(
             rfc8785.dumps(
                 cast(
                     Any,
@@ -229,7 +229,7 @@ class PostgreSQLResponseAdmissionRepository:
                                    WHEN %s IN ('unauthorized', 'unavailable') THEN 'denied'
                                    ELSE 'failed' END,
                     matched_grant_id = %s,
-                    completion_digest = %s, reason_code = %s,
+                    reason_code = %s,
                     completed_at = CASE WHEN %s = 'accepted' THEN NULL
                                         ELSE statement_timestamp() END
                 WHERE operation_id = %s
@@ -241,7 +241,6 @@ class PostgreSQLResponseAdmissionRepository:
                     status.value,
                     status.value,
                     grant_id,
-                    completion.value,
                     reason,
                     status.value,
                     snapshot.operation_id,
@@ -259,7 +258,7 @@ class PostgreSQLResponseAdmissionRepository:
                     "effect.register",
                     WorkOwner("creator_response_operation", snapshot.operation_id),
                     IdempotencyKey(f"effect-register:{snapshot.operation_id}"),
-                    completion,
+                    registration_work_digest,
                     60,
                     Instant(now),
                     Instant(now + timedelta(seconds=3600)),
@@ -301,8 +300,6 @@ class PostgreSQLResponseAdmissionRepository:
                 snapshot.trace_id,
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.subject_id),
-                request_digest=snapshot.content_digest,
-                response_digest=completion,
                 grant=(
                     AuditReference("permission_grant", grant_id)
                     if grant_id is not None
@@ -313,7 +310,6 @@ class PostgreSQLResponseAdmissionRepository:
         return ResponseAdmissionResult(
             CreatorResponseOperationId(snapshot.operation_id),
             status,
-            completion,
             ActionIntentId(snapshot.action_intent_id),
             grant_ref=grant_id,
             reason_code=reason,

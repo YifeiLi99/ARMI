@@ -1083,18 +1083,6 @@
             "title": "Export Id",
             "type": "string"
           },
-          "manifest_digest": {
-            "anyOf": [
-              {
-                "pattern": "sha256:[0-9a-f]{64}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Manifest Digest"
-          },
           "missing_artifacts": {
             "items": {
               "pattern": "sha256:[0-9a-f]{64}",
@@ -1141,7 +1129,6 @@
           "status",
           "directory_name",
           "destination_path",
-          "manifest_digest",
           "table_count",
           "row_count",
           "artifact_count",
@@ -3955,11 +3942,6 @@
       "OperationCompletedOutcomeResponse": {
         "additionalProperties": false,
         "properties": {
-          "completion_evidence": {
-            "pattern": "sha256:[0-9a-f]{64}",
-            "title": "Completion Evidence",
-            "type": "string"
-          },
           "contract_version": {
             "const": "1.0",
             "title": "Contract Version",
@@ -4002,7 +3984,6 @@
           "message",
           "status",
           "result_ref",
-          "completion_evidence",
           "details"
         ],
         "title": "OperationCompletedOutcomeResponse",

@@ -54,12 +54,7 @@ def probe_continuity(
     *,
     composition_digest: Digest,
     birth_contract_digest: Digest,
-    creator_asset_digest: Digest,
 ) -> ContinuityState:
-    # The packaged Creator UI is a replaceable read interface, not part of the
-    # subject's identity or life continuity. Keep accepting the historical
-    # argument while older activation rows still record its digest.
-    del creator_asset_digest
     try:
         with psycopg.connect(conninfo, autocommit=True) as connection:
             rows = connection.execute(
@@ -68,7 +63,6 @@ def probe_continuity(
                     subject.subject_id,
                     activation.bundle_digest,
                     activation.fixed_policy_digest,
-                    activation.creator_asset_digest,
                     (
                         SELECT count(*) FROM armi.life_generations
                         WHERE subject_id = subject.subject_id
@@ -142,7 +136,7 @@ def probe_continuity(
     expected = (composition_digest.value, birth_contract_digest.value)
     if tuple(str(value) for value in row[1:3]) != expected:
         return ContinuityState.INVALID
-    counts = tuple(int(value) for value in row[4:])
+    counts = tuple(int(value) for value in row[3:])
     if (
         counts[0:3] != (1, 2, 3)
         or counts[3] < 1
@@ -157,8 +151,8 @@ def probe_continuity(
 @dataclass(frozen=True, slots=True)
 class BirthArtifacts:
     anchor_artifact_id: UUID
+    anchor_content_digest: Digest
     activation_artifact_id: UUID
-    fixed_prompt_set_digest: Digest
 
 
 class BirthRepository:
@@ -277,10 +271,10 @@ class BirthRepository:
             """
             INSERT INTO armi.runtime_bundle_activations (
                 bundle_activation_id, subject_id, bundle_version, bundle_digest,
-                manifest_artifact_id, fixed_policy_digest, fixed_prompt_set_digest,
-                creator_asset_digest, status, activated_by_party_id
+                manifest_artifact_id, fixed_policy_digest,
+                status, activated_by_party_id
             ) VALUES (
-                %s, %s, '0.0.0', %s, %s, %s, %s, %s, 'current', %s
+                %s, %s, '0.0.0', %s, %s, %s, 'current', %s
             )
             """,
             (
@@ -289,8 +283,6 @@ class BirthRepository:
                 manifest.composition_digest.value,
                 artifacts.activation_artifact_id,
                 manifest.birth_contract_digest.value,
-                artifacts.fixed_prompt_set_digest.value,
-                manifest.creator_asset_manifest_digest.value,
                 manifest.creator_party_id,
             ),
         )
@@ -343,7 +335,7 @@ class BirthRepository:
                 anchor_revision_id,
                 anchor_document_id,
                 artifacts.anchor_artifact_id,
-                manifest.personality_anchor_digest.value,
+                artifacts.anchor_content_digest.value,
                 manifest.creator_party_id,
             ),
         )

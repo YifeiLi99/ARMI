@@ -118,10 +118,6 @@ export function ExportPanel({ token, onUnauthorized }: ExportPanelProps) {
             <dt>目标路径</dt>
             <dd>{result.destination_path}</dd>
           </div>
-          <div>
-            <dt>Manifest 摘要</dt>
-            <dd>{result.manifest_digest ?? "未生成"}</dd>
-          </div>
         </dl>
       )}
     </section>

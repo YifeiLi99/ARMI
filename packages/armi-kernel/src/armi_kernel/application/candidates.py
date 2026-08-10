@@ -188,7 +188,6 @@ class CandidateBasis:
     item_kind: str
     source_ref: UUID | None
     source_version: int | None
-    source_digest: Digest | None
     trust_class: str
     privacy_scope: str
 
@@ -207,7 +206,7 @@ class CandidateBasis:
             or self.privacy_scope not in {"internal", "private", "restricted"}
         ):
             raise CandidateViolation("CON-CANDIDATE-BASIS")
-        identity = (self.source_ref, self.source_version, self.source_digest)
+        identity = (self.source_ref, self.source_version)
         if all(value is None for value in identity):
             return
         if (
@@ -215,7 +214,6 @@ class CandidateBasis:
             or self.source_ref.version != 7
             or type(self.source_version) is not int
             or self.source_version < 0
-            or type(self.source_digest) is not Digest
         ):
             raise CandidateViolation("CON-CANDIDATE-BASIS")
 
@@ -615,7 +613,6 @@ class CandidateComponentDraft:
     owner: CandidateOwner
     expected_version: int
     canonical_next_state: bytes
-    next_state_digest: Digest
 
     def __post_init__(self) -> None:
         _validate_proposal(
@@ -629,8 +626,6 @@ class CandidateComponentDraft:
             or self.expected_version <= 0
             or type(self.canonical_next_state) is not bytes
             or not self.canonical_next_state
-            or type(self.next_state_digest) is not Digest
-            or Digest.from_bytes(self.canonical_next_state) != self.next_state_digest
         ):
             raise CandidateViolation("CON-CANDIDATE-COMPONENT")
 
@@ -645,7 +640,6 @@ class CandidateSubjectPromptDraft:
     current_revision_id: UUID | None
     expected_revision_no: int
     content_bytes: bytes
-    content_digest: Digest
 
     def __post_init__(self) -> None:
         _validate_proposal(
@@ -668,8 +662,6 @@ class CandidateSubjectPromptDraft:
             or type(self.content_bytes) is not bytes
             or not self.content_bytes
             or len(self.content_bytes) > 16_384
-            or type(self.content_digest) is not Digest
-            or Digest.from_bytes(self.content_bytes) != self.content_digest
         ):
             raise CandidateViolation("CON-CANDIDATE-SUBJECT-PROMPT")
 
@@ -738,7 +730,6 @@ class CandidateActivityDecisionDraft:
     activity_id: UUID
     current_revision_id: UUID
     expected_head_version: int
-    resource_snapshot_digest: Digest
     decision_kind: ActivityAttentionDecisionKind
     progress_summary: str | None = None
     next_safe_step: str | None = None
@@ -759,7 +750,6 @@ class CandidateActivityDecisionDraft:
             )
             or type(self.expected_head_version) is not int
             or self.expected_head_version <= 0
-            or type(self.resource_snapshot_digest) is not Digest
             or type(self.decision_kind) is not ActivityAttentionDecisionKind
             or not _optional_text(self.progress_summary, 2048)
             or not _optional_text(self.next_safe_step, 1024)
@@ -868,7 +858,6 @@ class CandidateSleepDecisionDraft:
     basis_ordinals: tuple[int, ...]
     decision_kind: SleepDecisionKind
     cycle_anchor_ref: UUID
-    source_digest: Digest
 
     def __post_init__(self) -> None:
         _validate_proposal(
@@ -878,7 +867,6 @@ class CandidateSleepDecisionDraft:
             type(self.decision_kind) is not SleepDecisionKind
             or type(self.cycle_anchor_ref) is not UUID
             or self.cycle_anchor_ref.version != 7
-            or type(self.source_digest) is not Digest
         ):
             raise CandidateViolation("CON-CANDIDATE-SLEEP")
 
@@ -971,7 +959,6 @@ class CandidateRejection:
 @dataclass(frozen=True, slots=True)
 class SubjectChangeSet:
     canonical_bytes: bytes
-    digest: Digest
     subject_id: UUID
     generation_id: UUID
     episode_id: UUID
@@ -980,7 +967,6 @@ class SubjectChangeSet:
     base_state_epoch: int
     bundle_activation_id: UUID
     context_digest: Digest
-    candidate_digest: Digest
     disposition: CandidateDisposition
     experiences: tuple[CandidateExperienceDraft, ...]
     components: tuple[CandidateComponentDraft, ...]
@@ -1004,8 +990,6 @@ class SubjectChangeSet:
         if (
             type(self.canonical_bytes) is not bytes
             or not self.canonical_bytes
-            or type(self.digest) is not Digest
-            or Digest.from_bytes(self.canonical_bytes) != self.digest
             or any(
                 type(value) is not UUID or value.version != 7
                 for value in (
@@ -1021,7 +1005,6 @@ class SubjectChangeSet:
             or type(self.base_state_epoch) is not int
             or self.base_state_epoch < 0
             or type(self.context_digest) is not Digest
-            or type(self.candidate_digest) is not Digest
             or type(self.disposition) is not CandidateDisposition
         ):
             raise CandidateViolation("CON-CANDIDATE-CHANGE-SET")

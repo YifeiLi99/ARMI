@@ -145,7 +145,20 @@ class ExternalGroupInputService(ExternalGroupInputPort):
         if type(command) is not ObservedExternalGroupMessage:
             raise ExternalGroupViolation("CON-EXTERNAL-GROUP-INPUT")
         context = await self._bind(command)
-        content_digest = Digest.from_bytes(command.message_bytes)
+        try:
+            staged = await self._storage.stage(
+                _one_chunk(command.message_bytes),
+                ArtifactPolicy(
+                    "text/plain",
+                    "other_human.input.text",
+                    "external.channel",
+                    command.trace_id,
+                    ArtifactPrivacyScope.PRIVATE,
+                ),
+            )
+        except ArtifactViolation, OSError:
+            raise ExternalGroupViolation("ART-EXTERNAL-GROUP-PUBLISH") from None
+        content_digest = staged.content_digest
         request_digest = Digest.from_bytes(
             rfc8785.dumps(
                 {
@@ -166,26 +179,18 @@ class ExternalGroupInputService(ExternalGroupInputPort):
             )
         )
         idempotency_key = _idempotency_key(command)
-        existing = await self._existing(context, idempotency_key, request_digest)
+        try:
+            existing = await self._existing(context, idempotency_key, request_digest)
+        except Exception:
+            await self._storage.discard(staged)
+            raise
         if existing is not None:
+            await self._storage.discard(staged)
             return existing
         try:
-            published = await self._storage.publish(
-                await self._storage.stage(
-                    _one_chunk(command.message_bytes),
-                    ArtifactPolicy(
-                        "text/plain",
-                        "other_human.input.text",
-                        "external.channel",
-                        command.trace_id,
-                        ArtifactPrivacyScope.PRIVATE,
-                    ),
-                )
-            )
+            published = await self._storage.publish(staged)
         except ArtifactViolation, OSError:
             raise ExternalGroupViolation("ART-EXTERNAL-GROUP-PUBLISH") from None
-        if published.content_digest != content_digest:
-            raise ExternalGroupViolation("ART-EXTERNAL-GROUP-DIGEST")
         try:
             acceptance = await self._commit(
                 command,
@@ -318,8 +323,6 @@ class ExternalGroupInputService(ExternalGroupInputPort):
                     request=AuditReference(
                         "external_group_input", accepted.interaction_id.value
                     ),
-                    request_digest=request_digest,
-                    artifact_digest=registration.ref.content_digest,
                 )
             )
             return _acceptance(current.binding_id, accepted)

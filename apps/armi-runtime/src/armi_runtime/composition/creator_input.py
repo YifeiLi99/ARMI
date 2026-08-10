@@ -121,28 +121,33 @@ class EvidenceAcceptanceTransaction(
         if type(command) is not CreatorInputCommand:
             raise CreatorInputViolation("CON-INPUT-COMMAND")
         context = await self._read_context(command.scene_key)
-        content_digest = Digest.from_bytes(command.message_bytes)
-        request_digest = self._request_digest(context, content_digest)
-        existing = await self._read_existing(command, context, request_digest)
-        if existing is not None:
-            return existing
         try:
-            published = await self._storage.publish(
-                await self._storage.stage(
-                    _one_chunk(command.message_bytes),
-                    ArtifactPolicy(
-                        media_type="text/plain",
-                        logical_kind="creator.input.text",
-                        producer_kind="creator",
-                        producer_trace_id=command.trace_id,
-                        privacy_scope=ArtifactPrivacyScope.CREATOR_VISIBLE,
-                    ),
-                )
+            staged = await self._storage.stage(
+                _one_chunk(command.message_bytes),
+                ArtifactPolicy(
+                    media_type="text/plain",
+                    logical_kind="creator.input.text",
+                    producer_kind="creator",
+                    producer_trace_id=command.trace_id,
+                    privacy_scope=ArtifactPrivacyScope.CREATOR_VISIBLE,
+                ),
             )
         except ArtifactViolation, OSError:
             raise CreatorInputViolation("ART-INPUT-PUBLISH") from None
-        if published.content_digest != content_digest:
-            raise CreatorInputViolation("ART-INPUT-DIGEST")
+        content_digest = staged.content_digest
+        request_digest = self._request_digest(context, content_digest)
+        try:
+            existing = await self._read_existing(command, context, request_digest)
+        except Exception:
+            await self._storage.discard(staged)
+            raise
+        if existing is not None:
+            await self._storage.discard(staged)
+            return existing
+        try:
+            published = await self._storage.publish(staged)
+        except ArtifactViolation, OSError:
+            raise CreatorInputViolation("ART-INPUT-PUBLISH") from None
         self._fault_injector("artifact_after_publish_before_commit")
         try:
             acceptance = await self._attempt(
@@ -292,8 +297,6 @@ class EvidenceAcceptanceTransaction(
                         "creator_input",
                         acceptance.interaction_id.value,
                     ),
-                    request_digest=request_digest,
-                    artifact_digest=registration.ref.content_digest,
                 )
             )
             return acceptance
@@ -370,7 +373,6 @@ class EvidenceAcceptanceTransaction(
             result_status=AuditResultStatus.APPLIED,
             trace_id=command.trace_id,
             sensitivity=AuditSensitivity.PRIVATE,
-            artifact_digest=content_digest,
         )
 
     async def _notify(self, scene_key: str) -> None:

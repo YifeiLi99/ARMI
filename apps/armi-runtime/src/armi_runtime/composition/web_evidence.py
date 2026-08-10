@@ -22,14 +22,11 @@ class NormalizedWebSource:
     ordinal: int
     canonical_bytes: bytes
     canonical_url_digest: Digest
-    title_digest: Digest
-    citation_digest: Digest
 
 
 @dataclass(frozen=True, slots=True)
 class NormalizedWebEvidence:
     canonical_bytes: bytes
-    digest: Digest
     provider_request_digest: Digest
     sources: tuple[NormalizedWebSource, ...]
 
@@ -180,26 +177,21 @@ def normalize_web_evidence(raw: bytes) -> NormalizedWebEvidence:
     evidence_source_refs: list[dict[str, object]] = []
     for source in source_values:
         url = cast(str, source["canonical_url"])
-        title = cast(str, source["title"])
         source_document = {
             "schema_version": WEB_SOURCE_REFERENCE_VERSION,
             **source,
             "provider_request_digest": provider_request_digest.value,
         }
         canonical = rfc8785.dumps(cast(Any, source_document)) + b"\n"
-        citation_digest = Digest.from_bytes(canonical)
         normalized = NormalizedWebSource(
             cast(int, source["ordinal"]),
             canonical,
             Digest.from_bytes(url.encode("utf-8")),
-            Digest.from_bytes(title.encode("utf-8")),
-            citation_digest,
         )
         sources.append(normalized)
         evidence_source_refs.append(
             {
                 "ordinal": normalized.ordinal,
-                "citation_digest": citation_digest.value,
             }
         )
     evidence_document = {
@@ -217,7 +209,6 @@ def normalize_web_evidence(raw: bytes) -> NormalizedWebEvidence:
         raise WebResearchViolation("WEB-EVIDENCE-SIZE")
     return NormalizedWebEvidence(
         canonical_evidence,
-        Digest.from_bytes(canonical_evidence),
         provider_request_digest,
         tuple(sources),
     )

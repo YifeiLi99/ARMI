@@ -39,8 +39,6 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
     ) -> EffectAdapterReceipt:
         if type(payload) is not bytes or len(payload) != request.payload_bytes:
             raise EffectViolation("EFFECT-RECEIVER-PAYLOAD")
-        if Digest.from_bytes(payload) != request.payload_digest:
-            raise EffectViolation("EFFECT-RECEIVER-PAYLOAD")
         delivery_id = uuid7()
         receipt_digest = _receipt_digest(request, delivery_id)
         async with self._factory.unit_of_work(LockPlan()) as uow:
@@ -123,8 +121,6 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
                     request.trace_id,
                     AuditSensitivity.PRIVATE,
                     subject_id=SubjectId(request.subject_id),
-                    request_digest=request.request_digest,
-                    response_digest=Digest(str(row[1])),
                 )
             )
             return EffectAdapterReceipt(

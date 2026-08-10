@@ -94,7 +94,6 @@ class EffectContractTests(unittest.TestCase):
             EffectVerificationStatus.VERIFIED,
             1,
             observation,
-            Digest.from_bytes(b"settlement"),
             now,
         )
         self.assertEqual(settlement.attempt_count, 1)
@@ -131,7 +130,6 @@ class EffectContractTests(unittest.TestCase):
             EffectVerificationStatus.VERIFIED,
             1,
             observation,
-            Digest.from_bytes(b"cancelled settlement"),
             now,
         )
 
@@ -151,7 +149,6 @@ class EffectContractTests(unittest.TestCase):
             "20002",
             Digest.from_bytes(content),
             len(content),
-            Digest.from_bytes(b"request"),
             TraceId(uuid7().hex),
         )
         self.assertEqual(request.external_conversation_key, "20002")
@@ -169,7 +166,6 @@ class EffectContractTests(unittest.TestCase):
                 None,
                 Digest.from_bytes(content),
                 len(content),
-                Digest.from_bytes(b"request"),
                 TraceId(uuid7().hex),
             )
         self.assertEqual(invalid.exception.code, "CON-EFFECT-DESTINATION")

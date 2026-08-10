@@ -170,11 +170,10 @@ class CodexRunResult:
     execution_id: CodexExecutionId
     status: CodexRunStatus
     model_id: str
-    tool_digest: Digest
+    sdk_version: str
     source_tree_digest: Digest
     final_tree_digest: Digest | None
     patch_digest: Digest | None
-    output_digest: Digest | None
     usage: CodexUsage | None
     modified_file_count: int
     validation_passed: bool
@@ -186,7 +185,9 @@ class CodexRunResult:
             type(self.execution_id) is not CodexExecutionId
             or type(self.status) is not CodexRunStatus
             or self.model_id not in {model.value for model in CodexModel}
-            or type(self.tool_digest) is not Digest
+            or type(self.sdk_version) is not str
+            or not self.sdk_version
+            or len(self.sdk_version) > 64
             or type(self.source_tree_digest) is not Digest
             or type(self.modified_file_count) is not int
             or not 0 <= self.modified_file_count <= 500
@@ -198,7 +199,6 @@ class CodexRunResult:
         if success != (
             type(self.final_tree_digest) is Digest
             and type(self.patch_digest) is Digest
-            and type(self.output_digest) is Digest
             and type(self.usage) is CodexUsage
             and self.validation_passed
             and self.error_code is None

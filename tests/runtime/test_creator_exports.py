@@ -51,6 +51,8 @@ class _Storage:
         value = self.values.get(ref.content_digest.value)
         if value is None:
             raise ArtifactViolation("ART-MISSING")
+        if Digest.from_bytes(value) != ref.content_digest:
+            raise ArtifactViolation("ART-DIGEST-MISMATCH")
         return _Stream(value)
 
 
@@ -86,7 +88,6 @@ class CreatorExportContractTests(unittest.TestCase):
             CreatorExportStatus.PARTIAL,
             "export-1",
             "data/exports/export-1",
-            Digest.from_bytes(b"manifest"),
             3,
             4,
             1,

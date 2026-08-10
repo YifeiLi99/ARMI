@@ -6,7 +6,6 @@ import json
 from typing import Any, cast
 
 import rfc8785
-from armi_kernel.contracts import Digest
 
 LIFE_MATERIAL_CONTENT_VERSION = "armi.life-material-content.v1"
 
@@ -28,11 +27,7 @@ def build_life_material_artifact(body_bytes: bytes) -> bytes:
     )
 
 
-def parse_life_material_artifact(
-    artifact_bytes: bytes,
-    *,
-    expected_body_digest: Digest,
-) -> bytes:
+def parse_life_material_artifact(artifact_bytes: bytes) -> bytes:
     try:
         raw: object = json.loads(artifact_bytes)
         if type(raw) is not dict:
@@ -48,8 +43,6 @@ def parse_life_material_artifact(
             raise ValueError
         body = body_value.encode("utf-8", errors="strict")
         if not body or b"\x00" in body or not body_value.strip():
-            raise ValueError
-        if Digest.from_bytes(body) != expected_body_digest:
             raise ValueError
         return body
     except TypeError, ValueError, UnicodeError, json.JSONDecodeError:

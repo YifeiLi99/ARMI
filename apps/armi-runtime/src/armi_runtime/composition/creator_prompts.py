@@ -108,29 +108,30 @@ class CreatorPromptService(CreatorPromptPort):
         self._require_creator_guidance(command.prompt_kind)
         observed = await self._read_snapshot(command.prompt_kind)
         self._require_expected(observed, command.expected_revision_id)
-        content_digest = Digest.from_bytes(command.content_bytes)
+        try:
+            staged = await self._storage.stage(
+                _one_chunk(command.content_bytes),
+                ArtifactPolicy(
+                    media_type="text/plain",
+                    logical_kind="creator.prompt.text",
+                    producer_kind="creator",
+                    producer_trace_id=command.trace_id,
+                    privacy_scope=ArtifactPrivacyScope.CREATOR_VISIBLE,
+                ),
+            )
+        except ArtifactViolation, OSError:
+            raise CreatorPromptViolation("ART-PROMPT-PUBLISH") from None
+        content_digest = staged.content_digest
         if (
             observed.status is PromptDocumentStatus.ACTIVE
             and observed.content_digest == content_digest
         ):
+            await self._storage.discard(staged)
             raise CreatorPromptViolation("CONFLICT-PROMPT-NO-CHANGE")
         try:
-            published = await self._storage.publish(
-                await self._storage.stage(
-                    _one_chunk(command.content_bytes),
-                    ArtifactPolicy(
-                        media_type="text/plain",
-                        logical_kind="creator.prompt.text",
-                        producer_kind="creator",
-                        producer_trace_id=command.trace_id,
-                        privacy_scope=ArtifactPrivacyScope.CREATOR_VISIBLE,
-                    ),
-                )
-            )
+            published = await self._storage.publish(staged)
         except ArtifactViolation, OSError:
             raise CreatorPromptViolation("ART-PROMPT-PUBLISH") from None
-        if published.content_digest != content_digest:
-            raise CreatorPromptViolation("ART-PROMPT-DIGEST")
         revision_kind = (
             PromptRevisionKind.CREATED
             if command.expected_revision_id is None
@@ -342,8 +343,6 @@ class CreatorPromptService(CreatorPromptPort):
             content = content_bytes.decode("utf-8", errors="strict")
         except UnicodeError:
             raise CreatorPromptViolation("ART-PROMPT-READ") from None
-        if Digest.from_bytes(content_bytes) != snapshot.content_digest:
-            raise CreatorPromptViolation("ART-PROMPT-DIGEST")
         return self._view_with_content(snapshot, content)
 
     @staticmethod
@@ -421,8 +420,6 @@ class CreatorPromptService(CreatorPromptPort):
             subject_id=SubjectId(changed.subject_id),
             before_version=current.revision_no or 0,
             after_version=changed.revision_no,
-            request_digest=request_digest,
-            artifact_digest=changed.content_digest,
         )
 
     @staticmethod
@@ -440,7 +437,6 @@ class CreatorPromptService(CreatorPromptPort):
             result_status=AuditResultStatus.APPLIED,
             trace_id=trace_id,
             sensitivity=AuditSensitivity.RESTRICTED,
-            artifact_digest=artifact.content_digest,
         )
 
 

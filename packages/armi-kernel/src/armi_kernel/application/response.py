@@ -8,8 +8,6 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Digest
-
 _CODE = re.compile(r"^(?:CON|RESPONSE|ACTION|POLICY|SCOPE)-[A-Z0-9-]+$", re.ASCII)
 _PROPOSAL = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
@@ -82,7 +80,6 @@ class CreatorReplyDraft:
     scene_id: UUID
     creator_party_id: UUID
     content_bytes: bytes
-    content_digest: Digest
     capability_kind: str = "creator.scene.reply"
     operation: str = "send"
     audience_scope: str = "creator"
@@ -98,8 +95,6 @@ class CreatorReplyDraft:
             type(self.content_bytes) is not bytes
             or not 1 <= len(self.content_bytes) <= 65536
             or b"\x00" in self.content_bytes
-            or type(self.content_digest) is not Digest
-            or Digest.from_bytes(self.content_bytes) != self.content_digest
             or self.capability_kind != "creator.scene.reply"
             or self.operation != "send"
             or self.audience_scope != "creator"
@@ -125,7 +120,6 @@ class OtherHumanReplyDraft:
     scene_id: UUID
     other_party_id: UUID
     content_bytes: bytes
-    content_digest: Digest
     capability_kind: str = "local.other-human-inbox.deliver"
     operation: str = "send"
     audience_scope: str = "other_human"
@@ -141,8 +135,6 @@ class OtherHumanReplyDraft:
             type(self.content_bytes) is not bytes
             or not 1 <= len(self.content_bytes) <= 65536
             or b"\x00" in self.content_bytes
-            or type(self.content_digest) is not Digest
-            or Digest.from_bytes(self.content_bytes) != self.content_digest
             or self.capability_kind != "local.other-human-inbox.deliver"
             or self.operation != "send"
             or self.audience_scope != "other_human"
@@ -207,7 +199,6 @@ type ResponseChoiceDraft = (
 class ResponseAdmissionResult:
     operation_id: CreatorResponseOperationId
     status: ResponseAdmissionStatus
-    completion_digest: Digest
     action_intent_id: ActionIntentId | None = None
     no_action_id: FormalNoActionId | None = None
     grant_ref: UUID | None = None
@@ -217,7 +208,6 @@ class ResponseAdmissionResult:
         if (
             type(self.operation_id) is not CreatorResponseOperationId
             or type(self.status) is not ResponseAdmissionStatus
-            or type(self.completion_digest) is not Digest
             or (
                 self.grant_ref is not None
                 and (type(self.grant_ref) is not UUID or self.grant_ref.version != 7)

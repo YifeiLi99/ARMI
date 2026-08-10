@@ -167,7 +167,7 @@ async def coordinate_dispatch_boundary(
             """
             UPDATE armi.effects
             SET status='cancelled', verification_status='verified',
-                current_observation_id=%s, settlement_digest=%s,
+                current_observation_id=%s,
                 settled_at=%s, cancelled_at=%s
             WHERE effect_id=%s AND status='dispatching'
               AND current_attempt_id=%s
@@ -175,7 +175,6 @@ async def coordinate_dispatch_boundary(
             """,
             (
                 observation_id,
-                cancellation_digest.value,
                 attempt[0],
                 attempt[0],
                 effect_id,
@@ -203,7 +202,6 @@ async def coordinate_dispatch_boundary(
         prior_decision_id=UUID(str(current[5])),
         action_revision_id=UUID(str(current[6])),
         operation_id=UUID(str(current[7])),
-        decision_digest=cancellation_digest,
         reason_code=reason_code,
     )
     if current_decision_id is None:
@@ -239,7 +237,6 @@ async def coordinate_dispatch_boundary(
             TraceId(str(current[4])),
             AuditSensitivity.PRIVATE,
             subject_id=SubjectId(UUID(str(current[2]))),
-            request_digest=cancellation_digest,
             grant=AuditReference("permission_grant", grant_id),
         )
     )
@@ -252,7 +249,6 @@ async def supersede_effect_policy(
     prior_decision_id: UUID,
     action_revision_id: UUID,
     operation_id: UUID,
-    decision_digest: Digest,
     reason_code: str,
 ) -> UUID | None:
     superseded = await (
@@ -284,16 +280,15 @@ async def supersede_effect_policy(
         INSERT INTO armi.policy_decisions (
             policy_decision_id, action_intent_revision_id,
             operation_id, decision_outcome,
-            policy_identity, decision_digest, reason_code,
+            policy_identity, reason_code,
             supersedes_policy_decision_id) VALUES (
             %s,%s,%s,'denied','armi.policy-engine.deterministic-v1',
-            %s,%s,%s)
+            %s,%s)
         """,
         (
             decision_id,
             action_revision_id,
             operation_id,
-            decision_digest.value,
             reason_code,
             prior_decision_id,
         ),

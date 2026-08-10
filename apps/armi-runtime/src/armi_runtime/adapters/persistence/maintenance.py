@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid7
 
-import rfc8785
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -20,7 +19,7 @@ from armi_kernel.application import (
     MaintenanceResultStatus,
     plan_maintenance_checkpoint,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Purpose, SubjectId, TraceId
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -439,18 +438,6 @@ async def _admit_phase_work(
         MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
         MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
     }[phase]
-    source_digest = Digest.from_bytes(
-        rfc8785.dumps(
-            {
-                "schema_version": "armi.maintenance-phase-source.v1",
-                "maintenance_session_id": str(session_id),
-                "maintenance_revision_id": str(revision_id),
-                "head_version": head_version,
-                "phase": phase.value,
-                "purpose": purpose,
-            }
-        )
-    )
     opportunity_id = uuid7()
     row = await (
         await connection.execute(
@@ -459,10 +446,10 @@ async def _admit_phase_work(
                 opportunity_id, evidence_id, subject_id, scene_id,
                 creator_party_id, purpose, eligibility_status,
                 current_disposition, root_opportunity_id, reconsideration_no,
-                source_kind, source_ref, source_version, source_digest,
+                source_kind, source_ref, source_version,
                 activity_id) VALUES (
                 %s, NULL, %s, NULL, NULL, %s, 'eligible', 'open', %s, 0,
-                'maintenance_phase_revision', %s, %s, %s, NULL)
+                'maintenance_phase_revision', %s, %s, NULL)
             ON CONFLICT (
                 subject_id, source_kind, source_ref, source_version,
                 purpose, reconsideration_no
@@ -476,7 +463,6 @@ async def _admit_phase_work(
                 opportunity_id,
                 revision_id,
                 head_version,
-                source_digest.value,
             ),
         )
     ).fetchone()
@@ -485,7 +471,7 @@ async def _admit_phase_work(
     existing = await (
         await connection.execute(
             """
-            SELECT opportunity_id, source_digest, current_disposition,
+            SELECT opportunity_id, current_disposition,
                    root_opportunity_id, reconsideration_no
             FROM armi.opportunities
             WHERE subject_id = %s
@@ -498,11 +484,11 @@ async def _admit_phase_work(
             (subject_id, revision_id, head_version, purpose),
         )
     ).fetchone()
-    if existing is None or str(existing[1]) != source_digest.value:
-        raise LifeViolation("LIFE-MAINTENANCE-SOURCE-DRIFT")
-    if str(existing[2]) in {"open", "selected"}:
+    if existing is None:
+        raise LifeViolation("LIFE-MAINTENANCE-SOURCE-STALE")
+    if str(existing[1]) in {"open", "selected"}:
         return existing[0], False
-    if int(existing[4]) == 1:
+    if int(existing[3]) == 1:
         return None, False
     successor_id = uuid7()
     successor = await (
@@ -513,10 +499,10 @@ async def _admit_phase_work(
                 creator_party_id, purpose, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no,
-                source_kind, source_ref, source_version, source_digest,
+                source_kind, source_ref, source_version,
                 activity_id) VALUES (
                 %s, NULL, %s, NULL, NULL, %s, 'eligible', 'open',
-                %s, %s, 1, 'maintenance_phase_revision', %s, %s, %s,
+                %s, %s, 1, 'maintenance_phase_revision', %s, %s,
                 NULL)
             ON CONFLICT (predecessor_opportunity_id) DO NOTHING
             RETURNING opportunity_id
@@ -525,11 +511,10 @@ async def _admit_phase_work(
                 successor_id,
                 subject_id,
                 purpose,
-                existing[3],
+                existing[2],
                 existing[0],
                 revision_id,
                 head_version,
-                source_digest.value,
             ),
         )
     ).fetchone()

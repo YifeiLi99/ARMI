@@ -36,7 +36,7 @@ const variantFields: Record<(typeof statuses)[number], readonly string[]> = {
   unavailable: ["error", "recovery_hint"],
   failed: ["error", "retryable"],
   unknown: ["custodian", "result_ref", "verification_action"],
-  completed: ["completion_evidence", "result_ref"],
+  completed: ["result_ref"],
 };
 
 function record(value: unknown): Record<string, unknown> {

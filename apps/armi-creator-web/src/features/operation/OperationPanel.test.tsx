@@ -72,7 +72,6 @@ function outcome(status: string): object {
   return {
     ...common,
     result_ref: OPERATION_ID,
-    completion_evidence: "subjective_no_action",
   };
 }
 

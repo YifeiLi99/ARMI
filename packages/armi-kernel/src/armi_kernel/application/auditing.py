@@ -9,7 +9,6 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.contracts import (
-    Digest,
     ErrorCategory,
     Instant,
     Purpose,
@@ -72,13 +71,8 @@ class AuditDraft:
     request: AuditReference | None = None
     before_version: int | None = None
     after_version: int | None = None
-    request_digest: Digest | None = None
-    response_digest: Digest | None = None
-    artifact_digest: Digest | None = None
-    details_digest: Digest | None = None
     policy: AuditReference | None = None
     grant: AuditReference | None = None
-    bundle_digest: Digest | None = None
     error_category: ErrorCategory | None = None
 
     def __post_init__(self) -> None:
@@ -103,15 +97,6 @@ class AuditDraft:
             if value is not None and type(value) is not AuditReference:
                 raise AuditViolation("AUD-DECLARATION")
         _validate_versions(self.before_version, self.after_version)
-        for value in (
-            self.request_digest,
-            self.response_digest,
-            self.artifact_digest,
-            self.details_digest,
-            self.bundle_digest,
-        ):
-            if value is not None and type(value) is not Digest:
-                raise AuditViolation("AUD-DECLARATION")
         if (
             self.error_category is not None
             and type(self.error_category) is not ErrorCategory

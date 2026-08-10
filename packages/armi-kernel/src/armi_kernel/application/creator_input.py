@@ -176,7 +176,6 @@ class CreatorOperation:
     phase: CreatorOperationPhase
     failure_code: str | None = None
     subject_version: int | None = None
-    completion_digest: Digest | None = None
     effect_ref: UUID | None = None
 
     def __post_init__(self) -> None:
@@ -189,30 +188,6 @@ class CreatorOperation:
             if type(self.subject_version) is not int or self.subject_version <= 0:
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
         elif self.subject_version is not None:
-            raise CreatorInputViolation("CON-INPUT-OPERATION")
-        completed_phase = self.phase in {
-            CreatorOperationPhase.APPLIED,
-            CreatorOperationPhase.COMPLETED,
-            CreatorOperationPhase.DEFERRED,
-            CreatorOperationPhase.NEED_INFORMATION,
-            CreatorOperationPhase.STALE_CONFLICT,
-            CreatorOperationPhase.RESPONSE_ACCEPTED,
-            CreatorOperationPhase.EFFECT_REGISTERED,
-            CreatorOperationPhase.EFFECT_COMPLETED,
-            CreatorOperationPhase.EFFECT_FAILED,
-            CreatorOperationPhase.EFFECT_UNKNOWN,
-            CreatorOperationPhase.EFFECT_CANCELLED,
-            CreatorOperationPhase.CODEX_COMPLETED,
-            CreatorOperationPhase.CODEX_FAILED,
-            CreatorOperationPhase.CODEX_UNKNOWN,
-            CreatorOperationPhase.CODEX_CANCELLED,
-            CreatorOperationPhase.FORMAL_DECLINED,
-            CreatorOperationPhase.FORMAL_NO_ACTION,
-            CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
-            CreatorOperationPhase.RESPONSE_UNAVAILABLE,
-            CreatorOperationPhase.RESPONSE_FAILED,
-        }
-        if completed_phase != (self.completion_digest is not None):
             raise CreatorInputViolation("CON-INPUT-OPERATION")
         if (
             self.phase
@@ -236,11 +211,6 @@ class CreatorOperation:
             raise CreatorInputViolation("CON-INPUT-OPERATION")
         if self.effect_ref is not None and (
             type(self.effect_ref) is not UUID or self.effect_ref.version != 7
-        ):
-            raise CreatorInputViolation("CON-INPUT-OPERATION")
-        if (
-            self.completion_digest is not None
-            and type(self.completion_digest) is not Digest
         ):
             raise CreatorInputViolation("CON-INPUT-OPERATION")
         if self.phase is CreatorOperationPhase.FAILED:

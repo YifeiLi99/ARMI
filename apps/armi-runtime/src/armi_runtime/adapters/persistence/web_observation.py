@@ -63,7 +63,7 @@ class PostgreSQLWebObservationRepository:
                        request_digest, request_artifact_id, work_id,
                        (SELECT count(*) FROM armi.observation_attempts AS attempt
                         WHERE attempt.web_observation_request_id = request.web_observation_request_id),
-                       result_artifact_id, result_digest, last_error_code
+                       result_artifact_id, last_error_code
                 FROM armi.web_observation_requests AS request
                 WHERE subject_id = %s
                   AND purpose = 'public_web_research'
@@ -108,7 +108,7 @@ class PostgreSQLWebObservationRepository:
                     1000000, 'pending')
                 RETURNING web_observation_request_id, subject_id, status,
                           request_digest, request_artifact_id, work_id,
-                          0, result_artifact_id, result_digest, last_error_code
+                          0, result_artifact_id, last_error_code
                 """,
                 (
                     request_id.value,
@@ -253,29 +253,23 @@ class PostgreSQLWebObservationRepository:
         lease: WorkLease,
         snapshot: WebObservationSnapshot,
         attempt_id: WebObservationAttemptId,
-        result_artifact_id: ArtifactId,
+        result_artifact: ArtifactRef,
         result: WebObservationInvocationResult,
-        action_digests: tuple[Digest, ...],
     ) -> None:
         if result.status is not WebObservationResultStatus.SUCCEEDED:
             raise WebObservationViolation("WEB-RESULT")
         assert result.usage is not None
-        assert result.result_digest is not None
         assert result.provider_request_digest is not None
         assert result.provider_model_id is not None
-        if len(action_digests) != len(result.tool_actions):
-            raise WebObservationViolation("WEB-RESULT")
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await self._assert_lease(connection, lease, snapshot.request_id)
-        for ordinal, (action, action_digest) in enumerate(
-            zip(result.tool_actions, action_digests, strict=True), start=1
-        ):
+        for ordinal, action in enumerate(result.tool_actions, start=1):
             await connection.execute(
                 """
                 INSERT INTO armi.observation_tool_calls (
                     observation_tool_call_id, observation_attempt_id, call_no,
-                    action_type, provider_identity_digest, action_digest,
-                    completion_status) VALUES (%s, %s, %s, %s, %s, %s, 'completed')
+                    action_type, provider_identity_digest,
+                    completion_status) VALUES (%s, %s, %s, %s, %s, 'completed')
                 """,
                 (
                     WebObservationToolCallId(uuid7()).value,
@@ -285,7 +279,6 @@ class PostgreSQLWebObservationRepository:
                     Digest.from_bytes(
                         f"{result.provider_request_digest.value}\t{ordinal}".encode()
                     ).value,
-                    action_digest.value,
                 ),
             )
         usage = result.usage
@@ -295,7 +288,7 @@ class PostgreSQLWebObservationRepository:
                 UPDATE armi.observation_attempts
                 SET dispatch_state = 'settled', provider_request_digest = %s,
                     provider_model_id = %s, result_artifact_id = %s,
-                    result_digest = %s, input_tokens = %s, output_tokens = %s,
+                    input_tokens = %s, output_tokens = %s,
                     web_search_calls = %s, citation_count = %s,
                     estimated_cost_microyuan = %s, result_status = 'succeeded',
                     settled_at = statement_timestamp()
@@ -305,8 +298,7 @@ class PostgreSQLWebObservationRepository:
                 (
                     result.provider_request_digest.value,
                     result.provider_model_id,
-                    result_artifact_id.value,
-                    result.result_digest.value,
+                    result_artifact.artifact_id.value,
                     usage.input_tokens,
                     usage.output_tokens,
                     usage.web_search_calls,
@@ -322,12 +314,11 @@ class PostgreSQLWebObservationRepository:
             """
             UPDATE armi.web_observation_requests
             SET status = 'succeeded', result_artifact_id = %s,
-                result_digest = %s, completed_at = statement_timestamp()
+                completed_at = statement_timestamp()
             WHERE web_observation_request_id = %s AND status = 'running'
             """,
             (
-                result_artifact_id.value,
-                result.result_digest.value,
+                result_artifact.artifact_id.value,
                 snapshot.request_id.value,
             ),
         )
@@ -444,8 +435,7 @@ def _record(row: tuple[Any, ...]) -> WebObservationRecord:
             WorkId(row[5]),
             int(row[6]),
             ArtifactId(row[7]) if row[7] is not None else None,
-            Digest(str(row[8])) if row[8] is not None else None,
-            str(row[9]) if row[9] is not None else None,
+            str(row[8]) if row[8] is not None else None,
         )
     except TypeError, ValueError, WebObservationViolation:
         raise WebObservationViolation("WEB-DATABASE-STATE") from None

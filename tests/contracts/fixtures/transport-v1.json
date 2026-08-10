@@ -104,8 +104,7 @@
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": "2026-07-29T08:00:08.000008Z",
         "message": "completed",
-        "result_ref": "018f3f7d-8b2a-7c4d-8e9f-3123456789ab",
-        "completion_evidence": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        "result_ref": "018f3f7d-8b2a-7c4d-8e9f-3123456789ab"
       }
     ],
     "page_request": {

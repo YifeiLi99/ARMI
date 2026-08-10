@@ -38,6 +38,10 @@ class CreatorBuildTests(unittest.TestCase):
         self.assertFalse(manifest["runtime_discovery"])
         self.assertNotIn("timestamp", manifest)
         self.assertNotIn("revision", manifest)
+        self.assertNotIn("openapi", manifest)
+        self.assertNotIn("generated_types", manifest)
+        self.assertNotIn("package_lock_sha256", manifest)
+        self.assertNotIn("vite_manifest_sha256", manifest)
         self.assertTrue(
             all(not Path(item["path"]).is_absolute() for item in manifest["assets"])
         )

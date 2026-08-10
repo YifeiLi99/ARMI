@@ -673,9 +673,6 @@ def _creator_export_response(result: CreatorExportResult) -> CreatorExportRespon
         status=result.status.value,
         directory_name=result.directory_name,
         destination_path=result.destination_path,
-        manifest_digest=(
-            None if result.manifest_digest is None else result.manifest_digest.value
-        ),
         table_count=result.table_count,
         row_count=result.row_count,
         artifact_count=result.artifact_count,
@@ -1030,12 +1027,10 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             resume_condition="effect_settled",
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_COMPLETED:
-        assert operation.completion_digest is not None
         return CompletedOutcome(
             **_outcome_common(),
             message="The Creator response was received and verified.",
             result_ref=result_ref,
-            completion_evidence=operation.completion_digest,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_FAILED:
         return FailedOutcome(
@@ -1104,12 +1099,10 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             ),
         ).to_wire()
     if operation.phase is CreatorOperationPhase.CODEX_COMPLETED:
-        assert operation.completion_digest is not None
         return CompletedOutcome(
             **_outcome_common(),
             message="The Codex result was verified and accepted through cognition.",
             result_ref=result_ref,
-            completion_evidence=operation.completion_digest,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.CODEX_FAILED:
         return FailedOutcome(
@@ -1140,7 +1133,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
         CreatorOperationPhase.FORMAL_DECLINED,
         CreatorOperationPhase.FORMAL_NO_ACTION,
     }:
-        assert operation.completion_digest is not None
         return CompletedOutcome(
             **_outcome_common(),
             message=(
@@ -1149,7 +1141,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
                 else "Cognition formally chose not to act."
             ),
             result_ref=result_ref,
-            completion_evidence=operation.completion_digest,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.RESPONSE_UNAUTHORIZED:
         return RejectedOutcome(
@@ -1188,12 +1179,10 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             state_version=operation.subject_version,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.COMPLETED:
-        assert operation.completion_digest is not None
         return CompletedOutcome(
             **_outcome_common(),
             message="Cognition completed without a subject change.",
             result_ref=result_ref,
-            completion_evidence=operation.completion_digest,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.DEFERRED:
         return WaitingOutcome(

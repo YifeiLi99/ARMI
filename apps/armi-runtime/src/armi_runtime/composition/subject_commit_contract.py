@@ -79,7 +79,6 @@ _TOP_KEYS_V1 = {
     "episode_id",
     "model_attempt_id",
     "base",
-    "candidate_digest",
     "disposition",
     "experiences",
     "components",
@@ -273,7 +272,6 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
         )
         result = SubjectChangeSet(
             canonical,
-            Digest.from_bytes(canonical),
             _uuid7(document["subject_id"]),
             _uuid7(document["generation_id"]),
             _uuid7(document["episode_id"]),
@@ -282,7 +280,6 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             _nonnegative(base["state_epoch"]),
             _uuid7(base["bundle_activation_id"]),
             Digest(_text(base["context_digest"])),
-            Digest(_text(document["candidate_digest"])),
             CandidateDisposition(_text(document["disposition"])),
             experiences,
             components,
@@ -607,7 +604,6 @@ def _material(
         "expected_head_version",
         "title",
         "body",
-        "body_digest",
         "metadata",
         "material_status",
         "privacy_status",
@@ -649,7 +645,6 @@ def _material(
         _nonnegative(item["expected_head_version"]),
         _text(item["title"]),
         body,
-        Digest(_text(item["body_digest"])),
         tuple(sorted(metadata.items())),
         LifeMaterialStatus(_text(item["material_status"])),
         _text(item["privacy_status"]),
@@ -889,7 +884,6 @@ def _activity_decision(value: object) -> CandidateActivityDecisionDraft:
             "activity_id",
             "current_revision_id",
             "expected_head_version",
-            "resource_snapshot_digest",
             "decision_kind",
             "progress_summary",
             "next_safe_step",
@@ -907,7 +901,6 @@ def _activity_decision(value: object) -> CandidateActivityDecisionDraft:
         _uuid7(item["activity_id"]),
         _uuid7(item["current_revision_id"]),
         _positive(item["expected_head_version"]),
-        Digest(_text(item["resource_snapshot_digest"])),
         ActivityAttentionDecisionKind(_text(item["decision_kind"])),
         _optional_text_value(item["progress_summary"]),
         _optional_text_value(item["next_safe_step"]),
@@ -930,7 +923,6 @@ def _sleep_decision(value: object) -> CandidateSleepDecisionDraft:
             "basis_ordinals",
             "decision_kind",
             "cycle_anchor_ref",
-            "source_digest",
         },
     )
     return CandidateSleepDecisionDraft(
@@ -939,7 +931,6 @@ def _sleep_decision(value: object) -> CandidateSleepDecisionDraft:
         _ordinals(item["basis_ordinals"]),
         SleepDecisionKind(_text(item["decision_kind"])),
         _uuid7(item["cycle_anchor_ref"]),
-        Digest(_text(item["source_digest"])),
     )
 
 
@@ -986,7 +977,6 @@ def _component(value: object) -> CandidateComponentDraft:
             "owner",
             "expected_version",
             "next_state",
-            "next_state_digest",
         },
     )
     next_state = rfc8785.dumps(item["next_state"])
@@ -998,7 +988,6 @@ def _component(value: object) -> CandidateComponentDraft:
         CandidateOwner(_text(item["owner"])),
         _positive(item["expected_version"]),
         next_state,
-        Digest(_text(item["next_state_digest"])),
     )
 
 
@@ -1014,7 +1003,6 @@ def _prompt(value: object) -> CandidateSubjectPromptDraft:
             "current_revision_id",
             "expected_revision_no",
             "content",
-            "content_digest",
         },
     )
     content = _object(
@@ -1046,7 +1034,6 @@ def _prompt(value: object) -> CandidateSubjectPromptDraft:
         ),
         _nonnegative(item["expected_revision_no"]),
         content_bytes,
-        Digest(_text(item["content_digest"])),
     )
 
 
@@ -1060,7 +1047,6 @@ def _web_research(value: object) -> WebResearchRequestDraft:
             "purpose",
             "operation_class",
             "query",
-            "query_digest",
         },
     )
     query = _text(item["query"]).encode("utf-8", errors="strict")
@@ -1069,7 +1055,6 @@ def _web_research(value: object) -> WebResearchRequestDraft:
         _text(item["atomic_group_ref"]),
         _ordinals(item["basis_ordinals"]),
         query,
-        Digest(_text(item["query_digest"])),
         _text(item["purpose"]),
         _text(item["operation_class"]),
     )
@@ -1255,7 +1240,6 @@ def _action(
                 "purpose",
                 "media_type",
                 "content",
-                "content_digest",
             },
         )
         content = _text(item["content"]).encode("utf-8", errors="strict")
@@ -1267,7 +1251,6 @@ def _action(
             _uuid7(item["scene_id"]),
             _uuid7(item["creator_party_id"]),
             content,
-            Digest(_text(item["content_digest"])),
             _text(item["capability_kind"]),
             _text(item["operation"]),
             _text(item["audience_scope"]),
@@ -1291,7 +1274,6 @@ def _action(
                 "purpose",
                 "media_type",
                 "content",
-                "content_digest",
             },
         )
         content = _text(item["content"]).encode("utf-8", errors="strict")
@@ -1306,7 +1288,6 @@ def _action(
             _uuid7(item["scene_id"]),
             _uuid7(item["other_party_id"]),
             content,
-            Digest(_text(item["content_digest"])),
             _text(item["capability_kind"]),
             operation,
             _text(item["audience_scope"]),

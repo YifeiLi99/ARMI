@@ -119,30 +119,6 @@ class ModelBinding:
         ):
             raise ModelViolation("MODEL-BINDING-BUDGET")
 
-    @property
-    def digest(self) -> Digest:
-        values = (
-            self.provider,
-            self.api_base,
-            self.model_id,
-            self.version_policy,
-            str(self.response_model_identity_required).lower(),
-            self.profile,
-            self.request_contract_version,
-            self.response_contract_version,
-            self.pricing_snapshot_id,
-            self.credential_identity,
-            str(self.input_token_limit),
-            str(self.output_token_limit),
-            str(self.timeout_seconds),
-            str(self.max_attempts),
-            str(self.input_microyuan_per_million),
-            str(self.output_microyuan_per_million),
-            str(self.attempt_cost_limit_microyuan),
-            str(self.episode_cost_limit_microyuan),
-        )
-        return Digest.from_bytes(("\t".join(values) + "\n").encode())
-
     def estimate_cost_microyuan(
         self,
         *,
@@ -162,7 +138,6 @@ class ModelBinding:
 @dataclass(frozen=True, slots=True)
 class ModelRequest:
     canonical_bytes: bytes
-    digest: Digest
     context_digest: Digest
     input_tokens: int
     max_output_tokens: int
@@ -171,9 +146,7 @@ class ModelRequest:
         if (
             type(self.canonical_bytes) is not bytes
             or not self.canonical_bytes
-            or type(self.digest) is not Digest
             or type(self.context_digest) is not Digest
-            or Digest.from_bytes(self.canonical_bytes) != self.digest
             or type(self.input_tokens) is not int
             or self.input_tokens <= 0
             or type(self.max_output_tokens) is not int
@@ -208,7 +181,6 @@ class ModelInvocationResult:
     provider_request_id: str | None
     provider_model_id: str | None
     response_bytes: bytes | None
-    response_digest: Digest | None
     usage: ModelUsage | None
     error_code: str | None = None
 
@@ -224,8 +196,6 @@ class ModelInvocationResult:
                 or _MODEL_ID.fullmatch(self.provider_model_id) is None
                 or type(self.response_bytes) is not bytes
                 or not self.response_bytes
-                or type(self.response_digest) is not Digest
-                or Digest.from_bytes(self.response_bytes) != self.response_digest
                 or type(self.usage) is not ModelUsage
                 or self.error_code is not None
             ):

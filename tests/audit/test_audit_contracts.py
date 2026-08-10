@@ -15,12 +15,11 @@ from armi_kernel.application import (
     AuditSensitivity,
     AuditViolation,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Instant, Purpose, SubjectId, TraceId
 
 _FIRST = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 _SECOND = UUID("01980f7d-7b90-7e2a-8a11-2ab8e1234567")
 _TRACE = TraceId("0123456789abcdef0123456789abcdef")
-_DIGEST = Digest(f"sha256:{'a' * 64}")
 
 
 def _draft(**changes: object) -> AuditDraft:
@@ -33,7 +32,6 @@ def _draft(**changes: object) -> AuditDraft:
         "result_status": AuditResultStatus.APPLIED,
         "trace_id": _TRACE,
         "sensitivity": AuditSensitivity.PRIVATE,
-        "artifact_digest": _DIGEST,
     }
     values.update(changes)
     return AuditDraft(**values)  # type: ignore[arg-type]

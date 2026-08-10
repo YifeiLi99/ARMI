@@ -21,7 +21,7 @@ from ._codec import (
 )
 from .errors import ErrorDescriptor
 from .ids import ResultRef, TraceId
-from .values import Digest, Instant
+from .values import Instant
 
 _COMMON_REQUIRED = frozenset(
     {"contract_version", "status", "trace_id", "occurred_at", "message"}
@@ -406,14 +406,13 @@ class UnknownOutcome(_OutcomeBase):
 class CompletedOutcome(_OutcomeBase):
     status: ClassVar[str] = "completed"
     result_ref: ResultRef
-    completion_evidence: Digest
 
     @classmethod
     def from_wire(cls, value: object, *, path: str = "$") -> Self:
         wire, common = _decode_common(
             value,
             status=cls.status,
-            variant_required=frozenset({"result_ref", "completion_evidence"}),
+            variant_required=frozenset({"result_ref"}),
             path=path,
         )
         return cls(
@@ -421,16 +420,11 @@ class CompletedOutcome(_OutcomeBase):
             result_ref=ResultRef.from_wire(
                 wire["result_ref"], path=f"{path}.result_ref"
             ),
-            completion_evidence=Digest.from_wire(
-                wire["completion_evidence"],
-                path=f"{path}.completion_evidence",
-            ),
         )
 
     def to_wire(self) -> dict[str, object]:
         return _common_wire(self) | {
             "result_ref": self.result_ref.to_wire(),
-            "completion_evidence": self.completion_evidence.to_wire(),
         }
 
 

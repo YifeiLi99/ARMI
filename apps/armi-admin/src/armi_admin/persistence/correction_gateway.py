@@ -444,7 +444,7 @@ class AdminCorrectionGateway:
         suffix = " FOR UPDATE OF head" if for_update else ""
         row = connection.execute(
             "SELECT head.current_revision_id, head.component_version, "
-            "revision.semantic_digest, revision.semantic_payload, "
+            "revision.semantic_payload, "
             "(SELECT max(candidate.component_version) "
             " FROM armi.subject_component_revisions AS candidate "
             " WHERE candidate.subject_id = head.subject_id "
@@ -463,29 +463,24 @@ class AdminCorrectionGateway:
             {
                 "revision_id": str(row[0]),
                 "component_version": int(row[1]),
-                "semantic_digest": None if row[2] is None else str(row[2]),
             }
         )
         if spec["correction_kind"] == "replace_subject_component":
-            replacement = cast(dict[str, Any], spec["replacement"])
-            replacement_digest = _digest(replacement)
-            next_version = int(row[4]) + 1
+            next_version = int(row[3]) + 1
             after = _digest(
                 {
                     "revision_id": result_id,
                     "component_version": next_version,
-                    "semantic_digest": replacement_digest,
                 }
             )
             target = {
                 "current_revision_id": str(row[0]),
                 "current_version": int(row[1]),
                 "next_version": next_version,
-                "replacement_digest": replacement_digest,
             }
         else:
             target_row = connection.execute(
-                "SELECT component_revision_id, component_version, semantic_digest "
+                "SELECT component_revision_id, component_version "
                 "FROM armi.subject_component_revisions "
                 "WHERE component_revision_id = %s AND subject_id = %s "
                 "AND component_kind = %s",
@@ -497,9 +492,6 @@ class AdminCorrectionGateway:
                 {
                     "revision_id": str(target_row[0]),
                     "component_version": int(target_row[1]),
-                    "semantic_digest": None
-                    if target_row[2] is None
-                    else str(target_row[2]),
                 }
             )
             target = {
@@ -752,8 +744,8 @@ class AdminCorrectionGateway:
                 "INSERT INTO armi.subject_component_revisions ("
                 "component_revision_id, subject_id, component_kind, component_version, "
                 "previous_revision_id, origin_kind, origin_ref, subject_commit_id, "
-                "proposal_ref, semantic_digest, semantic_payload, privacy_scope) "
-                "VALUES (%s, %s, %s, %s, %s, 'admin_correction', %s, NULL, NULL, %s, %s, 'private')",
+                "proposal_ref, semantic_payload, privacy_scope) "
+                "VALUES (%s, %s, %s, %s, %s, 'admin_correction', %s, NULL, NULL, %s, 'private')",
                 (
                     snapshot["result_id"],
                     snapshot["subject_id"],
@@ -761,7 +753,6 @@ class AdminCorrectionGateway:
                     handler["next_version"],
                     handler["current_revision_id"],
                     snapshot["result_id"],
-                    handler["replacement_digest"],
                     Jsonb(spec["replacement"]),
                 ),
             )
@@ -892,11 +883,11 @@ class AdminCorrectionGateway:
             )
             connection.execute(
                 "INSERT INTO armi.outbox_items (outbox_item_id, work_id, message_kind, "
-                "payload_digest, status, available_at, claim_token, attempt_count, "
+                "status, available_at, claim_token, attempt_count, "
                 "max_attempts, trace_id) VALUES ("
-                "%s, %s, 'admin.correction.available', %s, 'ready', "
+                "%s, %s, 'admin.correction.available', 'ready', "
                 "statement_timestamp(), 0, 0, 10, %s)",
-                (outbox_id, work_id, handler["content_digest"], trace_id),
+                (outbox_id, work_id, trace_id),
             )
 
     @staticmethod
@@ -919,12 +910,11 @@ class AdminCorrectionGateway:
         if (
             connection.execute(
                 "UPDATE armi.effects SET status = %s, verification_status = 'verified', "
-                "current_observation_id = %s, settlement_digest = %s, "
+                "current_observation_id = %s, "
                 "settled_at = statement_timestamp() WHERE effect_id = %s AND status = 'unknown'",
                 (
                     "completed" if completed else "failed",
                     handler["observation_id"],
-                    handler["observation_digest"],
                     handler["effect_id"],
                 ),
             ).rowcount
@@ -974,7 +964,7 @@ class AdminCorrectionGateway:
         kind = status_spec["correction_kind"]
         if kind in {"replace_subject_component", "repair_subject_component_head"}:
             row = connection.execute(
-                "SELECT head.current_revision_id, head.component_version, revision.semantic_digest "
+                "SELECT head.current_revision_id, head.component_version "
                 "FROM armi.subject_component_heads AS head "
                 "JOIN armi.subject_component_revisions AS revision "
                 "ON revision.component_revision_id = head.current_revision_id "
@@ -987,7 +977,6 @@ class AdminCorrectionGateway:
                 {
                     "revision_id": str(row[0]),
                     "component_version": int(row[1]),
-                    "semantic_digest": None if row[2] is None else str(row[2]),
                 }
             )
         if kind == "delete_uncommitted_creator_input":

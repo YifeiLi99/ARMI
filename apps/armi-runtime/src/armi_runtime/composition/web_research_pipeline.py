@@ -138,7 +138,7 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
                 value = await stream.read()
         except ArtifactViolation:
             raise WebResearchViolation("WEB-RESEARCH-ARTIFACT") from None
-        if not value or snapshot.query_digest != snapshot.query_artifact.content_digest:
+        if not value:
             raise WebResearchViolation("WEB-RESEARCH-ARTIFACT")
         return value
 

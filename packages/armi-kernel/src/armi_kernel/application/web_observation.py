@@ -131,7 +131,6 @@ class WebObservationRecord:
     work_id: WorkId
     attempt_count: int
     result_artifact_id: ArtifactId | None = None
-    result_digest: Digest | None = None
     error_code: str | None = None
 
     def __post_init__(self) -> None:
@@ -147,10 +146,7 @@ class WebObservationRecord:
         ):
             raise WebObservationViolation("WEB-RECORD")
         success = self.status is WebObservationRequestStatus.SUCCEEDED
-        if success != (
-            type(self.result_artifact_id) is ArtifactId
-            and type(self.result_digest) is Digest
-        ):
+        if success != (type(self.result_artifact_id) is ArtifactId):
             raise WebObservationViolation("WEB-RECORD")
         if self.error_code is not None and _CODE.fullmatch(self.error_code) is None:
             raise WebObservationViolation("WEB-RECORD")
@@ -195,7 +191,6 @@ class WebObservationInvocationResult:
     provider_request_digest: Digest | None
     provider_model_id: str | None
     canonical_result_bytes: bytes | None
-    result_digest: Digest | None
     tool_actions: tuple[WebObservationToolAction, ...]
     usage: WebObservationUsage | None
     error_code: str | None = None
@@ -212,8 +207,6 @@ class WebObservationInvocationResult:
                 or type(self.canonical_result_bytes) is not bytes
                 or not self.canonical_result_bytes
                 or len(self.canonical_result_bytes) > 1024 * 1024
-                or type(self.result_digest) is not Digest
-                or Digest.from_bytes(self.canonical_result_bytes) != self.result_digest
                 or not 1 <= len(self.tool_actions) <= 8
                 or any(
                     type(item) is not WebObservationToolAction

@@ -8,8 +8,6 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Digest
-
 _REASON = re.compile(r"^REC-[A-Z0-9-]{1,123}$", re.ASCII)
 _KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
@@ -107,7 +105,6 @@ class RecoverySummary:
     unknown_web_observation_attempt_count: int
     critical_artifact_count: int
     blocker_count: int
-    summary_digest: Digest | None
     findings: tuple[RecoveryFinding, ...] = ()
     resumable_web_research_intent_count: int = 0
     pending_web_evidence_acceptance_count: int = 0
@@ -155,11 +152,6 @@ class RecoverySummary:
         ):
             if type(value) is not int or value < 0:
                 raise RecoveryViolation("REC-DECLARATION")
-        if self.status is RecoveryStatus.RUNNING:
-            if self.summary_digest is not None:
-                raise RecoveryViolation("REC-STATE")
-        elif type(self.summary_digest) is not Digest:
-            raise RecoveryViolation("REC-STATE")
         if self.status is RecoveryStatus.SAFE and self.blocker_count != 0:
             raise RecoveryViolation("REC-STATE")
         if self.status is RecoveryStatus.BLOCKED and self.blocker_count == 0:

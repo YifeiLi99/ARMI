@@ -65,7 +65,6 @@ def _snapshot(
             capability_state_payloads=capability_state_payloads,
             opportunity_source_ref=source_ref,
             opportunity_source_version=1,
-            opportunity_source_digest=Digest.from_bytes(b"opportunity"),
             opportunity_source_kind=opportunity_source_kind,
             opportunity_available_after=datetime(2026, 1, 1, tzinfo=UTC),
             opportunity_expires_at=None,
@@ -74,8 +73,8 @@ def _snapshot(
             fixed_prompt=SimpleNamespace(source_id=uuid7(), source_version=1),
             creator_prompt=creator_prompt,
             subject_prompt=subject_prompt,
-            policy_digest=Digest.from_bytes(b"policy"),
-            mechanism_config_digest=Digest.from_bytes(b"context-config"),
+            policy_version="context-policy.v1",
+            mechanism_identity="armi.context-compiler.deterministic-v1",
             trace_id=TraceId("1" * 32),
         ),
     )
@@ -91,7 +90,7 @@ def _memory(accessibility: str) -> tuple[object, ...]:
             "accessibility": accessibility,
         }
     )
-    return uuid7(), 2, payload, Digest.from_bytes(payload), accessibility
+    return uuid7(), 2, payload, accessibility
 
 
 def test_active_creator_prompt_is_frozen_by_revision_in_future_context() -> None:
@@ -148,8 +147,8 @@ def test_active_creator_prompt_is_frozen_by_revision_in_future_context() -> None
     assert next_item.source.reference == next_revision_id
     assert next_item.source.version == 4
     assert (
-        old_compiled.manifest_digest
-        != DeterministicContextCompiler().compile(next_request).manifest_digest
+        old_compiled.manifest_bytes
+        != DeterministicContextCompiler().compile(next_request).manifest_bytes
     )
 
 
@@ -264,8 +263,8 @@ def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> No
     )
     assert item.source.reference == revision_id
     assert next_item.source.reference == next_revision_id
-    assert DeterministicContextCompiler().compile(first).manifest_digest != (
-        DeterministicContextCompiler().compile(second).manifest_digest
+    assert DeterministicContextCompiler().compile(first).manifest_bytes != (
+        DeterministicContextCompiler().compile(second).manifest_bytes
     )
 
 
@@ -491,7 +490,7 @@ def test_context_includes_current_relationship_or_explicitly_reports_none() -> N
     snapshot = _snapshot(
         (),
         relationship_payloads=(
-            (relationship_id, 2, payload, Digest.from_bytes(payload)),
+            (relationship_id, 2, payload),
         ),
     )
     request = _context_request(
@@ -521,13 +520,11 @@ def test_context_includes_current_relationship_or_explicitly_reports_none() -> N
 
 def test_context_includes_current_life_material_with_revision_identity() -> None:
     material_id = uuid7()
-    semantic_digest = Digest.from_bytes(b"material-revision")
     source = cast(
         ContextMaterialSource,
         SimpleNamespace(
             material_id=material_id,
             head_version=4,
-            semantic_digest=semantic_digest,
         ),
     )
     payload = rfc8785.dumps(
@@ -551,7 +548,6 @@ def test_context_includes_current_life_material_with_revision_identity() -> None
     assert item.section.value == "material"
     assert item.source.reference == material_id
     assert item.source.version == 4
-    assert item.source.digest == semantic_digest
     assert item.trust_class.value == "subjective_state"
     assert "当前完整正文" in cast(str, item.content)
     assert '"privacy_status":"private"' in cast(str, item.content)
@@ -578,7 +574,6 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
         SimpleNamespace(
             material_id=uuid7(),
             head_version=1,
-            semantic_digest=Digest.from_bytes(b"private-material"),
         ),
     )
     request = _context_request(
@@ -589,7 +584,6 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
                     relationship_id,
                     1,
                     relationship_payload,
-                    Digest.from_bytes(relationship_payload),
                 ),
             ),
             capability_state_payloads=(
@@ -597,7 +591,6 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
                     uuid7(),
                     1,
                     b'{"secret":"creator-capability"}',
-                    Digest.from_bytes(b'{"secret":"creator-capability"}'),
                     "authorized",
                 ),
             ),
@@ -609,7 +602,6 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
                     uuid7(),
                     1,
                     b'{"thoughts":["other-relationship-secret"]}',
-                    Digest.from_bytes(b'{"thoughts":["other-relationship-secret"]}'),
                 ),
             ),
         ),
@@ -648,7 +640,6 @@ def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -
         commitment_id,
         3,
         commitment_payload,
-        Digest.from_bytes(commitment_payload),
         "active",
     )
     first_scene = rfc8785.dumps({"scene_key": "private-alpha"})
@@ -783,12 +774,11 @@ def test_context_hides_forgotten_commitment_but_keeps_open_issue() -> None:
                     uuid7(),
                     4,
                     forgotten_payload,
-                    Digest.from_bytes(forgotten_payload),
                     "forgotten",
                 ),
             ),
             relationship_issue_payloads=(
-                (uuid7(), 4, issue_payload, Digest.from_bytes(issue_payload)),
+                (uuid7(), 4, issue_payload),
             ),
         ),
         None,

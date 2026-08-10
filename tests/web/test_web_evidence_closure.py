@@ -62,7 +62,6 @@ def test_provider_synthesis_is_deterministic_and_deduplicates_sources() -> None:
     first = normalize_web_evidence(raw)
     second = normalize_web_evidence(raw)
     assert first.canonical_bytes == second.canonical_bytes
-    assert first.digest == second.digest
     assert len(first.sources) == 1
     source = json.loads(first.sources[0].canonical_bytes)
     assert source["canonical_url"] == "https://www.postgresql.org/docs/18/"

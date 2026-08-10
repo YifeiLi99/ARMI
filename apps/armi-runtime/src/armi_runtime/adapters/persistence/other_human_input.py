@@ -300,8 +300,8 @@ class OtherHumanInputRepository:
                 opportunity_id, evidence_id, subject_id, scene_id,
                 context_party_id, purpose, eligibility_status,
                 current_disposition, root_opportunity_id, source_kind, source_ref,
-                source_version, source_digest, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_other_human_input',
-                      'eligible','open',%s,'external_evidence',%s,1,%s,0)
+                source_version, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_other_human_input',
+                      'eligible','open',%s,'external_evidence',%s,1,0)
             """,
             (
                 opportunity_id,
@@ -311,7 +311,6 @@ class OtherHumanInputRepository:
                 context.party_id,
                 opportunity_id,
                 evidence_id,
-                content_digest.value,
             ),
         )
         await connection.execute(

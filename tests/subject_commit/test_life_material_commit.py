@@ -7,6 +7,9 @@ from uuid import UUID, uuid7
 import pytest
 from armi_kernel.application import (
     ArtifactId,
+    ArtifactIntegrityStatus,
+    ArtifactPrivacyScope,
+    ArtifactRef,
     CandidateLifeMaterialDraft,
     LifeMaterialKind,
     LifeMaterialRevisionKind,
@@ -133,7 +136,6 @@ def _draft(
         head_version,
         "一份作品",
         body_bytes,
-        Digest.from_bytes(body_bytes),
         (("topic", "reflection"),),
         LifeMaterialStatus.ACTIVE,
     )
@@ -145,7 +147,6 @@ def _state_draft(
     owner_party_id: UUID,
     current_revision_id: UUID,
     head_version: int,
-    body_digest: Digest,
     privacy_status: str,
     revision_kind: LifeMaterialRevisionKind,
 ) -> CandidateLifeMaterialDraft:
@@ -160,11 +161,22 @@ def _state_draft(
         head_version,
         "一份作品",
         None,
-        body_digest,
         (("topic", "reflection"),),
         LifeMaterialStatus.ACTIVE,
         privacy_status,
         change_kind=revision_kind,
+    )
+
+
+def _artifact(artifact_id: ArtifactId, content: bytes) -> ArtifactRef:
+    return ArtifactRef(
+        artifact_id,
+        Digest.from_bytes(content),
+        len(content),
+        "application/json",
+        "life_material_content",
+        ArtifactPrivacyScope.PRIVATE,
+        ArtifactIntegrityStatus.VERIFIED,
     )
 
 
@@ -191,7 +203,7 @@ async def test_life_material_commit_appends_revision_and_cas_updates_head() -> N
         generation_id=generation_id,
         commit_id=uuid7(),
         materials=(created,),
-        artifact_ids={"proposal:1": first_artifact},
+        artifacts={"proposal:1": _artifact(first_artifact, created.body_bytes or b"")},
     )
     first_revision_id = connection.materials[material_id]["current_revision_id"]
     assert connection.materials[material_id]["head_version"] == 1
@@ -214,7 +226,7 @@ async def test_life_material_commit_appends_revision_and_cas_updates_head() -> N
         generation_id=generation_id,
         commit_id=uuid7(),
         materials=(updated,),
-        artifact_ids={"proposal:1": second_artifact},
+        artifacts={"proposal:1": _artifact(second_artifact, updated.body_bytes or b"")},
     )
     assert connection.materials[material_id]["head_version"] == 2
     assert connection.revisions[1][2] == 2
@@ -246,7 +258,7 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         generation_id=generation_id,
         commit_id=uuid7(),
         materials=(created,),
-        artifact_ids={"proposal:1": artifact_id},
+        artifacts={"proposal:1": _artifact(artifact_id, created.body_bytes or b"")},
     )
     first_revision_id = cast(
         UUID, connection.materials[material_id]["current_revision_id"]
@@ -256,7 +268,6 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         owner_party_id=owner_party_id,
         current_revision_id=first_revision_id,
         head_version=1,
-        body_digest=created.body_digest,
         privacy_status="private",
         revision_kind=LifeMaterialRevisionKind.PRIVACY_CHANGED,
     )
@@ -267,7 +278,7 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         generation_id=generation_id,
         commit_id=uuid7(),
         materials=(private,),
-        artifact_ids={},
+        artifacts={},
     )
     assert connection.revisions[1][7] == artifact_id.value
     assert connection.revisions[1][11:13] == ("privacy_changed", "private")
@@ -280,7 +291,6 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         owner_party_id=owner_party_id,
         current_revision_id=private_revision_id,
         head_version=2,
-        body_digest=created.body_digest,
         privacy_status="restricted",
         revision_kind=LifeMaterialRevisionKind.DELETED,
     )
@@ -291,7 +301,7 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         generation_id=generation_id,
         commit_id=uuid7(),
         materials=(deleted,),
-        artifact_ids={},
+        artifacts={},
     )
     assert connection.revisions[2][7] == artifact_id.value
     assert connection.revisions[2][11:13] == ("deleted", "restricted")
@@ -315,7 +325,9 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
             generation_id=generation_id,
             commit_id=uuid7(),
             materials=(update_after_delete,),
-            artifact_ids={"proposal:1": ArtifactId(uuid7())},
+            artifacts={
+                "proposal:1": _artifact(ArtifactId(uuid7()), update_after_delete.body_bytes or b"")
+            },
         )
     assert terminal.value.code == "SUBJECT-MATERIAL-HEAD-STALE"
 
@@ -345,18 +357,18 @@ async def test_life_material_commit_rejects_duplicate_create_and_missing_artifac
         "materials": (draft,),
     }
     with pytest.raises(SubjectCommitViolation) as missing:
-        await apply_life_materials(connection, **arguments, artifact_ids={})
+        await apply_life_materials(connection, **arguments, artifacts={})
     assert missing.value.code == "SUBJECT-MATERIAL-ARTIFACT"
 
     await apply_life_materials(
         connection,
         **arguments,
-        artifact_ids={"proposal:1": ArtifactId(uuid7())},
+        artifacts={"proposal:1": _artifact(ArtifactId(uuid7()), draft.body_bytes or b"")},
     )
     with pytest.raises(SubjectCommitViolation) as duplicate:
         await apply_life_materials(
             connection,
             **arguments,
-            artifact_ids={"proposal:1": ArtifactId(uuid7())},
+            artifacts={"proposal:1": _artifact(ArtifactId(uuid7()), draft.body_bytes or b"")},
         )
     assert duplicate.value.code == "SUBJECT-MATERIAL-HEAD-STALE"

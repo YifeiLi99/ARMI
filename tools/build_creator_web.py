@@ -47,10 +47,6 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def sha256_file(path: Path) -> str:
-    return sha256_bytes(path.read_bytes())
-
-
 def render_json(value: object) -> bytes:
     return (
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -381,15 +377,6 @@ def generate(root: Path, tool_root: Path, stage: Path) -> tuple[Path, Path]:
         "schema_version": "armi.creator-static.v1",
         "base_path": "/ui/",
         "entrypoint": "static/index.html",
-        "openapi": {
-            "path": "openapi.json",
-            "sha256": sha256_bytes(openapi_bytes),
-        },
-        "generated_types": {
-            "path": GENERATED_RELATIVE.as_posix(),
-            "sha256": sha256_file(generated),
-        },
-        "package_lock_sha256": sha256_file(creator / "package-lock.json"),
         "toolchain": {
             "node": EXPECTED_NODE.removeprefix("v"),
             "npm": EXPECTED_NPM,
@@ -399,7 +386,6 @@ def generate(root: Path, tool_root: Path, stage: Path) -> tuple[Path, Path]:
             "vite": development.get("vite"),
             "openapi_typescript": development.get("openapi-typescript"),
         },
-        "vite_manifest_sha256": sha256_file(vite_manifest),
         "assets": assets,
         "runtime_discovery": False,
     }

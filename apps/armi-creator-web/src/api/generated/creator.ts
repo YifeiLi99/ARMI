@@ -1077,8 +1077,6 @@ export interface components {
       error_code: string | null;
       /** Export Id */
       export_id: string;
-      /** Manifest Digest */
-      manifest_digest: string | null;
       /** Missing Artifacts */
       missing_artifacts: string[];
       /** Newly Created */
@@ -2189,8 +2187,6 @@ export interface components {
     };
     /** OperationCompletedOutcomeResponse */
     OperationCompletedOutcomeResponse: {
-      /** Completion Evidence */
-      completion_evidence: string;
       /**
        * Contract Version
        * @constant

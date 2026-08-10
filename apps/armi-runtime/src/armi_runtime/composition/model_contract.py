@@ -1330,7 +1330,6 @@ _PRIVATE_MODEL_KEYS = frozenset(
         "binding",
         "bundle_activation_id",
         "context_digest",
-        "source_digest",
         "source_ref",
         "subject_version",
         "state_epoch",
@@ -1688,20 +1687,20 @@ def build_request_bytes(
             )
         except TypeError, UnicodeEncodeError:
             raise ModelViolation("MODEL-REQUEST") from None
-    schema = candidate_schema(binding.response_contract_version)
     value: dict[str, object] = {
         "schema_version": MODEL_REQUEST_VERSION,
         "binding": {
             "provider": binding.provider,
             "model_id": binding.model_id,
             "profile": binding.profile,
-            "binding_digest": binding.digest.value,
+            "version_policy": binding.version_policy,
+            "request_contract_version": binding.request_contract_version,
+            "response_contract_version": binding.response_contract_version,
         },
         "context_digest": context_digest.value,
         "compiled_context": compiled_value,
         "output_contract": {
             "schema_version": binding.response_contract_version,
-            "schema_digest": Digest.from_bytes(rfc8785.dumps(cast(Any, schema))).value,
         },
     }
     value["candidate_base"] = {
@@ -1735,7 +1734,6 @@ def checked_model_request(
         raise ModelViolation("MODEL-BUDGET")
     return ModelRequest(
         request_bytes,
-        Digest.from_bytes(request_bytes),
         context_digest,
         input_tokens,
         binding.output_token_limit,

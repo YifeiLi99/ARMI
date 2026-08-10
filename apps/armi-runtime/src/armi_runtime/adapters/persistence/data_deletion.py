@@ -60,7 +60,7 @@ class LocalDataDeletionRepository:
         order = await (
             await connection.execute(
                 """
-                SELECT requester_party_id, execution_status, request_digest
+                SELECT requester_party_id, execution_status
                 FROM armi.deletion_orders
                 WHERE deletion_order_id = %s AND order_kind = 'delete_related'
                 FOR UPDATE
@@ -71,7 +71,6 @@ class LocalDataDeletionRepository:
         if order is None:
             raise DataRightsViolation("DATA-RIGHTS-ORDER-NOT-FOUND")
         party_id = order[0]
-        order_digest = str(order[2])
         await connection.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             (f"data-rights:{party_id}",),
@@ -87,7 +86,7 @@ class LocalDataDeletionRepository:
             """,
             (order_id,),
         )
-        await self._insert_logical_items(connection, order_id, party_id, order_digest)
+        await self._insert_logical_items(connection, order_id, party_id)
         artifact_ids = await self._related_artifact_ids(connection, party_id)
         reference_columns = await self._artifact_reference_columns(connection)
         items: list[DeletionArtifactItem] = []
@@ -103,10 +102,9 @@ class LocalDataDeletionRepository:
                     INSERT INTO armi.deletion_items (
                         deletion_item_id, deletion_order_id, target_kind,
                         target_ref, required_action, result_status,
-                        remaining_location, execution_digest, completed_at
+                        remaining_location, completed_at
                     ) VALUES (
                         %s, %s, 'artifact', %s, %s, %s, %s,
-                        CASE WHEN %s = 'completed' THEN %s END,
                         CASE WHEN %s = 'completed' THEN statement_timestamp() END
                     )
                     ON CONFLICT (deletion_order_id, target_kind, target_ref)
@@ -120,8 +118,6 @@ class LocalDataDeletionRepository:
                         "delete" if exclusive else "retain",
                         "pending" if exclusive else "completed",
                         None if exclusive else "shared_local_reference",
-                        "pending" if exclusive else "completed",
-                        order_digest,
                         "pending" if exclusive else "completed",
                     ),
                 )
@@ -152,15 +148,11 @@ class LocalDataDeletionRepository:
             """,
             (artifact_id, completed),
         )
-        execution_digest = Digest.from_bytes(
-            f"{status}:{order_id}:{artifact_id}".encode()
-        )
         updated = await (
             await connection.execute(
                 """
                 UPDATE armi.deletion_items
                 SET result_status = %s, remaining_location = %s,
-                    execution_digest = %s,
                     completed_at = statement_timestamp()
                 WHERE deletion_item_id = %s
                   AND deletion_order_id = %s
@@ -170,7 +162,6 @@ class LocalDataDeletionRepository:
                 (
                     status,
                     remaining,
-                    execution_digest.value,
                     item_id,
                     order_id,
                 ),
@@ -218,9 +209,6 @@ class LocalDataDeletionRepository:
         ).fetchone()
         if finalized is None:
             return
-        completion = Digest.from_bytes(
-            f"{final_status}:{order_id}:{int(counts[1])}".encode()
-        )
         await unit_of_work.audit.append(
             AuditDraft(
                 AuditEventId(uuid7()),
@@ -235,8 +223,6 @@ class LocalDataDeletionRepository:
                 ),
                 TraceId(str(finalized[2])),
                 AuditSensitivity.RESTRICTED,
-                request_digest=Digest(str(finalized[3])),
-                response_digest=completion,
             )
         )
 
@@ -245,7 +231,6 @@ class LocalDataDeletionRepository:
         connection: Any,
         order_id: UUID,
         party_id: UUID,
-        order_digest: str,
     ) -> None:
         await connection.execute(
             """
@@ -284,17 +269,15 @@ class LocalDataDeletionRepository:
             )
             INSERT INTO armi.deletion_items (
                 deletion_item_id, deletion_order_id, target_kind, target_ref,
-                required_action, result_status, remaining_location,
-                execution_digest, completed_at
+                required_action, result_status, remaining_location, completed_at
             )
             SELECT uuidv7(), %s, target_kind, target_ref, required_action,
                    'completed', remaining_location,
-                   %s,
                    statement_timestamp()
             FROM targets
             ON CONFLICT (deletion_order_id, target_kind, target_ref) DO NOTHING
             """,
-            (party_id,) * 8 + (order_id, order_digest),
+            (party_id,) * 8 + (order_id,),
         )
 
     async def _related_artifact_ids(

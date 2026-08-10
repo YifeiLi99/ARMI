@@ -17,7 +17,6 @@ from armi_kernel.application import (
     ResponseAdmissionStatus,
     ResponseViolation,
 )
-from armi_kernel.contracts import Digest
 
 
 def test_creator_reply_preserves_exact_utf8_and_scope() -> None:
@@ -30,7 +29,6 @@ def test_creator_reply_preserves_exact_utf8_and_scope() -> None:
         uuid7(),
         uuid7(),
         content,
-        Digest.from_bytes(content),
     )
     assert reply.content_bytes == content
     assert reply.capability_kind == "creator.scene.reply"
@@ -48,7 +46,6 @@ def test_creator_reply_rejects_invalid_content(content: bytes) -> None:
             uuid7(),
             uuid7(),
             content,
-            Digest.from_bytes(content),
         )
 
 
@@ -72,11 +69,9 @@ def test_formal_no_action_reason_is_not_interchangeable() -> None:
 
 
 def test_admission_result_distinguishes_acceptance_and_no_action() -> None:
-    digest = Digest.from_bytes(b"result")
     accepted = ResponseAdmissionResult(
         CreatorResponseOperationId(uuid7()),
         ResponseAdmissionStatus.ACCEPTED,
-        digest,
         action_intent_id=ActionIntentId(uuid7()),
         grant_ref=uuid7(),
     )
@@ -84,7 +79,6 @@ def test_admission_result_distinguishes_acceptance_and_no_action() -> None:
     no_action = ResponseAdmissionResult(
         CreatorResponseOperationId(uuid7()),
         ResponseAdmissionStatus.NO_ACTION,
-        digest,
         no_action_id=FormalNoActionId(uuid7()),
     )
     assert no_action.status is ResponseAdmissionStatus.NO_ACTION

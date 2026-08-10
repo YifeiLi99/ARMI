@@ -9,8 +9,6 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Digest
-
 _CODE = re.compile(r"^(?:CON|CAPABILITY|POLICY|CONFLICT|SCOPE)-[A-Z0-9-]+$", re.ASCII)
 
 
@@ -190,38 +188,6 @@ class CapabilityRequestDraft:
 
 
 @dataclass(frozen=True, slots=True)
-class CapabilityRequestRecord:
-    request_id: CapabilityRequestId
-    capability_id: CapabilityId
-    subject_id: UUID
-    scene_id: UUID
-    creator_party_id: UUID
-    capability: CapabilityKind
-    operation: CapabilityOperation
-    scope: CapabilityScope
-    status: CapabilityRequestStatus
-    version: int
-    request_digest: Digest
-    created_at: datetime
-    grant_id: PermissionGrantId | None = None
-
-    def __post_init__(self) -> None:
-        for value in (self.subject_id, self.scene_id, self.creator_party_id):
-            _uuid7(value, "CON-CAPABILITY-RECORD")
-        if (
-            type(self.request_id) is not CapabilityRequestId
-            or type(self.capability_id) is not CapabilityId
-            or type(self.version) is not int
-            or self.version <= 0
-            or type(self.request_digest) is not Digest
-            or type(self.created_at) is not datetime
-            or self.created_at.tzinfo is None
-            or type(self.status) is not CapabilityRequestStatus
-        ):
-            raise CapabilityViolation("CON-CAPABILITY-RECORD")
-
-
-@dataclass(frozen=True, slots=True)
 class CreatorGrantCommand:
     decision_id: CapabilityDecisionId
     request_id: CapabilityRequestId
@@ -327,7 +293,6 @@ class CreatorGrantResult:
     request_id: CapabilityRequestId
     request_version: int
     status: CapabilityRequestStatus
-    decision_digest: Digest
     grant: PermissionGrant | None = None
 
     def __post_init__(self) -> None:
@@ -340,7 +305,6 @@ class CreatorGrantResult:
             or type(self.request_version) is not int
             or self.request_version <= 1
             or type(self.status) is not CapabilityRequestStatus
-            or type(self.decision_digest) is not Digest
             or has_grant != (self.grant is not None)
         ):
             raise CapabilityViolation("CON-CAPABILITY-RESULT")
@@ -423,7 +387,6 @@ __all__ = (
     "CapabilityOperation",
     "CapabilityRequestDraft",
     "CapabilityRequestId",
-    "CapabilityRequestRecord",
     "CapabilityRequestStatus",
     "CapabilityScope",
     "CapabilityViolation",

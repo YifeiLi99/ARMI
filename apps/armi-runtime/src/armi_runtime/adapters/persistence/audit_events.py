@@ -18,7 +18,6 @@ from armi_kernel.application import (
     AuditViolation,
 )
 from armi_kernel.contracts import (
-    Digest,
     ErrorCategory,
     Instant,
     Purpose,
@@ -45,13 +44,8 @@ _COLUMNS = """
     request_ref,
     before_version,
     after_version,
-    request_digest,
-    response_digest,
-    artifact_digest,
-    details_digest,
     policy_ref,
     grant_ref,
-    bundle_digest,
     error_category,
     occurred_at
 """
@@ -90,18 +84,13 @@ class PostgreSQLAuditWriter:
                     request_ref,
                     before_version,
                     after_version,
-                    request_digest,
-                    response_digest,
-                    artifact_digest,
-                    details_digest,
                     policy_ref,
                     grant_ref,
-                    bundle_digest,
                     error_category)
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s)
+                    %s, %s)
                 """,
                 _draft_parameters(draft),
             )
@@ -162,19 +151,10 @@ def _draft_parameters(draft: AuditDraft) -> tuple[object, ...]:
         draft.request.reference if draft.request is not None else None,
         draft.before_version,
         draft.after_version,
-        _digest_value(draft.request_digest),
-        _digest_value(draft.response_digest),
-        _digest_value(draft.artifact_digest),
-        _digest_value(draft.details_digest),
         draft.policy.reference if draft.policy is not None else None,
         draft.grant.reference if draft.grant is not None else None,
-        _digest_value(draft.bundle_digest),
         draft.error_category.value if draft.error_category is not None else None,
     )
-
-
-def _digest_value(value: Digest | None) -> str | None:
-    return value.value if value is not None else None
 
 
 def _query_condition(query: AuditQuery) -> tuple[str, tuple[object, ...]]:
@@ -212,25 +192,15 @@ def _row_to_record(row: Sequence[Any]) -> AuditRecord:
             request=request,
             before_version=row[13],
             after_version=row[14],
-            request_digest=_optional_digest(row[15]),
-            response_digest=_optional_digest(row[16]),
-            artifact_digest=_optional_digest(row[17]),
-            details_digest=_optional_digest(row[18]),
-            policy=(AuditReference("policy", row[19]) if row[19] is not None else None),
-            grant=AuditReference("grant", row[20]) if row[20] is not None else None,
-            bundle_digest=_optional_digest(row[21]),
+            policy=(AuditReference("policy", row[15]) if row[15] is not None else None),
+            grant=AuditReference("grant", row[16]) if row[16] is not None else None,
             error_category=(
-                ErrorCategory(str(row[22])) if row[22] is not None else None
+                ErrorCategory(str(row[17])) if row[17] is not None else None
             ),
         )
-        return AuditRecord(draft, Instant(row[23]))
+        return AuditRecord(draft, Instant(row[18]))
     except AuditViolation, TypeError, ValueError:
         raise AuditViolation("AUD-READ") from None
-
-
-def _optional_digest(value: object) -> Digest | None:
-    return Digest(str(value)) if value is not None else None
-
 
 __all__ = (
     "AuditEventRepository",

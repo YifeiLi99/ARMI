@@ -12,7 +12,6 @@ from armi_kernel.application import (
     RuntimeFence,
     RuntimeInstanceId,
 )
-from armi_kernel.contracts import Digest
 from armi_runtime.adapters.persistence.life_opportunity import (
     PostgreSQLLifeOpportunityRepository,
 )
@@ -36,11 +35,9 @@ class _Connection:
         *,
         material_id: UUID,
         revision_id: UUID,
-        digest: Digest,
     ) -> None:
         self._material_id = material_id
         self._revision_id = revision_id
-        self._digest = digest
         self._opportunity_id: UUID | None = None
         self.insert_parameters: tuple[object, ...] | None = None
 
@@ -55,7 +52,6 @@ class _Connection:
                     self._material_id,
                     self._revision_id,
                     1,
-                    self._digest.value,
                 )
             )
         if "INSERT INTO armi.opportunities" in statement:
@@ -64,9 +60,9 @@ class _Connection:
                 self._opportunity_id = cast(UUID, parameters[0])
                 return _Cursor((self._opportunity_id,))
             return _Cursor(None)
-        if "SELECT opportunity_id, source_digest" in statement:
+        if "SELECT opportunity_id" in statement:
             assert self._opportunity_id is not None
-            return _Cursor((self._opportunity_id, self._digest.value))
+            return _Cursor((self._opportunity_id,))
         raise AssertionError(statement)
 
 
@@ -96,12 +92,10 @@ class _UnitOfWork:
 
 
 def test_current_active_material_admits_one_idempotent_autonomous_opportunity() -> None:
-    digest = Digest.from_bytes(b"material revision")
     revision_id = uuid7()
     connection = _Connection(
         material_id=uuid7(),
         revision_id=revision_id,
-        digest=digest,
     )
     unit_of_work = _UnitOfWork(connection)
     repository = PostgreSQLLifeOpportunityRepository()
@@ -124,7 +118,6 @@ def test_current_active_material_admits_one_idempotent_autonomous_opportunity() 
     assert connection.insert_parameters[3:] == (
         revision_id,
         1,
-        digest.value,
     )
     assert len(unit_of_work.audit.events) == 1
 
@@ -134,7 +127,6 @@ class _InternalWorkConnection:
         self._activity_id = activity_id
         self._revision_id = revision_id
         self._opportunity_id: UUID | None = None
-        self._source_digest: str | None = None
 
     async def execute(
         self,
@@ -165,13 +157,11 @@ class _InternalWorkConnection:
         if "INSERT INTO armi.opportunities" in statement:
             if self._opportunity_id is None:
                 self._opportunity_id = cast(UUID, parameters[0])
-                self._source_digest = cast(str, parameters[5])
                 return _Cursor((self._opportunity_id,))
             return _Cursor(None)
-        if "SELECT opportunity_id, source_digest" in statement:
+        if "SELECT opportunity_id" in statement:
             assert self._opportunity_id is not None
-            assert self._source_digest is not None
-            return _Cursor((self._opportunity_id, self._source_digest))
+            return _Cursor((self._opportunity_id,))
         raise AssertionError(statement)
 
 
@@ -208,7 +198,6 @@ class _AttentionRetryConnection:
         self.revision_id = revision_id
         self.root_id = uuid7()
         self.retry_id: UUID | None = None
-        self.source_digest: str | None = None
         self.saw_signal_query = False
         self.insert_count = 0
 
@@ -245,13 +234,11 @@ class _AttentionRetryConnection:
         if "INSERT INTO armi.opportunities" in statement:
             self.insert_count += 1
             if self.insert_count == 1:
-                self.source_digest = cast(str, parameters[5])
                 return _Cursor(None)
             self.retry_id = cast(UUID, parameters[0])
             return _Cursor((self.retry_id,))
         if "SELECT root.opportunity_id" in statement:
-            assert self.source_digest is not None
-            return _Cursor((self.root_id, self.source_digest, "resolved", True, None))
+            return _Cursor((self.root_id, "resolved", True, None))
         raise AssertionError(statement)
 
 
@@ -280,7 +267,6 @@ class _OutreachConnection:
         self.interaction_id = uuid7()
         self.generation_id = uuid7()
         self._opportunity_id: UUID | None = None
-        self._source_digest: str | None = None
         self.boundary = boundary
         self.awaiting = awaiting
 
@@ -315,15 +301,13 @@ class _OutreachConnection:
         if "SELECT 'creator_outreach_activity'" in statement:
             return _Cursor(None)
         if "INSERT INTO armi.opportunities" in statement:
-            self._source_digest = cast(str, parameters[9])
             if self._opportunity_id is None:
                 self._opportunity_id = cast(UUID, parameters[0])
                 return _Cursor((self._opportunity_id,))
             return _Cursor(None)
-        if "SELECT opportunity_id, source_digest" in statement:
+        if "SELECT opportunity_id" in statement:
             assert self._opportunity_id is not None
-            assert self._source_digest is not None
-            return _Cursor((self._opportunity_id, self._source_digest))
+            return _Cursor((self._opportunity_id,))
         raise AssertionError(statement)
 
 

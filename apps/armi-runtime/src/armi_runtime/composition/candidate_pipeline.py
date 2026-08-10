@@ -14,6 +14,7 @@ import rfc8785
 from armi_kernel.application import (
     ActivityStatus,
     ArtifactId,
+    ArtifactIntegrityStatus,
     ArtifactPolicy,
     ArtifactPrivacyScope,
     ArtifactRef,
@@ -50,10 +51,13 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
+from armi_kernel.contracts import Instant, Purpose, SubjectId
 
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
+)
+from armi_runtime.adapters.artifacts.life_material_codec import (
+    parse_life_material_artifact,
 )
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
@@ -104,7 +108,6 @@ class CandidateValidationPipeline:
         "_diagnostic",
         "_factory",
         "_lease_owner",
-        "_policy_digest",
         "_repository",
         "_stop",
         "_storage",
@@ -118,14 +121,12 @@ class CandidateValidationPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
-        policy_digest: Digest,
         web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
-        self._policy_digest = policy_digest
         self._web_search_active = web_search_active
         self._catalog = ArtifactCatalogRepository()
         self._repository = PostgreSQLCandidateValidationRepository()
@@ -168,8 +169,10 @@ class CandidateValidationPipeline:
         try:
             snapshot = await self._snapshot(lease)
             response_bytes = await self._read_response(snapshot)
+            material_contexts = await self._read_material_contexts(
+                snapshot.current_materials
+            )
             candidate_bytes = _candidate_bytes(response_bytes)
-            candidate_digest = Digest.from_bytes(candidate_bytes)
             validator = DeterministicCandidateValidator(
                 CandidateValidationContext(
                     snapshot.subject_id,
@@ -194,18 +197,16 @@ class CandidateValidationPipeline:
                     None
                     if snapshot.current_activity_status is None
                     else ActivityStatus(snapshot.current_activity_status),
-                    snapshot.resource_snapshot_digest,
                     tuple(
                         CandidateMemoryContext(
                             item[0],
                             item[1],
                             item[2],
-                            item[3],
-                            CandidateFactClass(item[4]),
-                            MemorySourceKind(item[5]),
+                            CandidateFactClass(item[3]),
+                            MemorySourceKind(item[4]),
+                            item[5],
                             item[6],
-                            item[7],
-                            MemoryAccessibility(item[8]),
+                            MemoryAccessibility(item[7]),
                         )
                         for item in snapshot.current_memories
                     ),
@@ -217,12 +218,11 @@ class CandidateValidationPipeline:
                             snapshot.current_relationship[0],
                             snapshot.current_relationship[1],
                             snapshot.current_relationship[2],
-                            snapshot.current_relationship[3],
                             tuple(
                                 RelationshipFact(RelationshipFactKind(item[0]), item[1])
-                                for item in snapshot.current_relationship[4]
+                                for item in snapshot.current_relationship[3]
                             ),
-                            snapshot.current_relationship[5],
+                            snapshot.current_relationship[4],
                             tuple(
                                 RelationshipBoundary(
                                     RelationshipPartyRole(item[0]),
@@ -230,9 +230,9 @@ class CandidateValidationPipeline:
                                     RelationshipBoundaryAction(item[2]),
                                     item[3],
                                 )
-                                for item in snapshot.current_relationship[6]
+                                for item in snapshot.current_relationship[5]
                             ),
-                            RelationshipStatus(snapshot.current_relationship[7]),
+                            RelationshipStatus(snapshot.current_relationship[6]),
                             tuple(
                                 CandidateRelationshipCommitmentContext(
                                     RelationshipCommitment(
@@ -243,10 +243,9 @@ class CandidateValidationPipeline:
                                         RelationshipCommitmentStatus(item[4]),
                                         RelationshipCommitmentEventKind(item[5]),
                                         item[6],
-                                    ),
-                                    item[7],
+                                    )
                                 )
-                                for item in snapshot.current_relationship[8]
+                                for item in snapshot.current_relationship[7]
                             ),
                             tuple(
                                 RelationshipIssue(
@@ -256,11 +255,11 @@ class CandidateValidationPipeline:
                                     item[3],
                                     RelationshipIssueStatus(item[4]),
                                 )
-                                for item in snapshot.current_relationship[9]
+                                for item in snapshot.current_relationship[8]
                             ),
                         )
                     ),
-                    current_materials=_material_contexts(snapshot.current_materials),
+                    current_materials=material_contexts,
                     current_subject_prompt=(
                         None
                         if snapshot.current_subject_prompt is None
@@ -294,14 +293,14 @@ class CandidateValidationPipeline:
                 else None
             )
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
-                artifact_id = None
+                change_set_artifact = None
                 if published is not None:
                     registration = await self._catalog.register(
                         unit_of_work,
                         ArtifactId(uuid7()),
                         published,
                     )
-                    artifact_id = registration.ref.artifact_id
+                    change_set_artifact = registration.ref
                     if registration.inserted:
                         await unit_of_work.audit.append(
                             _artifact_audit(
@@ -315,10 +314,8 @@ class CandidateValidationPipeline:
                     lease=lease,
                     snapshot=snapshot,
                     result=result,
-                    candidate_digest=candidate_digest,
-                    policy_digest=self._policy_digest,
                     validator_identity=CANDIDATE_VALIDATOR_IDENTITY,
-                    change_set_artifact_id=artifact_id,
+                    change_set_artifact=change_set_artifact,
                 )
             self._wakeups.notify(SUBJECT_COMMIT)
             return True
@@ -369,12 +366,59 @@ class CandidateValidationPipeline:
                 value = await stream.read()
         except ArtifactViolation:
             raise CandidateViolation("CANDIDATE-ARTIFACT") from None
-        if (
-            not value
-            or Digest.from_bytes(value) != snapshot.response_artifact.content_digest
-        ):
+        if not value:
             raise CandidateViolation("CANDIDATE-ARTIFACT")
         return value
+
+    async def _read_material_contexts(
+        self,
+        values: tuple[
+            tuple[
+                UUID,
+                UUID,
+                int,
+                UUID,
+                str,
+                str,
+                tuple[tuple[str, str], ...],
+                str,
+                str,
+                ArtifactRef,
+            ],
+            ...,
+        ],
+    ) -> tuple[CandidateLifeMaterialContext, ...]:
+        result: list[CandidateLifeMaterialContext] = []
+        try:
+            for item in values:
+                ref = item[9]
+                if (
+                    ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
+                    or ref.media_type != "application/json"
+                    or ref.logical_kind != "life.material.content"
+                    or ref.privacy_scope is not ArtifactPrivacyScope.PRIVATE
+                ):
+                    raise CandidateViolation("CANDIDATE-MATERIAL-CONTEXT")
+                artifact_bytes = b""
+                async with await self._storage.open_verified(ref) as stream:
+                    artifact_bytes = await stream.read()
+                result.append(
+                    CandidateLifeMaterialContext(
+                        item[0],
+                        item[1],
+                        item[2],
+                        item[3],
+                        LifeMaterialKind(item[4]),
+                        item[5],
+                        parse_life_material_artifact(artifact_bytes),
+                        item[6],
+                        LifeMaterialStatus(item[7]),
+                        LifeMaterialPrivacyStatus(item[8]),
+                    )
+                )
+        except ArtifactViolation, ValueError, UnicodeError:
+            raise CandidateViolation("CANDIDATE-MATERIAL-CONTEXT") from None
+        return tuple(result)
 
     async def _publish(
         self,
@@ -431,45 +475,6 @@ def _candidate_bytes(response_bytes: bytes) -> bytes:
         raise CandidateViolation("CANDIDATE-CONTRACT") from None
 
 
-def _material_contexts(
-    values: tuple[
-        tuple[
-            UUID,
-            UUID,
-            int,
-            Digest,
-            Digest,
-            UUID,
-            str,
-            str,
-            tuple[tuple[str, str], ...],
-            str,
-            str,
-        ],
-        ...,
-    ],
-) -> tuple[CandidateLifeMaterialContext, ...]:
-    try:
-        return tuple(
-            CandidateLifeMaterialContext(
-                item[0],
-                item[1],
-                item[2],
-                item[3],
-                item[4],
-                item[5],
-                LifeMaterialKind(item[6]),
-                item[7],
-                item[8],
-                LifeMaterialStatus(item[9]),
-                LifeMaterialPrivacyStatus(item[10]),
-            )
-            for item in values
-        )
-    except ValueError:
-        raise CandidateViolation("CANDIDATE-MATERIAL-CONTEXT") from None
-
-
 def _artifact_audit(
     unit_of_work: PostgreSQLUnitOfWork,
     ref: ArtifactRef,
@@ -486,7 +491,6 @@ def _artifact_audit(
         AuditSensitivity.RESTRICTED,
         subject_id=SubjectId(snapshot.subject_id),
         request=AuditReference("cognitive_episode", snapshot.episode_id),
-        artifact_digest=ref.content_digest,
     )
 
 
@@ -501,7 +505,6 @@ def build_candidate_validation_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
-    policy_digest: Digest,
     web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -526,7 +529,6 @@ def build_candidate_validation_pipeline(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
         ),
-        policy_digest=policy_digest,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,

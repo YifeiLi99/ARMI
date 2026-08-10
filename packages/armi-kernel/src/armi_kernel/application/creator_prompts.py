@@ -176,7 +176,6 @@ class CreatorPromptView:
                 not self.content.strip()
                 or "\x00" in self.content
                 or not 1 <= len(encoded) <= MAX_CREATOR_PROMPT_BYTES
-                or Digest.from_bytes(encoded) != self.content_digest
             ):
                 raise CreatorPromptViolation("CON-PROMPT-VIEW")
 

@@ -79,17 +79,19 @@ def test_creator_prompt_view_requires_a_complete_immutable_revision() -> None:
     assert view.status is PromptDocumentStatus.INACTIVE
 
 
-def test_creator_prompt_view_rejects_digest_mismatch() -> None:
-    with pytest.raises(CreatorPromptViolation, match="CON-PROMPT-VIEW"):
-        CreatorPromptView(
-            prompt_document_id=uuid7(),
-            prompt_kind=PromptKind.CREATOR_GUIDANCE,
-            status=PromptDocumentStatus.ACTIVE,
-            current_revision_id=uuid7(),
-            revision_no=1,
-            previous_revision_id=None,
-            revision_kind=PromptRevisionKind.CREATED,
-            content="真实内容",
-            content_digest=Digest.from_bytes(b"different"),
-            activated_at=Instant(datetime.now(UTC)),
-        )
+def test_creator_prompt_view_does_not_rehash_trusted_content() -> None:
+    content_digest = Digest.from_bytes(b"artifact-owner-value")
+    view = CreatorPromptView(
+        prompt_document_id=uuid7(),
+        prompt_kind=PromptKind.CREATOR_GUIDANCE,
+        status=PromptDocumentStatus.ACTIVE,
+        current_revision_id=uuid7(),
+        revision_no=1,
+        previous_revision_id=None,
+        revision_kind=PromptRevisionKind.CREATED,
+        content="真实内容",
+        content_digest=content_digest,
+        activated_at=Instant(datetime.now(UTC)),
+    )
+
+    assert view.content_digest == content_digest

@@ -16,9 +16,10 @@ from armi_kernel.application import (
     ContextTrustClass,
     ContextViolation,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose
+from armi_kernel.contracts import Instant, Purpose
 from armi_runtime.composition.context_compiler import (
     CONTEXT_MECHANISM,
+    CONTEXT_POLICY_VERSION,
     DeterministicContextCompiler,
 )
 
@@ -32,14 +33,9 @@ def _candidate(
     relevance: int = 50,
 ) -> ContextItemCandidate:
     if content is None:
-        source = ContextSourceIdentity("not_implemented", None, None, None)
+        source = ContextSourceIdentity("not_implemented", None, None)
     else:
-        source = ContextSourceIdentity(
-            item_kind,
-            uuid7(),
-            1,
-            Digest.from_bytes(content.encode()),
-        )
+        source = ContextSourceIdentity(item_kind, uuid7(), 1)
     return ContextItemCandidate(
         section,
         item_kind,
@@ -66,9 +62,8 @@ def _request(items: tuple[ContextItemCandidate, ...], **budgets: int) -> Context
         3,
         2,
         uuid7(),
-        Digest.from_bytes(b"policy"),
+        CONTEXT_POLICY_VERSION,
         CONTEXT_MECHANISM,
-        Digest.from_bytes(b"mechanism-config"),
         budgets.get("max_items", 32),
         budgets.get("max_item_bytes", 262_144),
         budgets.get("max_compiled_bytes", 524_288),
@@ -136,16 +131,12 @@ def test_identity_changes_change_context_digest() -> None:
         first.base_subject_version + 1,
         first.base_state_epoch,
         first.bundle_activation_id,
-        first.policy_digest,
+        first.policy_version,
         first.mechanism_identity,
-        first.mechanism_config_digest,
         first.max_items,
         first.max_item_bytes,
         first.max_compiled_bytes,
         first.items,
     )
     compiler = DeterministicContextCompiler()
-    assert (
-        compiler.compile(first).manifest_digest
-        != compiler.compile(second).manifest_digest
-    )
+    assert compiler.compile(first).manifest_bytes != compiler.compile(second).manifest_bytes

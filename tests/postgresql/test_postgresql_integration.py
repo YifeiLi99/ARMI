@@ -43,8 +43,10 @@ from armi_admin.persistence.observation_gateway import AdminObservationGateway
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_kernel.application import (
     ArtifactId,
+    ArtifactIntegrityStatus,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactRef,
     ArtifactViolation,
     AuditQuery,
     BirthManifest,
@@ -223,6 +225,58 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 _ADMIN_DSN = os.environ.get("S009_ADMIN_DSN")
 _SUMMARY_ENVIRONMENT_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 _ADMIN_PACKAGE_DIGEST = "sha256:" + "1" * 64
+_REMOVED_REDUNDANT_DIGEST_COLUMNS = {
+    ("runtime_bundle_activations", "fixed_prompt_set_digest"),
+    ("runtime_bundle_activations", "creator_asset_digest"),
+    ("runtime_recovery_runs", "summary_digest"),
+    ("subject_commits", "change_set_digest"),
+    ("subject_commits", "commit_digest"),
+    ("subject_component_revisions", "semantic_digest"),
+    ("cognitive_attempts", "binding_digest"),
+    ("cognitive_attempts", "request_digest"),
+    ("cognitive_candidate_applications", "completion_digest"),
+    ("cognitive_candidate_validation_items", "semantic_digest"),
+    ("cognitive_candidate_validations", "candidate_digest"),
+    ("cognitive_candidate_validations", "policy_digest"),
+    ("cognitive_candidate_validations", "change_set_digest"),
+    ("cognitive_context_items", "source_digest"),
+    ("cognitive_episodes", "policy_digest"),
+    ("cognitive_episodes", "mechanism_config_digest"),
+    ("exact_life_query_intents", "result_digest"),
+    ("opportunities", "source_digest"),
+    ("life_material_revisions", "semantic_digest"),
+    ("relationship_revisions", "semantic_digest"),
+    ("activity_decisions", "resource_snapshot_digest"),
+    ("maintenance_sessions", "schedule_digest"),
+    ("sleep_decisions", "source_digest"),
+    ("capabilities", "configuration_digest"),
+    ("capability_request_decisions", "scope_digest"),
+    ("capability_requests", "request_digest"),
+    ("action_operations", "completion_digest"),
+    ("action_operations", "effect_registration_digest"),
+    ("effect_attempts", "request_digest"),
+    ("effect_outbox_items", "payload_digest"),
+    ("effects", "settlement_digest"),
+    ("dialogue_decisions", "basis_digest"),
+    ("outbox_items", "payload_digest"),
+    ("permission_grants", "scope_digest"),
+    ("policy_decisions", "decision_digest"),
+    ("audit_events", "request_digest"),
+    ("audit_events", "response_digest"),
+    ("audit_events", "artifact_digest"),
+    ("audit_events", "details_digest"),
+    ("audit_events", "bundle_digest"),
+    ("codex_result_sources", "evidence_digest"),
+    ("codex_task_sources", "path_scope_digest"),
+    ("codex_verification_results", "validation_digest"),
+    ("creator_exports", "manifest_digest"),
+    ("deletion_items", "execution_digest"),
+    ("observation_attempts", "result_digest"),
+    ("observation_tool_calls", "action_digest"),
+    ("web_evidence_sources", "title_digest"),
+    ("web_evidence_sources", "citation_digest"),
+    ("web_observation_requests", "result_digest"),
+}
 
 
 def _uuid7() -> UUID:
@@ -465,18 +519,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="qq-group-input-birth",
             personality_anchor=anchor,
-            personality_anchor_digest=Digest.from_bytes(
-                rfc8785.dumps(
-                    {
-                        "schema_version": anchor.schema_version,
-                        "voice_style": anchor.voice_style,
-                        "traits": list(anchor.traits),
-                    }
-                )
-            ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"qq-group-input-birth"),
         )
 
@@ -671,8 +715,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(migrated.status, "current")
         self.assertEqual(migrated.table_count, installed.table_count + 3)
-        self.assertEqual(migrated.migration_count, 2)
-        self.assertEqual(migrated.target_id, "0002_external_group_channels")
+        self.assertEqual(migrated.migration_count, 3)
+        self.assertEqual(migrated.target_id, "0003_remove_redundant_digests")
         self.assertEqual(
             gateway.migrate(
                 fixture.migrator_dsn,
@@ -814,12 +858,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                        (SELECT count(*) FROM information_schema.columns
                         WHERE table_schema = 'armi')"""
             ).fetchone()
+            current_columns = set(
+                connection.execute(
+                    """SELECT table_name, column_name
+                       FROM information_schema.columns
+                       WHERE table_schema = 'armi'"""
+                ).fetchall()
+            )
         self.assertEqual(len(metrics), 28)
         self.assertEqual(metrics["requeued_work_count"], 7)
         self.assertEqual(metrics["resumable_admin_correction_work_count"], 11)
-        self.assertEqual(parent_columns, (11,))
+        self.assertEqual(parent_columns, (10,))
         self.assertEqual(fixed_versions, (0,))
-        self.assertEqual(catalog_shape, (76, 1020))
+        self.assertEqual(catalog_shape, (76, 970))
+        self.assertEqual(len(_REMOVED_REDUNDANT_DIGEST_COLUMNS), 50)
+        self.assertTrue(_REMOVED_REDUNDANT_DIGEST_COLUMNS.isdisjoint(current_columns))
 
     def test_authoritative_migration_dirty_data_rolls_back_atomically(self) -> None:
         fixture = self.create_database()
@@ -939,9 +992,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "creator_party_id": str(_uuid7()),
                         "idempotency_key": "p0-s021-clean-environment",
                         "personality_anchor": anchor,
-                        "personality_anchor_digest": Digest.from_bytes(
-                            rfc8785.dumps(anchor)
-                        ).value,
                     },
                     ensure_ascii=False,
                     separators=(",", ":"),
@@ -1446,18 +1496,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="p0-s001-life-source-birth",
             personality_anchor=anchor,
-            personality_anchor_digest=Digest.from_bytes(
-                rfc8785.dumps(
-                    {
-                        "schema_version": anchor.schema_version,
-                        "voice_style": anchor.voice_style,
-                        "traits": list(anchor.traits),
-                    }
-                )
-            ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"p0-s001-life-source-birth"),
         )
 
@@ -1574,15 +1614,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             row = connection.execute(
                 """
                 SELECT count(*), count(DISTINCT root_opportunity_id),
-                       min(source_digest), max(source_digest)
+                       count(DISTINCT source_ref),
+                       min(source_version), max(source_version)
                 FROM armi.opportunities
                 WHERE source_kind = 'life_generation_available'
                 """
             ).fetchone()
         self.assertIsNotNone(row)
         assert row is not None
-        self.assertEqual(row[0:2], (1, 1))
-        self.assertEqual(row[2], row[3])
+        self.assertEqual(row, (1, 1, 1, 1, 1))
 
     def test_creator_read_queries_and_maintenance_share_runtime_state(
         self,
@@ -1606,18 +1646,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=creator_party_id,
             idempotency_key="p0-s003-creator-activity-query",
             personality_anchor=anchor,
-            personality_anchor_digest=Digest.from_bytes(
-                rfc8785.dumps(
-                    {
-                        "schema_version": anchor.schema_version,
-                        "voice_style": anchor.voice_style,
-                        "traits": list(anchor.traits),
-                    }
-                )
-            ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"p0-s003-creator-activity-query"),
         )
 
@@ -1717,13 +1747,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         maintenance_session_id, subject_id, life_generation_id,
                         origin_opportunity_id, cycle_anchor_kind,
                         cycle_anchor_ref, consideration_at, deadline_at,
-                        schedule_digest, trigger_kind, sleep_decision_id,
+                        trigger_kind, sleep_decision_id,
                         started_subject_version, started_state_epoch,
                         current_revision_id, head_version
                     ) VALUES (
                         %s, %s, %s, NULL, 'life_generation', %s,
                         %s + interval '16 hours', %s + interval '24 hours',
-                        %s, 'system_deadline', NULL, %s, %s, %s, 1
+                        'system_deadline', NULL, %s, %s, %s, 1
                     )
                     """,
                     (
@@ -1733,7 +1763,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         scope[1],
                         scope[4],
                         scope[4],
-                        Digest.from_bytes(b"creator-maintenance-query").value,
                         scope[2],
                         scope[3],
                         revision_id,
@@ -1830,15 +1859,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             voice_style="约 16 岁少女口吻",
             traits=("审慎",),
         )
-        anchor_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "schema_version": anchor.schema_version,
-                    "voice_style": anchor.voice_style,
-                    "traits": list(anchor.traits),
-                }
-            )
-        )
         manifest = BirthManifest(
             schema_version="armi.birth-manifest.v1",
             environment_id=fixture.environment_id,
@@ -1846,10 +1866,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=creator_party_id,
             idempotency_key="s039-creator-codex-intake-birth",
             personality_anchor=anchor,
-            personality_anchor_digest=anchor_digest,
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s039-creator-codex-intake-birth"),
         )
 
@@ -2211,15 +2229,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             voice_style="约 16 岁少女口吻",
             traits=("审慎",),
         )
-        anchor_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "schema_version": anchor.schema_version,
-                    "voice_style": anchor.voice_style,
-                    "traits": list(anchor.traits),
-                }
-            )
-        )
         manifest = BirthManifest(
             schema_version="armi.birth-manifest.v1",
             environment_id=fixture.environment_id,
@@ -2227,10 +2236,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s037-admin-correction-birth",
             personality_anchor=anchor,
-            personality_anchor_digest=anchor_digest,
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s037-admin-correction-birth"),
         )
 
@@ -2695,9 +2702,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "INSERT INTO armi.opportunities (opportunity_id, evidence_id, "
                     "subject_id, scene_id, context_party_id, purpose, eligibility_status, "
                     "current_disposition, root_opportunity_id, reconsideration_no, "
-                    "source_kind, source_ref, source_version, source_digest) VALUES "
+                    "source_kind, source_ref, source_version) VALUES "
                     "(%s, %s, %s, %s, %s, 'consider_creator_input', 'eligible', 'open', "
-                    "%s, 0, 'external_evidence', %s, 1, %s)",
+                    "%s, 0, 'external_evidence', %s, 1)",
                     (
                         opportunity_id,
                         evidence_id,
@@ -2706,7 +2713,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         creator_id,
                         opportunity_id,
                         evidence_id,
-                        f"sha256:{content_digest}",
                     ),
                 )
                 provisioner.execute(
@@ -2719,16 +2725,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 provisioner.execute(
                     "INSERT INTO armi.audit_events (audit_event_id, actor_kind, actor_ref, "
                     "purpose, operation, target_kind, target_ref, result_status, trace_id, "
-                    "sensitivity, subject_id, artifact_digest) VALUES (%s, 'runtime', %s, "
+                    "sensitivity, subject_id) VALUES (%s, 'runtime', %s, "
                     "'creator_message', 'creator.input.accepted', 'creator_input', %s, "
-                    "'accepted', %s, 'private', %s, %s)",
+                    "'accepted', %s, 'private', %s)",
                     (
                         audit_id,
                         creator_id,
                         interaction_id,
                         interaction_id.hex,
                         subject_id,
-                        f"sha256:{content_digest}",
                     ),
                 )
                 provisioner.commit()
@@ -2832,18 +2837,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s033-web-observation-birth",
             personality_anchor=anchor,
-            personality_anchor_digest=Digest.from_bytes(
-                rfc8785.dumps(
-                    {
-                        "schema_version": anchor.schema_version,
-                        "voice_style": anchor.voice_style,
-                        "traits": list(anchor.traits),
-                    }
-                )
-            ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s033-web-observation-birth"),
         )
 
@@ -2969,7 +2964,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         provider_request,
                         model,
                         canonical,
-                        Digest.from_bytes(canonical),
                         actions,
                         usage,
                     )
@@ -3014,7 +3008,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                         SELECT
                             request.status, request.request_digest,
-                            request.result_digest, attempt.dispatch_state,
+                            attempt.dispatch_state,
                             attempt.result_status, attempt.provider_model_id,
                             attempt.provider_request_digest,
                             attempt.input_tokens, attempt.output_tokens,
@@ -3037,24 +3031,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 return {
                     "request_status": str(row[0]),
                     "request_digest": str(row[1]),
-                    "result_digest": str(row[2]) if row[2] else None,
-                    "dispatch_state": str(row[3]),
-                    "attempt_result": str(row[4]),
-                    "provider_model": str(row[5]) if row[5] else None,
-                    "provider_request_digest": str(row[6]) if row[6] else None,
-                    "input_tokens": int(row[7]) if row[7] is not None else None,
-                    "output_tokens": int(row[8]) if row[8] is not None else None,
-                    "web_search_calls": int(row[9]) if row[9] is not None else None,
-                    "citation_count": int(row[10]) if row[10] is not None else None,
-                    "estimated_model_cost_microyuan": int(row[11])
-                    if row[11] is not None
+                    "dispatch_state": str(row[2]),
+                    "attempt_result": str(row[3]),
+                    "provider_model": str(row[4]) if row[4] else None,
+                    "provider_request_digest": str(row[5]) if row[5] else None,
+                    "input_tokens": int(row[6]) if row[6] is not None else None,
+                    "output_tokens": int(row[7]) if row[7] is not None else None,
+                    "web_search_calls": int(row[8]) if row[8] is not None else None,
+                    "citation_count": int(row[9]) if row[9] is not None else None,
+                    "estimated_model_cost_microyuan": int(row[10])
+                    if row[10] is not None
                     else None,
-                    "request_error_code": str(row[12]) if row[12] else None,
-                    "attempt_error_code": str(row[13]) if row[13] else None,
-                    "request_count": int(row[14]),
-                    "attempt_count": int(row[15]),
-                    "tool_call_count": int(row[16]),
-                    "completed_work_count": int(row[17]),
+                    "request_error_code": str(row[11]) if row[11] else None,
+                    "attempt_error_code": str(row[12]) if row[12] else None,
+                    "request_count": int(row[13]),
+                    "attempt_count": int(row[14]),
+                    "tool_call_count": int(row[15]),
+                    "completed_work_count": int(row[16]),
                 }
 
         with tempfile.TemporaryDirectory(dir=Path(".tmp")) as temporary:
@@ -3240,8 +3233,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     life_material_revision_id, life_material_id, revision_no,
                     subject_commit_id, candidate_validation_id, proposal_ref,
                     artifact_id, body_digest, title, metadata, revision_kind,
-                    privacy_status, material_status, source_kind,
-                    semantic_digest
+                    privacy_status, material_status, source_kind
                 )
                 SELECT revision_id, material_id, 1, uuidv7(), uuidv7(),
                        'proposal:1', uuidv7(),
@@ -3250,7 +3242,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             THEN 'rare comet material marker'
                             ELSE 'ordinary life material' END,
                        '{}'::jsonb, 'created', 'creator_visible', 'active',
-                       'subject_cognition', 'sha256:' || repeat('b', 64)
+                       'subject_cognition'
                 FROM material_plan_fixture
                 """
             )
@@ -3283,8 +3275,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     relationship_revision_id, relationship_id, revision_no,
                     subject_commit_id, candidate_validation_id, proposal_ref,
                     facts, interpretation, boundaries, commitments,
-                    open_issues, relationship_status, semantic_digest,
-                    mechanism_identity, privacy_scope
+                    open_issues, relationship_status, mechanism_identity,
+                    privacy_scope
                 )
                 SELECT revision_id, relationship_id, 1, uuidv7(), uuidv7(),
                        'proposal:1', '["known"]'::jsonb,
@@ -3292,7 +3284,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             THEN 'rare pulsar relationship marker'
                             ELSE 'ordinary relationship interpretation' END,
                        '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'active',
-                       'sha256:' || repeat('c', 64),
                        'armi.relationship.contextual-v1', 'private'
                 FROM relationship_plan_fixture
                 """
@@ -3315,8 +3306,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.subject_component_revisions (
                     component_revision_id, subject_id, component_kind,
                     component_version, previous_revision_id, origin_kind,
-                    origin_ref, semantic_payload, privacy_scope,
-                    semantic_digest
+                    origin_ref, semantic_payload, privacy_scope
                 )
                 SELECT uuidv7(), %s, 'self', ordinal,
                        CASE WHEN ordinal = 1 THEN NULL ELSE uuidv7() END,
@@ -3330,10 +3320,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 THEN 'rare nebula self marker'
                                 ELSE 'ordinary self change' END
                        ),
-                       'private',
-                       CASE WHEN ordinal = 1
-                            THEN NULL
-                            ELSE 'sha256:' || repeat('d', 64) END
+                       'private'
                 FROM generate_series(1, 5000) AS ordinal
                 """,
                 (subject_id,),
@@ -3421,12 +3408,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     capability_id, capability_kind, operation_class,
                     audience_scope, data_scope, purpose,
                     requested_valid_for_seconds, requested_max_uses,
-                    requested_max_payload_bytes, request_digest
+                    requested_max_payload_bytes
                 ) VALUES (
                     uuidv7(), uuidv7(), 'proposal:1', uuidv7(), uuidv7(),
                     uuidv7(), uuidv7(), 'creator.scene.reply', 'send',
                     NULL, 'creator_visible_response', 'respond_to_creator',
-                    60, 1, 1024, 'sha256:' || repeat('a', 64)
+                    60, 1, 1024
                 )
             """
             with self.assertRaises(psycopg.errors.CheckViolation):
@@ -3440,13 +3427,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     audience_scope, data_scope, purpose, workspace_scope,
                     artifact_scope, network_access,
                     requested_valid_for_seconds, requested_max_uses,
-                    requested_max_payload_bytes, request_digest
+                    requested_max_payload_bytes
                 ) VALUES (
                     uuidv7(), uuidv7(), 'proposal:1', uuidv7(), uuidv7(),
                     uuidv7(), uuidv7(), 'codex.delegated-work', 'execute',
                     NULL, NULL, 'delegate_codex_work', NULL,
-                    'explicit_only', false, 60, 1, NULL,
-                    'sha256:' || repeat('b', 64)
+                    'explicit_only', false, 60, 1, NULL
                 )
             """
             with self.assertRaises(psycopg.errors.CheckViolation):
@@ -3457,10 +3443,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 INSERT INTO armi.effect_outbox_items (
                     effect_outbox_item_id, effect_id, message_kind,
-                    payload_digest, status, available_at, dispatch_deadline
+                    status, available_at, dispatch_deadline
                 )
                 SELECT uuidv7(), uuidv7(), 'effect.dispatch',
-                       'sha256:' || repeat('c', 64), 'ready',
+                       'ready',
                        statement_timestamp() - (ordinal || ' seconds')::interval,
                        statement_timestamp() + interval '1 day'
                 FROM generate_series(1, 10000) AS ordinal
@@ -3470,12 +3456,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 INSERT INTO armi.effect_outbox_items (
                     effect_outbox_item_id, effect_id, message_kind,
-                    payload_digest, status, available_at, claim_owner,
+                    status, available_at, claim_owner,
                     claim_expires_at, claim_token, attempt_count,
                     dispatch_deadline
                 )
                 SELECT uuidv7(), uuidv7(), 'effect.dispatch',
-                       'sha256:' || repeat('d', 64), 'claimed',
+                       'claimed',
                        statement_timestamp() - interval '1 day', uuidv7(),
                        statement_timestamp() - (ordinal || ' seconds')::interval,
                        1, 1, statement_timestamp() + interval '1 day'
@@ -3493,7 +3479,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     authorization_basis, destination_kind,
                     destination_party_id, registration_digest, status,
                     verification_status, trace_id, current_attempt_id,
-                    current_observation_id, settlement_digest, settled_at,
+                    current_observation_id, settled_at,
                     action_intent_id
                 )
                 SELECT uuidv7(), uuidv7(), uuidv7(), uuidv7(), %s,
@@ -3505,7 +3491,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                        'creator_inbox', uuidv7(),
                        'sha256:' || repeat('f', 64), 'unknown',
                        'inconclusive', repeat('1', 32), uuidv7(), uuidv7(),
-                       'sha256:' || repeat('0', 64),
                        statement_timestamp() - (ordinal || ' seconds')::interval,
                        uuidv7()
                 FROM generate_series(1, 10000) AS ordinal
@@ -3517,14 +3502,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.cognitive_episodes (
                     cognitive_episode_id, opportunity_id, subject_id,
                     purpose, status, base_subject_version, base_state_epoch,
-                    bundle_activation_id, policy_digest, mechanism_identity,
-                    mechanism_config_digest, trace_id
+                    bundle_activation_id, mechanism_identity, trace_id
                 )
                 SELECT uuidv7(), uuidv7(), %s, 'consider_autonomous_life',
                        'preparing', 0, 0, uuidv7(),
-                       'sha256:' || repeat('1', 64),
                        'armi.context-compiler.deterministic-v1',
-                       'sha256:' || repeat('2', 64), repeat('2', 32)
+                       repeat('2', 32)
                 FROM generate_series(1, 10000)
                 """,
                 (subject_id,),
@@ -3875,7 +3858,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await factory.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            artifact_summary = asyncio.run(
+            asyncio.run(
                 exercise(Path(temporary).resolve() / "artifacts"),
                 loop_factory=lambda: asyncio.SelectorEventLoop(
                     selectors.SelectSelector()
@@ -3893,7 +3876,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(rows[0][1:], ("missing", "retained", None))
             audit_rows = connection.execute(
                 """
-                SELECT operation, result_status, target_ref, artifact_digest
+                SELECT operation, result_status, target_ref
                 FROM armi.audit_events
                 ORDER BY occurred_at, audit_event_id
                 """
@@ -3907,9 +3890,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertTrue(all(row[1] == "applied" for row in audit_rows))
             self.assertTrue(all(row[2] == rows[0][0] for row in audit_rows))
-            self.assertTrue(
-                all(row[3] == artifact_summary["content_digest"] for row in audit_rows)
-            )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("DELETE FROM armi.artifacts")
             connection.rollback()
@@ -3971,15 +3951,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             voice_style="约 16 岁少女口吻",
             traits=("坦率", "好奇"),
         )
-        anchor_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "schema_version": anchor.schema_version,
-                    "voice_style": anchor.voice_style,
-                    "traits": list(anchor.traits),
-                }
-            )
-        )
         manifest = BirthManifest(
             schema_version="armi.birth-manifest.v1",
             environment_id=fixture.environment_id,
@@ -3987,10 +3958,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s015-concurrent-birth",
             personality_anchor=anchor,
-            personality_anchor_digest=anchor_digest,
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s015-birth-request"),
         )
 
@@ -4105,7 +4074,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.runtime_dsn,
                 composition_digest=packaged["composition_digest"],
                 birth_contract_digest=packaged["birth_contract_digest"],
-                creator_asset_digest=packaged["creator_asset_manifest_digest"],
             ),
             ContinuityState.BORN,
         )
@@ -4299,15 +4267,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             voice_style="约 16 岁少女口吻",
             traits=("坦率", "好奇"),
         )
-        anchor_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "schema_version": anchor.schema_version,
-                    "voice_style": anchor.voice_style,
-                    "traits": list(anchor.traits),
-                }
-            )
-        )
         manifest = BirthManifest(
             schema_version="armi.birth-manifest.v1",
             environment_id=fixture.environment_id,
@@ -4315,10 +4274,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s026-subject-commit",
             personality_anchor=anchor,
-            personality_anchor_digest=anchor_digest,
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s026-birth-request"),
         )
 
@@ -4419,9 +4376,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                         "kind": "creator_input",
                                         "reference": str(ids["evidence"]),
                                         "version": 1,
-                                        "digest": Digest.from_bytes(
-                                            evidence_text.encode()
-                                        ).value,
                                     },
                                     "trust": "external_claim",
                                     "privacy": "private",
@@ -4438,9 +4392,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                         "kind": "interaction_scene",
                                         "reference": str(scene_id),
                                         "version": 1,
-                                        "digest": Digest.from_bytes(
-                                            b"default-creator-scene"
-                                        ).value,
                                     },
                                     "trust": "runtime_authority",
                                     "privacy": "private",
@@ -4461,9 +4412,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                         "kind": "capability_catalog",
                                         "reference": "01985d00-0000-7000-8000-000000000027",
                                         "version": 1,
-                                        "digest": Digest.from_bytes(
-                                            b"creator.scene.reply"
-                                        ).value,
                                     },
                                     "trust": "policy",
                                     "privacy": "internal",
@@ -4509,7 +4457,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "bundle_activation_id": str(born.bundle_activation_id),
                     "context_digest": digests["compiled_context"].value,
                 },
-                "candidate_digest": Digest.from_bytes(b"s026-candidate").value,
                 "disposition": "change",
                 "experiences": [
                     {
@@ -4559,7 +4506,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "purpose": "respond_to_creator",
                         "media_type": "text/plain",
                         "content": "我愿意在当前场景认真回应。",
-                        "content_digest": digests["reply"].value,
                     }
                 ],
                 "rejections": [],
@@ -4634,7 +4580,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 if (
                     invocation.status is not ModelResultStatus.SUCCEEDED
                     or invocation.response_bytes is None
-                    or invocation.response_digest is None
                     or invocation.usage is None
                     or invocation.provider_request_id is None
                     or invocation.provider_model_id is None
@@ -4667,7 +4612,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "current_evidence",
                             ids["evidence"],
                             1,
-                            digests["input"],
                             "external_claim",
                             "private",
                         ),
@@ -4677,7 +4621,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "current_scene",
                             scene_id,
                             1,
-                            Digest.from_bytes(b"default-creator-scene"),
                             "runtime_authority",
                             "private",
                         ),
@@ -4687,7 +4630,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "capability_catalog",
                             UUID("01985d00-0000-7000-8000-000000000027"),
                             1,
-                            Digest.from_bytes(b"creator.scene.reply"),
                             "policy",
                             "internal",
                         ),
@@ -4713,14 +4655,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 payloads["request"] = request_bytes
                 payloads["response"] = invocation.response_bytes
                 return validation.change_set, {
-                    "binding_digest": binding.digest.value,
                     "credential_fingerprint": adapter.credential_fingerprint(),
                     "requested_model_id": binding.model_id,
                     "provider_model_id": invocation.provider_model_id,
                     "provider_request_id": invocation.provider_request_id,
-                    "request_digest": request.digest.value,
-                    "response_digest": invocation.response_digest.value,
-                    "candidate_digest": Digest.from_bytes(candidate_bytes).value,
                     "input_tokens": invocation.usage.input_tokens,
                     "output_tokens": invocation.usage.output_tokens,
                     "cached_input_tokens": invocation.usage.cached_input_tokens,
@@ -4743,7 +4681,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 payloads["reply"] = reply.content_bytes
                 digests["reply"] = Digest.from_bytes(payloads["reply"])
         change_set_bytes = change_set.canonical_bytes
-        digests["change_set"] = change_set.digest
+        digests["change_set"] = Digest.from_bytes(change_set_bytes)
         payloads["change_set"] = change_set_bytes
         provider_request_id = (
             str(live_evidence["provider_request_id"])
@@ -4877,9 +4815,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     context_party_id, purpose, eligibility_status,
                     current_disposition, selected_at, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
+                    source_version) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
                           'eligible', 'selected', statement_timestamp(), %s, 0,
-                          'external_evidence', %s, 1, %s)
+                          'external_evidence', %s, 1)
                 """,
                 (
                     ids["opportunity"],
@@ -4889,7 +4827,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     creator_party_id,
                     ids["opportunity"],
                     ids["evidence"],
-                    digests["input"].value,
                 ),
             )
             connection.execute(
@@ -4897,13 +4834,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.cognitive_episodes (
                     cognitive_episode_id, opportunity_id, subject_id, scene_id,
                     context_party_id, purpose, status, base_subject_version,
-                    base_state_epoch, bundle_activation_id, policy_digest,
-                    mechanism_identity, mechanism_config_digest,
+                    base_state_epoch, bundle_activation_id, mechanism_identity,
                     context_manifest_artifact_id, compiled_context_artifact_id,
                     context_digest, trace_id, prepared_at, model_returned_at,
                     final_disposition, validated_at) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
-                          'candidate_validated', 0, 0, %s, %s,
-                          'armi.context-compiler.deterministic-v1', %s,
+                          'candidate_validated', 0, 0, %s,
+                          'armi.context-compiler.deterministic-v1',
                           %s, %s, %s, %s, statement_timestamp(),
                           statement_timestamp(), 'change', statement_timestamp())
                 """,
@@ -4914,8 +4850,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     scene_id,
                     creator_party_id,
                     born.bundle_activation_id,
-                    Digest.from_bytes(b"context-policy").value,
-                    Digest.from_bytes(b"context-mechanism").value,
                     artifact_ids["context_manifest"],
                     artifact_ids["compiled_context"],
                     digests["compiled_context"].value,
@@ -4927,16 +4861,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.cognitive_context_items (
                     context_item_id, cognitive_episode_id, ordinal, section,
                     item_kind, source_kind, source_ref, source_version,
-                    source_digest, trust_class, privacy_scope, disposition,
+                    trust_class, privacy_scope, disposition,
                     content_bytes) VALUES (%s, %s, 1, 'evidence', 'creator_input',
-                          'external_evidence', %s, 1, %s, 'external_claim',
+                          'external_evidence', %s, 1, 'external_claim',
                           'private', 'included', %s)
                 """,
                 (
                     ids["context_item"],
                     ids["episode"],
                     ids["evidence"],
-                    digests["input"].value,
                     len(payloads["input"]),
                 ),
             )
@@ -4945,16 +4878,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.cognitive_context_items (
                     context_item_id, cognitive_episode_id, ordinal, section,
                     item_kind, source_kind, source_ref, source_version,
-                    source_digest, trust_class, privacy_scope, disposition,
+                    trust_class, privacy_scope, disposition,
                     content_bytes) VALUES (%s, %s, 2, 'scene', 'current_scene',
-                          'interaction_scene', %s, 1, %s, 'runtime_authority',
+                          'interaction_scene', %s, 1, 'runtime_authority',
                           'private', 'included', 0)
                 """,
                 (
                     ids["context_scene"],
                     ids["episode"],
                     scene_id,
-                    Digest.from_bytes(b"default-creator-scene").value,
                 ),
             )
             connection.execute(
@@ -4962,16 +4894,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.cognitive_context_items (
                     context_item_id, cognitive_episode_id, ordinal, section,
                     item_kind, source_kind, source_ref, source_version,
-                    source_digest, trust_class, privacy_scope, disposition,
+                    trust_class, privacy_scope, disposition,
                     content_bytes) VALUES (%s, %s, 3, 'capability', 'capability_catalog',
-                          'capability_catalog', %s, 1, %s, 'policy',
+                          'capability_catalog', %s, 1, 'policy',
                           'internal', 'included', 0)
                 """,
                 (
                     ids["context_capability"],
                     ids["episode"],
                     UUID("01985d00-0000-7000-8000-000000000027"),
-                    Digest.from_bytes(b"creator.scene.reply").value,
                 ),
             )
 
@@ -5022,19 +4953,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 INSERT INTO armi.cognitive_attempts (
                     model_attempt_id, cognitive_episode_id, work_id,
-                    work_attempt_id, attempt_no, binding_digest, provider,
+                    work_attempt_id, attempt_no, provider,
                     model_id, version_policy, profile, request_schema_version,
                     candidate_schema_version, pricing_snapshot_id,
-                    credential_identity, request_artifact_id, request_digest,
+                    credential_identity, request_artifact_id,
                     dispatch_status, provider_request_id, provider_model_id,
-                    response_artifact_id, input_tokens, output_tokens,
-                    cached_input_tokens, estimated_cost_microyuan,
-                    result_status, dispatched_at, settled_at) VALUES (%s, %s, %s, %s, 1, %s, 'volcengine_ark',
+                    response_artifact_id, input_tokens, output_tokens, cached_input_tokens,
+                    estimated_cost_microyuan, result_status, dispatched_at, settled_at)
+                    VALUES (%s, %s, %s, %s, 1, 'volcengine_ark',
                           'doubao-seed-evolving', 'provider_evolving_alias',
                           'creator_input_cognition', 'armi.model-request.v1',
                           %s,
                           'volcengine-ark-cn-2026-07-31-evolving',
-                          'armi.model.ark-api-key.v1', %s, %s, 'settled',
+                          'armi.model.ark-api-key.v1', %s, 'settled',
                           %s, %s, %s,
                           %s, %s, %s, %s, 'succeeded', statement_timestamp(),
                           statement_timestamp())
@@ -5044,10 +4975,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ids["episode"],
                     ids["model_work"],
                     ids["model_work_attempt"],
-                    Digest.from_bytes(b"binding").value,
                     candidate_contract_version,
                     artifact_ids["request"],
-                    digests["request"].value,
                     provider_request_id,
                     provider_model_id,
                     artifact_ids["response"],
@@ -5069,14 +4998,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     candidate_validation_id, cognitive_episode_id,
                     model_attempt_id, work_id, subject_id, life_generation_id,
                     bundle_activation_id, base_subject_version, base_state_epoch,
-                    context_digest, candidate_contract_version, candidate_digest,
-                    validator_identity, policy_digest, validation_status,
-                    final_disposition, change_set_artifact_id, change_set_digest,
+                    context_digest, candidate_contract_version, validator_identity,
+                    validation_status, final_disposition, change_set_artifact_id,
                     accepted_count, rejected_count,
                     validated_by_runtime_instance_id, validation_fence_token) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, %s,
-                          %s, %s,
-                          'armi.candidate-validator.deterministic-v1', %s,
-                          'accepted', 'change', %s, %s, %s, 0, %s, 1)
+                          %s, 'armi.candidate-validator.deterministic-v1',
+                          'accepted', 'change', %s, %s, 0, %s, 1)
                 """,
                 (
                     ids["validation"],
@@ -5088,10 +5015,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     born.bundle_activation_id,
                     digests["compiled_context"].value,
                     candidate_contract_version,
-                    change_set.candidate_digest.value,
-                    Digest.from_bytes(b"candidate-policy").value,
                     artifact_ids["change_set"],
-                    change_set.digest.value,
                     len(change_set.experiences)
                     + len(change_set.components)
                     + len(change_set.capability_requests)
@@ -5104,16 +5028,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                     INSERT INTO armi.cognitive_candidate_validation_items (
                         candidate_validation_id, proposal_ref, atomic_group_ref,
-                        owner_kind, fact_class, validation_status,
-                        semantic_digest, ordinal) VALUES (%s, %s, %s, 'experience', %s,
-                              'accepted', %s, %s)
+                        owner_kind, fact_class, validation_status, ordinal)
+                        VALUES (%s, %s, %s, 'experience', %s, 'accepted', %s)
                     """,
                     (
                         ids["validation"],
                         experience.proposal_ref,
                         experience.atomic_group_ref,
                         experience.fact_class.value,
-                        Digest.from_bytes(experience.first_person_gist.encode()).value,
                         ordinal,
                     ),
                 )
@@ -5135,15 +5057,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                     INSERT INTO armi.cognitive_candidate_validation_items (
                         candidate_validation_id, proposal_ref, atomic_group_ref,
-                        owner_kind, fact_class, validation_status,
-                        semantic_digest, ordinal) VALUES (%s, %s, %s, 'capability', 'inference',
-                              'accepted', %s, %s)
+                        owner_kind, fact_class, validation_status, ordinal)
+                        VALUES (%s, %s, %s, 'capability', 'inference', 'accepted', %s)
                     """,
                     (
                         ids["validation"],
                         request.proposal_ref,
                         request.atomic_group_ref,
-                        Digest.from_bytes(request.proposal_ref.encode()).value,
                         len(change_set.experiences)
                         + len(change_set.components)
                         + ordinal,
@@ -5178,15 +5098,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                     INSERT INTO armi.cognitive_candidate_validation_items (
                         candidate_validation_id, proposal_ref, atomic_group_ref,
-                        owner_kind, fact_class, validation_status,
-                        semantic_digest, ordinal) VALUES (%s, %s, %s, 'action', 'inference',
-                              'accepted', %s, %s)
+                        owner_kind, fact_class, validation_status, ordinal)
+                        VALUES (%s, %s, %s, 'action', 'inference', 'accepted', %s)
                     """,
                     (
                         ids["validation"],
                         action.proposal_ref,
                         action.atomic_group_ref,
-                        Digest.from_bytes(action.proposal_ref.encode()).value,
                         len(change_set.experiences)
                         + len(change_set.components)
                         + len(change_set.capability_requests)
@@ -5261,8 +5179,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         lease=lease,
                         snapshot=snapshot,
                         change_set=change_set,
-                        response_artifact_id=(
-                            ArtifactId(artifact_ids["reply"])
+                        response_artifact=(
+                            ArtifactRef(
+                                ArtifactId(artifact_ids["reply"]),
+                                digests["reply"],
+                                len(payloads["reply"]),
+                                "text/plain",
+                                "creator.response.text",
+                                ArtifactPrivacyScope.PRIVATE,
+                                ArtifactIntegrityStatus.VERIFIED,
+                            )
                             if change_set.action_choices
                             else None
                         ),
@@ -5328,6 +5254,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
             assert initial_request is not None
             initial_request_id = initial_request[0]
+            limited_request_id = _uuid7()
             expiry_request_id = _uuid7()
             codex_request_id = _uuid7()
             connection.execute(
@@ -5338,23 +5265,52 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     capability_id, capability_kind, operation_class,
                     audience_scope, data_scope, purpose, workspace_scope,
                     artifact_scope, network_access, requested_valid_for_seconds,
-                    requested_max_uses, requested_max_payload_bytes,
-                    request_digest
+                    requested_max_uses, requested_max_payload_bytes
                 )
                 SELECT %s, subject_commit_id, 'proposal:3', subject_id,
                        interaction_scene_id, creator_party_id, capability_id,
                        capability_kind, operation_class, audience_scope,
                        data_scope, purpose, workspace_scope, artifact_scope,
-                       network_access, 60, 1, requested_max_payload_bytes,
-                       %s
+                       network_access, requested_valid_for_seconds,
+                       requested_max_uses, requested_max_payload_bytes
                 FROM armi.capability_requests
                 WHERE capability_request_id = %s
                 """,
                 (
-                    expiry_request_id,
-                    Digest.from_bytes(b"s027-expiry-request").value,
+                    limited_request_id,
                     initial_request_id,
                 ),
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.capability_request_basis_links (
+                    capability_request_id, context_item_id, ordinal
+                )
+                SELECT %s, context_item_id, ordinal
+                FROM armi.capability_request_basis_links
+                WHERE capability_request_id = %s
+                """,
+                (limited_request_id, initial_request_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.capability_requests (
+                    capability_request_id, subject_commit_id, proposal_ref,
+                    subject_id, interaction_scene_id, creator_party_id,
+                    capability_id, capability_kind, operation_class,
+                    audience_scope, data_scope, purpose, workspace_scope,
+                    artifact_scope, network_access, requested_valid_for_seconds,
+                    requested_max_uses, requested_max_payload_bytes
+                )
+                SELECT %s, subject_commit_id, 'proposal:5', subject_id,
+                       interaction_scene_id, creator_party_id, capability_id,
+                       capability_kind, operation_class, audience_scope,
+                       data_scope, purpose, workspace_scope, artifact_scope,
+                       network_access, 60, 1, requested_max_payload_bytes
+                FROM armi.capability_requests
+                WHERE capability_request_id = %s
+                """,
+                (expiry_request_id, initial_request_id),
             )
             connection.execute(
                 """
@@ -5375,15 +5331,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     capability_id, capability_kind, operation_class,
                     audience_scope, data_scope, purpose, workspace_scope,
                     artifact_scope, network_access, requested_valid_for_seconds,
-                    requested_max_uses, requested_max_payload_bytes,
-                    request_digest
+                    requested_max_uses, requested_max_payload_bytes
                 )
                 SELECT %s, request.subject_commit_id, 'proposal:4',
                        request.subject_id, request.interaction_scene_id,
                        request.creator_party_id, capability.capability_id,
                        'codex.delegated-work', 'execute', NULL, NULL,
                        'delegate_codex_work', 'isolated_ephemeral',
-                       'explicit_only', false, 600, 1, NULL, %s
+                       'explicit_only', false, 600, 1, NULL
                 FROM armi.capability_requests AS request
                 JOIN armi.capabilities AS capability
                   ON capability.capability_kind = 'codex.delegated-work'
@@ -5391,7 +5346,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """,
                 (
                     codex_request_id,
-                    Digest.from_bytes(b"s038-codex-request").value,
                     initial_request_id,
                 ),
             )
@@ -5454,7 +5408,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     cursor=None,
                 )
                 items = cast(list[dict[str, object]], page["items"])
-                self.assertEqual(len(items), 3)
+                self.assertEqual(len(items), 4)
                 codex_item = next(
                     item
                     for item in items
@@ -5485,7 +5439,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         reason_code="POLICY-CODEX-REVOKED",
                     )
                 )
-                request_id = CapabilityRequestId(initial_request_id)
+                request_id = CapabilityRequestId(limited_request_id)
                 command = CreatorGrantCommand(
                     CapabilityDecisionId(_uuid7()),
                     request_id,
@@ -5791,18 +5745,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s016-authority-birth",
             personality_anchor=anchor,
-            personality_anchor_digest=Digest.from_bytes(
-                rfc8785.dumps(
-                    {
-                        "schema_version": anchor.schema_version,
-                        "voice_style": anchor.voice_style,
-                        "traits": list(anchor.traits),
-                    }
-                )
-            ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s016-authority-birth"),
         )
 
@@ -6135,6 +6079,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ("baseline",),
                     ("0001_harden_authoritative_schema",),
                     ("0002_external_group_channels",),
+                    ("0003_remove_redundant_digests",),
                 ],
             )
 
@@ -6190,18 +6135,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s017-recovery-birth",
             personality_anchor=anchor,
-            personality_anchor_digest=Digest.from_bytes(
-                rfc8785.dumps(
-                    {
-                        "schema_version": anchor.schema_version,
-                        "voice_style": anchor.voice_style,
-                        "traits": list(anchor.traits),
-                    }
-                )
-            ),
             composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
-            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
             request_digest=Digest.from_bytes(b"s017-recovery-birth"),
         )
 
@@ -6291,15 +6226,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         """
                         INSERT INTO armi.outbox_items (
                             outbox_item_id, work_id, message_kind,
-                            payload_digest, status, available_at,
+                            status, available_at,
                             claimed_by, claim_expires_at, claim_token,
                             attempt_count, max_attempts, trace_id
                         )
                         VALUES (
-                            %s, %s, 'work.available',
-                            'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-                            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-                            'claimed', statement_timestamp(), %s,
+                            %s, %s, 'work.available', 'claimed',
+                            statement_timestamp(), %s,
                             statement_timestamp() + interval '1 second',
                             9, 1, 3, %s
                         )
@@ -6747,7 +6680,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8"
             )
             self.assertNotIn(creator_bearer, log_text)
-            self.assertNotIn(code, log_text)
             self.assertNotIn(browser_token, log_text)
             self.assertNotIn(message, log_text)
             with psycopg.connect(fixture.runtime_dsn) as database:

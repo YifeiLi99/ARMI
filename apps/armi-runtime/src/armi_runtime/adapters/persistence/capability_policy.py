@@ -360,9 +360,8 @@ class PostgreSQLCreatorGrantPolicy:
                 now = now_row[0]
                 resulting_version = command.expected_version + 1
                 grant: PermissionGrant | None = None
-                cancelled_effects: tuple[tuple[UUID, UUID, Digest, UUID], ...] = ()
+                cancelled_effects: tuple[tuple[UUID, UUID, UUID], ...] = ()
                 cancellation_grant_id: UUID | None = None
-                scope_digest: Digest | None = None
                 result_status: CapabilityRequestStatus
                 if command.decision in {
                     CreatorGrantDecision.GRANT,
@@ -415,9 +414,6 @@ class PostgreSQLCreatorGrantPolicy:
                             uses,
                         )
                     )
-                    scope_digest = Digest.from_bytes(
-                        rfc8785.dumps(cast(Any, _scope_wire(scope)))
-                    )
                     grant_id = PermissionGrantId(uuid7())
                     valid_until = now + timedelta(seconds=duration)
                     await connection.execute(
@@ -427,11 +423,10 @@ class PostgreSQLCreatorGrantPolicy:
                             capability_id, subject_id, interaction_scene_id,
                             operation_class, audience_scope, data_scope, purpose,
                             workspace_scope, artifact_scope, network_access,
-                            valid_from, valid_until, max_uses, max_payload_bytes,
-                            scope_digest) VALUES (
+                            valid_from, valid_until, max_uses, max_payload_bytes) VALUES (
                             %s, %s, %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s)
+                            %s, %s, %s, %s)
                         """,
                         (
                             grant_id.value,
@@ -465,7 +460,6 @@ class PostgreSQLCreatorGrantPolicy:
                             valid_until,
                             uses,
                             payload_bytes,
-                            scope_digest.value,
                         ),
                     )
                     grant = PermissionGrant(
@@ -537,7 +531,7 @@ class PostgreSQLCreatorGrantPolicy:
                         capability_decision_id, capability_request_id,
                         creator_party_id, expected_request_version,
                         resulting_request_version, decision_kind, command_digest,
-                        scope_digest, reason_code) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        reason_code) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         command.decision_id.value,
@@ -547,7 +541,6 @@ class PostgreSQLCreatorGrantPolicy:
                         resulting_version,
                         command.decision.value,
                         command_digest.value,
-                        scope_digest.value if scope_digest else None,
                         command.reason_code,
                     ),
                 )
@@ -561,22 +554,6 @@ class PostgreSQLCreatorGrantPolicy:
                         grant_id=grant.grant_id.value,
                         valid_until=grant.valid_until,
                     )
-                result_digest = Digest.from_bytes(
-                    rfc8785.dumps(
-                        cast(
-                            Any,
-                            {
-                                "schema_version": "armi.creator-grant-result.v1",
-                                "request_id": str(request[0]),
-                                "request_version": resulting_version,
-                                "status": result_status.value,
-                                "grant_id": str(grant.grant_id.value)
-                                if grant
-                                else None,
-                            },
-                        )
-                    )
-                )
                 await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
@@ -588,8 +565,6 @@ class PostgreSQLCreatorGrantPolicy:
                         TraceId(secrets.token_hex(16)),
                         AuditSensitivity.PRIVATE,
                         subject_id=SubjectId(request[1]),
-                        request_digest=command_digest,
-                        response_digest=result_digest,
                         grant=AuditReference("permission_grant", grant.grant_id.value)
                         if grant
                         else None,
@@ -598,7 +573,6 @@ class PostgreSQLCreatorGrantPolicy:
                 for (
                     effect_id,
                     subject_id,
-                    cancellation_digest,
                     _root_operation_id,
                 ) in cancelled_effects:
                     assert cancellation_grant_id is not None
@@ -613,7 +587,6 @@ class PostgreSQLCreatorGrantPolicy:
                             TraceId(secrets.token_hex(16)),
                             AuditSensitivity.PRIVATE,
                             subject_id=SubjectId(subject_id),
-                            request_digest=cancellation_digest,
                             grant=AuditReference(
                                 "permission_grant", cancellation_grant_id
                             ),
@@ -623,7 +596,6 @@ class PostgreSQLCreatorGrantPolicy:
                     command.request_id,
                     resulting_version,
                     result_status,
-                    command_digest,
                     grant,
                 )
         except CapabilityViolation:
@@ -649,8 +621,7 @@ class PostgreSQLCreatorGrantPolicy:
                            permission.capability_request_id,
                            permission.creator_party_id,
                            permission.subject_id,
-                           request.request_version,
-                           permission.scope_digest
+                           request.request_version
                     FROM armi.permission_grants AS permission
                     JOIN armi.capability_requests AS request USING (capability_request_id)
                     WHERE permission.status = 'active'
@@ -696,7 +667,7 @@ class PostgreSQLCreatorGrantPolicy:
                         capability_decision_id, capability_request_id,
                         creator_party_id, expected_request_version,
                         resulting_request_version, decision_kind, command_digest,
-                        scope_digest, reason_code) VALUES (%s, %s, %s, %s, %s, 'expire', %s, %s,
+                        reason_code) VALUES (%s, %s, %s, %s, %s, 'expire', %s,
                               'grant_expired')
                     """,
                     (
@@ -706,7 +677,6 @@ class PostgreSQLCreatorGrantPolicy:
                         int(row[4]),
                         int(row[4]) + 1,
                         command_digest.value,
-                        row[5],
                     ),
                 )
                 await unit_of_work.audit.append(
@@ -720,14 +690,12 @@ class PostgreSQLCreatorGrantPolicy:
                         TraceId(secrets.token_hex(16)),
                         AuditSensitivity.PRIVATE,
                         subject_id=SubjectId(row[3]),
-                        request_digest=command_digest,
                         grant=AuditReference("permission_grant", row[0]),
                     )
                 )
                 for (
                     effect_id,
                     subject_id,
-                    cancellation_digest,
                     root_operation_id,
                 ) in cancelled_effects:
                     cancelled_projection_refs.append((effect_id, root_operation_id))
@@ -742,7 +710,6 @@ class PostgreSQLCreatorGrantPolicy:
                             TraceId(secrets.token_hex(16)),
                             AuditSensitivity.PRIVATE,
                             subject_id=SubjectId(subject_id),
-                            request_digest=cancellation_digest,
                             grant=AuditReference("permission_grant", row[0]),
                         )
                     )
@@ -795,7 +762,7 @@ async def _cancel_registered_effects(
     *,
     grant_id: UUID,
     reason_code: str,
-) -> tuple[tuple[UUID, UUID, Digest, UUID], ...]:
+) -> tuple[tuple[UUID, UUID, UUID], ...]:
     rows = await (
         await connection.execute(
             """
@@ -823,7 +790,7 @@ async def _cancel_registered_effects(
             (grant_id,),
         )
     ).fetchall()
-    cancelled: list[tuple[UUID, UUID, Digest, UUID]] = []
+    cancelled: list[tuple[UUID, UUID, UUID]] = []
     for row in rows:
         effect_id = UUID(str(row[0]))
         subject_id = UUID(str(row[1]))
@@ -855,16 +822,15 @@ async def _cancel_registered_effects(
             INSERT INTO armi.policy_decisions (
                 policy_decision_id, action_intent_revision_id,
                 operation_id, decision_outcome,
-                policy_identity, decision_digest, reason_code,
+                policy_identity, reason_code,
                 supersedes_policy_decision_id) VALUES (
                 %s, %s, %s, 'denied', 'armi.policy-engine.deterministic-v1',
-                %s, %s, %s)
+                %s, %s)
             """,
             (
                 decision_id,
                 action_revision_id,
                 operation_id,
-                cancellation_digest.value,
                 reason_code,
                 prior_decision_id,
             ),
@@ -873,10 +839,10 @@ async def _cancel_registered_effects(
             """
             INSERT INTO armi.effect_attempts (
                 effect_attempt_id, effect_id, attempt_no, adapter_binding,
-                request_digest, claim_token, dispatch_state, result_status,
+                claim_token, dispatch_state, result_status,
                 error_code, settled_at
             ) VALUES (
-                %s, %s, 1, %s, %s, 1, 'settled', 'cancelled', NULL,
+                %s, %s, 1, %s, 1, 'settled', 'cancelled', NULL,
                 statement_timestamp()
             )
             """,
@@ -888,7 +854,6 @@ async def _cancel_registered_effects(
                     if destination_kind == "codex_workspace"
                     else "armi.local-inbox-adapter.postgresql-v1"
                 ),
-                cancellation_digest.value,
             ),
         )
         await connection.execute(
@@ -911,14 +876,13 @@ async def _cancel_registered_effects(
             UPDATE armi.effects
             SET status='cancelled', verification_status='verified',
                 current_attempt_id=%s, current_observation_id=%s,
-                settlement_digest=%s, settled_at=statement_timestamp(),
+                settled_at=statement_timestamp(),
                 cancelled_at=statement_timestamp()
             WHERE effect_id=%s AND status='registered'
             """,
             (
                 attempt_id,
                 observation_id,
-                cancellation_digest.value,
                 effect_id,
             ),
         )
@@ -941,9 +905,7 @@ async def _cancel_registered_effects(
             """,
             (decision_id, operation_id),
         )
-        cancelled.append(
-            (effect_id, subject_id, cancellation_digest, root_operation_id)
-        )
+        cancelled.append((effect_id, subject_id, root_operation_id))
     return tuple(cancelled)
 
 
@@ -970,32 +932,6 @@ def _narrow(requested: int | None, maximum: int) -> int:
     if type(requested) is not int or requested <= 0 or requested > maximum:
         raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
     return requested
-
-
-def _scope_wire(
-    scope: CreatorSceneReplyScope | CodexDelegatedWorkScope,
-) -> dict[str, object]:
-    if isinstance(scope, CreatorSceneReplyScope):
-        return {
-            "scope_kind": "creator_scene_reply",
-            "subject_id": str(scope.subject_id),
-            "scene_id": str(scope.scene_id),
-            "creator_party_id": str(scope.creator_party_id),
-            "audience_scope": scope.audience_scope,
-            "data_scope": scope.data_scope,
-            "purpose": scope.purpose,
-            "valid_for_seconds": scope.valid_for_seconds,
-            "max_uses": scope.max_uses,
-            "max_payload_bytes": scope.max_payload_bytes,
-        }
-    return {
-        "scope_kind": "codex_delegated_work",
-        "workspace_scope": scope.workspace_scope,
-        "artifact_scope": scope.artifact_scope,
-        "network_access": scope.network_access,
-        "valid_for_seconds": scope.valid_for_seconds,
-        "max_uses": scope.max_uses,
-    }
 
 
 def _command_digest(command: CreatorGrantCommand) -> Digest:
@@ -1060,7 +996,7 @@ async def _activate_codex_registration(
     ).fetchone()
     if now_row is None or valid_until <= now_row[0]:
         raise CapabilityViolation("POLICY-GRANT-NOT-ACTIVE")
-    completion = Digest.from_bytes(
+    registration_work_digest = Digest.from_bytes(
         rfc8785.dumps(
             cast(
                 Any,
@@ -1082,7 +1018,7 @@ async def _activate_codex_registration(
             "effect.register",
             WorkOwner("creator_response_operation", row[0]),
             IdempotencyKey(f"effect-register:{row[0]}"),
-            completion,
+            registration_work_digest,
             60,
             Instant(now_row[0]),
             Instant(valid_until),
@@ -1097,14 +1033,14 @@ async def _activate_codex_registration(
             """
             UPDATE armi.action_operations
             SET phase = 'admitted', outcome = NULL, matched_grant_id = %s,
-                completion_digest = %s, completed_at = statement_timestamp(),
+                completed_at = statement_timestamp(),
                 registration_work_id = %s
             WHERE operation_id = %s
               AND phase = 'admission_pending' AND outcome IS NULL
               AND operation_kind = 'codex_delegation'
             RETURNING operation_id
             """,
-            (grant_id, completion.value, work_id.value, row[0]),
+            (grant_id, work_id.value, row[0]),
         )
     ).fetchone()
     if updated is None:
@@ -1118,7 +1054,7 @@ async def _load_result(
         await connection.execute(
             """
             SELECT request.request_version, request.current_status,
-                   decision.command_digest, request.capability_kind,
+                   request.capability_kind,
                    request.operation_class, request.subject_id,
                    request.interaction_scene_id, request.creator_party_id,
                    permission.grant_id, permission.valid_from, permission.valid_until,
@@ -1142,46 +1078,45 @@ async def _load_result(
     status = CapabilityRequestStatus(str(row[1]))
     grant = None
     if status in {CapabilityRequestStatus.GRANTED, CapabilityRequestStatus.LIMITED}:
-        if row[8] is None:
+        if row[7] is None:
             raise CapabilityViolation("POLICY-RESULT-MISSING")
-        capability = CapabilityKind(str(row[3]))
+        capability = CapabilityKind(str(row[2]))
         scope = (
             CreatorSceneReplyScope(
+                row[4],
                 row[5],
                 row[6],
-                row[7],
-                int((row[10] - row[9]).total_seconds()),
-                int(row[11]),
-                int(row[13]),
+                int((row[9] - row[8]).total_seconds()),
+                int(row[10]),
+                int(row[12]),
             )
             if capability is CapabilityKind.CREATOR_SCENE_REPLY
             else CodexDelegatedWorkScope(
-                int((row[10] - row[9]).total_seconds()),
+                int((row[9] - row[8]).total_seconds()),
+                str(row[13]),
                 str(row[14]),
-                str(row[15]),
-                bool(row[16]),
-                int(row[11]),
+                bool(row[15]),
+                int(row[10]),
             )
         )
         grant = PermissionGrant(
-            PermissionGrantId(row[8]),
+            PermissionGrantId(row[7]),
             request_id,
             capability,
-            CapabilityOperation(str(row[4])),
+            CapabilityOperation(str(row[3])),
+            UUID(str(row[4])),
             UUID(str(row[5])),
             UUID(str(row[6])),
-            UUID(str(row[7])),
             scope,
+            row[8],
             row[9],
-            row[10],
-            int(row[12]),
-            GrantStatus(str(row[17])),
+            int(row[11]),
+            GrantStatus(str(row[16])),
         )
     return CreatorGrantResult(
         request_id,
         int(row[0]),
         status,
-        Digest(str(row[2])),
         grant,
     )
 

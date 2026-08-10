@@ -84,9 +84,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
                             "kind": "creator_input",
                             "reference": str(evidence_id),
                             "version": 1,
-                            "digest": Digest.from_bytes(
-                                evidence_text.encode("utf-8")
-                            ).value,
                         },
                         "trust": "external_claim",
                         "privacy": "private",
@@ -137,7 +134,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
         raise RuntimeError(invocation.error_code or "MODEL-LIVE-FAILED")
     if (
         invocation.response_bytes is None
-        or invocation.response_digest is None
         or invocation.usage is None
         or invocation.provider_request_id is None
         or invocation.provider_model_id is None
@@ -171,7 +167,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
                 "current_evidence",
                 evidence_id,
                 1,
-                Digest.from_bytes(evidence_text.encode("utf-8")),
                 "external_claim",
                 "private",
             ),

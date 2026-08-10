@@ -98,7 +98,6 @@ async def _verify(env_file: Path) -> dict[str, object]:
         raise RuntimeError(result.error_code or "MODEL-LIVE-FAILED")
     assert result.provider_request_id is not None
     assert result.provider_model_id is not None
-    assert result.response_digest is not None
     assert result.usage is not None
     return {
         "provider": binding.provider,

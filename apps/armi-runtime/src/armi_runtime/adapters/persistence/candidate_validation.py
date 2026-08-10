@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, cast
@@ -94,9 +93,8 @@ class CandidateEpisodeSnapshot:
     current_activity_revision_id: UUID | None = None
     current_activity_head_version: int | None = None
     current_activity_status: str | None = None
-    resource_snapshot_digest: Digest | None = None
     current_memories: tuple[
-        tuple[UUID, UUID, int, Digest, str, str, str, str | None, str], ...
+        tuple[UUID, UUID, int, str, str, str, str | None, str], ...
     ] = ()
     subject_party_id: UUID | None = None
     current_relationship: (
@@ -104,7 +102,6 @@ class CandidateEpisodeSnapshot:
             UUID,
             UUID,
             int,
-            Digest,
             tuple[tuple[str, str], ...],
             str,
             tuple[tuple[str, str, str, str], ...],
@@ -118,7 +115,6 @@ class CandidateEpisodeSnapshot:
                     str,
                     str,
                     str,
-                    Digest | None,
                 ],
                 ...,
             ],
@@ -131,18 +127,17 @@ class CandidateEpisodeSnapshot:
             UUID,
             UUID,
             int,
-            Digest,
-            Digest,
             UUID,
             str,
             str,
             tuple[tuple[str, str], ...],
             str,
             str,
+            ArtifactRef,
         ],
         ...,
     ] = ()
-    current_subject_prompt: tuple[UUID, UUID | None, int, Digest | None] | None = None
+    current_subject_prompt: tuple[UUID, UUID | None, int] | None = None
     current_maintenance_session_id: UUID | None = None
     current_maintenance_revision_id: UUID | None = None
     current_maintenance_head_version: int | None = None
@@ -235,7 +230,7 @@ class PostgreSQLCandidateValidationRepository:
                 """
                 SELECT
                     context_item_id, ordinal, section, item_kind,
-                    source_ref, source_version, source_digest,
+                    source_ref, source_version,
                     trust_class, privacy_scope
                 FROM armi.cognitive_context_items
                 WHERE cognitive_episode_id = %s
@@ -248,7 +243,7 @@ class PostgreSQLCandidateValidationRepository:
         bases: list[CandidateBasis] = []
         basis_item_ids: list[tuple[int, UUID]] = []
         for item in context_rows:
-            complete_source = all(value is not None for value in item[4:7])
+            complete_source = all(value is not None for value in item[4:6])
             bases.append(
                 CandidateBasis(
                     int(item[1]),
@@ -256,9 +251,8 @@ class PostgreSQLCandidateValidationRepository:
                     str(item[3]),
                     item[4] if complete_source else None,
                     int(item[5]) if complete_source else None,
-                    Digest(str(item[6])) if complete_source else None,
+                    str(item[6]),
                     str(item[7]),
-                    str(item[8]),
                 )
             )
             basis_item_ids.append((int(item[1]), item[0]))
@@ -355,25 +349,11 @@ class PostgreSQLCandidateValidationRepository:
                 (row[0],),
             )
         ).fetchone()
-        resource_digest = (
-            next(
-                (
-                    basis.source_digest
-                    for basis in bases
-                    if basis.item_kind == "resource_snapshot"
-                    and basis.trust_class == "runtime_authority"
-                ),
-                None,
-            )
-            if str(row[13])
-            in {"consider_activity_attention", "consider_activity_internal_work"}
-            else None
-        )
         memory_rows = await (
             await connection.execute(
                 """
                 SELECT memory.memory_id, memory.current_revision_id,
-                       memory.head_version, item.source_digest,
+                       memory.head_version,
                        revision.source_fact_class, revision.source_kind,
                        revision.summary, revision.uncertainty,
                        revision.accessibility
@@ -414,7 +394,6 @@ class PostgreSQLCandidateValidationRepository:
                 SELECT relationship.relationship_id,
                        relationship.current_revision_id,
                        relationship.head_version,
-                       item.source_digest,
                        revision.facts,
                        revision.interpretation,
                        revision.boundaries,
@@ -451,37 +430,19 @@ class PostgreSQLCandidateValidationRepository:
                 ),
             )
         ).fetchone()
-        commitment_context_rows = await (
-            await connection.execute(
-                """
-                SELECT item.source_ref, item.source_digest
-                FROM armi.cognitive_context_items AS item
-                WHERE item.cognitive_episode_id = %s
-                  AND item.disposition = 'included'
-                  AND item.section = 'relationship'
-                  AND item.item_kind = 'current_relationship_commitment'
-                  AND item.source_kind = 'relationship_commitment'
-                """,
-                (row[0],),
-            )
-        ).fetchall()
-        commitment_context_digests = {
-            item[0]: Digest(str(item[1])) for item in commitment_context_rows
-        }
         material_rows = await (
             await connection.execute(
                 """
                 SELECT material.life_material_id,
                        material.current_revision_id,
                        material.head_version,
-                       item.source_digest,
-                       revision.body_digest,
                        material.owner_party_id,
                        material.material_kind,
                        revision.title,
                        revision.metadata,
-                       revision.material_status
-                       , revision.privacy_status
+                       revision.material_status,
+                       revision.privacy_status,
+                       revision.artifact_id
                 FROM armi.cognitive_context_items AS item
                 JOIN armi.life_materials AS material
                   ON material.life_material_id = item.source_ref
@@ -492,7 +453,6 @@ class PostgreSQLCandidateValidationRepository:
                 JOIN armi.life_material_revisions AS revision
                   ON revision.life_material_revision_id =
                      material.current_revision_id
-                 AND revision.semantic_digest = item.source_digest
                 WHERE item.cognitive_episode_id = %s
                   AND item.disposition = 'included'
                   AND item.section = 'material'
@@ -508,8 +468,7 @@ class PostgreSQLCandidateValidationRepository:
                 """
                 SELECT document.prompt_document_id,
                        document.current_revision_id,
-                       COALESCE(revision.revision_no, 0),
-                       revision.content_digest
+                       COALESCE(revision.revision_no, 0)
                 FROM armi.prompt_documents AS document
                 LEFT JOIN armi.prompt_revisions AS revision
                   ON revision.prompt_revision_id = document.current_revision_id
@@ -530,7 +489,6 @@ class PostgreSQLCandidateValidationRepository:
                             AND item.source_kind = 'subject_prompt'
                             AND item.source_ref = document.current_revision_id
                             AND item.source_version = revision.revision_no
-                            AND item.source_digest = revision.content_digest
                       )
                   )
                 """,
@@ -568,18 +526,16 @@ class PostgreSQLCandidateValidationRepository:
             None if activity_row is None else activity_row[1],
             None if activity_row is None else int(activity_row[2]),
             None if activity_row is None else str(activity_row[3]),
-            resource_digest,
             tuple(
                 (
                     item[0],
                     item[1],
                     int(item[2]),
-                    Digest(str(item[3])),
+                    str(item[3]),
                     str(item[4]),
                     str(item[5]),
-                    str(item[6]),
-                    None if item[7] is None else str(item[7]),
-                    str(item[8]),
+                    None if item[6] is None else str(item[6]),
+                    str(item[7]),
                 )
                 for item in memory_rows
             ),
@@ -590,41 +546,34 @@ class PostgreSQLCandidateValidationRepository:
                 relationship_row[0],
                 relationship_row[1],
                 int(relationship_row[2]),
-                Digest(str(relationship_row[3])),
-                _relationship_facts(relationship_row[4]),
-                str(relationship_row[5]),
-                _relationship_boundaries(relationship_row[6]),
-                str(relationship_row[7]),
-                _relationship_commitments(
-                    relationship_row[8], commitment_context_digests
-                ),
-                _relationship_issues(relationship_row[9]),
+                _relationship_facts(relationship_row[3]),
+                str(relationship_row[4]),
+                _relationship_boundaries(relationship_row[5]),
+                str(relationship_row[6]),
+                _relationship_commitments(relationship_row[7]),
+                _relationship_issues(relationship_row[8]),
             ),
             tuple(
-                (
-                    item[0],
-                    item[1],
-                    int(item[2]),
-                    Digest(str(item[3])),
-                    Digest(str(item[4])),
-                    item[5],
-                    str(item[6]),
-                    str(item[7]),
-                    _material_metadata(item[8]),
-                    str(item[9]),
-                    str(item[10]),
-                )
-                for item in material_rows
+                [
+                    (
+                        item[0],
+                        item[1],
+                        int(item[2]),
+                        item[3],
+                        str(item[4]),
+                        str(item[5]),
+                        _material_metadata(item[6]),
+                        str(item[7]),
+                        str(item[8]),
+                        await _artifact_ref(connection, item[9]),
+                    )
+                    for item in material_rows
+                ]
             ),
             (
                 subject_prompt_row[0],
                 subject_prompt_row[1],
                 int(subject_prompt_row[2]),
-                (
-                    None
-                    if subject_prompt_row[3] is None
-                    else Digest(str(subject_prompt_row[3]))
-                ),
             ),
             None if maintenance_row is None else maintenance_row[0],
             None if maintenance_row is None else maintenance_row[1],
@@ -703,10 +652,8 @@ class PostgreSQLCandidateValidationRepository:
         lease: WorkLease,
         snapshot: CandidateEpisodeSnapshot,
         result: CandidateValidationResult,
-        candidate_digest: Digest,
-        policy_digest: Digest,
         validator_identity: str,
-        change_set_artifact_id: ArtifactId | None,
+        change_set_artifact: ArtifactRef | None,
     ) -> None:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await _assert_lease(connection, lease, snapshot)
@@ -720,15 +667,13 @@ class PostgreSQLCandidateValidationRepository:
                 candidate_validation_id, cognitive_episode_id, model_attempt_id,
                 work_id, subject_id, life_generation_id, bundle_activation_id,
                 base_subject_version, base_state_epoch, context_digest,
-                candidate_contract_version, candidate_digest,
-                validator_identity, policy_digest, validation_status,
-                final_disposition, change_set_artifact_id, change_set_digest,
+                candidate_contract_version, validator_identity, validation_status,
+                final_disposition, change_set_artifact_id,
                 accepted_count, rejected_count, error_code,
                 validated_by_runtime_instance_id, validation_fence_token)
             VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s)
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 result.validation_id.value,
@@ -742,13 +687,14 @@ class PostgreSQLCandidateValidationRepository:
                 snapshot.base_state_epoch,
                 snapshot.context_digest.value,
                 snapshot.candidate_contract_version,
-                candidate_digest.value,
                 validator_identity,
-                policy_digest.value,
                 result.status.value,
                 change_set.disposition.value if change_set else None,
-                change_set_artifact_id.value if change_set_artifact_id else None,
-                change_set.digest.value if change_set else None,
+                (
+                    change_set_artifact.artifact_id.value
+                    if change_set_artifact is not None
+                    else None
+                ),
                 result.accepted_count,
                 result.rejected_count,
                 result.error_code,
@@ -826,6 +772,7 @@ class PostgreSQLCandidateValidationRepository:
                 if operation is None:
                     raise CandidateViolation("CANDIDATE-CODEX-RESULT-LINK")
         if change_set is not None:
+            assert change_set_artifact is not None
             now_row = await (
                 await connection.execute("SELECT statement_timestamp()")
             ).fetchone()
@@ -838,7 +785,7 @@ class PostgreSQLCandidateValidationRepository:
                     _COMMIT_WORK_KIND,
                     WorkOwner("cognitive_episode", snapshot.episode_id),
                     IdempotencyKey(f"subject-commit:{snapshot.episode_id}"),
-                    change_set.digest,
+                    change_set_artifact.content_digest,
                     50,
                     now,
                     Instant(now.value + timedelta(seconds=3600)),
@@ -873,8 +820,6 @@ class PostgreSQLCandidateValidationRepository:
                 snapshot.trace_id,
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.subject_id),
-                request_digest=candidate_digest,
-                response_digest=change_set.digest if change_set else None,
             )
         )
 
@@ -908,14 +853,13 @@ async def _insert_items(
             )
             else None
         )
-        semantic = rfc8785.dumps(cast(Any, _item_semantic(draft)))
         await connection.execute(
             """
             INSERT INTO armi.cognitive_candidate_validation_items (
                 candidate_validation_id, proposal_ref, atomic_group_ref,
                 owner_kind, fact_class, validation_status, reason_code,
-                semantic_digest, ordinal)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ordinal)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 result.validation_id.value,
@@ -925,7 +869,6 @@ async def _insert_items(
                 (fact_class or _implicit_fact_class(draft)).value,
                 "accepted" if accepted else "rejected",
                 None if accepted else draft.code,
-                Digest.from_bytes(semantic).value,
                 ordinal,
             ),
         )
@@ -994,220 +937,6 @@ def _validation_drafts(
         *change_set.maintenance_decisions,
         *change_set.rejections,
     )
-
-
-def _item_semantic(
-    value: CandidateExperienceDraft
-    | CandidateMemoryDraft
-    | CandidateMemoryRevisionDraft
-    | CandidateRelationshipDraft
-    | CandidateLifeMaterialDraft
-    | CandidateMaintenanceDecisionDraft
-    | CandidateSubjectPromptDraft
-    | CandidateExactLifeQueryDraft
-    | CandidateComponentDraft
-    | CapabilityRequestDraft
-    | CreatorReplyDraft
-    | OtherHumanReplyDraft
-    | OtherHumanEndConversationDraft
-    | FormalNoActionDraft
-    | WebResearchRequestDraft
-    | CodexDelegationDraft
-    | CandidateActivityDraft
-    | CandidateActivityDecisionDraft
-    | CandidateSleepDecisionDraft
-    | CandidateRejection,
-) -> dict[str, object]:
-    result: dict[str, object] = {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "fact_class": _implicit_fact_class(value).value,
-    }
-    if isinstance(value, CandidateMaintenanceDecisionDraft):
-        result.update(
-            {
-                "owner": "maintenance",
-                "maintenance_session_id": str(value.maintenance_session_id),
-                "current_revision_id": str(value.current_revision_id),
-                "expected_head_version": value.expected_head_version,
-                "phase": value.phase.value,
-                "outcome": value.outcome.value,
-                "memory_proposal_ref": value.memory_proposal_ref,
-            }
-        )
-    elif isinstance(value, CandidateSleepDecisionDraft):
-        result.update(
-            {
-                "owner": "sleep",
-                "decision_kind": value.decision_kind.value,
-                "cycle_anchor_ref": str(value.cycle_anchor_ref),
-                "source_digest": value.source_digest.value,
-            }
-        )
-    elif isinstance(value, CandidateActivityDecisionDraft):
-        result.update(
-            {
-                "owner": "activity",
-                "activity_id": str(value.activity_id),
-                "current_revision_id": str(value.current_revision_id),
-                "expected_head_version": value.expected_head_version,
-                "resource_snapshot_digest": value.resource_snapshot_digest.value,
-                "decision_kind": value.decision_kind.value,
-            }
-        )
-    elif isinstance(value, CandidateActivityDraft):
-        result.update(
-            {
-                "owner": "activity",
-                "activity_id": str(value.activity_id),
-                "activity_kind": value.activity_kind,
-                "goal": value.goal,
-                "next_safe_step": value.next_safe_step,
-                "status": value.status.value,
-                "privacy_scope": value.privacy_scope,
-            }
-        )
-    elif isinstance(value, CandidateExperienceDraft):
-        result.update(
-            {
-                "owner": "experience",
-                "first_person_gist": value.first_person_gist,
-                "uncertainty": value.uncertainty,
-                "privacy_scope": value.privacy_scope,
-            }
-        )
-    elif isinstance(value, CandidateMemoryDraft):
-        result.update(
-            {
-                "owner": "memory",
-                "source_experience_ref": value.source_experience_ref,
-                "source_kind": value.source_kind.value,
-                "summary": value.summary,
-                "mechanism_identity": value.mechanism_identity,
-                "privacy_scope": value.privacy_scope,
-            }
-        )
-    elif isinstance(value, CandidateMemoryRevisionDraft):
-        result.update(
-            {
-                "owner": "memory",
-                "memory_id": str(value.memory_id),
-                "current_revision_id": str(value.current_revision_id),
-                "expected_head_version": value.expected_head_version,
-                "revision_kind": value.revision_kind.value,
-                "accessibility": value.accessibility.value,
-                "related_memory_id": (
-                    None
-                    if value.related_memory_id is None
-                    else str(value.related_memory_id)
-                ),
-                "relation_kind": (
-                    None if value.relation_kind is None else value.relation_kind.value
-                ),
-            }
-        )
-    elif isinstance(value, CandidateRelationshipDraft):
-        result.update(
-            {
-                "owner": "relationship",
-                "relationship_id": str(value.relationship_id),
-                "current_revision_id": (
-                    None
-                    if value.current_revision_id is None
-                    else str(value.current_revision_id)
-                ),
-                "expected_head_version": value.expected_head_version,
-                "source_experience_ref": value.source_experience_ref,
-                "status": value.status.value,
-                "scope": value.scope,
-                "commitment_event": (
-                    None
-                    if value.commitment_event is None
-                    else {
-                        "commitment_id": str(value.commitment_event.commitment_id),
-                        "kind": value.commitment_event.kind.value,
-                        "related_commitment_id": (
-                            None
-                            if value.commitment_event.related_commitment_id is None
-                            else str(value.commitment_event.related_commitment_id)
-                        ),
-                    }
-                ),
-            }
-        )
-    elif isinstance(value, CandidateLifeMaterialDraft):
-        result.update(
-            {
-                "owner": "material",
-                "material_id": str(value.material_id),
-                "owner_party_id": str(value.owner_party_id),
-                "material_kind": value.material_kind.value,
-                "current_revision_id": (
-                    None
-                    if value.current_revision_id is None
-                    else str(value.current_revision_id)
-                ),
-                "expected_head_version": value.expected_head_version,
-                "body_digest": value.body_digest.value,
-                "material_status": value.material_status.value,
-                "privacy_status": value.privacy_status,
-            }
-        )
-    elif isinstance(value, CandidateSubjectPromptDraft):
-        result.update(
-            {
-                "owner": "prompt",
-                "prompt_document_id": str(value.prompt_document_id),
-                "current_revision_id": (
-                    None
-                    if value.current_revision_id is None
-                    else str(value.current_revision_id)
-                ),
-                "expected_revision_no": value.expected_revision_no,
-                "content_digest": value.content_digest.value,
-            }
-        )
-    elif isinstance(value, CandidateExactLifeQueryDraft):
-        result.update(
-            {
-                "owner": "exact_life_query",
-                "record_kind": value.record_kind.value,
-                "query_text": value.query_text,
-                "limit": value.limit,
-            }
-        )
-    elif isinstance(value, CandidateComponentDraft):
-        result.update(
-            {
-                "owner": value.owner.value,
-                "expected_version": value.expected_version,
-                "next_state": json.loads(value.canonical_next_state),
-            }
-        )
-    elif isinstance(value, CandidateRejection):
-        result.update({"owner": value.owner.value, "reason_code": value.code})
-    elif isinstance(value, WebResearchRequestDraft):
-        result.update(
-            {
-                "owner": "web_research",
-                "purpose": value.purpose,
-                "operation_class": value.operation_class,
-                "query_digest": value.query_digest.value,
-            }
-        )
-    elif isinstance(value, CodexDelegationDraft):
-        result.update(
-            {
-                "owner": "codex_delegation",
-                "task_source_id": str(value.task_source_id.value),
-                "task_manifest_digest": value.task_manifest_digest.value,
-                "validator_id": value.validator_id,
-            }
-        )
-    else:
-        result.update({"owner": _owner(value).value})
-    return result
 
 
 def _owner(
@@ -1414,11 +1143,10 @@ def _relationship_boundaries(
 
 def _relationship_commitments(
     value: object,
-    context_digests: dict[UUID, Digest],
-) -> tuple[tuple[UUID, str, str, str, str, str, str, Digest | None], ...]:
+) -> tuple[tuple[UUID, str, str, str, str, str, str], ...]:
     if type(value) is not list:
         raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-    result: list[tuple[UUID, str, str, str, str, str, str, Digest | None]] = []
+    result: list[tuple[UUID, str, str, str, str, str, str]] = []
     keys = {
         "commitment_id",
         "party_role",
@@ -1449,7 +1177,6 @@ def _relationship_commitments(
                 cast(str, item["status"]),
                 cast(str, item["last_event_kind"]),
                 cast(str, item["last_event_summary"]),
-                context_digests.get(commitment_id),
             )
         )
     return tuple(result)

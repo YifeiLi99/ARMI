@@ -53,7 +53,6 @@ from armi_runtime.adapters.model.web_search_custody import (
     build_request_bytes,
     load_custody_policy,
     parse_request_bytes,
-    result_action_digests,
 )
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
@@ -151,15 +150,32 @@ class WebSearchPipeline:
             idempotency_key=draft.idempotency_key.value,
             query=query,
         )
-        request_digest = Digest.from_bytes(request_bytes)
-        existing = await self._existing(draft, request_digest)
+        try:
+            staged = await self._storage.stage(
+                _one_chunk(request_bytes),
+                ArtifactPolicy(
+                    "application/json",
+                    "web.search.request",
+                    "web.observation",
+                    draft.trace_id,
+                    ArtifactPrivacyScope.PRIVATE,
+                ),
+            )
+        except ArtifactViolation:
+            raise WebObservationViolation("WEB-ARTIFACT") from None
+        request_digest = staged.content_digest
+        try:
+            existing = await self._existing(draft, request_digest)
+        except Exception:
+            await self._storage.discard(staged)
+            raise
         if existing is not None:
+            await self._storage.discard(staged)
             return existing
-        published = await self._publish(
-            request_bytes,
-            logical_kind="web.search.request",
-            trace_id=draft.trace_id,
-        )
+        try:
+            published = await self._storage.publish(staged)
+        except ArtifactViolation:
+            raise WebObservationViolation("WEB-ARTIFACT") from None
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 existing = await self._repository.existing(
@@ -185,7 +201,7 @@ class WebSearchPipeline:
                         _WORK_KIND,
                         WorkOwner("web_observation", draft.request_id.value),
                         IdempotencyKey(f"web:{draft.idempotency_key.value}"),
-                        request_digest,
+                        registration.ref.content_digest,
                         40,
                         now,
                         Instant(now.value + timedelta(seconds=90)),
@@ -324,8 +340,6 @@ class WebSearchPipeline:
                 value = await stream.read()
         except ArtifactViolation:
             raise WebObservationViolation("WEB-REQUEST-ARTIFACT") from None
-        if Digest.from_bytes(value) != snapshot.request_digest:
-            raise WebObservationViolation("WEB-REQUEST-DIGEST")
         return value
 
     async def _invoke_with_renewal(
@@ -414,9 +428,8 @@ class WebSearchPipeline:
                     lease=lease,
                     snapshot=snapshot,
                     attempt_id=attempt_id,
-                    result_artifact_id=registration.ref.artifact_id,
+                    result_artifact=registration.ref,
                     result=result,
-                    action_digests=result_action_digests(result.canonical_result_bytes),
                 )
                 if normalized_evidence is not None and published_evidence is not None:
                     evidence_registration = await self._catalog.register(
@@ -454,13 +467,10 @@ class WebSearchPipeline:
                         source_artifact_ids=tuple(
                             item.ref.artifact_id for item in source_registrations
                         ),
-                        evidence_digest=normalized_evidence.digest,
                         sources=tuple(
                             (
                                 source.ordinal,
                                 source.canonical_url_digest,
-                                source.title_digest,
-                                source.citation_digest,
                             )
                             for source in normalized_evidence.sources
                         ),
@@ -470,7 +480,6 @@ class WebSearchPipeline:
                         unit,
                         snapshot,
                         AuditResultStatus.COMPLETED,
-                        result.result_digest,
                     )
                 )
             return
@@ -489,7 +498,6 @@ class WebSearchPipeline:
                     AuditResultStatus.UNKNOWN
                     if result.status is WebObservationResultStatus.OUTCOME_UNKNOWN
                     else AuditResultStatus.FAILED,
-                    None,
                 )
             )
 
@@ -524,7 +532,6 @@ def _failure(error: WebObservationViolation) -> WebObservationInvocationResult:
         None,
         None,
         None,
-        None,
         (),
         None,
         error.code,
@@ -554,7 +561,6 @@ def _artifact_audit(
         draft.trace_id,
         AuditSensitivity.RESTRICTED,
         subject_id=draft.subject_id,
-        artifact_digest=ref.content_digest,
     )
 
 
@@ -589,7 +595,6 @@ def _result_artifact_audit(
         snapshot.trace_id,
         AuditSensitivity.RESTRICTED,
         subject_id=snapshot.subject_id,
-        artifact_digest=ref.content_digest,
     )
 
 
@@ -597,7 +602,6 @@ def _settlement_audit(
     unit: PostgreSQLUnitOfWork,
     snapshot: WebObservationSnapshot,
     status: AuditResultStatus,
-    result_digest: Digest | None,
 ) -> AuditDraft:
     return AuditDraft(
         AuditEventId(uuid7()),
@@ -609,7 +613,6 @@ def _settlement_audit(
         snapshot.trace_id,
         AuditSensitivity.RESTRICTED,
         subject_id=snapshot.subject_id,
-        response_digest=result_digest,
     )
 
 

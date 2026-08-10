@@ -69,7 +69,6 @@ class WebResearchRequestDraft:
     atomic_group_ref: str
     basis_ordinals: tuple[int, ...]
     query_bytes: bytes
-    query_digest: Digest
     purpose: str = "public_web_research"
     operation_class: str = "search_read_public"
 
@@ -86,14 +85,11 @@ class WebResearchRequestDraft:
                 type(value) is not int or not 1 <= value <= 999
                 for value in self.basis_ordinals
             )
-            or type(self.query_digest) is not Digest
             or self.purpose != "public_web_research"
             or self.operation_class != "search_read_public"
         ):
             raise WebResearchViolation("WEB-RESEARCH-REQUEST")
         _query(self.query_bytes)
-        if Digest.from_bytes(self.query_bytes) != self.query_digest:
-            raise WebResearchViolation("WEB-RESEARCH-REQUEST")
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,8 +122,6 @@ class WebSourceReference:
     source_id: WebEvidenceSourceId
     ordinal: int
     canonical_url_digest: Digest
-    title_digest: Digest
-    citation_digest: Digest
     source_artifact_id: ArtifactId
 
     def __post_init__(self) -> None:
@@ -136,8 +130,6 @@ class WebSourceReference:
             or type(self.ordinal) is not int
             or not 1 <= self.ordinal <= 128
             or type(self.canonical_url_digest) is not Digest
-            or type(self.title_digest) is not Digest
-            or type(self.citation_digest) is not Digest
             or type(self.source_artifact_id) is not ArtifactId
         ):
             raise WebResearchViolation("WEB-EVIDENCE-SOURCE")
@@ -146,7 +138,6 @@ class WebSourceReference:
 @dataclass(frozen=True, slots=True)
 class WebEvidenceBundle:
     evidence_artifact_id: ArtifactId
-    evidence_digest: Digest
     result_artifact_id: ArtifactId
     request_id: WebObservationRequestId
     attempt_id: WebObservationAttemptId
@@ -156,7 +147,6 @@ class WebEvidenceBundle:
     def __post_init__(self) -> None:
         if (
             type(self.evidence_artifact_id) is not ArtifactId
-            or type(self.evidence_digest) is not Digest
             or type(self.result_artifact_id) is not ArtifactId
             or type(self.request_id) is not WebObservationRequestId
             or type(self.attempt_id) is not WebObservationAttemptId
@@ -175,13 +165,11 @@ class WebEvidenceAcceptanceResult:
     request_id: WebObservationRequestId
     evidence_id: UUID
     opportunity_id: UUID
-    evidence_digest: Digest
 
     def __post_init__(self) -> None:
         if (
             type(self.intent_id) is not WebResearchIntentId
             or type(self.request_id) is not WebObservationRequestId
-            or type(self.evidence_digest) is not Digest
         ):
             raise WebResearchViolation("WEB-EVIDENCE-ACCEPTANCE")
         _uuid7(self.evidence_id, "WEB-EVIDENCE-ACCEPTANCE")

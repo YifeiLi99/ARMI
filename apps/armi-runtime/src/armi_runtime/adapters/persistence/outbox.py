@@ -19,7 +19,7 @@ from armi_kernel.application import (
     WorkId,
     WorkViolation,
 )
-from armi_kernel.contracts import Digest, Purpose, TraceId
+from armi_kernel.contracts import Purpose, TraceId
 
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
@@ -33,7 +33,6 @@ class OutboxEnvelope:
     outbox_item_id: UUID
     work_id: WorkId
     message_kind: str
-    payload_digest: Digest
     claim_owner: UUID
     claim_token: int
     attempt_count: int
@@ -51,10 +50,7 @@ class OutboxEnvelope:
             or _TOKEN.fullmatch(self.message_kind) is None
         ):
             raise WorkViolation("OUTBOX-DECLARATION")
-        if (
-            type(self.payload_digest) is not Digest
-            or type(self.trace_id) is not TraceId
-        ):
+        if type(self.trace_id) is not TraceId:
             raise WorkViolation("OUTBOX-DECLARATION")
         if type(self.claim_token) is not int or self.claim_token <= 0:
             raise WorkViolation("OUTBOX-DECLARATION")
@@ -136,7 +132,6 @@ class PostgreSQLOutboxGateway:
                                 outbox_item_id,
                                 work_id,
                                 message_kind,
-                                payload_digest,
                                 claimed_by,
                                 claim_token,
                                 attempt_count,
@@ -338,12 +333,11 @@ def _row_to_envelope(row: tuple[Any, ...]) -> OutboxEnvelope:
             outbox_item_id=row[0],
             work_id=WorkId(row[1]),
             message_kind=str(row[2]),
-            payload_digest=Digest(str(row[3])),
-            claim_owner=row[4],
-            claim_token=int(row[5]),
-            attempt_count=int(row[6]),
-            max_attempts=int(row[7]),
-            trace_id=TraceId(str(row[8])),
+            claim_owner=row[3],
+            claim_token=int(row[4]),
+            attempt_count=int(row[5]),
+            max_attempts=int(row[6]),
+            trace_id=TraceId(str(row[7])),
         )
     except TypeError, ValueError:
         raise WorkViolation("OUTBOX-DATABASE") from None
@@ -368,7 +362,6 @@ def _outbox_audit(
         trace_id=envelope.trace_id,
         sensitivity=AuditSensitivity.INTERNAL,
         request=AuditReference("durable_work", envelope.work_id.value),
-        request_digest=envelope.payload_digest,
     )
 
 

@@ -492,6 +492,7 @@ class PostgreSQLSceneTimelineQuery:
                     or ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
                 ):
                     raise ValueError
+                value = b""
                 async with await self._storage.open_verified(ref) as stream:
                     value = await stream.read()
                 message = value.decode("utf-8", errors="strict")

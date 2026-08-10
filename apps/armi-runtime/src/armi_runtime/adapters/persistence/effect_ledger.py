@@ -209,27 +209,13 @@ class PostgreSQLEffectLedgerRepository:
                     else:
                         grant_id, valid_until = None, None
 
-        decision_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                cast(
-                    Any,
-                    {
-                        "schema_version": "armi.policy-decision.v1",
-                        "registration_digest": registration_digest.value,
-                        "outcome": outcome,
-                        "grant_ref": str(grant_id) if grant_id is not None else None,
-                        "reason": reason,
-                    },
-                )
-            )
-        )
         decision_id = uuid7()
         await connection.execute(
             """
             INSERT INTO armi.policy_decisions (
                 policy_decision_id, action_intent_revision_id, operation_id,
-                matched_grant_id, decision_outcome, policy_identity, decision_digest,
-                reason_code, valid_until) VALUES (%s, %s, %s, %s, %s, 'armi.policy-engine.deterministic-v1', %s, %s, %s)
+                matched_grant_id, decision_outcome, policy_identity,
+                reason_code, valid_until) VALUES (%s, %s, %s, %s, %s, 'armi.policy-engine.deterministic-v1', %s, %s)
             """,
             (
                 decision_id,
@@ -237,7 +223,6 @@ class PostgreSQLEffectLedgerRepository:
                 snapshot.operation_id,
                 grant_id,
                 outcome,
-                decision_digest.value,
                 reason,
                 valid_until,
             ),
@@ -302,13 +287,12 @@ class PostgreSQLEffectLedgerRepository:
             await connection.execute(
                 """
                 INSERT INTO armi.effect_outbox_items (
-                    effect_outbox_item_id, effect_id, message_kind, payload_digest,
-                    status, dispatch_deadline, max_attempts) VALUES (%s, %s, 'effect.dispatch', %s, 'ready', %s, %s)
+                    effect_outbox_item_id, effect_id, message_kind,
+                    status, dispatch_deadline, max_attempts) VALUES (%s, %s, 'effect.dispatch', 'ready', %s, %s)
                 """,
                 (
                     outbox_id,
                     effect_id,
-                    snapshot.payload_digest.value,
                     valid_until,
                     1 if snapshot.effect_kind == "codex_delegation" else 2,
                 ),
@@ -317,13 +301,12 @@ class PostgreSQLEffectLedgerRepository:
                 """
                 UPDATE armi.action_operations SET phase='effect_registered', outcome=NULL,
                     current_policy_decision_id=%s, effect_id=%s,
-                    effect_registration_digest=%s, effect_registered_at=%s
+                    effect_registered_at=%s
                 WHERE operation_id=%s AND phase='admitted' AND outcome IS NULL
                 """,
                 (
                     decision_id,
                     effect_id,
-                    registration_digest.value,
                     row[0],
                     snapshot.operation_id,
                 ),
@@ -368,8 +351,6 @@ class PostgreSQLEffectLedgerRepository:
                 snapshot.trace_id,
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.subject_id),
-                request_digest=snapshot.payload_digest,
-                response_digest=decision_digest,
                 grant=AuditReference("permission_grant", grant_id)
                 if grant_id is not None
                 else None,

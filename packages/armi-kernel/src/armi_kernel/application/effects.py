@@ -135,7 +135,6 @@ class FrozenEffectRequest:
     external_conversation_key: str | None
     payload_digest: Digest
     payload_bytes: int
-    request_digest: Digest
     trace_id: TraceId
 
     def __post_init__(self) -> None:
@@ -230,7 +229,6 @@ class EffectSettlement:
     verification_status: EffectVerificationStatus
     attempt_count: int
     observation: EffectObservation | None
-    settlement_digest: Digest | None
     settled_at: Instant | None
 
     def __post_init__(self) -> None:
@@ -244,8 +242,6 @@ class EffectSettlement:
             self.status is EffectStatus.CANCELLED
             and self.verification_status is EffectVerificationStatus.VERIFIED
         )
-        if settled != (self.settlement_digest is not None):
-            raise EffectViolation("CON-EFFECT-SETTLEMENT")
         if settled != (self.settled_at is not None):
             raise EffectViolation("CON-EFFECT-SETTLEMENT")
 

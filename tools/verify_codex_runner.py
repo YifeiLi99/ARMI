@@ -266,11 +266,10 @@ def _live(root: Path) -> dict[str, object]:
             raise RuntimeError(result.error_code or "CODEX-LIVE-FAILED")
         final_tree_digest = result.final_tree_digest
         patch_digest = result.patch_digest
-        output_digest = result.output_digest
         if (
             type(final_tree_digest) is not Digest
             or type(patch_digest) is not Digest
-            or type(output_digest) is not Digest
+            or result.sdk_version != _SDK_VERSION
         ):
             raise RuntimeError("CODEX-LIVE-RESULT")
         platform_home = data_root / "codex-runner" / "platform-home"
@@ -280,15 +279,13 @@ def _live(root: Path) -> dict[str, object]:
             "gate_id": _GATE_ID,
             "result": "pass",
             "invocation_count": 1,
-            "sdk_version": _SDK_VERSION,
             "runtime_version": _SDK_VERSION,
             "model_id": result.model_id,
-            "sdk_identity_digest": result.tool_digest.to_wire(),
+            "sdk_version": result.sdk_version,
             "source_bundle_digest": task.source_bundle_digest.to_wire(),
             "source_tree_digest": result.source_tree_digest.to_wire(),
             "final_tree_digest": final_tree_digest.to_wire(),
             "patch_digest": patch_digest.to_wire(),
-            "output_digest": output_digest.to_wire(),
             "modified_file_count": result.modified_file_count,
             "validation_passed": result.validation_passed,
             "input_tokens": result.usage.input_tokens,

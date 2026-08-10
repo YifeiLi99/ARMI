@@ -105,7 +105,6 @@ class PostgreSQLExactLifeQueryRepository:
         snapshot: ExactLifeQuerySnapshot,
         status: str,
         result_artifact_id: ArtifactId,
-        result_digest: Digest,
         result_count: int,
         failure_code: str | None,
     ) -> UUID:
@@ -152,12 +151,12 @@ class PostgreSQLExactLifeQueryRepository:
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
                 creator_party_id, purpose, source_kind, source_ref,
-                source_version, source_digest, eligibility_status,
+                source_version, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no
             )
             SELECT %s, NULL, %s, %s, %s, 'consider_life_query_result',
-                   'life_query_result', %s, 1, %s,
+                   'life_query_result', %s, 1,
                    'eligible', 'open', source.root_opportunity_id,
                    %s, source.reconsideration_no + 1
             FROM armi.opportunities AS source
@@ -169,7 +168,6 @@ class PostgreSQLExactLifeQueryRepository:
                 snapshot.scene_id,
                 snapshot.creator_party_id,
                 snapshot.intent_id,
-                result_digest.value,
                 snapshot.source_opportunity_id,
                 snapshot.source_opportunity_id,
             ),
@@ -179,7 +177,7 @@ class PostgreSQLExactLifeQueryRepository:
                 """
                 UPDATE armi.exact_life_query_intents
                 SET status = %s, result_artifact_id = %s,
-                    result_digest = %s, result_count = %s,
+                    result_count = %s,
                     failure_code = %s, result_opportunity_id = %s,
                     completed_at = statement_timestamp()
                 WHERE exact_life_query_intent_id = %s AND status = 'pending'
@@ -188,7 +186,6 @@ class PostgreSQLExactLifeQueryRepository:
                 (
                     status,
                     result_artifact_id.value,
-                    result_digest.value,
                     result_count,
                     failure_code,
                     opportunity_id,
@@ -220,9 +217,6 @@ class PostgreSQLExactLifeQueryRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.subject_id),
                 request=AuditReference("exact_life_query_intent", snapshot.intent_id),
-                request_digest=snapshot.query_digest,
-                response_digest=result_digest,
-                artifact_digest=result_digest,
             )
         )
         return opportunity_id

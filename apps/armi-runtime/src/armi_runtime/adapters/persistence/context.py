@@ -70,8 +70,6 @@ class ContextMaterialSource:
     material_id: UUID
     current_revision_id: UUID
     head_version: int
-    semantic_digest: Digest
-    body_digest: Digest
     owner_party_id: UUID
     material_kind: str
     title: str
@@ -92,8 +90,6 @@ class ContextMaterialSource:
             )
             or type(self.head_version) is not int
             or self.head_version <= 0
-            or type(self.semantic_digest) is not Digest
-            or type(self.body_digest) is not Digest
             or self.material_kind not in {"diary", "work", "collection", "draft"}
             or type(self.title) is not str
             or not 1 <= len(self.title) <= 256
@@ -127,26 +123,24 @@ class ContextEpisodeSnapshot:
     subject_version: int
     state_epoch: int
     bundle_activation_id: UUID
-    policy_digest: Digest
-    mechanism_config_digest: Digest
+    policy_version: str
+    mechanism_identity: str
     trace_id: TraceId
-    component_payloads: tuple[tuple[str, UUID, int, bytes, Digest], ...]
-    memory_payloads: tuple[tuple[UUID, int, bytes, Digest, str], ...]
+    component_payloads: tuple[tuple[str, UUID, int, bytes], ...]
+    memory_payloads: tuple[tuple[UUID, int, bytes, str], ...]
     has_memory_records: bool
-    relationship_payloads: tuple[tuple[UUID, int, bytes, Digest], ...]
-    relationship_commitment_payloads: tuple[tuple[UUID, int, bytes, Digest, str], ...]
-    relationship_issue_payloads: tuple[tuple[UUID, int, bytes, Digest], ...]
+    relationship_payloads: tuple[tuple[UUID, int, bytes], ...]
+    relationship_commitment_payloads: tuple[tuple[UUID, int, bytes, str], ...]
+    relationship_issue_payloads: tuple[tuple[UUID, int, bytes], ...]
     material_sources: tuple[ContextMaterialSource, ...]
     activity_summary_bytes: bytes
     capability_state_payloads: tuple[CapabilityStatePayload, ...]
     scene_bytes: bytes | None
-    scene_digest: Digest | None
     evidence: ContextArtifactSource | None
     outreach_trigger_bytes: bytes | None
     opportunity_source_kind: str
     opportunity_source_ref: UUID
     opportunity_source_version: int
-    opportunity_source_digest: Digest
     opportunity_available_after: datetime
     opportunity_expires_at: datetime | None
     fixed_prompt: ContextArtifactSource
@@ -166,9 +160,6 @@ class PostgreSQLContextRepository:
     async def select_one(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
-        *,
-        policy_digest: Digest,
-        mechanism_config_digest: Digest,
     ) -> CognitiveEpisodeId | None:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         row = await (
@@ -326,13 +317,11 @@ class PostgreSQLContextRepository:
                 base_subject_version,
                 base_state_epoch,
                 bundle_activation_id,
-                policy_digest,
                 mechanism_identity,
-                mechanism_config_digest,
                 trace_id)
             VALUES (
                 %s, %s, %s, %s, %s, %s, 'preparing',
-                %s, %s, %s, %s, %s, %s, %s)
+                %s, %s, %s, %s, %s)
             """,
             (
                 episode_id,
@@ -344,9 +333,7 @@ class PostgreSQLContextRepository:
                 row[5],
                 row[6],
                 row[7],
-                policy_digest.value,
                 _MECHANISM,
-                mechanism_config_digest.value,
                 trace_id.value,
             ),
         )
@@ -355,8 +342,6 @@ class PostgreSQLContextRepository:
                 {
                     "episode_id": str(episode_id),
                     "opportunity_id": str(opportunity_id),
-                    "policy_digest": policy_digest.value,
-                    "mechanism_config_digest": mechanism_config_digest.value,
                 }
             )
         )
@@ -388,7 +373,6 @@ class PostgreSQLContextRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(row[1]),
                 request=AuditReference("cognitive_episode", episode_id),
-                details_digest=policy_digest,
             )
         )
         return CognitiveEpisodeId(episode_id)
@@ -411,8 +395,8 @@ class PostgreSQLContextRepository:
                     episode.base_subject_version,
                     episode.base_state_epoch,
                     episode.bundle_activation_id,
-                    episode.policy_digest,
-                    episode.mechanism_config_digest,
+                    'armi.context-policy.v3',
+                    episode.mechanism_identity,
                     episode.trace_id,
                     COALESCE(
                         evidence.codex_task_source_id,
@@ -432,7 +416,6 @@ class PostgreSQLContextRepository:
                     opportunity.source_kind,
                     opportunity.source_ref,
                     opportunity.source_version,
-                    opportunity.source_digest,
                     opportunity.available_after,
                     opportunity.expires_at,
                     subject.current_generation_id,
@@ -551,8 +534,7 @@ class PostgreSQLContextRepository:
                 str(item[0]),
                 item[1],
                 int(item[2]),
-                (payload := rfc8785.dumps(item[3])),
-                Digest.from_bytes(payload),
+                rfc8785.dumps(item[3]),
             )
             for item in components
         )
@@ -584,7 +566,7 @@ class PostgreSQLContextRepository:
                     memory.memory_id
                 LIMIT 8
                 """,
-                (row[2], row[28], row[20]),
+                (row[2], row[27], row[20]),
             )
         ).fetchall()
         memory_exists = await (
@@ -603,31 +585,28 @@ class PostgreSQLContextRepository:
                       )
                 )
                 """,
-                (row[2], row[28]),
+                (row[2], row[27]),
             )
         ).fetchone()
         memory_payloads = tuple(
             (
                 item[0],
                 int(item[1]),
-                (
-                    payload := rfc8785.dumps(
-                        {
-                            "source_kind": str(item[2]),
-                            "fact_class": str(item[3]),
-                            "summary": str(item[4]),
-                            "uncertainty": None if item[5] is None else str(item[5]),
-                            "accessibility": str(item[6]),
-                        }
-                    )
+                rfc8785.dumps(
+                    {
+                        "source_kind": str(item[2]),
+                        "fact_class": str(item[3]),
+                        "summary": str(item[4]),
+                        "uncertainty": None if item[5] is None else str(item[5]),
+                        "accessibility": str(item[6]),
+                    }
                 ),
-                Digest.from_bytes(payload),
                 str(item[6]),
             )
             for item in memory_rows
         )
         relationship_party_id = (
-            row[37] if row[20] == "consider_other_human_input" else row[4]
+            row[36] if row[20] == "consider_other_human_input" else row[4]
         )
         relationship_scope = (
             "other_human_social"
@@ -669,7 +648,7 @@ class PostgreSQLContextRepository:
                 """,
                 (
                     row[2],
-                    row[28],
+                    row[27],
                     row[20],
                     relationship_party_id,
                     relationship_scope,
@@ -680,18 +659,15 @@ class PostgreSQLContextRepository:
             (
                 item[0],
                 int(item[1]),
-                (
-                    payload := rfc8785.dumps(
-                        {
-                            "scope": str(item[2]),
-                            "facts": item[3],
-                            "interpretation": str(item[4]),
-                            "boundaries": item[5],
-                            "status": str(item[6]),
-                        }
-                    )
+                rfc8785.dumps(
+                    {
+                        "scope": str(item[2]),
+                        "facts": item[3],
+                        "interpretation": str(item[4]),
+                        "boundaries": item[5],
+                        "status": str(item[6]),
+                    }
                 ),
-                Digest.from_bytes(payload),
             )
             for item in relationship_rows
         )
@@ -699,19 +675,16 @@ class PostgreSQLContextRepository:
             (
                 UUID(str(commitment["commitment_id"])),
                 int(item[1]),
-                (
-                    payload := rfc8785.dumps(
-                        {
-                            "party_role": commitment["party_role"],
-                            "scope": commitment["scope"],
-                            "content": commitment["content"],
-                            "status": commitment["status"],
-                            "last_event_kind": commitment["last_event_kind"],
-                            "last_event_summary": commitment["last_event_summary"],
-                        }
-                    )
+                rfc8785.dumps(
+                    {
+                        "party_role": commitment["party_role"],
+                        "scope": commitment["scope"],
+                        "content": commitment["content"],
+                        "status": commitment["status"],
+                        "last_event_kind": commitment["last_event_kind"],
+                        "last_event_summary": commitment["last_event_summary"],
+                    }
                 ),
-                Digest.from_bytes(payload),
                 str(commitment["status"]),
             )
             for item in relationship_rows
@@ -721,16 +694,13 @@ class PostgreSQLContextRepository:
             (
                 UUID(str(issue["issue_id"])),
                 int(item[1]),
-                (
-                    payload := rfc8785.dumps(
-                        {
-                            "kind": issue["kind"],
-                            "summary": issue["summary"],
-                            "status": issue["status"],
-                        }
-                    )
+                rfc8785.dumps(
+                    {
+                        "kind": issue["kind"],
+                        "summary": issue["summary"],
+                        "status": issue["status"],
+                    }
                 ),
-                Digest.from_bytes(payload),
             )
             for item in relationship_rows
             for issue in item[8]
@@ -741,8 +711,6 @@ class PostgreSQLContextRepository:
                 SELECT material.life_material_id,
                        material.current_revision_id,
                        material.head_version,
-                       revision.semantic_digest,
-                       revision.body_digest,
                        material.owner_party_id,
                        material.material_kind,
                        revision.title,
@@ -761,25 +729,23 @@ class PostgreSQLContextRepository:
                 ORDER BY material.updated_at DESC, material.life_material_id
                 LIMIT 4
                 """,
-                (row[2], row[28], row[20]),
+                (row[2], row[27], row[20]),
             )
         ).fetchall()
         material_source_values: list[ContextMaterialSource] = []
         for item in material_rows:
             material_source_values.append(
                 ContextMaterialSource(
-                    await self._artifact_ref(connection, item[11]),
+                    await self._artifact_ref(connection, item[9]),
                     item[0],
                     item[1],
                     int(item[2]),
-                    Digest(str(item[3])),
-                    Digest(str(item[4])),
-                    item[5],
-                    str(item[6]),
+                    item[3],
+                    str(item[4]),
+                    str(item[5]),
+                    _material_metadata(item[6]),
                     str(item[7]),
-                    _material_metadata(item[8]),
-                    str(item[9]),
-                    str(item[10]),
+                    str(item[8]),
                 )
             )
         material_sources = tuple(material_source_values)
@@ -839,15 +805,15 @@ class PostgreSQLContextRepository:
                     "scene_kind": str(row[16]),
                     "audience_scope": str(row[17]),
                     "status": str(row[18]),
-                    "primary_party_id": str(row[40] if row[40] is not None else row[4]),
+                    "primary_party_id": str(row[39] if row[39] is not None else row[4]),
                     "context_party_id": str(row[4]),
-                    "context_party_display_label": row[38],
-                    "addressed_to_subject": row[39],
+                    "context_party_display_label": row[37],
+                    "addressed_to_subject": row[38],
                 }
             )
         )
         recent_scene_sources: tuple[ContextSceneTurnSource, ...] = ()
-        if row[3] is not None and row[36] is not None:
+        if row[3] is not None and row[35] is not None:
             recent_rows = await (
                 await connection.execute(
                     """
@@ -893,10 +859,10 @@ class PostgreSQLContextRepository:
                     ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
                     LIMIT 8
                     """,
-                    (row[36], row[3]),
+                    (row[35], row[3]),
                 )
             ).fetchall()
-        elif row[3] is not None and row[35] is not None:
+        elif row[3] is not None and row[34] is not None:
             recent_rows: list[tuple[Any, ...]] = await (
                 await connection.execute(
                     """
@@ -947,7 +913,7 @@ class PostgreSQLContextRepository:
                     ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
                     LIMIT 8
                     """,
-                    (row[35], row[3]),
+                    (row[34], row[3]),
                 )
             ).fetchall()
         elif row[3] is not None and str(row[20]) == "consider_creator_outreach":
@@ -992,7 +958,7 @@ class PostgreSQLContextRepository:
                     ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
                     LIMIT 8
                     """,
-                    (row[3], row[26]),
+                    (row[3], row[25]),
                 )
             ).fetchall()
         else:
@@ -1038,17 +1004,13 @@ class PostgreSQLContextRepository:
                     "kind": str(row[22]),
                     "source_ref": str(row[23]),
                     "source_version": int(row[24]),
-                    "available_after": row[26].isoformat(),
+                    "available_after": row[25].isoformat(),
                     "scene_id": str(row[3]),
                 }
             )
             if str(row[20]) == "consider_creator_outreach"
             else None
         )
-        if outreach_trigger_bytes is not None and Digest.from_bytes(
-            outreach_trigger_bytes
-        ).value != str(row[25]):
-            raise ContextViolation("CTX-SOURCE-DRIFT")
         return ContextEpisodeSnapshot(
             episode_id=row[0],
             opportunity_id=row[1],
@@ -1064,8 +1026,8 @@ class PostgreSQLContextRepository:
             subject_version=int(row[5]),
             state_epoch=int(row[6]),
             bundle_activation_id=row[7],
-            policy_digest=Digest(str(row[8])),
-            mechanism_config_digest=Digest(str(row[9])),
+            policy_version=str(row[8]),
+            mechanism_identity=str(row[9]),
             trace_id=TraceId(str(row[10])),
             component_payloads=component_payloads,
             memory_payloads=memory_payloads,
@@ -1077,17 +1039,13 @@ class PostgreSQLContextRepository:
             activity_summary_bytes=activity_summary_bytes,
             capability_state_payloads=capability_state_payloads,
             scene_bytes=scene_bytes,
-            scene_digest=(
-                None if scene_bytes is None else Digest.from_bytes(scene_bytes)
-            ),
             evidence=evidence,
             outreach_trigger_bytes=outreach_trigger_bytes,
             opportunity_source_kind=str(row[22]),
             opportunity_source_ref=row[23],
             opportunity_source_version=int(row[24]),
-            opportunity_source_digest=Digest(str(row[25])),
-            opportunity_available_after=row[26],
-            opportunity_expires_at=row[27],
+            opportunity_available_after=row[25],
+            opportunity_expires_at=row[26],
             fixed_prompt=ContextArtifactSource(
                 await self._artifact_ref(connection, row[14]),
                 row[13],
@@ -1096,21 +1054,21 @@ class PostgreSQLContextRepository:
             ),
             creator_prompt=(
                 None
-                if row[29] is None
+                if row[28] is None
                 else ContextArtifactSource(
-                    await self._artifact_ref(connection, row[31]),
-                    row[29],
-                    int(row[30]),
+                    await self._artifact_ref(connection, row[30]),
+                    row[28],
+                    int(row[29]),
                     "creator_prompt",
                 )
             ),
             subject_prompt=(
                 None
-                if row[32] is None
+                if row[31] is None
                 else ContextArtifactSource(
-                    await self._artifact_ref(connection, row[34]),
-                    row[32],
-                    int(row[33]),
+                    await self._artifact_ref(connection, row[33]),
+                    row[31],
+                    int(row[32]),
                     "subject_prompt",
                 )
             ),
@@ -1123,8 +1081,8 @@ class PostgreSQLContextRepository:
         *,
         lease: WorkLease,
         result: ContextResult,
-        manifest_artifact_id: ArtifactId,
-        compiled_artifact_id: ArtifactId,
+        manifest_artifact: ArtifactRef,
+        compiled_artifact: ArtifactRef,
     ) -> None:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         episode_id = await self._episode_for_lease(connection, lease)
@@ -1141,14 +1099,13 @@ class PostgreSQLContextRepository:
                     source_kind,
                     source_ref,
                     source_version,
-                    source_digest,
                     trust_class,
                     privacy_scope,
                     disposition,
                     reason_code,
                     content_bytes)
                 VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s)
                 """,
                 (
@@ -1160,7 +1117,6 @@ class PostgreSQLContextRepository:
                     source.kind,
                     source.reference,
                     source.version,
-                    source.digest.value if source.digest else None,
                     item.candidate.trust_class.value,
                     "private",
                     item.disposition.value,
@@ -1182,9 +1138,9 @@ class PostgreSQLContextRepository:
                 RETURNING subject_id, trace_id, statement_timestamp()
                 """,
                 (
-                    manifest_artifact_id.value,
-                    compiled_artifact_id.value,
-                    result.manifest_digest.value,
+                    manifest_artifact.artifact_id.value,
+                    compiled_artifact.artifact_id.value,
+                    manifest_artifact.content_digest.value,
                     episode_id,
                 ),
             )
@@ -1198,7 +1154,7 @@ class PostgreSQLContextRepository:
                 _MODEL_WORK_KIND,
                 WorkOwner("cognitive_episode", episode_id),
                 IdempotencyKey(f"model:{episode_id}"),
-                result.manifest_digest,
+                manifest_artifact.content_digest,
                 50,
                 model_now,
                 Instant(model_now.value + timedelta(seconds=3600)),
@@ -1223,8 +1179,6 @@ class PostgreSQLContextRepository:
                 TraceId(str(updated[1])),
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(updated[0]),
-                response_digest=result.manifest_digest,
-                artifact_digest=result.compiled.digest,
             )
         )
         await unit_of_work.audit.append(
@@ -1238,7 +1192,6 @@ class PostgreSQLContextRepository:
                 TraceId(str(updated[1])),
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(updated[0]),
-                request_digest=result.manifest_digest,
             )
         )
 

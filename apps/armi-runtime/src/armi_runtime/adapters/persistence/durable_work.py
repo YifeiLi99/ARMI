@@ -135,7 +135,6 @@ class PostgreSQLDurableWorkWriter:
                     outbox_item_id,
                     work_id,
                     message_kind,
-                    payload_digest,
                     status,
                     available_at,
                     claim_token,
@@ -143,13 +142,12 @@ class PostgreSQLDurableWorkWriter:
                     max_attempts,
                     trace_id)
                 VALUES (
-                    %s, %s, 'work.available', %s, 'ready',
+                    %s, %s, 'work.available', 'ready',
                     %s, 0, 0, %s, %s)
                 """,
                 (
                     uuid7(),
                     draft.work_id.value,
-                    draft.payload_digest.value,
                     draft.not_before.value,
                     draft.max_attempts,
                     draft.trace_id.value,
@@ -811,7 +809,6 @@ def _work_audit(actor_ref: UUID, draft: WorkDraft, operation: str) -> AuditDraft
         trace_id=draft.trace_id,
         sensitivity=AuditSensitivity.INTERNAL,
         subject_id=draft.subject_id,
-        request_digest=draft.payload_digest,
     )
 
 
@@ -845,7 +842,6 @@ def _record_audit(
         sensitivity=AuditSensitivity.INTERNAL,
         subject_id=record.draft.subject_id,
         request=request,
-        request_digest=record.draft.payload_digest,
     )
 
 
@@ -865,7 +861,6 @@ def _observed_outbox_audit(
         sensitivity=AuditSensitivity.INTERNAL,
         subject_id=record.draft.subject_id,
         request=AuditReference("durable_work", record.draft.work_id.value),
-        request_digest=record.draft.payload_digest,
     )
 
 

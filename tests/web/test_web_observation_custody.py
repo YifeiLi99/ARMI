@@ -19,7 +19,6 @@ from armi_runtime.adapters.model.web_search_custody import (
     load_custody_policy,
     normalize_full_response,
     parse_request_bytes,
-    result_action_digests,
 )
 
 
@@ -140,7 +139,6 @@ class WebObservationCustodyTests(unittest.TestCase):
         self.assertEqual(usage.web_search_calls, 1)
         self.assertEqual(usage.citation_count, 1)
         self.assertEqual(model, "doubao-seed-evolving")
-        self.assertEqual(len(result_action_digests(canonical)), 1)
         decoded = json.loads(canonical)
         self.assertEqual(decoded["messages"][0]["parts"][0]["text"], "公开资料摘要")
 

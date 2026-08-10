@@ -9,8 +9,6 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.contracts import Digest
-
 _CODE = re.compile(r"^(?:CON|SUBJECT|CONFLICT|DB)-[A-Z0-9-]+$", re.ASCII)
 
 
@@ -136,7 +134,6 @@ class SubjectSummary:
 class SubjectCommitResult:
     application_id: CandidateApplicationId
     status: CandidateApplicationStatus
-    completion_digest: Digest
     subject_commit_id: SubjectCommitId | None = None
     subject_version: int | None = None
     successor_opportunity_id: UUID | None = None
@@ -145,7 +142,6 @@ class SubjectCommitResult:
         if (
             type(self.application_id) is not CandidateApplicationId
             or type(self.status) is not CandidateApplicationStatus
-            or type(self.completion_digest) is not Digest
             or (
                 self.subject_version is not None
                 and (type(self.subject_version) is not int or self.subject_version < 0)

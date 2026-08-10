@@ -87,7 +87,6 @@ def _material_row(
         {"mood": "quiet"},
         "active",
         privacy_status,
-        Digest.from_bytes(b"semantic").value,
         Digest.from_bytes(body.encode("utf-8")).value,
         artifact_id,
         content_digest,

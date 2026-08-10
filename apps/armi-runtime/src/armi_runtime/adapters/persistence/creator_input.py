@@ -214,14 +214,13 @@ class CreatorInputRepository:
                 source_kind,
                 source_ref,
                 source_version,
-                source_digest,
                 eligibility_status,
                 current_disposition,
                 root_opportunity_id,
                 reconsideration_no)
             VALUES (
                 %s, %s, %s, %s, %s,
-                'consider_creator_input', 'external_evidence', %s, 1, %s,
+                'consider_creator_input', 'external_evidence', %s, 1,
                 'eligible', 'open', %s, 0)
             """,
             (
@@ -231,7 +230,6 @@ class CreatorInputRepository:
                 context.scene_id,
                 context.creator_party_id,
                 evidence_id,
-                content_digest.value,
                 opportunity_id,
             ),
         )
@@ -295,7 +293,6 @@ class CreatorInputRepository:
                     episode.status,
                     episode.failure_code,
                     application.resolution,
-                    application.completion_digest,
                     commit.new_subject_version,
                     opportunity.reconsideration_no
                     , CASE
@@ -334,11 +331,9 @@ class CreatorInputRepository:
                                 ELSE response.phase
                             END
                       END
-                    , response.completion_digest
                     , response.reason_code
                     , no_action.decision_kind
                     , response.effect_id
-                    , effect.settlement_digest
                 FROM armi.opportunities AS requested
                 JOIN LATERAL (
                     SELECT current.*
@@ -366,7 +361,6 @@ class CreatorInputRepository:
                   ON response.root_opportunity_id = requested.opportunity_id
                 LEFT JOIN armi.dialogue_decisions AS no_action
                   ON no_action.dialogue_decision_id = response.dialogue_decision_id
-                LEFT JOIN armi.effects AS effect ON effect.effect_id = response.effect_id
                 WHERE requested.opportunity_id = %s
                   AND requested.root_opportunity_id = requested.opportunity_id
                   AND opportunity.context_party_id = %s
@@ -385,8 +379,8 @@ class CreatorInputRepository:
         disposition = str(row[5])
         episode_status = None if row[6] is None else str(row[6])
         application_resolution = None if row[8] is None else str(row[8])
-        response_status = None if row[12] is None else str(row[12])
-        no_action_kind = None if row[15] is None else str(row[15])
+        response_status = None if row[11] is None else str(row[11])
+        no_action_kind = None if row[13] is None else str(row[13])
         if disposition == "open" and episode_status is None:
             phase = CreatorOperationPhase.ACCEPTED
         elif disposition == "selected" and episode_status == "preparing":
@@ -466,7 +460,7 @@ class CreatorInputRepository:
         elif (
             disposition == "resolved"
             and application_resolution == "stale"
-            and int(row[11]) == 1
+            and int(row[10]) == 1
         ):
             phase = CreatorOperationPhase.STALE_CONFLICT
         elif disposition in {
@@ -481,7 +475,7 @@ class CreatorInputRepository:
             "CONFLICT_SUBJECT_STATE_STALE"
             if phase is CreatorOperationPhase.STALE_CONFLICT
             else (
-                str(row[14])
+                str(row[12])
                 if phase
                 in {
                     CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
@@ -502,61 +496,13 @@ class CreatorInputRepository:
             )
         )
         return CreatorOperation(
-            acceptance,
-            phase,
-            failure_code,
-            int(row[10]) if phase is CreatorOperationPhase.APPLIED else None,
-            Digest(
-                str(row[17])
-                if phase
-                in {
-                    CreatorOperationPhase.EFFECT_COMPLETED,
-                    CreatorOperationPhase.EFFECT_FAILED,
-                    CreatorOperationPhase.EFFECT_UNKNOWN,
-                    CreatorOperationPhase.CODEX_COMPLETED,
-                    CreatorOperationPhase.CODEX_FAILED,
-                    CreatorOperationPhase.CODEX_UNKNOWN,
-                    CreatorOperationPhase.CODEX_CANCELLED,
-                }
-                else str(row[13])
-                if phase
-                in {
-                    CreatorOperationPhase.RESPONSE_ACCEPTED,
-                    CreatorOperationPhase.EFFECT_REGISTERED,
-                    CreatorOperationPhase.EFFECT_CANCELLED,
-                    CreatorOperationPhase.FORMAL_DECLINED,
-                    CreatorOperationPhase.FORMAL_NO_ACTION,
-                    CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
-                    CreatorOperationPhase.RESPONSE_UNAVAILABLE,
-                    CreatorOperationPhase.RESPONSE_FAILED,
-                }
-                else str(row[9])
-            )
-            if phase
-            in {
-                CreatorOperationPhase.APPLIED,
-                CreatorOperationPhase.COMPLETED,
-                CreatorOperationPhase.DEFERRED,
-                CreatorOperationPhase.NEED_INFORMATION,
-                CreatorOperationPhase.STALE_CONFLICT,
-                CreatorOperationPhase.RESPONSE_ACCEPTED,
-                CreatorOperationPhase.EFFECT_REGISTERED,
-                CreatorOperationPhase.EFFECT_COMPLETED,
-                CreatorOperationPhase.EFFECT_FAILED,
-                CreatorOperationPhase.EFFECT_UNKNOWN,
-                CreatorOperationPhase.EFFECT_CANCELLED,
-                CreatorOperationPhase.CODEX_COMPLETED,
-                CreatorOperationPhase.CODEX_FAILED,
-                CreatorOperationPhase.CODEX_UNKNOWN,
-                CreatorOperationPhase.CODEX_CANCELLED,
-                CreatorOperationPhase.FORMAL_DECLINED,
-                CreatorOperationPhase.FORMAL_NO_ACTION,
-                CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
-                CreatorOperationPhase.RESPONSE_UNAVAILABLE,
-                CreatorOperationPhase.RESPONSE_FAILED,
-            }
+            acceptance=acceptance,
+            phase=phase,
+            failure_code=failure_code,
+            subject_version=int(row[9])
+            if phase is CreatorOperationPhase.APPLIED
             else None,
-            row[16]
+            effect_ref=row[14]
             if phase
             in {
                 CreatorOperationPhase.EFFECT_REGISTERED,

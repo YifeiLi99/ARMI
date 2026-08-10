@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
-import rfc8785
 from armi_kernel.application import (
     BirthResult,
     BirthViolation,
@@ -42,7 +41,6 @@ def manifest_value() -> dict[str, object]:
         "creator_party_id": str(CREATOR_PARTY_ID),
         "idempotency_key": "birth-request-001",
         "personality_anchor": anchor,
-        "personality_anchor_digest": Digest.from_bytes(rfc8785.dumps(anchor)).value,
     }
 
 

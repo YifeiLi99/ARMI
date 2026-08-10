@@ -162,7 +162,20 @@ class OtherHumanInputService(OtherHumanInputPort):
         if type(command) is not OtherHumanInputCommand:
             raise OtherHumanInputViolation("CON-OTHER-HUMAN-INPUT")
         context = await self._context(command, lock=False)
-        content_digest = Digest.from_bytes(command.message_bytes)
+        try:
+            staged = await self._storage.stage(
+                _one_chunk(command.message_bytes),
+                ArtifactPolicy(
+                    media_type="text/plain",
+                    logical_kind="other_human.input.text",
+                    producer_kind="other_human",
+                    producer_trace_id=command.trace_id,
+                    privacy_scope=ArtifactPrivacyScope.PRIVATE,
+                ),
+            )
+        except ArtifactViolation, OSError:
+            raise OtherHumanInputViolation("ART-OTHER-HUMAN-PUBLISH") from None
+        content_digest = staged.content_digest
         request_digest = Digest.from_bytes(
             rfc8785.dumps(
                 {
@@ -175,26 +188,18 @@ class OtherHumanInputService(OtherHumanInputPort):
                 }
             )
         )
-        existing = await self._existing(command, context, request_digest)
+        try:
+            existing = await self._existing(command, context, request_digest)
+        except Exception:
+            await self._storage.discard(staged)
+            raise
         if existing is not None:
+            await self._storage.discard(staged)
             return existing
         try:
-            published = await self._storage.publish(
-                await self._storage.stage(
-                    _one_chunk(command.message_bytes),
-                    ArtifactPolicy(
-                        media_type="text/plain",
-                        logical_kind="other_human.input.text",
-                        producer_kind="other_human",
-                        producer_trace_id=command.trace_id,
-                        privacy_scope=ArtifactPrivacyScope.PRIVATE,
-                    ),
-                )
-            )
+            published = await self._storage.publish(staged)
         except ArtifactViolation, OSError:
             raise OtherHumanInputViolation("ART-OTHER-HUMAN-PUBLISH") from None
-        if published.content_digest != content_digest:
-            raise OtherHumanInputViolation("ART-OTHER-HUMAN-DIGEST")
         try:
             acceptance = await self._commit(command, context, request_digest, published)
         except DatabaseTransactionError as error:
@@ -308,7 +313,6 @@ class OtherHumanInputService(OtherHumanInputPort):
                         result_status=AuditResultStatus.APPLIED,
                         trace_id=command.trace_id,
                         sensitivity=AuditSensitivity.PRIVATE,
-                        artifact_digest=registration.ref.content_digest,
                     )
                 )
             acceptance = await self._repository.create(
@@ -336,8 +340,6 @@ class OtherHumanInputService(OtherHumanInputPort):
                     request=AuditReference(
                         "other_human_input", acceptance.interaction_id.value
                     ),
-                    request_digest=request_digest,
-                    artifact_digest=registration.ref.content_digest,
                 )
             )
             return acceptance

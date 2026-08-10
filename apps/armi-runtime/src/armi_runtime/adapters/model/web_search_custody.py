@@ -181,34 +181,6 @@ def parse_request_bytes(raw: bytes) -> dict[str, object]:
     return mapping
 
 
-def result_action_digests(raw: bytes) -> tuple[Digest, ...]:
-    """Read only normalized action identities from a canonical custody result."""
-
-    value = _strict_json(raw, maximum=MAX_RESULT_BYTES)
-    if not isinstance(value, dict):
-        raise WebObservationViolation("WEB-RESULT")
-    mapping = cast(dict[str, object], value)
-    if mapping.get("schema_version") != RESULT_VERSION:
-        raise WebObservationViolation("WEB-RESULT")
-    calls = mapping.get("tool_calls")
-    if not isinstance(calls, list):
-        raise WebObservationViolation("WEB-RESULT")
-    call_values = cast(list[object], calls)
-    if not 1 <= len(call_values) <= MAX_TOOL_CALLS:
-        raise WebObservationViolation("WEB-RESULT")
-    result: list[Digest] = []
-    for ordinal, item_value in enumerate(call_values, start=1):
-        if not isinstance(item_value, dict):
-            raise WebObservationViolation("WEB-RESULT")
-        item = cast(dict[str, object], item_value)
-        if item.get("ordinal") != ordinal or type(item.get("action_digest")) is not str:
-            raise WebObservationViolation("WEB-RESULT")
-        result.append(Digest(cast(str, item["action_digest"])))
-    if rfc8785.dumps(cast(Any, mapping)) + b"\n" != raw:
-        raise WebObservationViolation("WEB-RESULT-CANONICAL")
-    return tuple(result)
-
-
 def normalize_full_response(
     raw: Mapping[str, object],
 ) -> tuple[
@@ -259,9 +231,6 @@ def normalize_full_response(
                     "ordinal": len(calls) + 1,
                     "action_type": action_type,
                     "action": normalized_action,
-                    "action_digest": Digest.from_bytes(
-                        rfc8785.dumps(cast(Any, normalized_action))
-                    ).value,
                 }
             )
             actions.append(_ACTIONS[action_type])
@@ -404,7 +373,6 @@ class ArkWebSearchAdapter:
                 request_digest,
                 model,
                 canonical,
-                Digest.from_bytes(canonical),
                 actions,
                 usage,
             )
@@ -422,7 +390,6 @@ class ArkWebSearchAdapter:
             )
             return WebObservationInvocationResult(
                 WebObservationResultStatus.FAILED,
-                None,
                 None,
                 None,
                 None,
@@ -445,7 +412,6 @@ class ArkWebSearchAdapter:
 def _unknown(code: str) -> WebObservationInvocationResult:
     return WebObservationInvocationResult(
         WebObservationResultStatus.OUTCOME_UNKNOWN,
-        None,
         None,
         None,
         None,

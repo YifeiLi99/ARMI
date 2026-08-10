@@ -28,7 +28,7 @@ from armi_kernel.application import (
     PublishedArtifact,
     TransactionIsolation,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Purpose, SubjectId, TraceId
 
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
@@ -95,49 +95,46 @@ class BirthTransaction:
         )
         trace_id = TraceId(manifest.birth_request_id.hex)
         try:
-            anchor = await self._storage.publish(
-                await self._storage.stage(
-                    _bytes(anchor_bytes),
-                    ArtifactPolicy(
-                        media_type="application/json",
-                        logical_kind="birth.personality_anchor",
-                        producer_kind="bootstrap",
-                        producer_trace_id=trace_id,
-                        privacy_scope=ArtifactPrivacyScope.RESTRICTED,
-                    ),
-                )
+            staged_anchor = await self._storage.stage(
+                _bytes(anchor_bytes),
+                ArtifactPolicy(
+                    media_type="application/json",
+                    logical_kind="birth.personality_anchor",
+                    producer_kind="bootstrap",
+                    producer_trace_id=trace_id,
+                    privacy_scope=ArtifactPrivacyScope.RESTRICTED,
+                ),
             )
-            activation = await self._storage.publish(
-                await self._storage.stage(
-                    _bytes(composition_bytes),
-                    ArtifactPolicy(
-                        media_type="application/json",
-                        logical_kind="birth.bootstrap_activation",
-                        producer_kind="bootstrap",
-                        producer_trace_id=trace_id,
-                        privacy_scope=ArtifactPrivacyScope.RESTRICTED,
-                    ),
-                )
+            staged_activation = await self._storage.stage(
+                _bytes(composition_bytes),
+                ArtifactPolicy(
+                    media_type="application/json",
+                    logical_kind="birth.bootstrap_activation",
+                    producer_kind="bootstrap",
+                    producer_trace_id=trace_id,
+                    privacy_scope=ArtifactPrivacyScope.RESTRICTED,
+                ),
             )
         except ArtifactViolation, OSError:
             raise BirthViolation("BIRTH-ARTIFACT") from None
-        if (
-            anchor.content_digest != manifest.personality_anchor_digest
-            or activation.content_digest != manifest.composition_digest
-        ):
-            raise BirthViolation("BIRTH-PACKAGE-DRIFT")
-        fixed_prompt_set_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {"personality_anchor": manifest.personality_anchor_digest.value}
-            )
-        )
+        existing = await self._recover_existing(manifest)
+        if existing is not None:
+            await self._storage.discard(staged_anchor)
+            await self._storage.discard(staged_activation)
+            return existing
+        try:
+            anchor = await self._storage.publish(staged_anchor)
+            activation = await self._storage.publish(staged_activation)
+        except ArtifactViolation:
+            await self._storage.discard(staged_anchor)
+            await self._storage.discard(staged_activation)
+            raise BirthViolation("BIRTH-ARTIFACT") from None
         for attempt in range(3):
             try:
                 return await self._attempt(
                     manifest,
                     anchor,
                     activation,
-                    fixed_prompt_set_digest,
                     trace_id,
                 )
             except DatabaseTransactionError as error:
@@ -162,7 +159,6 @@ class BirthTransaction:
         manifest: BirthManifest,
         anchor: PublishedArtifact,
         activation: PublishedArtifact,
-        fixed_prompt_set_digest: Digest,
         trace_id: TraceId,
     ) -> BirthResult:
         async with self._uow_factory.bootstrap_birth_unit_of_work(
@@ -192,8 +188,8 @@ class BirthTransaction:
                 manifest,
                 BirthArtifacts(
                     anchor_registration.ref.artifact_id.value,
+                    anchor_registration.ref.content_digest,
                     activation_registration.ref.artifact_id.value,
-                    fixed_prompt_set_digest,
                 ),
             )
             await unit_of_work.audit.append(
@@ -211,8 +207,6 @@ class BirthTransaction:
                         "birth_request",
                         manifest.birth_request_id,
                     ),
-                    request_digest=manifest.request_digest,
-                    bundle_digest=manifest.composition_digest,
                 )
             )
             return result
@@ -247,7 +241,6 @@ class BirthTransaction:
                         "birth_request",
                         manifest.birth_request_id,
                     ),
-                    artifact_digest=registration.ref.content_digest,
                 )
             )
         return registration

@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid7
 
-import rfc8785
 from armi_kernel.application import (
     ActivityHeadSnapshot,
     ActivityStatus,
@@ -25,7 +24,7 @@ from armi_kernel.application import (
     OpportunityAdmissionStatus,
     PostgreSqlFairLifeScheduler,
 )
-from armi_kernel.contracts import ActivityId, Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import ActivityId, Purpose, SubjectId, TraceId
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -87,20 +86,6 @@ class PostgreSQLLifeOpportunityRepository:
         consideration_at = anchor_at + timedelta(seconds=consideration_after_seconds)
         deadline_at = anchor_at + timedelta(seconds=deadline_after_seconds)
         now = datetime.now(UTC)
-        source_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "schema_version": "armi.maintenance-window-source.v1",
-                    "subject_id": str(fence.subject_id),
-                    "life_generation_id": str(fence.life_generation_id),
-                    "cycle_anchor_kind": str(anchor[0]),
-                    "cycle_anchor_ref": str(anchor[1]),
-                    "cycle_anchor_at": anchor_at.isoformat(),
-                    "consideration_after_seconds": consideration_after_seconds,
-                    "deadline_after_seconds": deadline_after_seconds,
-                }
-            )
-        )
         if now >= deadline_at:
             session_id = uuid7()
             revision_id = uuid7()
@@ -110,10 +95,10 @@ class PostgreSQLLifeOpportunityRepository:
                     INSERT INTO armi.maintenance_sessions (
                         maintenance_session_id, subject_id, life_generation_id,
                         origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
-                        consideration_at, deadline_at, schedule_digest,
+                        consideration_at, deadline_at,
                         trigger_kind, sleep_decision_id, started_subject_version,
                         started_state_epoch, current_revision_id) VALUES (
-                        %s, %s, %s, NULL, %s, %s, %s, %s, %s,
+                        %s, %s, %s, NULL, %s, %s, %s, %s,
                         'system_deadline', NULL, %s, %s, %s)
                     ON CONFLICT (subject_id, life_generation_id, cycle_anchor_ref)
                     DO NOTHING RETURNING maintenance_session_id
@@ -126,7 +111,6 @@ class PostgreSQLLifeOpportunityRepository:
                         anchor[1],
                         consideration_at,
                         deadline_at,
-                        source_digest.value,
                         int(anchor[3]),
                         int(anchor[4]),
                         revision_id,
@@ -173,9 +157,9 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id, reconsideration_no,
                     available_after, expires_at, source_kind, source_ref,
-                    source_version, source_digest, activity_id) VALUES (
+                    source_version, activity_id) VALUES (
                     %s, NULL, %s, NULL, NULL, 'consider_sleep', 'eligible',
-                    'open', %s, 0, %s, %s, 'maintenance_window', %s, 1, %s, NULL)
+                    'open', %s, 0, %s, %s, 'maintenance_window', %s, 1, NULL)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -188,7 +172,6 @@ class PostgreSQLLifeOpportunityRepository:
                     consideration_at,
                     deadline_at,
                     anchor[1],
-                    source_digest.value,
                 ),
             )
         ).fetchone()
@@ -196,7 +179,7 @@ class PostgreSQLLifeOpportunityRepository:
             existing = await (
                 await connection.execute(
                     """
-                    SELECT opportunity_id, source_digest FROM armi.opportunities
+                    SELECT opportunity_id FROM armi.opportunities
                     WHERE subject_id = %s AND source_kind = 'maintenance_window'
                       AND source_ref = %s AND source_version = 1
                       AND purpose = 'consider_sleep' AND reconsideration_no = 0
@@ -204,8 +187,8 @@ class PostgreSQLLifeOpportunityRepository:
                     (fence.subject_id, anchor[1]),
                 )
             ).fetchone()
-            if existing is None or str(existing[1]) != source_digest.value:
-                raise LifeViolation("LIFE-SOURCE-DRIFT")
+            if existing is None:
+                raise LifeViolation("LIFE-SOURCE-STALE")
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.DUPLICATE, existing[0]
             )
@@ -235,17 +218,6 @@ class PostgreSQLLifeOpportunityRepository:
         ).fetchone()
         if row is None:
             raise LifeViolation("LIFE-SOURCE-STALE")
-        source_bytes = rfc8785.dumps(
-            {
-                "schema_version": "armi.life-opportunity-source.v1",
-                "kind": LifeOpportunitySourceKind.LIFE_GENERATION_AVAILABLE.value,
-                "subject_id": str(fence.subject_id),
-                "life_generation_id": str(fence.life_generation_id),
-                "generation_no": int(row[0]),
-                "activation_reason": str(row[1]),
-            }
-        )
-        digest = Digest.from_bytes(source_bytes)
         opportunity_id = uuid7()
         inserted = await (
             await connection.execute(
@@ -255,11 +227,11 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest)
+                    source_version)
                 VALUES (
                     %s, NULL, %s, NULL, NULL, 'consider_autonomous_life',
                     'eligible', 'open', %s, 0,
-                    'life_generation_available', %s, %s, %s)
+                    'life_generation_available', %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -272,7 +244,6 @@ class PostgreSQLLifeOpportunityRepository:
                     opportunity_id,
                     fence.life_generation_id,
                     int(row[0]),
-                    digest.value,
                 ),
             )
         ).fetchone()
@@ -280,7 +251,7 @@ class PostgreSQLLifeOpportunityRepository:
             existing = await (
                 await connection.execute(
                     """
-                    SELECT opportunity_id, source_digest
+                    SELECT opportunity_id
                     FROM armi.opportunities
                     WHERE subject_id = %s
                       AND source_kind = 'life_generation_available'
@@ -292,8 +263,8 @@ class PostgreSQLLifeOpportunityRepository:
                     (fence.subject_id, fence.life_generation_id, int(row[0])),
                 )
             ).fetchone()
-            if existing is None or str(existing[1]) != digest.value:
-                raise LifeViolation("LIFE-SOURCE-DRIFT")
+            if existing is None:
+                raise LifeViolation("LIFE-SOURCE-STALE")
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.DUPLICATE,
                 existing[0],
@@ -311,7 +282,6 @@ class PostgreSQLLifeOpportunityRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(fence.subject_id),
                 request=AuditReference("life_generation", fence.life_generation_id),
-                request_digest=digest,
             )
         )
         return OpportunityAdmissionOutcome(
@@ -334,8 +304,7 @@ class PostgreSQLLifeOpportunityRepository:
                 """
                 SELECT material.life_material_id,
                        revision.life_material_revision_id,
-                       material.head_version,
-                       revision.semantic_digest
+                       material.head_version
                 FROM armi.life_materials AS material
                 JOIN armi.life_material_revisions AS revision
                   ON revision.life_material_revision_id =
@@ -376,10 +345,10 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest) VALUES (
+                    source_version) VALUES (
                     %s, NULL, %s, NULL, NULL, 'consider_autonomous_life',
                     'eligible', 'open', %s, 0, 'life_material_revision',
-                    %s, %s, %s)
+                    %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -391,7 +360,6 @@ class PostgreSQLLifeOpportunityRepository:
                     opportunity_id,
                     row[1],
                     int(row[2]),
-                    str(row[3]),
                 ),
             )
         ).fetchone()
@@ -399,7 +367,7 @@ class PostgreSQLLifeOpportunityRepository:
             existing = await (
                 await connection.execute(
                     """
-                    SELECT opportunity_id, source_digest
+                    SELECT opportunity_id
                     FROM armi.opportunities
                     WHERE subject_id = %s
                       AND source_kind = 'life_material_revision'
@@ -411,8 +379,8 @@ class PostgreSQLLifeOpportunityRepository:
                     (fence.subject_id, row[1], int(row[2])),
                 )
             ).fetchone()
-            if existing is None or str(existing[1]) != str(row[3]):
-                raise LifeViolation("LIFE-SOURCE-DRIFT")
+            if existing is None:
+                raise LifeViolation("LIFE-SOURCE-STALE")
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.DUPLICATE,
                 existing[0],
@@ -429,7 +397,6 @@ class PostgreSQLLifeOpportunityRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(fence.subject_id),
                 request=AuditReference("life_material_revision", row[1]),
-                request_digest=Digest(str(row[3])),
             )
         )
         return OpportunityAdmissionOutcome(
@@ -614,21 +581,6 @@ class PostgreSQLLifeOpportunityRepository:
                 decision.reason_code or "LIFE-SCHEDULER-IDLE",
             )
         selected = next(row for row in rows if row[1] == decision.activity_revision_id)
-        source_bytes = rfc8785.dumps(
-            {
-                "schema_version": "armi.activity-revision-source.v1",
-                "activity_id": str(selected[0]),
-                "activity_revision_id": str(selected[1]),
-                "revision_no": int(selected[2]),
-                "status": str(selected[3]),
-                "goal": str(selected[9]),
-                "progress_summary": selected[10],
-                "next_safe_step": selected[11],
-                "resumption_cue": selected[12],
-                "terminal_reason": selected[13],
-            }
-        )
-        source_digest = Digest.from_bytes(source_bytes)
         opportunity_id = uuid7()
         inserted = await (
             await connection.execute(
@@ -638,10 +590,10 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest, activity_id) VALUES (
+                    source_version, activity_id) VALUES (
                     %s, NULL, %s, NULL, NULL, 'consider_activity_attention',
                     'eligible', 'open', %s, 0, 'activity_revision',
-                    %s, %s, %s, %s)
+                    %s, %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -653,7 +605,6 @@ class PostgreSQLLifeOpportunityRepository:
                     opportunity_id,
                     selected[1],
                     int(selected[2]),
-                    source_digest.value,
                     selected[0],
                 ),
             )
@@ -662,8 +613,7 @@ class PostgreSQLLifeOpportunityRepository:
             existing = await (
                 await connection.execute(
                     """
-                    SELECT root.opportunity_id, root.source_digest,
-                           root.current_disposition,
+                    SELECT root.opportunity_id, root.current_disposition,
                            (
                              EXISTS (
                                SELECT 1 FROM armi.cognitive_episodes AS failed_episode
@@ -701,13 +651,13 @@ class PostgreSQLLifeOpportunityRepository:
                     (fence.subject_id, selected[1], int(selected[2])),
                 )
             ).fetchone()
-            if existing is None or str(existing[1]) != source_digest.value:
-                raise LifeViolation("LIFE-SOURCE-DRIFT")
-            if existing[4] is not None:
+            if existing is None:
+                raise LifeViolation("LIFE-SOURCE-STALE")
+            if existing[3] is not None:
                 return OpportunityAdmissionOutcome(
-                    OpportunityAdmissionStatus.DUPLICATE, existing[4]
+                    OpportunityAdmissionStatus.DUPLICATE, existing[3]
                 )
-            if str(existing[2]) == "resolved" and bool(existing[3]):
+            if str(existing[1]) == "resolved" and bool(existing[2]):
                 retry_id = uuid7()
                 retried = await (
                     await connection.execute(
@@ -718,10 +668,10 @@ class PostgreSQLLifeOpportunityRepository:
                             current_disposition, root_opportunity_id,
                             predecessor_opportunity_id, reconsideration_no,
                             source_kind, source_ref, source_version,
-                            source_digest, activity_id) VALUES (
+                            activity_id) VALUES (
                             %s, NULL, %s, NULL, NULL,
                             'consider_activity_attention', 'eligible', 'open',
-                            %s, %s, 1, 'activity_revision', %s, %s, %s, %s)
+                            %s, %s, 1, 'activity_revision', %s, %s, %s)
                         ON CONFLICT (predecessor_opportunity_id) DO NOTHING
                         RETURNING opportunity_id
                         """,
@@ -732,7 +682,6 @@ class PostgreSQLLifeOpportunityRepository:
                             existing[0],
                             selected[1],
                             int(selected[2]),
-                            source_digest.value,
                             selected[0],
                         ),
                     )
@@ -750,7 +699,6 @@ class PostgreSQLLifeOpportunityRepository:
                             AuditSensitivity.PRIVATE,
                             subject_id=SubjectId(fence.subject_id),
                             request=AuditReference("activity_revision", selected[1]),
-                            request_digest=source_digest,
                         )
                     )
                     return OpportunityAdmissionOutcome(
@@ -771,7 +719,6 @@ class PostgreSQLLifeOpportunityRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(fence.subject_id),
                 request=AuditReference("activity_revision", selected[1]),
-                request_digest=source_digest,
             )
         )
         return OpportunityAdmissionOutcome(
@@ -878,20 +825,6 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-SCHEDULER-IDLE",
             )
-        source_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "schema_version": "armi.activity-internal-work-source.v1",
-                    "activity_id": str(row[0]),
-                    "activity_revision_id": str(row[1]),
-                    "revision_no": int(row[2]),
-                    "status": str(row[3]),
-                    "goal": str(row[4]),
-                    "progress_summary": row[5],
-                    "next_safe_step": str(row[6]),
-                }
-            )
-        )
         opportunity_id = uuid7()
         inserted = await (
             await connection.execute(
@@ -901,10 +834,10 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, source_kind, source_ref,
-                    source_version, source_digest, activity_id) VALUES (
+                    source_version, activity_id) VALUES (
                     %s, NULL, %s, NULL, NULL,
                     'consider_activity_internal_work', 'eligible', 'open',
-                    %s, 0, 'activity_revision', %s, %s, %s, %s)
+                    %s, 0, 'activity_revision', %s, %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -916,7 +849,6 @@ class PostgreSQLLifeOpportunityRepository:
                     opportunity_id,
                     row[1],
                     int(row[2]),
-                    source_digest.value,
                     row[0],
                 ),
             )
@@ -925,7 +857,7 @@ class PostgreSQLLifeOpportunityRepository:
             existing = await (
                 await connection.execute(
                     """
-                    SELECT opportunity_id, source_digest
+                    SELECT opportunity_id
                     FROM armi.opportunities
                     WHERE subject_id = %s AND source_kind = 'activity_revision'
                       AND source_ref = %s AND source_version = %s
@@ -935,8 +867,8 @@ class PostgreSQLLifeOpportunityRepository:
                     (fence.subject_id, row[1], int(row[2])),
                 )
             ).fetchone()
-            if existing is None or str(existing[1]) != source_digest.value:
-                raise LifeViolation("LIFE-SOURCE-DRIFT")
+            if existing is None:
+                raise LifeViolation("LIFE-SOURCE-STALE")
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.DUPLICATE, existing[0]
             )
@@ -952,7 +884,6 @@ class PostgreSQLLifeOpportunityRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(fence.subject_id),
                 request=AuditReference("activity_revision", row[1]),
-                request_digest=source_digest,
             )
         )
         return OpportunityAdmissionOutcome(
@@ -1237,17 +1168,6 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 available_after,
             )
-        source_bytes = rfc8785.dumps(
-            {
-                "schema_version": "armi.creator-outreach-trigger.v1",
-                "kind": str(source[0]),
-                "source_ref": str(source[1]),
-                "source_version": int(source[2]),
-                "available_after": source[4].isoformat(),
-                "scene_id": str(scene_id),
-            }
-        )
-        source_digest = Digest.from_bytes(source_bytes)
         opportunity_id = uuid7()
         inserted = await (
             await connection.execute(
@@ -1257,9 +1177,9 @@ class PostgreSQLLifeOpportunityRepository:
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
                     reconsideration_no, available_after, source_kind,
-                    source_ref, source_version, source_digest, activity_id) VALUES (
+                    source_ref, source_version, activity_id) VALUES (
                     %s, NULL, %s, %s, %s, 'consider_creator_outreach',
-                    'eligible', 'open', %s, 0, %s, %s, %s, %s, %s, %s)
+                    'eligible', 'open', %s, 0, %s, %s, %s, %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -1275,7 +1195,6 @@ class PostgreSQLLifeOpportunityRepository:
                     str(source[0]),
                     source[1],
                     int(source[2]),
-                    source_digest.value,
                     source[3],
                 ),
             )
@@ -1284,7 +1203,7 @@ class PostgreSQLLifeOpportunityRepository:
             existing = await (
                 await connection.execute(
                     """
-                    SELECT opportunity_id, source_digest
+                    SELECT opportunity_id
                     FROM armi.opportunities
                     WHERE subject_id = %s AND source_kind = %s
                       AND source_ref = %s AND source_version = %s
@@ -1294,8 +1213,8 @@ class PostgreSQLLifeOpportunityRepository:
                     (fence.subject_id, str(source[0]), source[1], int(source[2])),
                 )
             ).fetchone()
-            if existing is None or str(existing[1]) != source_digest.value:
-                raise LifeViolation("LIFE-SOURCE-DRIFT")
+            if existing is None:
+                raise LifeViolation("LIFE-SOURCE-STALE")
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.DUPLICATE, existing[0]
             )
@@ -1311,7 +1230,6 @@ class PostgreSQLLifeOpportunityRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(fence.subject_id),
                 request=AuditReference(str(source[0]), source[1]),
-                request_digest=source_digest,
             )
         )
         return OpportunityAdmissionOutcome(

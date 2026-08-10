@@ -33,7 +33,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
+from armi_kernel.contracts import Instant, Purpose, SubjectId
 
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
@@ -485,8 +485,7 @@ class ModelPipeline:
                     lease=lease,
                     snapshot=snapshot,
                     binding=adapter.binding,
-                    request_artifact_id=request_registration.ref.artifact_id,
-                    request_digest=request.digest,
+                    request_artifact=request_registration.ref,
                 )
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 await self._repository.mark_dispatched(
@@ -522,7 +521,7 @@ class ModelPipeline:
                         lease=lease,
                         snapshot=snapshot,
                         attempt_id=attempt_id,
-                        response_artifact_id=(response_registration.ref.artifact_id),
+                        response_artifact=response_registration.ref,
                         result=result,
                     )
                 self._wakeups.notify(CANDIDATE_VALIDATE)
@@ -613,10 +612,7 @@ class ModelPipeline:
                 value = await stream.read()
         except ArtifactViolation:
             raise ModelViolation("MODEL-CONTEXT") from None
-        if (
-            not value
-            or Digest.from_bytes(value) != snapshot.compiled_context.content_digest
-        ):
+        if not value:
             raise ModelViolation("MODEL-CONTEXT")
         return value
 
@@ -767,7 +763,6 @@ def _artifact_audit(
         AuditSensitivity.RESTRICTED,
         subject_id=SubjectId(snapshot.subject_id),
         request=AuditReference("cognitive_episode", snapshot.episode_id),
-        artifact_digest=ref.content_digest,
     )
 
 
@@ -781,7 +776,6 @@ def _error_result(error: ModelViolation) -> ModelInvocationResult:
     )
     return ModelInvocationResult(
         status,
-        None,
         None,
         None,
         None,

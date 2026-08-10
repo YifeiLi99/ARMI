@@ -21,7 +21,6 @@ from armi_kernel.application import (
     ModelUsage,
     ModelViolation,
 )
-from armi_kernel.contracts import Digest
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -56,7 +55,7 @@ _INSTRUCTIONS = (
     "Codex 委托必须与同一候选中的 codex.delegated-work capability request 一起提出;"
     "两者可独立成组,也可在确有原子依赖时使用同一 atomic_group。委托只能原样引用"
     "task source identity、manifest digest 和 validator;其中 task_manifest_digest 必须"
-    "逐字复制 codex_task_source Context 项自身的 source_digest,绝不能复制该项正文中的"
+    "来自 codex_task_source Context 项指向的当前 source_ref/source_version,绝不能复制正文中的"
     "source_tree_digest、source_bundle_digest 或其他摘要。Codex capability request 的"
     "basis_refs 必须同时包含当前外部证据(对于委托即 codex_task_source)、current_scene"
     "和 capability_catalog;"
@@ -499,7 +498,6 @@ class VolcengineArkModelAdapter(ModelPort):
             provider_request_id,
             model_id,
             response_bytes,
-            Digest.from_bytes(response_bytes),
             usage,
         )
 
@@ -550,7 +548,6 @@ def _failure(
         status,
         provider_request_id,
         provider_model_id,
-        None,
         None,
         usage,
         code,

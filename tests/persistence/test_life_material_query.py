@@ -10,7 +10,6 @@ from uuid import UUID, uuid7
 
 import pytest
 from armi_kernel.application import CreatorLifeMaterialQueryViolation
-from armi_kernel.contracts import Digest
 from armi_runtime.adapters.artifacts.life_material_codec import (
     build_life_material_artifact,
 )
@@ -128,7 +127,6 @@ def test_creator_material_query_reads_only_current_visible_verified_body(
         occurred_at,
         2,
         "雨天随记",
-        Digest.from_bytes(body.encode("utf-8")).value,
         {"mood": "quiet"},
         "active",
         "creator_visible",

@@ -105,7 +105,7 @@ async def test_relationship_commit_binds_every_revision_value() -> None:
     )
 
     assert connection.revision_parameters is not None
-    assert len(connection.revision_parameters) == 16
+    assert len(connection.revision_parameters) == 15
 
 
 @pytest.mark.asyncio

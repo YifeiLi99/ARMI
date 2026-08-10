@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from uuid import UUID, uuid7
 
 import psycopg
-import rfc8785
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -253,23 +251,16 @@ class PostgreSQLRuntimeRecovery:
             )
         ).fetchall()
         for row in rows:
-            digest = _summary_digest(
-                {
-                    "status": "abandoned",
-                    "reason": "superseded_runtime_instance",
-                }
-            )
             await connection.execute(
                 """
                 UPDATE armi.runtime_recovery_runs
                 SET status = 'abandoned',
                     completed_at = statement_timestamp(),
-                    blocker_count = 1,
-                    summary_digest = %s
+                    blocker_count = 1
                 WHERE recovery_run_id = %s
                   AND status = 'running'
                 """,
-                (digest.value, row[0]),
+                (row[0],),
             )
             await writer.append(_audit(fence, "runtime.recovery.abandoned", row[0]))
 
@@ -568,29 +559,27 @@ class PostgreSQLRuntimeRecovery:
                             'ready', 2, 0, 0, trace_id
                         FROM source
                         RETURNING
-                            work_id, owner_ref, subject_id,
-                            payload_digest, trace_id
+                            work_id, owner_ref, subject_id, trace_id
                     )
                     SELECT
-                        work_id, owner_ref, subject_id,
-                        payload_digest, trace_id
+                        work_id, owner_ref, subject_id, trace_id
                     FROM inserted
                     """
                 )
             ).fetchall()
-            for work_id, episode_id, subject_id, payload_digest, trace_id in backfilled:
+            for work_id, episode_id, subject_id, trace_id in backfilled:
                 await connection.execute(
                     """
                     INSERT INTO armi.outbox_items (
                         outbox_item_id, work_id, message_kind,
-                        payload_digest, status, available_at,
+                        status, available_at,
                         claim_token, attempt_count, max_attempts,
                         trace_id)
                     VALUES (
-                        uuidv7(), %s, 'work.available', %s, 'ready',
+                        uuidv7(), %s, 'work.available', 'ready',
                         statement_timestamp(), 0, 0, 2, %s)
                     """,
-                    (work_id, payload_digest, trace_id),
+                    (work_id, trace_id),
                 )
                 await PostgreSQLAuditWriter(connection).append(
                     AuditDraft(
@@ -606,7 +595,6 @@ class PostgreSQLRuntimeRecovery:
                         TraceId(str(trace_id)),
                         AuditSensitivity.PRIVATE,
                         subject_id=SubjectId(subject_id),
-                        request_digest=Digest(str(payload_digest)),
                     )
                 )
             response_backfill = await (
@@ -675,13 +663,13 @@ class PostgreSQLRuntimeRecovery:
                     """
                     INSERT INTO armi.outbox_items (
                         outbox_item_id, work_id, message_kind,
-                        payload_digest, status, available_at,
+                        status, available_at,
                         claim_token, attempt_count, max_attempts,
                         trace_id) VALUES (
-                        uuidv7(), %s, 'work.available', %s, 'ready',
+                        uuidv7(), %s, 'work.available', 'ready',
                         statement_timestamp(), 0, 0, 2, %s)
                     """,
-                    (work_id, response_digest, trace_id),
+                    (work_id, trace_id),
                 )
                 updated = await (
                     await connection.execute(
@@ -715,7 +703,6 @@ class PostgreSQLRuntimeRecovery:
                         TraceId(str(trace_id)),
                         AuditSensitivity.PRIVATE,
                         subject_id=SubjectId(subject_id),
-                        request_digest=Digest(str(response_digest)),
                     )
                 )
             await connection.execute(
@@ -1476,7 +1463,7 @@ class PostgreSQLRuntimeRecovery:
                                    AND work.status NOT IN ('ready', 'leased'))
                                OR (request.status = 'succeeded' AND (
                                    request.result_artifact_id IS NULL
-                                   OR request.result_digest IS NULL
+                                   OR request.result_artifact_id IS NULL
                                    OR work.status <> 'completed'
                                ))
                                OR (request.status = 'unknown' AND NOT EXISTS (
@@ -1705,50 +1692,6 @@ class PostgreSQLRuntimeRecovery:
                         "REC-ARTIFACT-COUNT",
                     ),
                 )
-            semantic = {
-                "status": status.value,
-                "requeued_work": scan.requeued_work,
-                "terminal_work": scan.terminal_work,
-                "requeued_outbox": scan.requeued_outbox,
-                "dead_outbox": scan.dead_outbox,
-                "resumable_work": int(counts[0]),
-                "resumable_outbox": int(counts[1]),
-                "resumable_opportunity": int(counts[2]),
-                "resumable_cognitive_episode": int(counts[3]),
-                "resumable_model_attempt": int(counts[5]),
-                "resumable_candidate_validation": int(counts[4]),
-                "resumable_subject_commit": int(counts[6]),
-                "resumable_capability_request": int(capability_counts[0]),
-                "resumable_response_operation": int(response_counts[0]),
-                "resumable_effect": int(effect_counts[0]),
-                "resumable_effect_outbox": int(effect_counts[2]),
-                "resumable_effect_attempt": int(effect_execution_counts[0]),
-                "reliable_effect_observation": int(effect_execution_counts[1]),
-                "creator_response_delivery": int(effect_execution_counts[2]),
-                "resumable_web_observation": int(web_counts[0]),
-                "unknown_web_observation_attempt": int(web_counts[1]),
-                "resumable_web_research_intent": int(web_evidence_counts[0]),
-                "pending_web_evidence_acceptance": int(web_evidence_counts[1]),
-                "resumable_web_cognition": int(web_evidence_counts[2]),
-                "resumable_codex_task": int(codex_counts[0]),
-                "resumable_codex_effect": int(codex_counts[1]),
-                "pending_codex_result_acceptance": int(codex_counts[2]),
-                "resumable_admin_correction_work": int(admin_correction_work_count[0]),
-                "critical_artifacts": critical,
-                "blockers": blockers,
-                "findings": [
-                    {
-                        "kind": value.kind,
-                        "decision": value.decision.value,
-                        "reason": value.reason_code,
-                        "reference": (
-                            None if value.reference is None else str(value.reference)
-                        ),
-                    }
-                    for value in sorted_findings
-                ],
-            }
-            digest = _summary_digest(semantic)
             metrics = {
                 "requeued_work_count": scan.requeued_work,
                 "terminal_work_count": scan.terminal_work,
@@ -1786,15 +1729,13 @@ class PostgreSQLRuntimeRecovery:
                 UPDATE armi.runtime_recovery_runs
                 SET status = %s,
                     completed_at = statement_timestamp(),
-                    blocker_count = %s,
-                    summary_digest = %s
+                    blocker_count = %s
                 WHERE recovery_run_id = %s
                   AND status = 'running'
                 """,
                 (
                     status.value,
                     blockers,
-                    digest.value,
                     scan.recovery_run_id,
                 ),
             )
@@ -1846,7 +1787,6 @@ class PostgreSQLRuntimeRecovery:
             unknown_web_observation_attempt_count=int(web_counts[1]),
             critical_artifact_count=critical,
             blocker_count=blockers,
-            summary_digest=digest,
             findings=tuple(sorted_findings),
             resumable_web_research_intent_count=int(web_evidence_counts[0]),
             pending_web_evidence_acceptance_count=int(web_evidence_counts[1]),
@@ -1959,12 +1899,6 @@ def _finding_key(value: RecoveryFinding) -> tuple[str, str, str, str]:
         value.decision.value,
         value.reason_code,
         "" if value.reference is None else str(value.reference),
-    )
-
-
-def _summary_digest(value: object) -> Digest:
-    return Digest(
-        "sha256:" + hashlib.sha256(rfc8785.dumps(cast(Any, value))).hexdigest()
     )
 
 

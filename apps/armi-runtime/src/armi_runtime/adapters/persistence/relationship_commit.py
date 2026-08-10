@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-from typing import Any, cast
+from typing import Any
 from uuid import UUID, uuid7
 
-import rfc8785
 from armi_kernel.application import (
     CandidateRelationshipDraft,
     SubjectCommitViolation,
 )
-from armi_kernel.contracts import Digest
 
 
 async def apply_relationships(
@@ -134,21 +132,6 @@ async def apply_relationships(
                 ),
             }
         )
-        semantic_bytes = rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.relationship-revision.v2",
-                    "facts": facts,
-                    "interpretation": relationship.interpretation,
-                    "boundaries": boundaries,
-                    "commitments": commitments,
-                    "open_issues": open_issues,
-                    "commitment_event": commitment_event,
-                    "status": relationship.status.value,
-                },
-            )
-        )
         revision_id = uuid7()
         if relationship.current_revision_id is None:
             existing = await (
@@ -230,10 +213,10 @@ async def apply_relationships(
                 candidate_validation_id, proposal_ref, facts,
                 interpretation, boundaries, commitments, open_issues,
                 commitment_event, relationship_status,
-                semantic_digest, mechanism_identity, privacy_scope
+                mechanism_identity, privacy_scope
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s,
                 'private'
             )
             """,
@@ -256,7 +239,6 @@ async def apply_relationships(
                     else json.dumps(commitment_event, ensure_ascii=False)
                 ),
                 relationship.status.value,
-                Digest.from_bytes(semantic_bytes).value,
                 relationship.mechanism_identity,
             ),
         )

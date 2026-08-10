@@ -167,7 +167,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             "occurred_at": "2026-07-30T10:03:02.000000Z",
             "message": "Creator response verified.",
             "result_ref": cls.effect_id,
-            "completion_evidence": "sha256:" + ("e" * 64),
             "details": {
                 "projection_version": "creator-operation.v1",
                 "root_operation_ref": cls.opportunity_id,

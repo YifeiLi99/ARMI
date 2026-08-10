@@ -155,7 +155,6 @@ class PostgreSQLWebEvidenceRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=snapshot.subject_id,
                 request=AuditReference("web_observation", request_id.value),
-                request_digest=snapshot.query_digest,
             )
         )
 
@@ -167,8 +166,7 @@ class PostgreSQLWebEvidenceRepository:
         attempt_id: WebObservationAttemptId,
         evidence_artifact_id: ArtifactId,
         source_artifact_ids: tuple[ArtifactId, ...],
-        evidence_digest: Digest,
-        sources: tuple[tuple[int, Digest, Digest, Digest], ...],
+        sources: tuple[tuple[int, Digest], ...],
     ) -> WebEvidenceAcceptanceResult | None:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         row = await (
@@ -221,8 +219,8 @@ class PostgreSQLWebEvidenceRepository:
                 INSERT INTO armi.web_evidence_sources (
                     web_evidence_source_id, evidence_id, observation_attempt_id,
                     citation_no, source_artifact_id, canonical_url_digest,
-                    title_digest, citation_digest, acquisition_kind) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    acquisition_kind) VALUES (
+                    %s, %s, %s, %s, %s, %s,
                     'provider_synthesis_citation')
                 """,
                 (
@@ -232,8 +230,6 @@ class PostgreSQLWebEvidenceRepository:
                     source[0],
                     artifact_id.value,
                     source[1].value,
-                    source[2].value,
-                    source[3].value,
                 ),
             )
         await connection.execute(
@@ -241,11 +237,11 @@ class PostgreSQLWebEvidenceRepository:
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
                 creator_party_id, purpose, source_kind, source_ref,
-                source_version, source_digest, eligibility_status,
+                source_version, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no) VALUES (
                 %s, %s, %s, %s, %s, 'consider_web_evidence',
-                'external_evidence', %s, 1, %s,
+                'external_evidence', %s, 1,
                 'eligible', 'open', %s, NULL, 0)
             """,
             (
@@ -255,7 +251,6 @@ class PostgreSQLWebEvidenceRepository:
                 row[2],
                 row[3],
                 evidence_id,
-                evidence_digest.value,
                 opportunity_id,
             ),
         )
@@ -279,8 +274,6 @@ class PostgreSQLWebEvidenceRepository:
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(row[1]),
                 request=AuditReference("web_observation", request_id.value),
-                response_digest=evidence_digest,
-                artifact_digest=evidence_digest,
             )
         )
         return WebEvidenceAcceptanceResult(
@@ -288,7 +281,6 @@ class PostgreSQLWebEvidenceRepository:
             request_id,
             evidence_id,
             opportunity_id,
-            evidence_digest,
         )
 
 

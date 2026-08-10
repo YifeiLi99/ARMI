@@ -476,7 +476,6 @@ class _LifeRecordQuery:
             head_version=2,
             title="雨天随记",
             body=body,
-            body_digest=Digest.from_bytes(body.encode("utf-8")),
             metadata=(("mood", "quiet"),),
             material_status=LifeMaterialStatus.ACTIVE,
             privacy_status=LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
@@ -675,7 +674,6 @@ class _CapabilityPolicy:
             command.request_id,
             command.expected_version + 1,
             CapabilityRequestStatus.DENIED,
-            Digest.from_bytes(b"decision"),
         )
 
 
@@ -768,7 +766,6 @@ class _CreatorExport:
             ),
             directory_name=command.directory_name,
             destination_path=f"data/exports/{command.directory_name}",
-            manifest_digest=Digest.from_bytes(b"manifest"),
             table_count=39,
             row_count=120,
             artifact_count=4,

@@ -146,8 +146,7 @@ class PostgreSQLCognitiveModelRepository:
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
         binding: ModelBinding,
-        request_artifact_id: ArtifactId,
-        request_digest: Digest,
+        request_artifact: ArtifactRef,
     ) -> ModelAttemptId:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await self._assert_lease(connection, lease, snapshot.episode_id)
@@ -175,7 +174,6 @@ class PostgreSQLCognitiveModelRepository:
                 work_id,
                 work_attempt_id,
                 attempt_no,
-                binding_digest,
                 provider,
                 model_id,
                 version_policy,
@@ -185,11 +183,10 @@ class PostgreSQLCognitiveModelRepository:
                 pricing_snapshot_id,
                 credential_identity,
                 request_artifact_id,
-                request_digest,
                 dispatch_status)
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, 'prepared')
+                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, 'prepared')
             """,
             (
                 attempt_id.value,
@@ -197,7 +194,6 @@ class PostgreSQLCognitiveModelRepository:
                 lease.work_id.value,
                 lease.attempt_id.value,
                 attempt_no,
-                binding.digest.value,
                 binding.provider,
                 binding.model_id,
                 binding.version_policy,
@@ -206,8 +202,7 @@ class PostgreSQLCognitiveModelRepository:
                 binding.response_contract_version,
                 binding.pricing_snapshot_id,
                 binding.credential_identity,
-                request_artifact_id.value,
-                request_digest.value,
+                request_artifact.artifact_id.value,
             ),
         )
         updated = await (
@@ -235,8 +230,6 @@ class PostgreSQLCognitiveModelRepository:
                 snapshot.trace_id,
                 AuditSensitivity.RESTRICTED,
                 subject_id=SubjectId(snapshot.subject_id),
-                request_digest=request_digest,
-                details_digest=binding.digest,
             )
         )
         return attempt_id
@@ -282,7 +275,7 @@ class PostgreSQLCognitiveModelRepository:
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
         attempt_id: ModelAttemptId,
-        response_artifact_id: ArtifactId,
+        response_artifact: ArtifactRef,
         result: ModelInvocationResult,
     ) -> None:
         assert result.status is ModelResultStatus.SUCCEEDED
@@ -295,7 +288,7 @@ class PostgreSQLCognitiveModelRepository:
             connection,
             attempt_id=attempt_id,
             result=result,
-            response_artifact_id=response_artifact_id,
+            response_artifact_id=response_artifact.artifact_id,
         )
         updated = await (
             await connection.execute(
@@ -315,7 +308,7 @@ class PostgreSQLCognitiveModelRepository:
         now_row = await (
             await connection.execute("SELECT statement_timestamp()")
         ).fetchone()
-        if now_row is None or result.response_digest is None:
+        if now_row is None:
             raise ModelViolation("MODEL-DATABASE")
         now = Instant(now_row[0])
         await unit_of_work.work.enqueue(
@@ -324,7 +317,7 @@ class PostgreSQLCognitiveModelRepository:
                 _VALIDATION_WORK_KIND,
                 WorkOwner("cognitive_episode", snapshot.episode_id),
                 IdempotencyKey(f"candidate:{snapshot.episode_id}"),
-                result.response_digest,
+                response_artifact.content_digest,
                 50,
                 now,
                 Instant(now.value + timedelta(seconds=3600)),
@@ -344,7 +337,6 @@ class PostgreSQLCognitiveModelRepository:
                 snapshot,
                 attempt_id,
                 AuditResultStatus.COMPLETED,
-                result.response_digest,
             )
         )
         await unit_of_work.audit.append(
@@ -358,7 +350,6 @@ class PostgreSQLCognitiveModelRepository:
                 snapshot.trace_id,
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.subject_id),
-                request_digest=result.response_digest,
             )
         )
 
@@ -430,7 +421,6 @@ class PostgreSQLCognitiveModelRepository:
                 snapshot,
                 attempt_id,
                 audit_status,
-                None,
             )
         )
 
@@ -592,7 +582,6 @@ def _settlement_audit(
     snapshot: ModelEpisodeSnapshot,
     attempt_id: ModelAttemptId,
     status: AuditResultStatus,
-    response_digest: Digest | None,
 ) -> AuditDraft:
     return AuditDraft(
         AuditEventId(uuid7()),
@@ -604,7 +593,6 @@ def _settlement_audit(
         snapshot.trace_id,
         AuditSensitivity.RESTRICTED,
         subject_id=SubjectId(snapshot.subject_id),
-        response_digest=response_digest,
     )
 
 

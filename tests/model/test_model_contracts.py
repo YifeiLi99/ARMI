@@ -335,7 +335,7 @@ def _request(binding: ModelBinding):
     )
 
 
-def test_only_evolving_binding_is_active_and_digest_is_stable() -> None:
+def test_only_evolving_binding_is_active_and_request_is_stable() -> None:
     first = load_active_binding()
     second = load_active_binding()
     assert first.model_id == ACTIVE_MODEL_ID == "doubao-seed-evolving"
@@ -343,8 +343,8 @@ def test_only_evolving_binding_is_active_and_digest_is_stable() -> None:
     assert first.response_model_identity_required
     assert first.input_microyuan_per_million == 6_000_000
     assert first.output_microyuan_per_million == 30_000_000
-    assert first.digest == second.digest
-    assert _request(first).digest == _request(second).digest
+    assert first == second
+    assert _request(first).canonical_bytes == _request(second).canonical_bytes
 
 
 def test_creator_dialogue_uses_compact_purpose_contract() -> None:

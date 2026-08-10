@@ -196,7 +196,6 @@ def _fixture():
             "self",
             ids[7],
             1,
-            Digest.from_bytes(rfc8785.dumps(cast(Any, _self_state()))),
             "subjective_state",
             "private",
         ),
@@ -206,7 +205,6 @@ def _fixture():
             "current_evidence",
             ids[8],
             1,
-            Digest.from_bytes(b"creator evidence"),
             "external_claim",
             "private",
         ),
@@ -216,7 +214,6 @@ def _fixture():
             "mind",
             ids[9],
             1,
-            Digest.from_bytes(rfc8785.dumps(cast(Any, _mind_state()))),
             "subjective_state",
             "private",
         ),
@@ -270,7 +267,6 @@ def test_other_human_dialogue_uses_party_scoped_v21_change_set(
             "current_evidence",
             ids[7],
             1,
-            Digest.from_bytes(b"other-human-message"),
             "external_claim",
             "private",
         ),
@@ -280,7 +276,6 @@ def test_other_human_dialogue_uses_party_scoped_v21_change_set(
             "current_scene",
             ids[5],
             1,
-            Digest.from_bytes(b"other-human-scene"),
             "runtime_authority",
             "private",
         ),
@@ -308,7 +303,6 @@ def test_other_human_dialogue_uses_party_scoped_v21_change_set(
             historical_bytes = rfc8785.dumps(historical)
             normalized = parse_subject_change_set(historical_bytes)
             assert normalized.canonical_bytes == historical_bytes
-            assert normalized.digest == Digest.from_bytes(historical_bytes)
             assert isinstance(normalized.action_choices[0], OtherHumanReplyDraft)
             assert normalized.action_choices[0].operation == "send"
 
@@ -339,7 +333,6 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
             "current_evidence",
             ids[8],
             1,
-            Digest.from_bytes(b"other-human-social-message"),
             "external_claim",
             "private",
         ),
@@ -349,7 +342,6 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
             "current_scene",
             ids[5],
             1,
-            Digest.from_bytes(b"other-human-social-scene"),
             "runtime_authority",
             "private",
         ),
@@ -431,7 +423,6 @@ def test_two_other_human_relationship_candidates_keep_separate_party_identity() 
                 "current_evidence",
                 uuid7(),
                 1,
-                Digest.from_bytes(b"party-message"),
                 "external_claim",
                 "private",
             ),
@@ -441,7 +432,6 @@ def test_two_other_human_relationship_candidates_keep_separate_party_identity() 
                 "current_scene",
                 scene_id,
                 1,
-                Digest.from_bytes(scene_id.bytes),
                 "runtime_authority",
                 "private",
             ),
@@ -497,7 +487,6 @@ def test_other_human_reply_is_rejected_after_contact_exit() -> None:
             ids[8],
             ids[9],
             2,
-            Digest.from_bytes(b"ended-relationship"),
             (
                 RelationshipFact(
                     RelationshipFactKind.PARTY_EXPRESSION,
@@ -523,7 +512,6 @@ def test_other_human_reply_is_rejected_after_contact_exit() -> None:
             "current_evidence",
             ids[10],
             1,
-            Digest.from_bytes(b"new-message"),
             "external_claim",
             "private",
         ),
@@ -533,7 +521,6 @@ def test_other_human_reply_is_rejected_after_contact_exit() -> None:
             "current_scene",
             ids[5],
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -547,8 +534,6 @@ def test_other_human_reply_is_rejected_after_contact_exit() -> None:
 
 def test_other_human_commitment_violation_stays_in_current_relationship() -> None:
     ids = tuple(uuid7() for _ in range(14))
-    relationship_digest = Digest.from_bytes(b"other-current-relationship")
-    commitment_digest = Digest.from_bytes(b"other-current-commitment")
     commitment = RelationshipCommitment(
         ids[10],
         RelationshipPartyRole.OTHER,
@@ -578,7 +563,6 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
             ids[8],
             ids[9],
             2,
-            relationship_digest,
             (
                 RelationshipFact(
                     RelationshipFactKind.SHARED_EXPERIENCE,
@@ -588,7 +572,7 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
             "我仍在等待对方履行回复承诺。",
             (),
             RelationshipStatus.ACTIVE,
-            (CandidateRelationshipCommitmentContext(commitment, commitment_digest),),
+            (CandidateRelationshipCommitmentContext(commitment),),
         ),
     )
     bases = (
@@ -598,7 +582,6 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
             "current_evidence",
             ids[11],
             1,
-            Digest.from_bytes(b"late-message"),
             "external_claim",
             "private",
         ),
@@ -608,7 +591,6 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
             "current_scene",
             ids[5],
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -618,7 +600,6 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
             "current_relationship",
             ids[8],
             2,
-            relationship_digest,
             "subjective_state",
             "private",
         ),
@@ -628,7 +609,6 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
             "current_relationship_commitment",
             ids[10],
             2,
-            commitment_digest,
             "subjective_state",
             "private",
         ),
@@ -676,7 +656,6 @@ def test_sleep_decision_binds_window_authority_into_v9_change_set(
     kind: str, disposition: str
 ) -> None:
     ids = tuple(uuid7() for _ in range(8))
-    source_digest = Digest.from_bytes(b"maintenance-window")
     context = CandidateValidationContext(
         ids[0],
         ids[1],
@@ -698,7 +677,6 @@ def test_sleep_decision_binds_window_authority_into_v9_change_set(
         "current_maintenance_window",
         ids[6],
         1,
-        source_digest,
         "runtime_authority",
         "private",
     )
@@ -725,12 +703,10 @@ def _maintenance_fixture(
     session_id, revision_id, opportunity_id, memory_id, memory_revision_id = (
         uuid7() for _ in range(5)
     )
-    memory_digest = Digest.from_bytes(b"maintenance-memory")
     memory = CandidateMemoryContext(
         memory_id,
         memory_revision_id,
         2,
-        memory_digest,
         CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
         MemorySourceKind.EXPERIENCED,
         "我曾把一次分歧理解成永久结论。",
@@ -762,7 +738,6 @@ def _maintenance_fixture(
             "current_maintenance_phase",
             revision_id,
             3,
-            Digest.from_bytes(b"maintenance-phase"),
             "runtime_authority",
             "private",
         ),
@@ -772,7 +747,6 @@ def _maintenance_fixture(
             "current_memory",
             memory_id,
             2,
-            memory_digest,
             "subjective_state",
             "private",
         ),
@@ -932,7 +906,6 @@ def test_autonomous_start_binds_activity_authority_without_scene() -> None:
         "current_life_opportunity",
         source_ref,
         1,
-        Digest.from_bytes(b"life generation source"),
         "runtime_authority",
         "private",
     )
@@ -983,7 +956,6 @@ def test_autonomous_context_does_not_bind_attention_resource_authority() -> None
         "current_life_opportunity",
         uuid7(),
         1,
-        Digest.from_bytes(b"life source"),
         "runtime_authority",
         "private",
     )
@@ -993,7 +965,6 @@ def test_autonomous_context_does_not_bind_attention_resource_authority() -> None
         "resource_snapshot",
         uuid7(),
         1,
-        Digest.from_bytes(b"resources"),
         "runtime_authority",
         "internal",
     )
@@ -1010,7 +981,6 @@ def test_attention_engagement_binds_authority_and_round_trips_change_set_v8() ->
     context, bases = _fixture()
     activity_id = uuid7()
     revision_id = uuid7()
-    resource_digest = Digest.from_bytes(b"resources")
     attention = replace(
         context,
         purpose="consider_activity_attention",
@@ -1021,7 +991,6 @@ def test_attention_engagement_binds_authority_and_round_trips_change_set_v8() ->
         current_activity_revision_id=revision_id,
         current_activity_head_version=1,
         current_activity_status=ActivityStatus.IN_PROGRESS,
-        resource_snapshot_digest=resource_digest,
     )
     current = CandidateBasis(
         4,
@@ -1029,7 +998,6 @@ def test_attention_engagement_binds_authority_and_round_trips_change_set_v8() ->
         "current_activity",
         revision_id,
         1,
-        Digest.from_bytes(b"activity revision"),
         "runtime_authority",
         "private",
     )
@@ -1039,7 +1007,6 @@ def test_attention_engagement_binds_authority_and_round_trips_change_set_v8() ->
         "resource_snapshot",
         uuid7(),
         1,
-        resource_digest,
         "runtime_authority",
         "internal",
     )
@@ -1053,7 +1020,6 @@ def test_attention_engagement_binds_authority_and_round_trips_change_set_v8() ->
     decision = result.change_set.activity_decisions[0]
     assert decision.activity_id == activity_id
     assert decision.current_revision_id == revision_id
-    assert decision.resource_snapshot_digest == resource_digest
     parsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert parsed.activity_decisions == result.change_set.activity_decisions
     assert len(_validation_drafts(parsed)) == 1
@@ -1072,7 +1038,6 @@ def test_attention_candidate_cannot_bypass_internal_work_with_progress() -> None
         current_activity_revision_id=revision_id,
         current_activity_head_version=1,
         current_activity_status=ActivityStatus.READY,
-        resource_snapshot_digest=Digest.from_bytes(b"resources"),
     )
     current = CandidateBasis(
         4,
@@ -1080,7 +1045,6 @@ def test_attention_candidate_cannot_bypass_internal_work_with_progress() -> None
         "current_activity",
         revision_id,
         1,
-        Digest.from_bytes(b"activity revision"),
         "runtime_authority",
         "private",
     )
@@ -1154,7 +1118,6 @@ def test_internal_activity_work_maps_real_outcomes_into_atomic_change_set_v18(
 ) -> None:
     context, bases = _fixture()
     activity_id, revision_id, subject_party_id = uuid7(), uuid7(), uuid7()
-    resource_digest = Digest.from_bytes(b"internal work resources")
     work = replace(
         context,
         purpose="consider_activity_internal_work",
@@ -1165,7 +1128,6 @@ def test_internal_activity_work_maps_real_outcomes_into_atomic_change_set_v18(
         current_activity_revision_id=revision_id,
         current_activity_head_version=2,
         current_activity_status=ActivityStatus.IN_PROGRESS,
-        resource_snapshot_digest=resource_digest,
         subject_party_id=subject_party_id,
     )
     current = CandidateBasis(
@@ -1174,7 +1136,6 @@ def test_internal_activity_work_maps_real_outcomes_into_atomic_change_set_v18(
         "current_activity",
         revision_id,
         2,
-        Digest.from_bytes(b"activity revision"),
         "runtime_authority",
         "private",
     )
@@ -1184,7 +1145,6 @@ def test_internal_activity_work_maps_real_outcomes_into_atomic_change_set_v18(
         "resource_snapshot",
         uuid7(),
         1,
-        resource_digest,
         "runtime_authority",
         "internal",
     )
@@ -1221,7 +1181,6 @@ def test_internal_activity_work_requires_current_in_progress_head() -> None:
         current_activity_revision_id=revision_id,
         current_activity_head_version=1,
         current_activity_status=ActivityStatus.READY,
-        resource_snapshot_digest=Digest.from_bytes(b"internal work resources"),
     )
     current = CandidateBasis(
         4,
@@ -1229,7 +1188,6 @@ def test_internal_activity_work_requires_current_in_progress_head() -> None:
         "current_activity",
         revision_id,
         1,
-        Digest.from_bytes(b"activity revision"),
         "runtime_authority",
         "private",
     )
@@ -1251,21 +1209,18 @@ def test_internal_activity_work_updates_only_a_frozen_owned_material_head() -> N
     context, bases = _fixture()
     activity_id, activity_revision_id = uuid7(), uuid7()
     material_id, material_revision_id, subject_party_id = uuid7(), uuid7(), uuid7()
-    material_context_digest = Digest.from_bytes(b"material context")
     current_material = CandidateLifeMaterialContext(
         material_id,
         material_revision_id,
         3,
-        material_context_digest,
-        Digest.from_bytes("旧正文".encode()),
         subject_party_id,
         LifeMaterialKind.DRAFT,
         "旧标题",
+        "旧正文".encode(),
         (),
         LifeMaterialStatus.ACTIVE,
         LifeMaterialPrivacyStatus.PRIVATE,
     )
-    resource_digest = Digest.from_bytes(b"internal work resources")
     work = replace(
         context,
         purpose="consider_activity_internal_work",
@@ -1276,7 +1231,6 @@ def test_internal_activity_work_updates_only_a_frozen_owned_material_head() -> N
         current_activity_revision_id=activity_revision_id,
         current_activity_head_version=2,
         current_activity_status=ActivityStatus.IN_PROGRESS,
-        resource_snapshot_digest=resource_digest,
         subject_party_id=subject_party_id,
         current_materials=(current_material,),
     )
@@ -1286,7 +1240,6 @@ def test_internal_activity_work_updates_only_a_frozen_owned_material_head() -> N
         "current_activity",
         activity_revision_id,
         2,
-        Digest.from_bytes(b"activity revision"),
         "runtime_authority",
         "private",
     )
@@ -1296,7 +1249,6 @@ def test_internal_activity_work_updates_only_a_frozen_owned_material_head() -> N
         "resource_snapshot",
         uuid7(),
         1,
-        resource_digest,
         "runtime_authority",
         "internal",
     )
@@ -1306,7 +1258,6 @@ def test_internal_activity_work_updates_only_a_frozen_owned_material_head() -> N
         "current_material",
         material_id,
         3,
-        material_context_digest,
         "subjective_state",
         "private",
     )
@@ -1392,7 +1343,6 @@ def test_attention_candidate_enforces_complete_status_matrix(
 ) -> None:
     context, bases = _fixture()
     revision_id = uuid7()
-    resource_digest = Digest.from_bytes(b"attention resources")
     attention = replace(
         context,
         purpose="consider_activity_attention",
@@ -1403,7 +1353,6 @@ def test_attention_candidate_enforces_complete_status_matrix(
         current_activity_revision_id=revision_id,
         current_activity_head_version=2,
         current_activity_status=status,
-        resource_snapshot_digest=resource_digest,
     )
     current = CandidateBasis(
         4,
@@ -1411,7 +1360,6 @@ def test_attention_candidate_enforces_complete_status_matrix(
         "current_activity",
         revision_id,
         1,
-        Digest.from_bytes(b"activity revision"),
         "runtime_authority",
         "private",
     )
@@ -1421,7 +1369,6 @@ def test_attention_candidate_enforces_complete_status_matrix(
         "resource_snapshot",
         uuid7(),
         1,
-        resource_digest,
         "runtime_authority",
         "internal",
     )
@@ -1453,7 +1400,6 @@ def test_valid_experience_and_self_change_are_deterministic() -> None:
     assert first.change_set is not None
     assert second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert first.change_set.digest == second.change_set.digest
     assert len(first.change_set.experiences) == 1
     assert len(first.change_set.components) == 1
 
@@ -1538,7 +1484,6 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
             "current_purpose",
             uuid7(),
             1,
-            Digest.from_bytes(b"purpose"),
             "policy",
             "private",
         ),
@@ -1548,7 +1493,6 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
             "web_search_availability",
             uuid7(),
             1,
-            Digest.from_bytes(b"web search"),
             "policy",
             "private",
         ),
@@ -1611,7 +1555,6 @@ def test_compact_dialogue_v4_web_research_binds_authority_deterministically() ->
             "current_purpose",
             uuid7(),
             1,
-            Digest.from_bytes(b"purpose"),
             "policy",
             "private",
         ),
@@ -1621,7 +1564,6 @@ def test_compact_dialogue_v4_web_research_binds_authority_deterministically() ->
             "web_search_availability",
             uuid7(),
             1,
-            Digest.from_bytes(b"web search"),
             "policy",
             "private",
         ),
@@ -1658,7 +1600,6 @@ def test_compact_dialogue_exact_life_query_is_typed_and_rejects_audit_scope() ->
             "current_purpose",
             uuid7(),
             1,
-            Digest.from_bytes(b"purpose"),
             "policy",
             "private",
         ),
@@ -1718,7 +1659,6 @@ def test_creator_outreach_reply_stays_action_only() -> None:
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -1728,7 +1668,6 @@ def test_creator_outreach_reply_stays_action_only() -> None:
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -1738,7 +1677,6 @@ def test_creator_outreach_reply_stays_action_only() -> None:
             "capability_state_granted",
             UUID("01985d00-0000-7000-8000-000000000027"),
             2,
-            Digest.from_bytes(b"active grant"),
             "runtime_authority",
             "private",
         ),
@@ -1783,7 +1721,6 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -1793,7 +1730,6 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -1896,7 +1832,6 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
         "codex_task_source",
         task_source_id,
         1,
-        task_digest,
         "external_claim",
         "private",
     )
@@ -1906,7 +1841,6 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
         "capability_catalog",
         uuid7(),
         1,
-        Digest.from_bytes(b"codex catalog"),
         "policy",
         "private",
     )
@@ -1916,7 +1850,6 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
         "current_scene",
         context.scene_id,
         1,
-        Digest.from_bytes(b"scene"),
         "runtime_authority",
         "private",
     )
@@ -1985,7 +1918,6 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert first.change_set.digest == second.change_set.digest
     assert len(first.change_set.codex_delegations) == 1
     assert len(first.change_set.capability_requests) == 1
     assert isinstance(first.change_set.codex_delegations[0], CodexDelegationDraft)
@@ -2033,7 +1965,6 @@ def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2043,7 +1974,6 @@ def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2103,7 +2033,6 @@ def test_v7_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() ->
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2113,7 +2042,6 @@ def test_v7_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() ->
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2156,7 +2084,7 @@ def test_v7_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() ->
     assert reply.creator_party_id == context.creator_party_id
     assert b"armi.subject-change-set.v6" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert reparsed.digest == result.change_set.digest
+    assert reparsed.canonical_bytes == result.change_set.canonical_bytes
 
     candidate["action_choices"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
     missing_capability_basis = DeterministicCandidateValidator(context).validate(
@@ -2186,7 +2114,6 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2196,7 +2123,6 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2211,7 +2137,6 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert first.change_set.digest == second.change_set.digest
     assert len(first.change_set.capability_requests) == 1
     assert len(first.change_set.action_choices) == 1
     assert first.change_set.experiences == ()
@@ -2228,8 +2153,8 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
     assert b"armi.subject-change-set.v6" in first.change_set.canonical_bytes
-    assert parse_subject_change_set(first.change_set.canonical_bytes).digest == (
-        first.change_set.digest
+    assert parse_subject_change_set(first.change_set.canonical_bytes).canonical_bytes == (
+        first.change_set.canonical_bytes
     )
 
 
@@ -2243,7 +2168,6 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2253,7 +2177,6 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2308,7 +2231,7 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
     context = replace(
         context,
         current_subject_prompt=CandidateSubjectPromptContext(
-            document_id, None, 0, None
+            document_id, None, 0,
         ),
     )
     extended = (
@@ -2319,7 +2242,6 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2329,7 +2251,6 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2372,7 +2293,6 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
             document_id,
             revision_id,
             1,
-            prompt.content_digest,
         ),
     )
     revised_bases = (
@@ -2383,7 +2303,6 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
             "subject_prompt",
             revision_id,
             1,
-            prompt.content_digest,
             "policy",
             "private",
         ),
@@ -2421,11 +2340,11 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
             for owner, version, canonical in context.current_components
         ),
         current_subject_prompt=CandidateSubjectPromptContext(
-            uuid7(), uuid7(), 2, Digest.from_bytes(b"current-prompt")
+            uuid7(), uuid7(), 2,
         ),
     )
     bases = (
-        replace(bases[0], source_digest=Digest.from_bytes(named_self)),
+        bases[0],
         *bases[1:],
         CandidateBasis(
             4,
@@ -2433,7 +2352,6 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2443,7 +2361,6 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2472,7 +2389,6 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
         "subject_prompt",
         current_prompt.current_revision_id,
         2,
-        current_prompt.content_digest,
         "policy",
         "private",
     )
@@ -2493,7 +2409,6 @@ def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> No
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2503,7 +2418,6 @@ def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> No
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2563,7 +2477,6 @@ def test_compact_dialogue_capability_request_is_bound_and_deduplicated() -> None
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2573,7 +2486,6 @@ def test_compact_dialogue_capability_request_is_bound_and_deduplicated() -> None
             "capability_catalog",
             uuid7(),
             2,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2584,7 +2496,6 @@ def test_compact_dialogue_capability_request_is_bound_and_deduplicated() -> None
         "capability_state_unauthorized",
         codex_capability_id,
         2,
-        Digest.from_bytes(b"codex unauthorized"),
         "runtime_authority",
         "private",
     )
@@ -2643,7 +2554,6 @@ def test_compact_dialogue_creates_runtime_owned_life_material_deterministically(
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2653,7 +2563,6 @@ def test_compact_dialogue_creates_runtime_owned_life_material_deterministically(
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2687,7 +2596,6 @@ def test_compact_dialogue_creates_runtime_owned_life_material_deterministically(
     assert material.current_revision_id is None
     assert material.expected_head_version == 0
     assert material.body_bytes is not None
-    assert material.body_digest == Digest.from_bytes(material.body_bytes)
     assert any(item is material for item in _validation_drafts(first.change_set))
     reparsed = parse_subject_change_set(first.change_set.canonical_bytes)
     assert reparsed.materials == first.change_set.materials
@@ -2698,17 +2606,14 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
     subject_party_id = uuid7()
     material_id = uuid7()
     revision_id = uuid7()
-    material_context_digest = Digest.from_bytes(b"material-context")
-    old_body_digest = Digest.from_bytes("旧正文".encode())
     current = CandidateLifeMaterialContext(
         material_id,
         revision_id,
         3,
-        material_context_digest,
-        old_body_digest,
         subject_party_id,
         LifeMaterialKind.DRAFT,
         "旧标题",
+        "旧正文".encode(),
         (("topic", "notes"),),
         LifeMaterialStatus.ACTIVE,
         LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
@@ -2726,7 +2631,6 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2736,7 +2640,6 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2746,7 +2649,6 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
             "current_material",
             material_id,
             3,
-            material_context_digest,
             "subjective_state",
             "private",
         ),
@@ -2833,16 +2735,14 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
     context, bases = _fixture()
     subject_party_id = uuid7()
     material_id, revision_id = uuid7(), uuid7()
-    material_digest = Digest.from_bytes(b"material-context")
     current = CandidateLifeMaterialContext(
         material_id,
         revision_id,
         2,
-        material_digest,
-        Digest.from_bytes("私人正文".encode()),
-        subject_party_id,
+  subject_party_id,
         LifeMaterialKind.DIARY,
         "私人记录",
+        "私人正文".encode(),
         (),
         LifeMaterialStatus.ACTIVE,
         current_privacy,
@@ -2860,7 +2760,6 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2870,7 +2769,6 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -2880,7 +2778,6 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
             "current_material",
             material_id,
             2,
-            material_digest,
             "subjective_state",
             "private",
         ),
@@ -2903,7 +2800,6 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
     assert result.change_set is not None
     material = result.change_set.materials[0]
     assert material.body_bytes is None
-    assert material.body_digest == current.body_digest
     assert material.privacy_status == privacy_status.value
     assert material.revision_kind is revision_kind
     assert parse_subject_change_set(result.change_set.canonical_bytes).materials == (
@@ -2942,7 +2838,6 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -2952,7 +2847,6 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3032,7 +2926,6 @@ def test_dialogue_establishes_armi_commitment_without_granting_authority() -> No
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3042,7 +2935,6 @@ def test_dialogue_establishes_armi_commitment_without_granting_authority() -> No
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3132,8 +3024,6 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
     relationship_id = uuid7()
     revision_id = uuid7()
     commitment_id = uuid7()
-    relationship_digest = Digest.from_bytes(b"current-relationship")
-    commitment_digest = Digest.from_bytes(b"current-commitment")
     commitment = RelationshipCommitment(
         commitment_id,
         RelationshipPartyRole.SUBJECT,
@@ -3150,7 +3040,6 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
             relationship_id,
             revision_id,
             2,
-            relationship_digest,
             (
                 RelationshipFact(
                     RelationshipFactKind.SHARED_EXPERIENCE,
@@ -3160,7 +3049,7 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
             "我正在从实际交往中了解创造者。",
             (),
             RelationshipStatus.ACTIVE,
-            (CandidateRelationshipCommitmentContext(commitment, commitment_digest),),
+            (CandidateRelationshipCommitmentContext(commitment),),
         ),
     )
     extended = (
@@ -3171,7 +3060,6 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3181,7 +3069,6 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3191,7 +3078,6 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
             "current_relationship",
             relationship_id,
             2,
-            relationship_digest,
             "subjective_state",
             "private",
         ),
@@ -3201,7 +3087,6 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
             "current_relationship_commitment",
             commitment_id,
             2,
-            commitment_digest,
             "subjective_state",
             "private",
         ),
@@ -3249,11 +3134,6 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
     context, bases = _fixture()
     relationship_id, revision_id = uuid7(), uuid7()
     commitment_ids = (uuid7(), uuid7())
-    relationship_digest = Digest.from_bytes(b"current-relationship")
-    commitment_digests = (
-        Digest.from_bytes(b"commitment-1"),
-        Digest.from_bytes(b"commitment-2"),
-    )
     commitments = tuple(
         RelationshipCommitment(
             commitment_id,
@@ -3277,7 +3157,6 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
             relationship_id,
             revision_id,
             3,
-            relationship_digest,
             (
                 RelationshipFact(
                     RelationshipFactKind.SHARED_EXPERIENCE,
@@ -3288,10 +3167,8 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
             (),
             RelationshipStatus.ACTIVE,
             tuple(
-                CandidateRelationshipCommitmentContext(commitment, digest)
-                for commitment, digest in zip(
-                    commitments, commitment_digests, strict=True
-                )
+                CandidateRelationshipCommitmentContext(commitment)
+                for commitment in commitments
             ),
         ),
     )
@@ -3303,7 +3180,6 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3313,7 +3189,6 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3323,7 +3198,6 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
             "current_relationship",
             relationship_id,
             3,
-            relationship_digest,
             "subjective_state",
             "private",
         ),
@@ -3334,13 +3208,10 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
                 "current_relationship_commitment",
                 commitment_id,
                 3,
-                digest,
                 "subjective_state",
                 "private",
             )
-            for ordinal, commitment_id, digest in zip(
-                (7, 8), commitment_ids, commitment_digests, strict=True
-            )
+            for ordinal, commitment_id in zip((7, 8), commitment_ids, strict=True)
         ),
     )
     result = DeterministicCandidateValidator(context).validate(
@@ -3379,7 +3250,6 @@ def test_ended_relationship_blocks_later_creator_reply() -> None:
     context, bases = _fixture()
     relationship_id = uuid7()
     revision_id = uuid7()
-    relationship_digest = Digest.from_bytes(b"current-relationship")
     context = replace(
         context,
         subject_party_id=uuid7(),
@@ -3387,7 +3257,6 @@ def test_ended_relationship_blocks_later_creator_reply() -> None:
             relationship_id,
             revision_id,
             1,
-            relationship_digest,
             (
                 RelationshipFact(
                     RelationshipFactKind.PARTY_EXPRESSION,
@@ -3414,7 +3283,6 @@ def test_ended_relationship_blocks_later_creator_reply() -> None:
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3424,7 +3292,6 @@ def test_ended_relationship_blocks_later_creator_reply() -> None:
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3434,7 +3301,6 @@ def test_ended_relationship_blocks_later_creator_reply() -> None:
             "current_relationship",
             relationship_id,
             1,
-            relationship_digest,
             "subjective_state",
             "private",
         ),
@@ -3451,7 +3317,6 @@ def test_compact_dialogue_revises_only_current_context_relationship() -> None:
     context, bases = _fixture()
     relationship_id = uuid7()
     revision_id = uuid7()
-    relationship_digest = Digest.from_bytes(b"current-relationship")
     original_fact = RelationshipFact(
         RelationshipFactKind.SHARED_EXPERIENCE,
         "我们进行过一次真实交流。",
@@ -3463,7 +3328,6 @@ def test_compact_dialogue_revises_only_current_context_relationship() -> None:
             relationship_id,
             revision_id,
             2,
-            relationship_digest,
             (original_fact,),
             "我仍在从实际交往中了解创造者。",
             (),
@@ -3478,7 +3342,6 @@ def test_compact_dialogue_revises_only_current_context_relationship() -> None:
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3488,7 +3351,6 @@ def test_compact_dialogue_revises_only_current_context_relationship() -> None:
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3498,7 +3360,6 @@ def test_compact_dialogue_revises_only_current_context_relationship() -> None:
             "current_relationship",
             relationship_id,
             2,
-            relationship_digest,
             "subjective_state",
             "private",
         ),
@@ -3547,7 +3408,6 @@ def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() ->
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3557,7 +3417,6 @@ def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() ->
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3603,8 +3462,6 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
     revision_id = uuid7()
     related_id = uuid7()
     related_revision_id = uuid7()
-    memory_digest = Digest.from_bytes(b"current-memory")
-    related_digest = Digest.from_bytes(b"related-memory")
     context = replace(
         context,
         current_memories=(
@@ -3612,7 +3469,6 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
                 memory_id,
                 revision_id,
                 2,
-                memory_digest,
                 CandidateFactClass.EXTERNAL_CLAIM,
                 MemorySourceKind.REPORTED,
                 "创造者曾表达一个偏好。",
@@ -3623,7 +3479,6 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
                 related_id,
                 related_revision_id,
                 1,
-                related_digest,
                 CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
                 MemorySourceKind.EXPERIENCED,
                 "后来的一次经历显示情况并不绝对。",
@@ -3640,7 +3495,6 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3650,7 +3504,6 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3660,7 +3513,6 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
             "current_memory",
             memory_id,
             2,
-            memory_digest,
             "subjective_state",
             "private",
         ),
@@ -3670,7 +3522,6 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
             "current_memory",
             related_id,
             1,
-            related_digest,
             "subjective_state",
             "private",
         ),
@@ -3735,12 +3586,10 @@ def test_compact_dialogue_fades_and_forgets_without_changing_memory_summary() ->
     context, bases = _fixture()
     memory_id = uuid7()
     revision_id = uuid7()
-    digest = Digest.from_bytes(b"memory")
     current = CandidateMemoryContext(
         memory_id,
         revision_id,
         1,
-        digest,
         CandidateFactClass.EXTERNAL_CLAIM,
         MemorySourceKind.REPORTED,
         "保留的历史摘要。",
@@ -3756,7 +3605,6 @@ def test_compact_dialogue_fades_and_forgets_without_changing_memory_summary() ->
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3766,7 +3614,6 @@ def test_compact_dialogue_fades_and_forgets_without_changing_memory_summary() ->
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3776,7 +3623,6 @@ def test_compact_dialogue_fades_and_forgets_without_changing_memory_summary() ->
             "current_memory",
             memory_id,
             1,
-            digest,
             "subjective_state",
             "private",
         ),
@@ -3886,7 +3732,6 @@ def test_compact_dialogue_no_action_remains_a_subjective_decision() -> None:
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3917,7 +3762,6 @@ def test_v4_creator_reply_is_admitted_as_exact_action_choice() -> None:
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),
@@ -3927,7 +3771,6 @@ def test_v4_creator_reply_is_admitted_as_exact_action_choice() -> None:
             "capability_catalog",
             uuid7(),
             1,
-            Digest.from_bytes(b"catalog"),
             "policy",
             "private",
         ),
@@ -3980,7 +3823,6 @@ def test_v4_formal_no_action_is_subjective_and_not_empty_no_change() -> None:
             "current_scene",
             context.scene_id,
             1,
-            Digest.from_bytes(b"scene"),
             "runtime_authority",
             "private",
         ),

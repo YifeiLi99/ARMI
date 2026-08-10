@@ -133,7 +133,6 @@ class CreatorExportService(CreatorExportPort):
                 status=status,
             )
             manifest_bytes = _pretty_json(manifest)
-            manifest_digest = Digest.from_bytes(manifest_bytes)
             await asyncio.to_thread(
                 (staging / "manifest.json").write_bytes,
                 manifest_bytes,
@@ -143,7 +142,6 @@ class CreatorExportService(CreatorExportPort):
                 export_id=export_id,
                 trace_id=command.trace_id,
                 status=status,
-                manifest_digest=manifest_digest,
                 table_count=len(snapshot.tables),
                 row_count=snapshot.row_count,
                 artifact_count=copied,
@@ -171,7 +169,7 @@ class CreatorExportService(CreatorExportPort):
                     await connection.execute(
                         """
                         SELECT creator_export_id, status, directory_name,
-                               destination_path, manifest_digest, table_count,
+                               destination_path, table_count,
                                row_count, artifact_count, missing_artifacts,
                                error_code, created_at, completed_at
                         FROM armi.creator_exports
@@ -253,7 +251,6 @@ class CreatorExportService(CreatorExportPort):
                         trace_id=command.trace_id,
                         operation="creator.export.requested",
                         status=AuditResultStatus.ACCEPTED,
-                        request_digest=request_digest,
                     )
                 )
                 return export_id, True
@@ -313,7 +310,6 @@ class CreatorExportService(CreatorExportPort):
                             "role": _table_role(table_name),
                             "path": relative_path,
                             "row_count": len(rows),
-                            "digest": Digest.from_bytes(payload).value,
                         }
                     )
                     total_rows += len(rows)
@@ -352,8 +348,6 @@ class CreatorExportService(CreatorExportPort):
             try:
                 async with await self._storage.open_verified(artifact.ref) as stream:
                     content = await stream.read()
-                if Digest.from_bytes(content) != artifact.ref.content_digest:
-                    raise ArtifactViolation("ART-CORRUPT")
             except ArtifactViolation, OSError:
                 missing.append(digest)
                 continue
@@ -370,7 +364,6 @@ class CreatorExportService(CreatorExportPort):
         export_id: UUID,
         trace_id: TraceId,
         status: CreatorExportStatus,
-        manifest_digest: Digest | None,
         table_count: int,
         row_count: int,
         artifact_count: int,
@@ -384,20 +377,19 @@ class CreatorExportService(CreatorExportPort):
                     await connection.execute(
                         """
                         UPDATE armi.creator_exports
-                        SET status = %s, manifest_digest = %s, table_count = %s,
+                        SET status = %s, table_count = %s,
                             row_count = %s, artifact_count = %s,
                             missing_artifacts = %s::jsonb, error_code = %s,
                             completed_at = clock_timestamp()
                         WHERE creator_export_id = %s AND creator_party_id = %s
                           AND status = 'running'
                         RETURNING creator_export_id, status, directory_name,
-                                  destination_path, manifest_digest, table_count,
+                                  destination_path, table_count,
                                   row_count, artifact_count, missing_artifacts,
                                   error_code, created_at, completed_at
                         """,
                         (
                             status.value,
-                            None if manifest_digest is None else manifest_digest.value,
                             table_count,
                             row_count,
                             artifact_count,
@@ -422,7 +414,6 @@ class CreatorExportService(CreatorExportPort):
                             if status is CreatorExportStatus.PARTIAL
                             else AuditResultStatus.FAILED
                         ),
-                        response_digest=manifest_digest,
                         error_category=(
                             ErrorCategory("integrity")
                             if status is CreatorExportStatus.PARTIAL
@@ -444,7 +435,6 @@ class CreatorExportService(CreatorExportPort):
                 export_id=export_id,
                 trace_id=trace_id,
                 status=CreatorExportStatus.FAILED,
-                manifest_digest=None,
                 table_count=0,
                 row_count=0,
                 artifact_count=0,
@@ -513,14 +503,13 @@ class CreatorExportService(CreatorExportPort):
             status=CreatorExportStatus(str(row[1])),
             directory_name=str(row[2]),
             destination_path=str(row[3]),
-            manifest_digest=None if row[4] is None else Digest(str(row[4])),
-            table_count=int(row[5]),
-            row_count=int(row[6]),
-            artifact_count=int(row[7]),
-            missing_artifacts=tuple(str(item) for item in row[8]),
-            error_code=None if row[9] is None else str(row[9]),
-            created_at=Instant(row[10].astimezone(UTC)),
-            completed_at=None if row[11] is None else Instant(row[11].astimezone(UTC)),
+            table_count=int(row[4]),
+            row_count=int(row[5]),
+            artifact_count=int(row[6]),
+            missing_artifacts=tuple(str(item) for item in row[7]),
+            error_code=None if row[8] is None else str(row[8]),
+            created_at=Instant(row[9].astimezone(UTC)),
+            completed_at=None if row[10] is None else Instant(row[10].astimezone(UTC)),
             newly_created=newly_created,
         )
 
@@ -531,8 +520,6 @@ class CreatorExportService(CreatorExportPort):
         trace_id: TraceId,
         operation: str,
         status: AuditResultStatus,
-        request_digest: Digest | None = None,
-        response_digest: Digest | None = None,
         error_category: ErrorCategory | None = None,
     ) -> AuditDraft:
         return AuditDraft(
@@ -544,8 +531,6 @@ class CreatorExportService(CreatorExportPort):
             result_status=status,
             trace_id=trace_id,
             sensitivity=AuditSensitivity.RESTRICTED,
-            request_digest=request_digest,
-            response_digest=response_digest,
             error_category=error_category,
         )
 

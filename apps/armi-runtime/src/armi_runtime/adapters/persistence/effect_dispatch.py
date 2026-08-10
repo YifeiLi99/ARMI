@@ -96,16 +96,6 @@ class PostgreSQLEffectDispatchRepository:
         attempt_no = int(row[10]) + 1
         claim_token = int(row[11]) + 1
         adapter_binding = _adapter_binding(str(row[12]))
-        request_digest = _request_digest(
-            row[1],
-            row[6],
-            int(row[7]),
-            adapter_binding=adapter_binding,
-            destination_kind=str(row[12]),
-            external_channel=None if row[13] is None else str(row[13]),
-            external_account_key=None if row[14] is None else str(row[14]),
-            external_conversation_key=None if row[15] is None else str(row[15]),
-        )
         updated = await (
             await connection.execute(
                 """
@@ -125,14 +115,13 @@ class PostgreSQLEffectDispatchRepository:
             """
             INSERT INTO armi.effect_attempts (
                 effect_attempt_id, effect_id, attempt_no, adapter_binding,
-                request_digest, claim_token, dispatch_state) VALUES (%s, %s, %s, %s, %s, %s, 'prepared')
+                claim_token, dispatch_state) VALUES (%s, %s, %s, %s, %s, 'prepared')
             """,
             (
                 attempt_id,
                 row[1],
                 attempt_no,
                 adapter_binding,
-                request_digest.value,
                 claim_token,
             ),
         )
@@ -168,7 +157,6 @@ class PostgreSQLEffectDispatchRepository:
             None if row[15] is None else str(row[15]),
             Digest(str(row[6])),
             int(row[7]),
-            request_digest,
             TraceId(str(row[8])),
         )
         return EffectDispatchSnapshot(
@@ -186,7 +174,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.effect_id, attempt.effect_attempt_id,
                        effect.subject_id, effect.scene_id,
                        effect.destination_party_id, effect.payload_digest,
-                       effect.payload_bytes, attempt.request_digest, effect.trace_id,
+                       effect.payload_bytes, effect.trace_id,
                        effect.destination_kind, binding.channel_kind,
                        binding.account_key, binding.external_key
                 FROM armi.effect_outbox_items AS outbox
@@ -228,15 +216,14 @@ class PostgreSQLEffectDispatchRepository:
                 row[10],
                 cast(
                     Literal["creator_inbox", "other_human_inbox", "external_group"],
-                    str(row[15]),
+                    str(row[14]),
                 ),
+                None if row[15] is None else str(row[15]),
                 None if row[16] is None else str(row[16]),
                 None if row[17] is None else str(row[17]),
-                None if row[18] is None else str(row[18]),
                 Digest(str(row[11])),
                 int(row[12]),
-                Digest(str(row[13])),
-                TraceId(str(row[14])),
+                TraceId(str(row[13])),
             ),
         )
 
@@ -251,7 +238,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.effect_id, effect.subject_id,
                        effect.scene_id, effect.destination_party_id,
                        effect.payload_digest, effect.payload_bytes,
-                       attempt.request_digest, effect.trace_id,
+                       effect.trace_id,
                        effect.destination_kind, binding.channel_kind,
                        binding.account_key, binding.external_key
                 FROM armi.effect_outbox_items AS outbox
@@ -292,15 +279,14 @@ class PostgreSQLEffectDispatchRepository:
                 row[9],
                 cast(
                     Literal["creator_inbox", "other_human_inbox", "external_group"],
-                    str(row[14]),
+                    str(row[13]),
                 ),
+                None if row[14] is None else str(row[14]),
                 None if row[15] is None else str(row[15]),
                 None if row[16] is None else str(row[16]),
-                None if row[17] is None else str(row[17]),
                 Digest(str(row[10])),
                 int(row[11]),
-                Digest(str(row[12])),
-                TraceId(str(row[13])),
+                TraceId(str(row[12])),
             ),
         )
 
@@ -804,22 +790,6 @@ class PostgreSQLEffectDispatchRepository:
             observation_digest,
             None,
         )
-        settlement_digest = _settlement_digest(
-            snapshot, "cancelled", "verified", observation_digest
-        )
-        cancellation_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                cast(
-                    Any,
-                    {
-                        "schema_version": "armi.effect-cancellation.v1",
-                        "effect_id": str(snapshot.request.effect_id.value),
-                        "grant_id": str(grant_id),
-                        "reason_code": reason_code,
-                    },
-                )
-            )
-        )
         attempt = await (
             await connection.execute(
                 """
@@ -841,7 +811,7 @@ class PostgreSQLEffectDispatchRepository:
                 """
                 UPDATE armi.effects
                 SET status='cancelled', verification_status='verified',
-                    current_observation_id=%s, settlement_digest=%s,
+                    current_observation_id=%s,
                     settled_at=%s, cancelled_at=%s
                 WHERE effect_id=%s AND current_attempt_id=%s
                   AND status='dispatching'
@@ -850,7 +820,6 @@ class PostgreSQLEffectDispatchRepository:
                 """,
                 (
                     observation_id,
-                    settlement_digest.value,
                     attempt[0],
                     attempt[0],
                     snapshot.request.effect_id.value,
@@ -878,7 +847,6 @@ class PostgreSQLEffectDispatchRepository:
             prior_decision_id=UUID(str(effect[0])),
             action_revision_id=UUID(str(effect[1])),
             operation_id=UUID(str(effect[2])),
-            decision_digest=cancellation_digest,
             reason_code=reason_code,
         )
         if current_decision_id is None:
@@ -910,8 +878,6 @@ class PostgreSQLEffectDispatchRepository:
                 snapshot.request.trace_id,
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.request.subject_id),
-                request_digest=cancellation_digest,
-                response_digest=settlement_digest,
                 grant=AuditReference("permission_grant", grant_id),
             )
         )
@@ -945,9 +911,6 @@ class PostgreSQLEffectDispatchRepository:
             receiver_ref,
             receiver_external_ref,
         )
-        settlement_digest = _settlement_digest(
-            snapshot, status, verification, observation_digest
-        )
         attempt = await (
             await connection.execute(
                 """
@@ -965,14 +928,13 @@ class PostgreSQLEffectDispatchRepository:
         await connection.execute(
             """
             UPDATE armi.effects SET status=%s, verification_status=%s,
-                current_observation_id=%s, settlement_digest=%s, settled_at=%s
+                current_observation_id=%s, settled_at=%s
             WHERE effect_id=%s AND current_attempt_id=%s AND status='dispatching'
             """,
             (
                 status,
                 verification,
                 observation_id,
-                settlement_digest.value,
                 attempt[0],
                 snapshot.request.effect_id.value,
                 snapshot.request.attempt_id.value,
@@ -1031,8 +993,6 @@ class PostgreSQLEffectDispatchRepository:
                 snapshot.request.trace_id,
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.request.subject_id),
-                request_digest=snapshot.request.request_digest,
-                response_digest=settlement_digest,
             )
         )
 
@@ -1063,15 +1023,12 @@ class PostgreSQLEffectDispatchRepository:
             receiver_ref,
             receiver_external_ref,
         )
-        settlement_digest = _settlement_digest(
-            snapshot, status, verification, observation_digest
-        )
         effect = await (
             await connection.execute(
                 """
                 UPDATE armi.effects
                 SET status=%s, verification_status=%s,
-                    current_observation_id=%s, settlement_digest=%s,
+                    current_observation_id=%s,
                     settled_at=statement_timestamp()
                 WHERE effect_id=%s AND current_attempt_id=%s
                   AND status='unknown'
@@ -1081,7 +1038,6 @@ class PostgreSQLEffectDispatchRepository:
                     status,
                     verification,
                     observation_id,
-                    settlement_digest.value,
                     snapshot.request.effect_id.value,
                     snapshot.request.attempt_id.value,
                 ),
@@ -1144,8 +1100,6 @@ class PostgreSQLEffectDispatchRepository:
                 snapshot.request.trace_id,
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.request.subject_id),
-                request_digest=snapshot.request.request_digest,
-                response_digest=settlement_digest,
             )
         )
 
@@ -1189,37 +1143,6 @@ def _adapter_binding(destination_kind: str) -> str:
     raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
 
 
-def _request_digest(
-    effect_id: object,
-    payload_digest: object,
-    size: int,
-    *,
-    adapter_binding: str,
-    destination_kind: str,
-    external_channel: str | None,
-    external_account_key: str | None,
-    external_conversation_key: str | None,
-) -> Digest:
-    return Digest.from_bytes(
-        rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.effect-dispatch.v1",
-                    "adapter_binding": adapter_binding,
-                    "effect_id": str(effect_id),
-                    "payload_digest": str(payload_digest),
-                    "payload_bytes": size,
-                    "destination_kind": destination_kind,
-                    "external_channel": external_channel,
-                    "external_account_key": external_account_key,
-                    "external_conversation_key": external_conversation_key,
-                },
-            )
-        )
-    )
-
-
 def _observation_digest(
     snapshot: EffectDispatchSnapshot, kind: str, result: str
 ) -> Digest:
@@ -1233,29 +1156,6 @@ def _observation_digest(
                     "attempt_id": str(snapshot.request.attempt_id.value),
                     "kind": kind,
                     "result": result,
-                },
-            )
-        )
-    )
-
-
-def _settlement_digest(
-    snapshot: EffectDispatchSnapshot,
-    status: str,
-    verification: str,
-    observation_digest: Digest,
-) -> Digest:
-    return Digest.from_bytes(
-        rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.effect-settlement.v1",
-                    "effect_id": str(snapshot.request.effect_id.value),
-                    "attempt_id": str(snapshot.request.attempt_id.value),
-                    "status": status,
-                    "verification": verification,
-                    "observation_digest": observation_digest.value,
                 },
             )
         )

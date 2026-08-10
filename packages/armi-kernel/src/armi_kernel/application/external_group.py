@@ -191,7 +191,6 @@ class ExternalGroupSendRequest:
     account_key: ExternalAccountKey
     conversation_key: ExternalConversationKey
     content: bytes
-    content_digest: Digest
     trace_id: TraceId
 
     def __post_init__(self) -> None:
@@ -204,8 +203,6 @@ class ExternalGroupSendRequest:
             or type(self.content) is not bytes
             or not 1 <= len(self.content) <= 65536
             or b"\x00" in self.content
-            or type(self.content_digest) is not Digest
-            or Digest.from_bytes(self.content) != self.content_digest
             or type(self.trace_id) is not TraceId
         ):
             raise ExternalGroupViolation("CON-EXTERNAL-GROUP-SEND")

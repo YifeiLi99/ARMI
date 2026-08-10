@@ -15,7 +15,6 @@ from armi_kernel.application import (
     RuntimeFence,
     WorkViolation,
 )
-from armi_kernel.contracts import Digest
 
 from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
@@ -124,11 +123,7 @@ class ResponseAdmissionPipeline:
             if isinstance(error, asyncio.CancelledError):
                 raise
             return False
-        return (
-            len(value) == snapshot.content_bytes
-            and Digest.from_bytes(value) == snapshot.content_digest
-            and snapshot.artifact.content_digest == snapshot.content_digest
-        )
+        return len(value) == snapshot.content_bytes
 
     async def run_worker(self) -> None:
         observed = self._wakeups.version(RESPONSE_ADMIT)

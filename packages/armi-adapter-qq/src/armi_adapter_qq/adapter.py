@@ -158,7 +158,6 @@ class QQGroupEgressAdapter(ExternalGroupSendPort):
                 "effect_id": str(request.effect_id),
                 "attempt_id": str(request.attempt_id),
                 "platform_message_ref": response.message_id,
-                "content_digest": request.content_digest.value,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -260,7 +259,6 @@ class QQGroupEffectAdapter(ActionAdapterPort):
             ExternalAccountKey(request.external_account_key),
             ExternalConversationKey(request.external_conversation_key),
             payload,
-            request.payload_digest,
             request.trace_id,
         )
 

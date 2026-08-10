@@ -113,7 +113,6 @@ async def _candidate_call(
         raise RuntimeError(invocation.error_code or "S039-LIVE-MODEL")
     if (
         invocation.response_bytes is None
-        or invocation.response_digest is None
         or invocation.usage is None
         or invocation.provider_request_id is None
         or invocation.provider_model_id is None
@@ -258,7 +257,6 @@ async def _verify(root: Path, env_file: Path) -> dict[str, object]:
             "current_evidence",
             task_evidence_id,
             1,
-            Digest.from_bytes(creator_request),
             "external_claim",
             "private",
         ),
@@ -268,7 +266,6 @@ async def _verify(root: Path, env_file: Path) -> dict[str, object]:
             "codex_task_source",
             task_source_id,
             1,
-            task_manifest_digest,
             "external_claim",
             "private",
         ),
@@ -278,7 +275,6 @@ async def _verify(root: Path, env_file: Path) -> dict[str, object]:
             "current_scene",
             scene_id,
             1,
-            Digest.from_bytes(scene),
             "runtime_authority",
             "private",
         ),
@@ -288,7 +284,6 @@ async def _verify(root: Path, env_file: Path) -> dict[str, object]:
             "capability_catalog",
             UUID("01985d00-0000-7000-8000-000000000038"),
             2,
-            Digest.from_bytes(capability),
             "policy",
             "internal",
         ),
@@ -349,7 +344,6 @@ async def _verify(root: Path, env_file: Path) -> dict[str, object]:
                 "source_tree_digest": runner_evidence["source_tree_digest"],
                 "final_tree_digest": runner_evidence["final_tree_digest"],
                 "patch_digest": runner_evidence["patch_digest"],
-                "output_digest": runner_evidence["output_digest"],
                 "validation_passed": runner_evidence["validation_passed"],
                 "modified_file_count": runner_evidence["modified_file_count"],
             },
@@ -379,7 +373,6 @@ async def _verify(root: Path, env_file: Path) -> dict[str, object]:
         "current_evidence",
         result_evidence_id,
         1,
-        Digest.from_bytes(result_summary),
         "external_claim",
         "private",
     )

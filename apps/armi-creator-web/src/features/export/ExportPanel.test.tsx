@@ -51,7 +51,6 @@ describe("Creator local export panel", () => {
           status: "partial",
           directory_name: "creator-export-20260808",
           destination_path: "data/exports/creator-export-20260808",
-          manifest_digest: `sha256:${"1".repeat(64)}`,
           table_count: 39,
           row_count: 120,
           artifact_count: 4,

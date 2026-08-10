@@ -11,7 +11,7 @@ from armi_kernel.application import (
     LifeMaterialPrivacyStatus,
     LifeMaterialStatus,
 )
-from armi_kernel.contracts import Digest, Instant
+from armi_kernel.contracts import Instant
 
 
 def item(**changes: object) -> CreatorLifeMaterialItem:
@@ -24,7 +24,6 @@ def item(**changes: object) -> CreatorLifeMaterialItem:
         "head_version": 2,
         "title": "雨天随记",
         "body": body,
-        "body_digest": Digest.from_bytes(body.encode("utf-8")),
         "metadata": (("mood", "quiet"),),
         "material_status": LifeMaterialStatus.ACTIVE,
         "privacy_status": LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
@@ -40,8 +39,6 @@ def test_creator_material_contract_accepts_only_current_visible_content() -> Non
     assert visible.privacy_status is LifeMaterialPrivacyStatus.CREATOR_VISIBLE
     with pytest.raises(ValueError):
         item(privacy_status=LifeMaterialPrivacyStatus.PRIVATE)
-    with pytest.raises(ValueError):
-        item(body_digest=Digest.from_bytes(b"other"))
     with pytest.raises(ValueError):
         item(updated_at=Instant(datetime(2026, 8, 5, 8, 0, tzinfo=UTC)))
 

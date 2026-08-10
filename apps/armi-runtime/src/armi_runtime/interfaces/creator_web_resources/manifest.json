@@ -4,7 +4,7 @@
       "cache_class": "metadata-no-store",
       "media_type": "application/json",
       "path": "static/.vite/manifest.json",
-      "sha256": "53627e1a7fa239009fa37c2c2966d1c63b5436918d6ea7c662493f9fc0852814",
+      "sha256": "94de4140312682680eecadda7c56a733f8d1a02d6f0d2911bf070bd431ab2e95",
       "size": 185
     },
     {
@@ -17,29 +17,20 @@
     {
       "cache_class": "immutable",
       "media_type": "text/javascript",
-      "path": "static/assets/index-Bsx3QkSu.js",
-      "sha256": "da3f402589ca2ecb08d22534ae3391d29b7dbd9967bb9b7183420ff8e8b6f629",
-      "size": 328182
+      "path": "static/assets/index-CyxhIYWT.js",
+      "sha256": "01a040eeb4434a3263323bcc438d0639b48aba425425ee5d4891a3eb79bff417",
+      "size": 328048
     },
     {
       "cache_class": "entrypoint-no-store",
       "media_type": "text/html",
       "path": "static/index.html",
-      "sha256": "4d5f54b908e704ff9a14a64ec42401d45b3cf30ef93382a544d14d7ee294db4f",
+      "sha256": "ce0c701188932e77f2f35ebe5820a80450eec2647926e21a0b3584376b96b194",
       "size": 455
     }
   ],
   "base_path": "/ui/",
   "entrypoint": "static/index.html",
-  "generated_types": {
-    "path": "apps/armi-creator-web/src/api/generated/creator.ts",
-    "sha256": "cc29cbbbaeb92eb93b3f822a9193287bfaf9b189393b14f18cee67000c477223"
-  },
-  "openapi": {
-    "path": "openapi.json",
-    "sha256": "c3861af9cb81b14871b781bbc058e8d8cf1fed31a9e6bacfcdb5a3359e0d3762"
-  },
-  "package_lock_sha256": "fcbf9d8b21e025af368f76edf270fffd54cc24ffa5c3f7a0a4ee57328ab59ae4",
   "runtime_discovery": false,
   "schema_version": "armi.creator-static.v1",
   "toolchain": {
@@ -50,6 +41,5 @@
     "react_dom": "19.2.8",
     "typescript": "5.9.3",
     "vite": "8.1.5"
-  },
-  "vite_manifest_sha256": "53627e1a7fa239009fa37c2c2966d1c63b5436918d6ea7c662493f9fc0852814"
+  }
 }

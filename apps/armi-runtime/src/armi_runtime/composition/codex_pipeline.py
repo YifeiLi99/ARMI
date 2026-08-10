@@ -504,9 +504,6 @@ class CodexEffectPipeline:
                 {
                     "schema_version": "armi.codex-result-evidence.v1",
                     "result_kind": "verified_completion",
-                    "validation_digest": Digest.from_bytes(
-                        values.validation_report
-                    ).value,
                 },
             )
         )
@@ -574,7 +571,7 @@ class CodexEffectPipeline:
                         CodexVerificationStatus.UNKNOWN: "outcome_unknown",
                         CodexVerificationStatus.CANCELLED: "cancelled",
                     }[status],
-                    "validation_digest": Digest.from_bytes(report).value,
+                    "error_code": error.code,
                 },
             )
         )
@@ -741,7 +738,6 @@ def _artifact_audit(
         AuditResultStatus.APPLIED,
         trace_id,
         AuditSensitivity.PRIVATE,
-        artifact_digest=reference.content_digest,
     )
 
 

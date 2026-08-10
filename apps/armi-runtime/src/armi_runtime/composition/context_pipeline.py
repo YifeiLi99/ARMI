@@ -36,7 +36,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
+from armi_kernel.contracts import Instant, Purpose, SubjectId
 
 from armi_runtime.adapters.artifacts.content_store import (
     ContentAddressedArtifactStore,
@@ -64,7 +64,7 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .context_compiler import (
-    CONTEXT_MECHANISM,
+    CONTEXT_POLICY_VERSION,
     DeterministicContextCompiler,
 )
 from .work_wakeup import (
@@ -95,7 +95,7 @@ class ContextPipeline(OpportunitySelector):
         "_diagnostic",
         "_factory",
         "_lease_owner",
-        "_policy_digest",
+        "_policy_version",
         "_repository",
         "_stop",
         "_storage",
@@ -109,14 +109,14 @@ class ContextPipeline(OpportunitySelector):
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
-        policy_digest: Digest,
+        policy_version: str = CONTEXT_POLICY_VERSION,
         web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
-        self._policy_digest = policy_digest
+        self._policy_version = policy_version
         self._web_search_active = web_search_active
         self._repository = PostgreSQLContextRepository()
         self._catalog = ArtifactCatalogRepository()
@@ -146,11 +146,7 @@ class ContextPipeline(OpportunitySelector):
     async def select_once(self) -> CognitiveEpisodeId | None:
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
-                selected = await self._repository.select_one(
-                    unit_of_work,
-                    policy_digest=self._policy_digest,
-                    mechanism_config_digest=self._policy_digest,
-                )
+                selected = await self._repository.select_one(unit_of_work)
             if selected is not None:
                 self._wakeups.notify(CONTEXT_PREPARE)
             return selected
@@ -242,8 +238,8 @@ class ContextPipeline(OpportunitySelector):
                     unit_of_work,
                     lease=lease,
                     result=result,
-                    manifest_artifact_id=manifest_registration.ref.artifact_id,
-                    compiled_artifact_id=compiled_registration.ref.artifact_id,
+                    manifest_artifact=manifest_registration.ref,
+                    compiled_artifact=compiled_registration.ref,
                 )
             self._wakeups.notify(MODEL_INVOKE)
             return True
@@ -319,8 +315,6 @@ class ContextPipeline(OpportunitySelector):
             raise ContextViolation("CTX-SOURCE-READ-FAILED") from None
         if not value:
             raise ContextViolation("CTX-SOURCE-MISSING")
-        if Digest.from_bytes(value) != source.ref.content_digest:
-            raise ContextViolation("CTX-SOURCE-READ-FAILED")
         if len(value) > 262_144:
             raise ContextViolation("CTX-BUDGET-REQUIRED")
         try:
@@ -352,10 +346,9 @@ class ContextPipeline(OpportunitySelector):
             snapshot,
         )
         try:
-            body = parse_life_material_artifact(
-                artifact_bytes,
-                expected_body_digest=source.body_digest,
-            ).decode("utf-8", errors="strict")
+            body = parse_life_material_artifact(artifact_bytes).decode(
+                "utf-8", errors="strict"
+            )
         except ValueError, UnicodeError:
             raise ContextViolation("CTX-SOURCE-INVALID") from None
         return rfc8785.dumps(
@@ -524,14 +517,14 @@ def _context_request(
         "mind": ContextSection.MIND,
         "life_mode": ContextSection.LIFE_MODE,
     }
-    for kind, source_id, version, payload, digest in snapshot.component_payloads:
+    for kind, source_id, version, payload in snapshot.component_payloads:
         if snapshot.purpose == "consider_other_human_input" and kind != "self":
             continue
         items.append(
             ContextItemCandidate(
                 section_by_component[kind],
                 kind,
-                ContextSourceIdentity(kind, source_id, version, digest),
+                ContextSourceIdentity(kind, source_id, version),
                 ContextTrustClass.SUBJECTIVE_STATE,
                 "private",
                 payload.decode("utf-8"),
@@ -566,7 +559,6 @@ def _context_request(
                         "scene_timeline_item",
                         source.timeline_item_id,
                         source.source_version,
-                        source.ref.content_digest,
                     ),
                     (
                         ContextTrustClass.EXTERNAL_CLAIM
@@ -587,19 +579,17 @@ def _context_request(
     accessible_memories = tuple(
         item
         for item in snapshot.memory_payloads
-        if item[4] in {"available", "faded"}
+        if item[3] in {"available", "faded"}
         and snapshot.purpose != "perform_subject_self_check"
         and snapshot.purpose != "consider_other_human_input"
     )
     if accessible_memories:
-        for memory_id, version, payload, digest, accessibility in accessible_memories:
+        for memory_id, version, payload, accessibility in accessible_memories:
             items.append(
                 ContextItemCandidate(
                     ContextSection.MEMORY,
                     "current_memory",
-                    ContextSourceIdentity(
-                        "subjective_memory", memory_id, version, digest
-                    ),
+                    ContextSourceIdentity("subjective_memory", memory_id, version),
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
                     payload.decode("utf-8"),
@@ -629,7 +619,6 @@ def _context_request(
                         "life_material",
                         source.material_id,
                         source.head_version,
-                        source.semantic_digest,
                     ),
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
@@ -655,16 +644,13 @@ def _context_request(
         capability_id,
         version,
         payload,
-        digest,
         authorization_status,
     ) in capability_states:
         items.append(
             ContextItemCandidate(
                 ContextSection.CAPABILITY,
                 f"capability_state_{authorization_status}",
-                ContextSourceIdentity(
-                    "capability_state", capability_id, version, digest
-                ),
+                ContextSourceIdentity("capability_state", capability_id, version),
                 ContextTrustClass.RUNTIME_AUTHORITY,
                 "private",
                 payload.decode("utf-8", errors="strict"),
@@ -674,14 +660,12 @@ def _context_request(
             )
         )
     if snapshot.relationship_payloads:
-        for relationship_id, version, payload, digest in snapshot.relationship_payloads:
+        for relationship_id, version, payload in snapshot.relationship_payloads:
             items.append(
                 ContextItemCandidate(
                     ContextSection.RELATIONSHIP,
                     "current_relationship",
-                    ContextSourceIdentity(
-                        "relationship", relationship_id, version, digest
-                    ),
+                    ContextSourceIdentity("relationship", relationship_id, version),
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
                     payload.decode("utf-8"),
@@ -700,16 +684,16 @@ def _context_request(
     recallable_commitments = tuple(
         item
         for item in snapshot.relationship_commitment_payloads
-        if item[4] != "forgotten"
+        if item[3] != "forgotten"
     )
     if recallable_commitments:
-        for commitment_id, version, payload, digest, status in recallable_commitments:
+        for commitment_id, version, payload, status in recallable_commitments:
             items.append(
                 ContextItemCandidate(
                     ContextSection.RELATIONSHIP,
                     "current_relationship_commitment",
                     ContextSourceIdentity(
-                        "relationship_commitment", commitment_id, version, digest
+                        "relationship_commitment", commitment_id, version
                     ),
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
@@ -730,12 +714,12 @@ def _context_request(
                 ),
             )
         )
-    for issue_id, version, payload, digest in snapshot.relationship_issue_payloads:
+    for issue_id, version, payload in snapshot.relationship_issue_payloads:
         items.append(
             ContextItemCandidate(
                 ContextSection.RELATIONSHIP,
                 "current_relationship_issue",
-                ContextSourceIdentity("relationship_issue", issue_id, version, digest),
+                ContextSourceIdentity("relationship_issue", issue_id, version),
                 ContextTrustClass.SUBJECTIVE_STATE,
                 "private",
                 payload.decode("utf-8"),
@@ -755,7 +739,6 @@ def _context_request(
                         "source_kind": snapshot.opportunity_source_kind,
                         "source_ref": str(snapshot.opportunity_source_ref),
                         "source_version": snapshot.opportunity_source_version,
-                        "source_digest": snapshot.opportunity_source_digest.value,
                     }
                 ),
                 ContextTrustClass.RUNTIME_AUTHORITY,
@@ -773,7 +756,6 @@ def _context_request(
                         "source_kind": snapshot.opportunity_source_kind,
                         "source_ref": str(snapshot.opportunity_source_ref),
                         "source_version": snapshot.opportunity_source_version,
-                        "source_digest": snapshot.opportunity_source_digest.value,
                         "available_after": snapshot.opportunity_available_after.isoformat(),
                         "expires_at": (
                             None
@@ -799,7 +781,6 @@ def _context_request(
                         "source_kind": snapshot.opportunity_source_kind,
                         "source_ref": str(snapshot.opportunity_source_ref),
                         "source_version": snapshot.opportunity_source_version,
-                        "source_digest": snapshot.opportunity_source_digest.value,
                         "purpose": snapshot.purpose,
                     }
                 ),
@@ -966,9 +947,8 @@ def _context_request(
         snapshot.subject_version,
         snapshot.state_epoch,
         snapshot.bundle_activation_id,
-        snapshot.policy_digest,
-        CONTEXT_MECHANISM,
-        snapshot.mechanism_config_digest,
+        snapshot.policy_version,
+        snapshot.mechanism_identity,
         32,
         262_144,
         524_288,
@@ -999,7 +979,6 @@ def _item(
             source_kind or kind,
             source_id,
             version,
-            Digest.from_bytes(value),
         ),
         trust,
         "private",
@@ -1018,7 +997,7 @@ def _unavailable(
     return ContextItemCandidate(
         section,
         kind,
-        ContextSourceIdentity("not_implemented", None, None, None),
+        ContextSourceIdentity("not_implemented", None, None),
         ContextTrustClass.RUNTIME_AUTHORITY,
         "private",
         None,
@@ -1029,7 +1008,7 @@ def _unavailable(
 
 
 def _capability_catalog_bytes(
-    capability_states: tuple[tuple[UUID, int, bytes, Digest, str], ...],
+    capability_states: tuple[tuple[UUID, int, bytes, str], ...],
 ) -> bytes:
     try:
         capabilities = [json.loads(item[2]) for item in capability_states]
@@ -1060,7 +1039,6 @@ def _artifact_audit(
         AuditSensitivity.PRIVATE,
         subject_id=SubjectId(snapshot.subject_id),
         request=AuditReference("cognitive_episode", snapshot.episode_id),
-        artifact_digest=ref.content_digest,
     )
 
 
@@ -1075,7 +1053,6 @@ def build_context_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
-    policy_digest: Digest,
     web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -1103,7 +1080,6 @@ def build_context_pipeline(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
         ),
-        policy_digest=policy_digest,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,

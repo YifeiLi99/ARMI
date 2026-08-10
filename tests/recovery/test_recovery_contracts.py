@@ -11,11 +11,10 @@ from armi_kernel.application import (
     RecoverySummary,
     RecoveryViolation,
 )
-from armi_kernel.contracts import Digest
 
 
 class RecoveryContractTests(unittest.TestCase):
-    def test_safe_summary_requires_no_blocker_and_a_digest(self) -> None:
+    def test_safe_summary_requires_no_blocker(self) -> None:
         finding = RecoveryFinding(
             "critical_artifact",
             RecoveryDecision.VERIFIED,
@@ -47,7 +46,6 @@ class RecoveryContractTests(unittest.TestCase):
             unknown_web_observation_attempt_count=0,
             critical_artifact_count=2,
             blocker_count=0,
-            summary_digest=Digest.from_bytes(b"safe"),
             findings=(finding,),
         )
         self.assertEqual(summary.status, RecoveryStatus.SAFE)
@@ -87,7 +85,6 @@ class RecoveryContractTests(unittest.TestCase):
                 unknown_web_observation_attempt_count=0,
                 critical_artifact_count=2,
                 blocker_count=1,
-                summary_digest=Digest.from_bytes(b"invalid"),
             )
 
     def test_error_output_is_redacted(self) -> None:

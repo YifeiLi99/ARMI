@@ -184,17 +184,17 @@ class SubjectCommitPipeline:
                 for prompt in change_set.prompts
             ]
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
-                response_artifact_id = None
-                research_artifact_id = None
-                material_artifact_ids: dict[str, ArtifactId] = {}
-                prompt_artifact_ids: dict[str, ArtifactId] = {}
+                response_artifact = None
+                research_artifact = None
+                material_artifacts: dict[str, ArtifactRef] = {}
+                prompt_artifacts: dict[str, ArtifactRef] = {}
                 if published_reply is not None:
                     registration = await self._catalog.register(
                         unit_of_work,
                         ArtifactId(uuid7()),
                         published_reply,
                     )
-                    response_artifact_id = registration.ref.artifact_id
+                    response_artifact = registration.ref
                     if registration.inserted:
                         await unit_of_work.audit.append(
                             _response_artifact_audit(
@@ -209,7 +209,7 @@ class SubjectCommitPipeline:
                         ArtifactId(uuid7()),
                         published_research,
                     )
-                    research_artifact_id = research_registration.ref.artifact_id
+                    research_artifact = research_registration.ref
                     if research_registration.inserted:
                         await unit_of_work.audit.append(
                             _research_artifact_audit(
@@ -229,9 +229,7 @@ class SubjectCommitPipeline:
                         raise SubjectCommitViolation(
                             "SUBJECT-MATERIAL-ARTIFACT"
                         ) from None
-                    material_artifact_ids[proposal_ref] = (
-                        material_registration.ref.artifact_id
-                    )
+                    material_artifacts[proposal_ref] = material_registration.ref
                     if material_registration.inserted:
                         await unit_of_work.audit.append(
                             _material_artifact_audit(
@@ -251,9 +249,7 @@ class SubjectCommitPipeline:
                         raise SubjectCommitViolation(
                             "SUBJECT-PROMPT-ARTIFACT"
                         ) from None
-                    prompt_artifact_ids[proposal_ref] = (
-                        prompt_registration.ref.artifact_id
-                    )
+                    prompt_artifacts[proposal_ref] = prompt_registration.ref
                     if prompt_registration.inserted:
                         await unit_of_work.audit.append(
                             _prompt_artifact_audit(
@@ -268,10 +264,10 @@ class SubjectCommitPipeline:
                     lease=lease,
                     snapshot=snapshot,
                     change_set=change_set,
-                    response_artifact_id=response_artifact_id,
-                    research_artifact_id=research_artifact_id,
-                    material_artifact_ids=material_artifact_ids,
-                    prompt_artifact_ids=prompt_artifact_ids,
+                    response_artifact=response_artifact,
+                    research_artifact=research_artifact,
+                    material_artifacts=material_artifacts,
+                    prompt_artifacts=prompt_artifacts,
                 )
             self._wake_downstream()
             await self._notify(snapshot, result)
@@ -364,10 +360,7 @@ class SubjectCommitPipeline:
             if isinstance(error, asyncio.CancelledError):
                 raise
             raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT") from None
-        if (
-            not value
-            or snapshot.change_set_digest != snapshot.change_set_artifact.content_digest
-        ):
+        if not value:
             raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT")
         return value
 
@@ -705,7 +698,6 @@ def _response_artifact_audit(
         AuditSensitivity.RESTRICTED,
         subject_id=SubjectId(snapshot.subject_id),
         request=AuditReference("cognitive_episode", snapshot.episode_id),
-        artifact_digest=ref.content_digest,
     )
 
 
@@ -725,7 +717,6 @@ def _research_artifact_audit(
         AuditSensitivity.RESTRICTED,
         subject_id=SubjectId(snapshot.subject_id),
         request=AuditReference("cognitive_episode", snapshot.episode_id),
-        artifact_digest=ref.content_digest,
     )
 
 
@@ -745,7 +736,6 @@ def _material_artifact_audit(
         AuditSensitivity.RESTRICTED,
         subject_id=SubjectId(snapshot.subject_id),
         request=AuditReference("cognitive_episode", snapshot.episode_id),
-        artifact_digest=ref.content_digest,
     )
 
 
@@ -765,7 +755,6 @@ def _prompt_artifact_audit(
         AuditSensitivity.RESTRICTED,
         subject_id=SubjectId(snapshot.subject_id),
         request=AuditReference("cognitive_episode", snapshot.episode_id),
-        artifact_digest=ref.content_digest,
     )
 
 

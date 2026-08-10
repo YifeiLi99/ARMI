@@ -12,7 +12,6 @@ from armi_kernel.contracts import (
     AcceptedOutcome,
     AppliedOutcome,
     CompletedOutcome,
-    Digest,
     ErrorDescriptor,
     ErrorInstanceId,
     FailedOutcome,
@@ -1333,7 +1332,6 @@ class AppliedOutcomeResponse(_CommonOutcomeResponse):
 class CompletedOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["completed"]
     result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    completion_evidence: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]
 
     @model_validator(mode="after")
     def validate_kernel_contract(self) -> CompletedOutcomeResponse:
@@ -1936,7 +1934,6 @@ class CreatorPromptResponse(_StrictWireModel):
                 not self.content.strip()
                 or "\x00" in self.content
                 or len(encoded) > 65_536
-                or Digest.from_bytes(encoded).value != self.content_digest
             ):
                 raise ValueError("CON-PROMPT-CONTENT: content is invalid")
         return self
@@ -1961,7 +1958,6 @@ class CreatorExportResponse(_StrictWireModel):
     status: Literal["running", "completed", "partial", "failed"]
     directory_name: Annotated[str, Field(min_length=1, max_length=64)]
     destination_path: Annotated[str, Field(min_length=1, max_length=4096)]
-    manifest_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")] | None
     table_count: Annotated[int, Field(ge=0)]
     row_count: Annotated[int, Field(ge=0)]
     artifact_count: Annotated[int, Field(ge=0)]

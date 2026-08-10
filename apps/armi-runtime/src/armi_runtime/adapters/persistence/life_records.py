@@ -511,7 +511,6 @@ class PostgreSQLLifeRecordQuery:
                                material.updated_at,
                                revision.revision_no,
                                revision.title,
-                               revision.body_digest,
                                revision.metadata,
                                revision.material_status,
                                revision.privacy_status,
@@ -546,13 +545,13 @@ class PostgreSQLLifeRecordQuery:
             return None
         try:
             ref = ArtifactRef(
-                ArtifactId(cast(UUID, row[12])),
-                Digest(str(row[13])),
-                int(row[14]),
+                ArtifactId(cast(UUID, row[11])),
+                Digest(str(row[12])),
+                int(row[13]),
+                str(row[14]),
                 str(row[15]),
-                str(row[16]),
-                ArtifactPrivacyScope(str(row[17])),
-                ArtifactIntegrityStatus(str(row[18])),
+                ArtifactPrivacyScope(str(row[16])),
+                ArtifactIntegrityStatus(str(row[17])),
             )
             if (
                 ref.media_type != "application/json"
@@ -564,11 +563,9 @@ class PostgreSQLLifeRecordQuery:
             artifact_bytes = b""
             async with await self._storage.open_verified(ref) as stream:
                 artifact_bytes = await stream.read()
-            body_digest = Digest(str(row[8]))
-            body = parse_life_material_artifact(
-                artifact_bytes,
-                expected_body_digest=body_digest,
-            ).decode("utf-8", errors="strict")
+            body = parse_life_material_artifact(artifact_bytes).decode(
+                "utf-8", errors="strict"
+            )
             return CreatorLifeMaterialItem(
                 material_id=cast(UUID, row[0]),
                 current_revision_id=cast(UUID, row[1]),
@@ -577,10 +574,9 @@ class PostgreSQLLifeRecordQuery:
                 head_version=int(row[3]),
                 title=str(row[7]),
                 body=body,
-                body_digest=body_digest,
-                metadata=_material_metadata(row[9]),
-                material_status=LifeMaterialStatus(str(row[10])),
-                privacy_status=LifeMaterialPrivacyStatus(str(row[11])),
+                metadata=_material_metadata(row[8]),
+                material_status=LifeMaterialStatus(str(row[9])),
+                privacy_status=LifeMaterialPrivacyStatus(str(row[10])),
                 created_at=Instant(cast(datetime, row[4])),
                 updated_at=Instant(cast(datetime, row[5])),
             )
