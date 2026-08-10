@@ -306,6 +306,14 @@ class BirthRepository:
         )
         await connection.execute(
             """
+            INSERT INTO armi.scene_participants (
+                scene_id, subject_id, party_id, participant_role
+            ) VALUES (%s, %s, %s, 'primary')
+            """,
+            (default_scene_id, subject_id, manifest.creator_party_id),
+        )
+        await connection.execute(
+            """
             INSERT INTO armi.prompt_documents (
                 prompt_document_id, subject_id, prompt_kind,
                 write_authority, current_revision_id

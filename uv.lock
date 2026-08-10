@@ -51,12 +51,14 @@ source = { editable = "packages/armi-adapter-qq" }
 dependencies = [
     { name = "armi-channel-napcat" },
     { name = "armi-kernel" },
+    { name = "fastapi" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "armi-channel-napcat", editable = "packages/armi-channel-napcat" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "fastapi", specifier = "==0.140.13" },
 ]
 
 [[package]]
@@ -110,6 +112,7 @@ name = "armi-runtime"
 version = "0.0.0"
 source = { editable = "apps/armi-runtime" }
 dependencies = [
+    { name = "armi-adapter-qq" },
     { name = "armi-kernel" },
     { name = "armi-postgresql-contract" },
     { name = "fastapi" },
@@ -125,6 +128,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-adapter-qq", editable = "packages/armi-adapter-qq" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "fastapi", specifier = "==0.140.13" },

@@ -149,6 +149,8 @@ class RuntimeCliTests(unittest.TestCase):
             "model.request": "model.ark_api_key",
             "web.search": "model.ark_api_key",
             "codex.runner.auth": "codex.auth_json",
+            "channel.qq.napcat.api": "channel.qq.napcat_access_token",
+            "channel.qq.napcat.events": "channel.qq.napcat_event_secret",
         }
 
     def test_background_start_uses_process_manager_and_safe_json(self) -> None:

@@ -441,6 +441,7 @@ class CandidateValidationContext:
     current_maintenance_head_version: int | None = None
     current_maintenance_phase: MaintenancePhase | None = None
     other_party_id: UUID | None = None
+    scene_kind: str | None = None
 
     def __post_init__(self) -> None:
         if any(
@@ -473,6 +474,13 @@ class CandidateValidationContext:
             or self.base_state_epoch < 0
             or type(self.context_digest) is not Digest
         ):
+            raise CandidateViolation("CON-CANDIDATE-CONTEXT")
+        if self.scene_kind not in {
+            None,
+            "creator_dialogue",
+            "other_human_dialogue",
+            "group_dialogue",
+        }:
             raise CandidateViolation("CON-CANDIDATE-CONTEXT")
         activity_values = (
             self.current_activity_id,
@@ -1429,6 +1437,8 @@ class DeterministicCandidateValidator:
                 else CandidateDisposition.DEFER
             )
         else:
+            if self._context.scene_kind == "group_dialogue":
+                return _rejected("CANDIDATE-GROUP-END-UNSUPPORTED")
             action_choices = (
                 OtherHumanEndConversationDraft(
                     f"proposal:{proposal_no}",

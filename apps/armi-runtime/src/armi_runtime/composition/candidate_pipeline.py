@@ -284,6 +284,7 @@ class CandidateValidationPipeline:
                         else MaintenancePhase(snapshot.current_maintenance_phase)
                     ),
                     other_party_id=snapshot.other_party_id,
+                    scene_kind=snapshot.scene_kind,
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)

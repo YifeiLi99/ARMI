@@ -61,13 +61,18 @@ def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
     assert migrations["baseline_id"] == "baseline"
     assert migrations["schema_version"] == "armi.schema-migrations.v1"
     assert [item["migration_id"] for item in migrations["migrations"]] == [
-        "0001_harden_authoritative_schema"
+        "0001_harden_authoritative_schema",
+        "0002_external_group_channels",
     ]
-    migration = migrations["migrations"][0]
-    assert migration["creates_tables"] == ["runtime_recovery_metrics"]
-    assert migration["drops_tables"] == []
-    assert migration["sha256"].startswith("sha256:")
-    assert migration["target_catalog_sha256"].startswith("sha256:")
+    assert migrations["migrations"][0]["creates_tables"] == ["runtime_recovery_metrics"]
+    assert migrations["migrations"][1]["creates_tables"] == [
+        "external_channel_bindings",
+        "scene_participants",
+    ]
+    for migration in migrations["migrations"]:
+        assert migration["drops_tables"] == []
+        assert migration["sha256"].startswith("sha256:")
+        assert migration["target_catalog_sha256"].startswith("sha256:")
 
 
 def test_baseline_contains_authoritative_schema_and_migration_ledger() -> None:

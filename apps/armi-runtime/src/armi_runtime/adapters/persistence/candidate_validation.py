@@ -147,6 +147,7 @@ class CandidateEpisodeSnapshot:
     current_maintenance_revision_id: UUID | None = None
     current_maintenance_head_version: int | None = None
     current_maintenance_phase: str | None = None
+    scene_kind: str | None = None
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -178,7 +179,8 @@ class PostgreSQLCandidateValidationRepository:
                     attempt.candidate_schema_version,
                     episode.trace_id,
                     episode.purpose,
-                    episode.opportunity_id
+                    episode.opportunity_id,
+                    scene.scene_kind
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -187,6 +189,8 @@ class PostgreSQLCandidateValidationRepository:
                  AND attempt.model_attempt_id = work.payload_ref
                 JOIN armi.subjects AS subject
                   ON subject.subject_id = episode.subject_id
+                LEFT JOIN armi.interaction_scenes AS scene
+                  ON scene.scene_id = episode.scene_id
                 WHERE work.work_id = %s
                   AND work.work_kind = 'cognition.candidate.validate'
                   AND work.owner_kind = 'cognitive_episode'
@@ -626,6 +630,7 @@ class PostgreSQLCandidateValidationRepository:
             None if maintenance_row is None else maintenance_row[1],
             None if maintenance_row is None else int(maintenance_row[2]),
             None if maintenance_row is None else str(maintenance_row[3]),
+            None if row[15] is None else str(row[15]),
         )
 
     async def release_or_fail(

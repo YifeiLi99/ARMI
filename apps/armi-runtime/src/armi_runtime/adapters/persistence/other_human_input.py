@@ -138,6 +138,19 @@ class OtherHumanInputRepository:
         ).fetchone()
         if row is None:
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-SCENE")
+        await connection.execute(
+            """
+            INSERT INTO armi.scene_participants (
+                scene_id, subject_id, party_id, participant_role
+            )
+            SELECT scene.scene_id, scene.subject_id, scene.primary_party_id, 'primary'
+            FROM armi.interaction_scenes AS scene
+            WHERE scene.scene_id = %s
+            ON CONFLICT (scene_id, party_id)
+            DO UPDATE SET last_observed_at = statement_timestamp()
+            """,
+            (row[0],),
+        )
         return OtherHumanSceneView(row[0], row[1], scene_key, SceneStatus(row[2]))
 
     async def context(
@@ -230,6 +243,9 @@ class OtherHumanInputRepository:
         content_digest: Digest,
         artifact_id: UUID,
         trace_id: str,
+        external_binding_id: UUID | None = None,
+        external_message_key: str | None = None,
+        addressed_to_subject: bool | None = None,
     ) -> OtherHumanInputAcceptance:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         interaction_id, evidence_id, opportunity_id, timeline_id = (
@@ -242,8 +258,9 @@ class OtherHumanInputRepository:
             """
             INSERT INTO armi.party_input_interactions (
                 interaction_id, subject_id, scene_id, source_party_id,
-                purpose, idempotency_key, request_digest, content_digest, trace_id
-            ) VALUES (%s,%s,%s,%s,'other_human_message',%s,%s,%s,%s)
+                purpose, idempotency_key, request_digest, content_digest, trace_id,
+                external_binding_id, external_message_key, addressed_to_subject
+            ) VALUES (%s,%s,%s,%s,'other_human_message',%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 interaction_id,
@@ -254,6 +271,9 @@ class OtherHumanInputRepository:
                 request_digest.value,
                 content_digest.value,
                 trace_id,
+                external_binding_id,
+                external_message_key,
+                addressed_to_subject,
             ),
         )
         await connection.execute(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 _CODE = re.compile(r"^NAPCAT-[A-Z0-9-]+$", re.ASCII)
 
@@ -90,6 +90,7 @@ def parse_onebot_message(
         raise NapCatViolation("NAPCAT-FRAME-INVALID") from None
     if type(document) is not dict:
         raise NapCatViolation("NAPCAT-FRAME-INVALID")
+    document = cast(dict[str, Any], document)
     if "echo" in document:
         return _parse_action_response(document)
     if (
@@ -113,19 +114,25 @@ def _parse_group_message(document: dict[str, Any]) -> NapCatGroupMessageEvent:
         raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID") from None
     if type(raw_segments) is not list or type(sender) is not dict:
         raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID")
+    raw_segments = cast(list[object], raw_segments)
+    sender = cast(dict[str, object], sender)
     segments: list[tuple[str, dict[str, str]]] = []
     for raw in raw_segments:
-        if type(raw) is not dict or type(raw.get("type")) is not str:
+        if type(raw) is not dict:
+            raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID")
+        raw = cast(dict[str, object], raw)
+        if type(raw.get("type")) is not str:
             raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID")
         data = raw.get("data")
         if type(data) is not dict:
             raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID")
+        data = cast(dict[object, object], data)
         normalized: dict[str, str] = {}
         for key, item in data.items():
             if type(key) is not str or type(item) not in {str, int}:
                 continue
             normalized[key] = str(item)
-        segments.append((raw["type"], normalized))
+        segments.append((cast(str, raw["type"]), normalized))
     sender_label = sender.get("card") or sender.get("nickname") or str(user_id)
     if (
         type(sender_label) is not str
@@ -157,14 +164,20 @@ def _parse_action_response(document: dict[str, Any]) -> NapCatActionResponse:
         or (data is not None and type(data) is not dict)
     ):
         raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID")
-    raw_message_id = data.get("message_id") if isinstance(data, dict) else None
+    typed_data = cast(dict[str, object], data) if isinstance(data, dict) else None
+    raw_message_id = typed_data.get("message_id") if typed_data is not None else None
     message_id = None if raw_message_id is None else _external_ref(raw_message_id)
     return NapCatActionResponse(status, retcode, message_id, echo)
 
 
 def _positive_int(value: object) -> int:
     if type(value) is not int or value <= 0:
-        raise ValueError("positive integer required")
+        if type(value) is not str or not value.isdecimal() or value.startswith("0"):
+            raise ValueError("positive integer required")
+        parsed = int(value)
+        if parsed <= 0:
+            raise ValueError("positive integer required")
+        return parsed
     return value
 
 

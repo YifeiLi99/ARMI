@@ -17,6 +17,10 @@ from armi_channel_napcat import (
     NapCatViolation,
 )
 from armi_kernel.application import (
+    ActionAdapterPort,
+    EffectAdapterReceipt,
+    EffectDeliveryId,
+    EffectViolation,
     EnsureExternalGroupCommand,
     ExternalAccountKey,
     ExternalChannel,
@@ -24,11 +28,13 @@ from armi_kernel.application import (
     ExternalGroupInputAcceptance,
     ExternalGroupInputPort,
     ExternalGroupSendPort,
+    ExternalGroupSendQuery,
     ExternalGroupSendReceipt,
     ExternalGroupSendRequest,
     ExternalGroupViolation,
     ExternalMessageKey,
     ExternalPartyKey,
+    FrozenEffectRequest,
     ObservedExternalGroupMessage,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
@@ -46,13 +52,18 @@ class QQAdapterConfig:
         if not groups:
             raise ValueError("at least one QQ group must be explicitly allowed")
         for group_id, label in groups.items():
+            try:
+                label_bytes = label.encode("utf-8") if type(label) is str else b""
+            except UnicodeEncodeError:
+                label_bytes = b""
             if (
                 type(group_id) is not int
                 or group_id <= 0
                 or type(label) is not str
                 or not label.strip()
                 or "\x00" in label
-                or len(label.encode("utf-8")) > 256
+                or not label_bytes
+                or len(label_bytes) > 256
             ):
                 raise ValueError("QQ allowed group is invalid")
         object.__setattr__(self, "allowed_groups", MappingProxyType(groups))
@@ -80,6 +91,10 @@ class QQGroupIngressAdapter:
         message = event.render_text()
         if message is None:
             return None
+        try:
+            observed_at = Instant(datetime.fromtimestamp(event.time, UTC))
+        except OSError, OverflowError, ValueError:
+            raise ExternalGroupViolation("CON-EXTERNAL-GROUP-INPUT") from None
         trace_id = TraceId(uuid7().hex)
         channel = ExternalChannel("qq")
         account_key = ExternalAccountKey(str(event.self_id))
@@ -102,7 +117,7 @@ class QQGroupIngressAdapter:
                 ExternalPartyKey(str(event.user_id)),
                 event.sender_label,
                 message,
-                Instant(datetime.fromtimestamp(event.time, UTC)),
+                observed_at,
                 trace_id,
                 addressed_to_subject=event.self_id in event.mentioned_ids,
             )
@@ -132,7 +147,7 @@ class QQGroupEgressAdapter(ExternalGroupSendPort):
         except NapCatAmbiguousDelivery:
             raise ExternalGroupViolation("EXTERNAL-GROUP-RESULT-UNKNOWN") from None
         except NapCatViolation:
-            raise ExternalGroupViolation("EXTERNAL-GROUP-UNAVAILABLE") from None
+            raise ExternalGroupViolation("EXTERNAL-GROUP-RESULT-UNKNOWN") from None
         assert response.message_id is not None
         receipt_bytes = json.dumps(
             {
@@ -156,20 +171,30 @@ class QQGroupEgressAdapter(ExternalGroupSendPort):
         )
 
     async def observe(
-        self, request: ExternalGroupSendRequest
+        self, request: ExternalGroupSendQuery
     ) -> ExternalGroupSendReceipt | None:
-        self._validate_request(request)
+        self._validate_route(
+            request.channel, request.account_key, request.conversation_key
+        )
         raise ExternalGroupViolation("EXTERNAL-GROUP-RESULT-UNKNOWN")
 
     def _validate_request(self, request: ExternalGroupSendRequest) -> int:
         if type(request) is not ExternalGroupSendRequest:
             raise ExternalGroupViolation("CON-EXTERNAL-GROUP-SEND")
-        if request.channel.value != "qq" or request.account_key.value != str(
-            self._config.account_id
-        ):
+        return self._validate_route(
+            request.channel, request.account_key, request.conversation_key
+        )
+
+    def _validate_route(
+        self,
+        channel: ExternalChannel,
+        account_key: ExternalAccountKey,
+        conversation_key: ExternalConversationKey,
+    ) -> int:
+        if channel.value != "qq" or account_key.value != str(self._config.account_id):
             raise ExternalGroupViolation("SCOPE-EXTERNAL-GROUP-NOT-ALLOWED")
         try:
-            group_id = int(request.conversation_key.value)
+            group_id = int(conversation_key.value)
         except ValueError:
             raise ExternalGroupViolation("CON-EXTERNAL-GROUP-CONVERSATION") from None
         if group_id not in self._config.allowed_groups:
@@ -177,4 +202,102 @@ class QQGroupEgressAdapter(ExternalGroupSendPort):
         return group_id
 
 
-__all__ = ("QQAdapterConfig", "QQGroupEgressAdapter", "QQGroupIngressAdapter")
+class QQGroupEffectAdapter(ActionAdapterPort):
+    """Bind the generic effect dispatcher to the QQ group send port."""
+
+    __slots__ = ("_egress",)
+
+    def __init__(self, egress: QQGroupEgressAdapter) -> None:
+        self._egress = egress
+
+    async def dispatch(
+        self, request: FrozenEffectRequest, payload: bytes
+    ) -> EffectAdapterReceipt:
+        send_request = self._send_request(request, payload)
+        try:
+            receipt = await self._egress.send(send_request)
+        except ExternalGroupViolation as error:
+            raise _effect_violation(error) from None
+        return EffectAdapterReceipt(
+            EffectDeliveryId(uuid7()),
+            receipt.receipt_digest,
+            receipt.received_at,
+            external_receiver_ref=receipt.platform_message_ref,
+        )
+
+    async def observe(
+        self, request: FrozenEffectRequest
+    ) -> EffectAdapterReceipt | None:
+        query = self._send_query(request)
+        try:
+            receipt = await self._egress.observe(query)
+        except ExternalGroupViolation as error:
+            raise _effect_violation(error) from None
+        if receipt is None:
+            return None
+        return EffectAdapterReceipt(
+            EffectDeliveryId(uuid7()),
+            receipt.receipt_digest,
+            receipt.received_at,
+            external_receiver_ref=receipt.platform_message_ref,
+        )
+
+    @staticmethod
+    def _send_request(
+        request: FrozenEffectRequest, payload: bytes
+    ) -> ExternalGroupSendRequest:
+        if (
+            request.destination_kind != "external_group"
+            or request.external_channel is None
+            or request.external_account_key is None
+            or request.external_conversation_key is None
+        ):
+            raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
+        return ExternalGroupSendRequest(
+            request.effect_id.value,
+            request.attempt_id.value,
+            ExternalChannel(request.external_channel),
+            ExternalAccountKey(request.external_account_key),
+            ExternalConversationKey(request.external_conversation_key),
+            payload,
+            request.payload_digest,
+            request.trace_id,
+        )
+
+    @staticmethod
+    def _send_query(request: FrozenEffectRequest) -> ExternalGroupSendQuery:
+        if (
+            request.destination_kind != "external_group"
+            or request.external_channel is None
+            or request.external_account_key is None
+            or request.external_conversation_key is None
+        ):
+            raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
+        return ExternalGroupSendQuery(
+            request.effect_id.value,
+            request.attempt_id.value,
+            ExternalChannel(request.external_channel),
+            ExternalAccountKey(request.external_account_key),
+            ExternalConversationKey(request.external_conversation_key),
+            request.payload_digest,
+            request.trace_id,
+        )
+
+
+def _effect_violation(error: ExternalGroupViolation) -> EffectViolation:
+    if error.code in {
+        "EXTERNAL-GROUP-DELIVERY-REJECTED",
+        "SCOPE-EXTERNAL-GROUP-NOT-ALLOWED",
+    }:
+        return EffectViolation("EFFECT-RECEIVER-NOT-DELIVERED")
+    if error.code == "EXTERNAL-GROUP-RESULT-UNKNOWN":
+        return EffectViolation("EFFECT-RESULT-UNKNOWN")
+    return EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
+
+
+__all__ = (
+    "QQAdapterConfig",
+    "QQGroupEffectAdapter",
+    "QQGroupEgressAdapter",
+    "QQGroupIngressAdapter",
+)

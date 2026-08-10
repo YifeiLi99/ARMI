@@ -452,6 +452,13 @@ def _recent_scene_artifact_contract(
     raise ContextViolation("CTX-SOURCE-READ-FAILED")
 
 
+def _scene_turn_content(source: ContextSceneTurnSource, payload: bytes) -> str:
+    content = payload.decode("utf-8", errors="strict")
+    if source.speaker_label is None:
+        return content
+    return f"[{source.speaker_label}] {content}"
+
+
 def _context_request(
     snapshot: ContextEpisodeSnapshot,
     evidence_bytes: bytes | None,
@@ -571,7 +578,7 @@ def _context_request(
                         if snapshot.purpose == "consider_other_human_input"
                         else "creator_visible"
                     ),
-                    payload.decode("utf-8", errors="strict"),
+                    _scene_turn_content(source, payload),
                     False,
                     88,
                     Instant(source.occurred_at),

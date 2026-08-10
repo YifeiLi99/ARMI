@@ -2910,6 +2910,33 @@ async def _insert_other_human_action(
     ):
         raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCOPE")
     connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    route = await (
+        await connection.execute(
+            """
+            SELECT scene.scene_kind, scene.primary_party_id,
+                   binding.external_binding_id
+            FROM armi.interaction_scenes AS scene
+            LEFT JOIN armi.external_channel_bindings AS binding
+              ON binding.scene_id = scene.scene_id
+             AND binding.party_id = scene.primary_party_id
+             AND binding.external_kind = 'group' AND binding.status = 'active'
+            WHERE scene.scene_id = %s AND scene.subject_id = %s
+              AND scene.current_status = 'open'
+              AND scene.scene_kind IN ('other_human_dialogue', 'group_dialogue')
+            """,
+            (snapshot.scene_id, snapshot.subject_id),
+        )
+    ).fetchone()
+    if route is None:
+        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
+    group_route = str(route[0]) == "group_dialogue"
+    if group_route:
+        if route[2] is None:
+            raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
+    elif route[1] != snapshot.other_party_id or route[2] is not None:
+        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
+    destination_party_id = route[1] if group_route else snapshot.other_party_id
+    destination_binding_id = route[2] if group_route else None
     action = replies[0] if replies else endings[0]
     if (
         action.subject_id != snapshot.subject_id
@@ -2919,6 +2946,8 @@ async def _insert_other_human_action(
         raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCOPE")
     decision_id = uuid7()
     if endings:
+        if group_route:
+            raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-GROUP-END")
         if response_artifact_id is not None:
             raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
         updated = await (
@@ -2994,6 +3023,15 @@ async def _insert_other_human_action(
     revision_id = uuid7()
     operation_id = uuid7()
     effect_id = uuid7()
+    capability_kind = (
+        "external.group.message.send"
+        if group_route
+        else "local.other-human-inbox.deliver"
+    )
+    audience_scope = "social_group" if group_route else "other_human"
+    effect_kind = "external_group_delivery" if group_route else "local_inbox_delivery"
+    authorization_basis = "runtime_configuration" if group_route else "runtime_builtin"
+    destination_kind = "external_group" if group_route else "other_human_inbox"
     await connection.execute(
         """
         INSERT INTO armi.action_intents (
@@ -3016,7 +3054,7 @@ async def _insert_other_human_action(
             media_type, capability_kind, operation_class, audience_scope,
             data_scope, purpose, candidate_validation_id, proposal_ref,
             subject_commit_id) VALUES (%s, %s, 1, %s, %s, %s, 'text/plain',
-            'local.other-human-inbox.deliver', 'send', 'other_human',
+            %s, 'send', %s,
             'declared_party_response', 'respond_to_other_human', %s, %s, %s)
         """,
         (
@@ -3025,6 +3063,8 @@ async def _insert_other_human_action(
             response_artifact_id.value,
             reply.content_digest.value,
             len(reply.content_bytes),
+            capability_kind,
+            audience_scope,
             snapshot.validation_id,
             reply.proposal_ref,
             commit_id.value,
@@ -3082,6 +3122,12 @@ async def _insert_other_human_action(
                 "revision_id": str(revision_id),
                 "scene_id": str(snapshot.scene_id),
                 "other_party_id": str(snapshot.other_party_id),
+                "destination_party_id": str(destination_party_id),
+                "destination_binding_id": (
+                    None
+                    if destination_binding_id is None
+                    else str(destination_binding_id)
+                ),
                 "response_digest": reply.content_digest.value,
             }
         )
@@ -3094,12 +3140,12 @@ async def _insert_other_human_action(
             context_party_id, payload_artifact_id, payload_digest, payload_bytes,
             effect_kind, capability_kind, operation_class, audience_scope,
             data_scope, purpose, authorization_basis, destination_kind,
-            destination_party_id, status, verification_status,
+            destination_party_id, destination_binding_id,
+            status, verification_status,
             registration_digest, trace_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            'local_inbox_delivery', 'local.other-human-inbox.deliver',
-            'send', 'other_human', 'declared_party_response',
-            'respond_to_other_human', 'runtime_builtin', 'other_human_inbox',
-            %s, 'registered', 'not_started', %s, %s)
+            %s, %s, 'send', %s, 'declared_party_response',
+            'respond_to_other_human', %s, %s,
+            %s, %s, 'registered', 'not_started', %s, %s)
         """,
         (
             effect_id,
@@ -3112,7 +3158,13 @@ async def _insert_other_human_action(
             response_artifact_id.value,
             reply.content_digest.value,
             len(reply.content_bytes),
-            snapshot.other_party_id,
+            effect_kind,
+            capability_kind,
+            audience_scope,
+            authorization_basis,
+            destination_kind,
+            destination_party_id,
+            destination_binding_id,
             registration_digest.value,
             snapshot.trace_id.value,
         ),

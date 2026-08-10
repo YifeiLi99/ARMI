@@ -10,6 +10,8 @@
   "extraPaths": [
     "packages/armi-kernel/src",
     "packages/armi-postgresql-contract/src",
+    "packages/armi-channel-napcat/src",
+    "packages/armi-adapter-qq/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -18,6 +20,8 @@
   "typeCheckingMode": "standard",
   "strict": [
     "packages/armi-kernel/src",
+    "packages/armi-channel-napcat/src",
+    "packages/armi-adapter-qq/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

@@ -61,6 +61,7 @@ class ContextSceneTurnSource:
     source_version: int
     speaker: str
     occurred_at: datetime
+    speaker_label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,7 +450,10 @@ class PostgreSQLContextRepository:
                       WHEN episode.purpose = 'consider_other_human_input'
                       THEN evidence.interaction_id
                     END,
-                    episode.context_party_id
+                    episode.context_party_id,
+                    context_party.display_label,
+                    current_interaction.addressed_to_subject,
+                    scene.primary_party_id
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -461,12 +465,16 @@ class PostgreSQLContextRepository:
                   ON subject.subject_id = episode.subject_id
                 LEFT JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = opportunity.evidence_id
+                LEFT JOIN armi.party_input_interactions AS current_interaction
+                  ON current_interaction.interaction_id = evidence.interaction_id
                 LEFT JOIN armi.exact_life_query_intents AS life_query
                   ON opportunity.source_kind = 'life_query_result'
                  AND life_query.exact_life_query_intent_id = opportunity.source_ref
                  AND life_query.result_opportunity_id = opportunity.opportunity_id
                 LEFT JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = episode.scene_id
+                LEFT JOIN armi.parties AS context_party
+                  ON context_party.party_id = episode.context_party_id
                 JOIN armi.prompt_documents AS document
                   ON document.subject_id = episode.subject_id
                  AND document.prompt_kind = 'personality_anchor'
@@ -831,7 +839,10 @@ class PostgreSQLContextRepository:
                     "scene_kind": str(row[16]),
                     "audience_scope": str(row[17]),
                     "status": str(row[18]),
-                    "primary_party_id": str(row[37] if row[37] is not None else row[4]),
+                    "primary_party_id": str(row[40] if row[40] is not None else row[4]),
+                    "context_party_id": str(row[4]),
+                    "context_party_display_label": row[38],
+                    "addressed_to_subject": row[39],
                 }
             )
         )
@@ -842,10 +853,11 @@ class PostgreSQLContextRepository:
                     """
                     SELECT item.timeline_item_id, item.source_event_no,
                            item.source_kind, item.occurred_at,
-                           COALESCE(
-                               prior_evidence.artifact_id,
-                               response_revision.response_artifact_id
-                           ) AS artifact_id
+                            COALESCE(
+                                prior_evidence.artifact_id,
+                                response_revision.response_artifact_id
+                            ) AS artifact_id,
+                            prior_party.display_label
                     FROM armi.scene_timeline_items AS item
                     JOIN armi.scene_timeline_items AS current_item
                       ON current_item.scene_id = item.scene_id
@@ -858,7 +870,9 @@ class PostgreSQLContextRepository:
                     LEFT JOIN armi.external_evidence AS prior_evidence
                       ON prior_evidence.interaction_id =
                          prior_input.interaction_id
-                     AND prior_evidence.scene_id = item.scene_id
+                      AND prior_evidence.scene_id = item.scene_id
+                    LEFT JOIN armi.parties AS prior_party
+                      ON prior_party.party_id = prior_input.source_party_id
                     LEFT JOIN armi.effects AS response_effect
                       ON item.source_kind = 'party_response'
                      AND response_effect.effect_id = item.source_ref
@@ -888,10 +902,11 @@ class PostgreSQLContextRepository:
                     """
                     SELECT item.timeline_item_id, item.source_event_no,
                            item.source_kind, item.occurred_at,
-                           COALESCE(
-                               prior_evidence.artifact_id,
-                               response_revision.response_artifact_id
-                           ) AS artifact_id
+                            COALESCE(
+                                prior_evidence.artifact_id,
+                                response_revision.response_artifact_id
+                            ) AS artifact_id,
+                            prior_party.display_label
                     FROM armi.scene_timeline_items AS item
                     JOIN armi.scene_timeline_items AS current_item
                       ON current_item.scene_id = item.scene_id
@@ -905,7 +920,9 @@ class PostgreSQLContextRepository:
                     LEFT JOIN armi.external_evidence AS prior_evidence
                       ON prior_evidence.interaction_id =
                          prior_input.interaction_id
-                     AND prior_evidence.scene_id = item.scene_id
+                      AND prior_evidence.scene_id = item.scene_id
+                    LEFT JOIN armi.parties AS prior_party
+                      ON prior_party.party_id = prior_input.source_party_id
                     LEFT JOIN armi.effects AS response_effect
                       ON item.source_kind = 'party_response'
                      AND response_effect.effect_id = item.source_ref
@@ -939,10 +956,11 @@ class PostgreSQLContextRepository:
                     """
                     SELECT item.timeline_item_id, item.source_event_no,
                            item.source_kind, item.occurred_at,
-                           COALESCE(
-                               prior_evidence.artifact_id,
-                               response_revision.response_artifact_id
-                           ) AS artifact_id
+                            COALESCE(
+                                prior_evidence.artifact_id,
+                                response_revision.response_artifact_id
+                            ) AS artifact_id,
+                            prior_party.display_label
                     FROM armi.scene_timeline_items AS item
                     LEFT JOIN armi.party_input_interactions AS prior_input
                       ON item.source_kind = 'creator_input'
@@ -952,7 +970,9 @@ class PostgreSQLContextRepository:
                     LEFT JOIN armi.external_evidence AS prior_evidence
                       ON prior_evidence.interaction_id =
                          prior_input.interaction_id
-                     AND prior_evidence.scene_id = item.scene_id
+                      AND prior_evidence.scene_id = item.scene_id
+                    LEFT JOIN armi.parties AS prior_party
+                      ON prior_party.party_id = prior_input.source_party_id
                     LEFT JOIN armi.effects AS response_effect
                       ON item.source_kind = 'party_response'
                      AND response_effect.effect_id = item.source_ref
@@ -993,6 +1013,11 @@ class PostgreSQLContextRepository:
                             else "armi"
                         ),
                         occurred_at=item[3],
+                        speaker_label=(
+                            str(item[5])
+                            if row[16] == "group_dialogue" and item[5] is not None
+                            else None
+                        ),
                     )
                 )
             recent_scene_sources = tuple(recent_sources)

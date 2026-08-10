@@ -27,6 +27,7 @@ from armi_kernel.application import (
     CreatorRelationshipViolation,
     DataRightsViolation,
     EffectViolation,
+    ExternalGroupViolation,
     LifeRecordQueryViolation,
     LifeViolation,
     ModelViolation,
@@ -81,6 +82,7 @@ from .database import (
     compose_data_rights_order_service,
     compose_effect_registration_pipeline,
     compose_exact_life_query_pipeline,
+    compose_external_group_input,
     compose_life_opportunity_pipeline,
     compose_life_record_query,
     compose_model_pipeline,
@@ -101,6 +103,7 @@ from .database import (
 from .diagnostics import StructuredDiagnosticLog
 from .environment import PreparedEnvironment
 from .lifecycle import RUNTIME_BLOCKING_REASONS, LifecycleController
+from .qq_channel import QQChannelBinding, compose_qq_channel
 from .runtime_errors import RuntimeViolation
 from .runtime_observability import RuntimeObservationDriver
 from .supervisor import RuntimeSupervisor
@@ -176,6 +179,9 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     creator_events: CreatorEventBroker | None = None
     creator_input = None
     other_human_input = None
+    external_group_input = None
+    qq_channel: QQChannelBinding | None = None
+    qq_server: _RuntimeServer | None = None
     other_human_record_query = None
     life_opportunity_pipeline = None
     context_pipeline = None
@@ -380,6 +386,17 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 notifier=creator_events,
             )
             await other_human_input.open()
+            external_group_input = compose_external_group_input(
+                prepared,
+                authority_admission=authority.require_writable,
+                wakeups=work_wakeups,
+                notifier=creator_events,
+            )
+            await external_group_input.open()
+            qq_channel = compose_qq_channel(
+                prepared,
+                input_port=external_group_input,
+            )
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
@@ -438,6 +455,9 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     event, result_code="EFFECT_REGISTRATION"
                 ),
                 fault_injector=inject_admin_fault,
+                external_group_adapter=(
+                    None if qq_channel is None else qq_channel.effect_adapter
+                ),
             )
             await effect_pipeline.open()
             if "codex.auth_json" in config.secret_locators:
@@ -555,6 +575,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             SubjectCommitViolation,
             ResponseViolation,
             EffectViolation,
+            ExternalGroupViolation,
             LifeViolation,
         ) as error:
             diagnostic.emit(
@@ -592,6 +613,10 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 await creator_input.close()
             if other_human_input is not None:
                 await other_human_input.close()
+            if external_group_input is not None:
+                await external_group_input.close()
+            if qq_channel is not None:
+                await qq_channel.close()
             if context_pipeline is not None:
                 await context_pipeline.close()
             if life_opportunity_pipeline is not None:
@@ -757,6 +782,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                 effect_pipeline.run(),
                 name="effect-registration-worker",
             )
+        if qq_server is not None:
+            supervisor.start(
+                qq_server.serve(),
+                name="qq-napcat-event-listener",
+            )
         if codex_pipeline is not None:
             supervisor.start(
                 codex_pipeline.run_worker(),
@@ -774,6 +804,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         nonlocal drain_timed_out
         if admin_control is not None:
             await admin_control.close()
+        if qq_server is not None:
+            qq_server.should_exit = True
         if observation_driver is not None:
             observation_driver.stop()
         lifecycle.drain()
@@ -808,6 +840,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_input.close()
         if other_human_input is not None:
             await other_human_input.close()
+        if external_group_input is not None:
+            await external_group_input.close()
         if context_pipeline is not None:
             context_pipeline.stop()
         if life_opportunity_pipeline is not None:
@@ -857,6 +891,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await response_pipeline.close()
         if effect_pipeline is not None:
             await effect_pipeline.close()
+        if qq_channel is not None:
+            await qq_channel.close()
         if codex_pipeline is not None:
             await codex_pipeline.close()
         if capability_policy is not None:
@@ -1028,6 +1064,22 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             timeout_graceful_shutdown=config.lifecycle.graceful_shutdown_seconds,
         )
     )
+    if qq_channel is not None:
+        qq_server = _RuntimeServer(
+            uvicorn.Config(
+                qq_channel.event_app,
+                host="127.0.0.1",
+                port=qq_channel.event_port,
+                workers=1,
+                proxy_headers=False,
+                forwarded_allow_ips="",
+                access_log=False,
+                log_level="warning",
+                log_config=None,
+                server_header=False,
+                timeout_graceful_shutdown=(config.lifecycle.graceful_shutdown_seconds),
+            )
+        )
     control_incarnation = load_admin_control_incarnation(
         prepared.root,
         str(config.environment.environment_id),
@@ -1084,6 +1136,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await creator_input.close()
         if other_human_input is not None:
             await other_human_input.close()
+        if external_group_input is not None:
+            await external_group_input.close()
         if context_pipeline is not None:
             await context_pipeline.close()
         if life_opportunity_pipeline is not None:
@@ -1094,6 +1148,8 @@ async def _serve(prepared: PreparedEnvironment) -> int:
             await capability_policy.close()
         if effect_pipeline is not None:
             await effect_pipeline.close()
+        if qq_channel is not None:
+            await qq_channel.close()
         if codex_pipeline is not None:
             await codex_pipeline.close()
         if web_search_pipeline is not None:

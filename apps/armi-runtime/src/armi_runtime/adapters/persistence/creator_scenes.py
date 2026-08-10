@@ -112,6 +112,14 @@ class CreatorSceneRepository:
         ).fetchone()
         if row is None:
             raise SceneQueryViolation("SCENE-CREATE-FAILED")
+        await connection.execute(
+            """
+            INSERT INTO armi.scene_participants (
+                scene_id, subject_id, party_id, participant_role
+            ) VALUES (%s, %s, %s, 'primary')
+            """,
+            (scene_id, subject_id, creator_party_id),
+        )
         return _view(row)
 
     async def set_status(

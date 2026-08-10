@@ -78,13 +78,18 @@ class NapCatHttpClient(NapCatGateway):
         except httpx.TimeoutException, httpx.NetworkError:
             raise NapCatAmbiguousDelivery("NAPCAT-DELIVERY-AMBIGUOUS") from None
         if response.status_code < 200 or response.status_code >= 300:
-            raise NapCatRejected("NAPCAT-DELIVERY-REJECTED")
+            if 400 <= response.status_code < 500:
+                raise NapCatRejected("NAPCAT-DELIVERY-REJECTED")
+            raise NapCatAmbiguousDelivery("NAPCAT-DELIVERY-AMBIGUOUS")
         try:
             document = response.json()
         except ValueError:
             raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID") from None
         if type(document) is not dict:
             raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID")
+        # OneBot's HTTP endpoint correlates by its synchronous response and does
+        # not define the WebSocket-level echo field. Keep the local request ref
+        # only for the normalized response contract.
         document["echo"] = echo
         parsed = parse_onebot_message(json.dumps(document, separators=(",", ":")))
         if not isinstance(parsed, NapCatActionResponse):

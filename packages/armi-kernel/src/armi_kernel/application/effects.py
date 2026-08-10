@@ -115,7 +115,7 @@ class EffectObservationId:
 
 
 @dataclass(frozen=True, slots=True)
-class CreatorResponseDeliveryId:
+class EffectDeliveryId:
     value: UUID
 
     def __post_init__(self) -> None:
@@ -128,7 +128,11 @@ class FrozenEffectRequest:
     attempt_id: EffectAttemptId
     subject_id: UUID
     scene_id: UUID
-    creator_party_id: UUID
+    destination_party_id: UUID
+    destination_kind: Literal["creator_inbox", "other_human_inbox", "external_group"]
+    external_channel: str | None
+    external_account_key: str | None
+    external_conversation_key: str | None
     payload_digest: Digest
     payload_bytes: int
     request_digest: Digest
@@ -140,20 +144,64 @@ class FrozenEffectRequest:
         if type(self.scene_id) is not UUID or self.scene_id.version != 7:
             raise EffectViolation("CON-EFFECT-SCENE")
         if (
-            type(self.creator_party_id) is not UUID
-            or self.creator_party_id.version != 7
+            type(self.destination_party_id) is not UUID
+            or self.destination_party_id.version != 7
         ):
-            raise EffectViolation("CON-EFFECT-CREATOR")
+            raise EffectViolation("CON-EFFECT-DESTINATION")
+        if self.destination_kind not in {
+            "creator_inbox",
+            "other_human_inbox",
+            "external_group",
+        }:
+            raise EffectViolation("CON-EFFECT-DESTINATION")
+        route = (
+            self.external_channel,
+            self.external_account_key,
+            self.external_conversation_key,
+        )
+        if self.destination_kind == "external_group":
+            if any(
+                type(value) is not str
+                or re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", value) is None
+                for value in route
+            ):
+                raise EffectViolation("CON-EFFECT-DESTINATION")
+            assert self.external_channel is not None
+            if re.fullmatch(r"^[a-z][a-z0-9._-]{0,63}$", self.external_channel) is None:
+                raise EffectViolation("CON-EFFECT-DESTINATION")
+        elif any(value is not None for value in route):
+            raise EffectViolation("CON-EFFECT-DESTINATION")
         if not 1 <= self.payload_bytes <= 65536:
             raise EffectViolation("CON-EFFECT-PAYLOAD")
 
 
 @dataclass(frozen=True, slots=True)
 class EffectAdapterReceipt:
-    delivery_id: CreatorResponseDeliveryId
+    delivery_id: EffectDeliveryId
     receipt_digest: Digest
     received_at: Instant
     duplicate: bool = False
+    external_receiver_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.delivery_id) is not EffectDeliveryId:
+            raise EffectViolation("CON-EFFECT-RECEIPT")
+        if (
+            type(self.receipt_digest) is not Digest
+            or type(self.received_at) is not Instant
+        ):
+            raise EffectViolation("CON-EFFECT-RECEIPT")
+        if type(self.duplicate) is not bool:
+            raise EffectViolation("CON-EFFECT-RECEIPT")
+        if self.external_receiver_ref is not None and (
+            type(self.external_receiver_ref) is not str
+            or re.fullmatch(
+                r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                self.external_receiver_ref,
+            )
+            is None
+        ):
+            raise EffectViolation("CON-EFFECT-RECEIPT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,13 +413,13 @@ def _uuid7(value: object) -> None:
 
 __all__ = (
     "ActionAdapterPort",
-    "CreatorResponseDeliveryId",
     "EffectAdapterReceipt",
     "EffectArtifactContent",
     "EffectArtifactKind",
     "EffectAttemptId",
     "EffectAttemptResult",
     "EffectAttemptState",
+    "EffectDeliveryId",
     "EffectId",
     "EffectLedgerPort",
     "EffectObservation",

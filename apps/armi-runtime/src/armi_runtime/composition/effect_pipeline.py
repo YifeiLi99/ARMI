@@ -35,6 +35,7 @@ from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifa
 from armi_runtime.adapters.creator_response_inbox import (
     PostgreSQLLocalInbox,
 )
+from armi_runtime.adapters.effect_router import RoutedActionAdapter
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.effect_dispatch import (
     EffectDispatchSnapshot,
@@ -80,6 +81,7 @@ class EffectRegistrationPipeline:
         storage: ContentAddressedArtifactStore,
         notifier: CreatorProjectionNotifier | None = None,
         adapter: ActionAdapterPort | None = None,
+        external_group_adapter: ActionAdapterPort | None = None,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
@@ -88,7 +90,19 @@ class EffectRegistrationPipeline:
         self._storage = storage
         self._repository = PostgreSQLEffectLedgerRepository()
         self._dispatcher = PostgreSQLEffectDispatchRepository()
-        self._adapter = adapter or PostgreSQLLocalInbox(factory)
+        if adapter is not None and external_group_adapter is not None:
+            raise ValueError("whole-effect and external-group adapters are exclusive")
+        if adapter is not None:
+            self._adapter = adapter
+        else:
+            local_inbox = PostgreSQLLocalInbox(factory)
+            routes: dict[str, ActionAdapterPort] = {
+                "creator_inbox": local_inbox,
+                "other_human_inbox": local_inbox,
+            }
+            if external_group_adapter is not None:
+                routes["external_group"] = external_group_adapter
+            self._adapter = RoutedActionAdapter(routes)
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -254,6 +268,19 @@ class EffectRegistrationPipeline:
                         await self._dispatcher.settle_integrity_failure(uow, snapshot)
                     await self._notify_dispatch(snapshot, include_scene=False)
                     return True
+                if error.code in {
+                    "EFFECT-RECEIVER-NOT-DELIVERED",
+                    "EFFECT-ADAPTER-UNAVAILABLE",
+                }:
+                    async with self._factory.unit_of_work(LockPlan()) as uow:
+                        await self._dispatcher.settle_rejection(uow, snapshot)
+                    await self._notify_dispatch(snapshot, include_scene=False)
+                    return True
+                if error.code == "EFFECT-RESULT-UNKNOWN":
+                    async with self._factory.unit_of_work(LockPlan()) as uow:
+                        await self._dispatcher.settle_unknown(uow, snapshot)
+                    await self._notify_dispatch(snapshot, include_scene=False)
+                    return True
                 return await self._reconcile(snapshot)
             self._fault_injector("adapter_after_dispatch_before_settlement")
             async with self._factory.unit_of_work(LockPlan()) as uow:
@@ -358,6 +385,8 @@ class EffectRegistrationPipeline:
     async def _notify_dispatch(
         self, snapshot: EffectDispatchSnapshot, *, include_scene: bool
     ) -> None:
+        if snapshot.request.destination_kind != "creator_inbox":
+            return
         try:
             async with self._factory.unit_of_work(
                 LockPlan(), read_only=True
@@ -365,7 +394,7 @@ class EffectRegistrationPipeline:
                 view = await self._repository.get_effect(
                     unit_of_work,
                     snapshot.request.effect_id,
-                    creator_party_id=snapshot.request.creator_party_id,
+                    creator_party_id=snapshot.request.destination_party_id,
                 )
         except DatabaseTransactionError, EffectViolation:
             self._diagnostic("effect.notification.lookup_failed")
@@ -486,6 +515,7 @@ def build_effect_registration_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
+    external_group_adapter: ActionAdapterPort | None = None,
 ) -> EffectRegistrationPipeline:
     async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
         del connection, target
@@ -510,6 +540,7 @@ def build_effect_registration_pipeline(
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,
+        external_group_adapter=external_group_adapter,
     )
 
 

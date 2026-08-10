@@ -3,6 +3,7 @@ name = "armi-runtime"
 version = "0.0.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "armi-adapter-qq==0.0.0",
     "armi-kernel==0.0.0",
     "armi-postgresql-contract==0.0.0",
     "fastapi==0.140.13",
@@ -21,6 +22,7 @@ armi = "armi_runtime.cli:main"
 armi-codex-runner = "armi_runtime.codex_runner_cli:main"
 
 [tool.uv.sources]
+armi-adapter-qq = { workspace = true }
 armi-kernel = { workspace = true }
 armi-postgresql-contract = { workspace = true }
 

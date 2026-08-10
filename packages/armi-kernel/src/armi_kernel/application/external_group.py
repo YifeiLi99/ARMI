@@ -15,7 +15,7 @@ from .scenes import SceneKey
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _EXTERNAL_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", re.ASCII)
-_MESSAGE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$", re.ASCII)
+_MESSAGE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", re.ASCII)
 _MAX_MESSAGE_BYTES = 256 * 1024
 
 
@@ -233,6 +233,29 @@ class ExternalGroupSendReceipt:
             raise ExternalGroupViolation("CON-EXTERNAL-GROUP-RECEIPT")
 
 
+@dataclass(frozen=True, slots=True)
+class ExternalGroupSendQuery:
+    effect_id: UUID
+    attempt_id: UUID
+    channel: ExternalChannel
+    account_key: ExternalAccountKey
+    conversation_key: ExternalConversationKey
+    content_digest: Digest
+    trace_id: TraceId
+
+    def __post_init__(self) -> None:
+        _uuid7(self.effect_id, "CON-EXTERNAL-GROUP-QUERY")
+        _uuid7(self.attempt_id, "CON-EXTERNAL-GROUP-QUERY")
+        if (
+            type(self.channel) is not ExternalChannel
+            or type(self.account_key) is not ExternalAccountKey
+            or type(self.conversation_key) is not ExternalConversationKey
+            or type(self.content_digest) is not Digest
+            or type(self.trace_id) is not TraceId
+        ):
+            raise ExternalGroupViolation("CON-EXTERNAL-GROUP-QUERY")
+
+
 @runtime_checkable
 class ExternalGroupInputPort(Protocol):
     async def ensure_group(
@@ -251,7 +274,7 @@ class ExternalGroupSendPort(Protocol):
     ) -> ExternalGroupSendReceipt: ...
 
     async def observe(
-        self, request: ExternalGroupSendRequest
+        self, request: ExternalGroupSendQuery
     ) -> ExternalGroupSendReceipt | None: ...
 
 
@@ -261,12 +284,13 @@ def _external_key(value: object, code: str) -> None:
 
 
 def _display_label(value: object, code: str) -> None:
-    if (
-        type(value) is not str
-        or not value.strip()
-        or "\x00" in value
-        or len(value.encode("utf-8", errors="strict")) > 256
-    ):
+    if type(value) is not str or not value.strip() or "\x00" in value:
+        raise ExternalGroupViolation(code)
+    try:
+        encoded = value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        raise ExternalGroupViolation(code) from None
+    if len(encoded) > 256:
         raise ExternalGroupViolation(code)
 
 
@@ -283,6 +307,7 @@ __all__ = (
     "ExternalGroupInputAcceptance",
     "ExternalGroupInputPort",
     "ExternalGroupSendPort",
+    "ExternalGroupSendQuery",
     "ExternalGroupSendReceipt",
     "ExternalGroupSendRequest",
     "ExternalGroupView",

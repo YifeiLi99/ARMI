@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 from uuid import uuid4, uuid7
 
 from armi_kernel.application import (
-    CreatorResponseDeliveryId,
     EffectAdapterReceipt,
     EffectAttemptId,
+    EffectDeliveryId,
     EffectId,
     EffectObservation,
     EffectObservationId,
@@ -18,10 +18,11 @@ from armi_kernel.application import (
     EffectVerificationStatus,
     EffectView,
     EffectViolation,
+    FrozenEffectRequest,
     PolicyDecisionId,
     PolicyDecisionOutcome,
 )
-from armi_kernel.contracts import Digest, Instant
+from armi_kernel.contracts import Digest, Instant, TraceId
 
 
 class EffectContractTests(unittest.TestCase):
@@ -72,7 +73,7 @@ class EffectContractTests(unittest.TestCase):
         now = Instant(datetime.now(UTC))
         effect_id = EffectId(uuid7())
         attempt_id = EffectAttemptId(uuid7())
-        delivery_id = CreatorResponseDeliveryId(uuid7())
+        delivery_id = EffectDeliveryId(uuid7())
         receipt = EffectAdapterReceipt(
             delivery_id,
             Digest.from_bytes(b"receipt"),
@@ -135,6 +136,43 @@ class EffectContractTests(unittest.TestCase):
         )
 
         self.assertIs(settlement.status, EffectStatus.CANCELLED)
+
+    def test_external_group_effect_requires_complete_frozen_route(self) -> None:
+        content = b"hello"
+        request = FrozenEffectRequest(
+            EffectId(uuid7()),
+            EffectAttemptId(uuid7()),
+            uuid7(),
+            uuid7(),
+            uuid7(),
+            "external_group",
+            "qq",
+            "10001",
+            "20002",
+            Digest.from_bytes(content),
+            len(content),
+            Digest.from_bytes(b"request"),
+            TraceId(uuid7().hex),
+        )
+        self.assertEqual(request.external_conversation_key, "20002")
+
+        with self.assertRaises(EffectViolation) as invalid:
+            FrozenEffectRequest(
+                EffectId(uuid7()),
+                EffectAttemptId(uuid7()),
+                uuid7(),
+                uuid7(),
+                uuid7(),
+                "external_group",
+                "qq",
+                "10001",
+                None,
+                Digest.from_bytes(content),
+                len(content),
+                Digest.from_bytes(b"request"),
+                TraceId(uuid7().hex),
+            )
+        self.assertEqual(invalid.exception.code, "CON-EFFECT-DESTINATION")
 
     def test_codex_effect_allows_model_identity_enrichment_from_manifest(self) -> None:
         view = EffectView(

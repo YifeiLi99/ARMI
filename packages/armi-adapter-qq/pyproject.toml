@@ -5,6 +5,7 @@ requires-python = ">=3.14,<3.15"
 dependencies = [
     "armi-channel-napcat==0.0.0",
     "armi-kernel==0.0.0",
+    "fastapi==0.140.13",
 ]
 
 [tool.uv.sources]

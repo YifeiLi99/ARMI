@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import unittest
 
+import httpx
 from armi_channel_napcat import (
     NapCatActionResponse,
+    NapCatAmbiguousDelivery,
     NapCatGroupMessageEvent,
+    NapCatHttpClient,
     NapCatViolation,
     parse_onebot_message,
 )
@@ -45,6 +49,28 @@ class NapCatContractTests(unittest.TestCase):
         assert isinstance(parsed, NapCatActionResponse)
         self.assertTrue(parsed.succeeded)
 
+    def test_accepts_current_napcat_decimal_string_ids(self) -> None:
+        parsed = parse_onebot_message(
+            json.dumps(
+                {
+                    "time": "1800000000",
+                    "self_id": "10001",
+                    "post_type": "message",
+                    "message_type": "group",
+                    "message_id": "345",
+                    "group_id": "20002",
+                    "user_id": "30003",
+                    "message": [{"type": "text", "data": {"text": "你好"}}],
+                    "sender": {"nickname": "小明"},
+                }
+            )
+        )
+        self.assertIsInstance(parsed, NapCatGroupMessageEvent)
+        assert isinstance(parsed, NapCatGroupMessageEvent)
+        self.assertEqual(
+            (parsed.self_id, parsed.group_id, parsed.user_id), (10001, 20002, 30003)
+        )
+
     def test_ignores_non_group_events(self) -> None:
         self.assertIsNone(
             parse_onebot_message(
@@ -57,6 +83,67 @@ class NapCatContractTests(unittest.TestCase):
             parse_onebot_message(
                 '{"post_type":"message","message_type":"group","self_id":1}'
             )
+
+    def test_http_action_correlates_its_synchronous_response(self) -> None:
+        observed: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            document = json.loads(request.content)
+            observed.append(document)
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "retcode": 0,
+                    "data": {"message_id": "88"},
+                },
+            )
+
+        async def exercise() -> NapCatActionResponse:
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token="test-token",
+                    client=client,
+                )
+                return await gateway.send_group_text(
+                    group_id=20002, text="你好", echo="effect:attempt"
+                )
+
+        response = asyncio.run(exercise())
+        self.assertEqual(response.message_id, "88")
+        self.assertEqual(
+            observed,
+            [
+                {
+                    "group_id": 20002,
+                    "message": "你好",
+                }
+            ],
+        )
+
+    def test_http_server_failure_is_ambiguous_after_dispatch(self) -> None:
+        async def exercise() -> None:
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token="test-token",
+                    client=client,
+                )
+                with self.assertRaisesRegex(
+                    NapCatAmbiguousDelivery, "NAPCAT-DELIVERY-AMBIGUOUS"
+                ):
+                    await gateway.send_group_text(
+                        group_id=20002, text="你好", echo="effect:attempt"
+                    )
+
+        asyncio.run(exercise())
 
 
 if __name__ == "__main__":

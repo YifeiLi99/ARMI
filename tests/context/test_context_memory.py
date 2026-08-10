@@ -688,7 +688,7 @@ def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -
 
 
 def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
-    def request(scene_key: str, text: str):
+    def request(scene_key: str, text: str, speaker_label: str | None = None):
         payload = rfc8785.dumps({"speaker": "creator", "text": text})
         source = cast(
             ContextSceneTurnSource,
@@ -696,6 +696,7 @@ def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
                 timeline_item_id=uuid7(),
                 source_version=1,
                 speaker="creator",
+                speaker_label=speaker_label,
                 occurred_at=datetime(2026, 8, 6, 10, tzinfo=UTC),
                 ref=SimpleNamespace(content_digest=Digest.from_bytes(payload)),
             ),
@@ -725,6 +726,11 @@ def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
     assert "beta only" not in cast(str, alpha_turns[0])
     assert "beta only" in cast(str, beta_turns[0])
     assert "alpha only" not in cast(str, beta_turns[0])
+    labelled = request("group", "group turn", "小明")
+    labelled_turns = tuple(
+        item.content for item in labelled.items if item.item_kind == "recent_scene_turn"
+    )
+    assert cast(str, labelled_turns[0]).startswith("[小明] ")
 
 
 def test_recent_scene_artifact_contract_separates_creator_and_other_human() -> None:

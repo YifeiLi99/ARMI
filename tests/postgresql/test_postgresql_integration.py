@@ -68,6 +68,12 @@ from armi_kernel.application import (
     CreatorSceneReplyScope,
     CredentialLocator,
     EffectStatus,
+    EnsureExternalGroupCommand,
+    ExternalAccountKey,
+    ExternalChannel,
+    ExternalConversationKey,
+    ExternalMessageKey,
+    ExternalPartyKey,
     LifeRecordActor,
     LifeRecordKind,
     LifeRecordQuery,
@@ -76,6 +82,7 @@ from armi_kernel.application import (
     LockTarget,
     LockTargetKind,
     ModelResultStatus,
+    ObservedExternalGroupMessage,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
     PersonalityAnchor,
@@ -146,7 +153,13 @@ from armi_runtime.adapters.persistence.effect_dispatch import (
 from armi_runtime.adapters.persistence.effect_ledger import (
     PostgreSQLEffectLedgerRepository,
 )
+from armi_runtime.adapters.persistence.external_group_input import (
+    ExternalGroupInputRepository,
+)
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
+from armi_runtime.adapters.persistence.other_human_input import (
+    OtherHumanInputRepository,
+)
 from armi_runtime.adapters.persistence.outbox import (
     OutboxDispatcher,
     OutboxEnvelope,
@@ -192,6 +205,7 @@ from armi_runtime.composition.candidate_validator import (
 )
 from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
+from armi_runtime.composition.external_group_input import ExternalGroupInputService
 from armi_runtime.composition.life_opportunity import LifeOpportunityPipeline
 from armi_runtime.composition.model_contract import (
     build_request_bytes,
@@ -412,13 +426,182 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """,
                 (fixture.runtime_role,),
             ).fetchone()
+            external_observation_privilege = connection.execute(
+                """
+                SELECT has_column_privilege(
+                    %s, 'armi.effect_observations',
+                    'receiver_external_ref', 'INSERT'
+                )
+                """,
+                (fixture.runtime_role,),
+            ).fetchone()
         self.assertEqual(extension, ("0.8.6", "armi_extensions", True))
+        self.assertEqual(external_observation_privilege, (True,))
         with self.assertRaises(DatabaseViolation) as repeated:
             self._install_current(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
+
+    def test_external_group_input_is_bound_and_idempotent_as_runtime_role(
+        self,
+    ) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        packaged = packaged_birth_digests()
+        anchor = PersonalityAnchor(
+            schema_version="armi.personality-anchor.v1",
+            voice_style="约 16 岁少女口吻",
+            traits=("自主",),
+        )
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="qq-group-input-birth",
+            personality_anchor=anchor,
+            personality_anchor_digest=Digest.from_bytes(
+                rfc8785.dumps(
+                    {
+                        "schema_version": anchor.schema_version,
+                        "voice_style": anchor.voice_style,
+                        "traits": list(anchor.traits),
+                    }
+                )
+            ),
+            composition_digest=packaged["composition_digest"],
+            birth_contract_digest=packaged["birth_contract_digest"],
+            creator_asset_manifest_digest=packaged["creator_asset_manifest_digest"],
+            request_digest=Digest.from_bytes(b"qq-group-input-birth"),
+        )
+
+        async def reject_lock(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+            target: LockTarget,
+        ) -> None:
+            del connection, target
+            raise AssertionError("external group input uses no dynamic lock")
+
+        async def exercise(root: Path) -> tuple[Any, Any, Any]:
+            storage = ContentAddressedArtifactStore(
+                root / "artifacts", max_object_bytes=1024 * 1024
+            )
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_lock,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            await factory.open()
+            try:
+                await BirthTransaction(
+                    storage,
+                    ArtifactCatalogRepository(),
+                    BirthRepository(),
+                    factory,
+                ).birth(manifest)
+            finally:
+                await factory.close()
+            input_factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                lock_acquirer=reject_lock,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            service = ExternalGroupInputService(
+                storage=storage,
+                catalog=ArtifactCatalogRepository(),
+                groups=ExternalGroupInputRepository(),
+                inputs=OtherHumanInputRepository(),
+                unit_of_work_factory=input_factory,
+            )
+            await service.open()
+            try:
+                group = await service.ensure_group(
+                    EnsureExternalGroupCommand(
+                        ExternalChannel("qq"),
+                        ExternalAccountKey("10001"),
+                        ExternalConversationKey("20002"),
+                        "开发群",
+                        TraceId("1" * 32),
+                    )
+                )
+                message = ObservedExternalGroupMessage(
+                    ExternalChannel("qq"),
+                    ExternalAccountKey("10001"),
+                    ExternalConversationKey("20002"),
+                    ExternalMessageKey("30003"),
+                    ExternalPartyKey("40004"),
+                    "小明",
+                    "大家好",
+                    Instant(datetime(2026, 8, 10, 12, tzinfo=UTC)),
+                    TraceId("2" * 32),
+                    addressed_to_subject=True,
+                )
+                first = await service.accept(message)
+                repeated = await service.accept(
+                    replace(message, trace_id=TraceId("3" * 32))
+                )
+                return group, first, repeated
+            finally:
+                await service.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            group, first, repeated = asyncio.run(
+                exercise(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+        self.assertTrue(first.newly_accepted)
+        self.assertFalse(repeated.newly_accepted)
+        self.assertEqual(first.interaction_id, repeated.interaction_id)
+        self.assertEqual(first.binding_id, group.binding_id)
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            shape = connection.execute(
+                """
+                SELECT scene.scene_kind, group_party.party_kind,
+                       interaction.external_binding_id,
+                       interaction.external_message_key,
+                       interaction.addressed_to_subject,
+                       (SELECT count(*) FROM armi.scene_participants
+                        WHERE scene_id = scene.scene_id),
+                       (SELECT count(*) FROM armi.external_channel_bindings
+                        WHERE channel_kind = 'qq' AND account_key = '10001')
+                FROM armi.interaction_scenes AS scene
+                JOIN armi.parties AS group_party
+                  ON group_party.party_id = scene.primary_party_id
+                JOIN armi.party_input_interactions AS interaction
+                  ON interaction.scene_id = scene.scene_id
+                 AND interaction.interaction_id = %s
+                """,
+                (first.interaction_id.value,),
+            ).fetchone()
+        self.assertEqual(
+            shape,
+            (
+                "group_dialogue",
+                "social_group",
+                group.binding_id,
+                "30003",
+                True,
+                2,
+                2,
+            ),
+        )
 
     def test_baseline_module_failure_rolls_back_every_module(self) -> None:
         fixture = self.create_database()
@@ -487,9 +670,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
         self.assertEqual(migrated.status, "current")
-        self.assertEqual(migrated.table_count, installed.table_count + 1)
-        self.assertEqual(migrated.migration_count, 1)
-        self.assertEqual(migrated.target_id, "0001_harden_authoritative_schema")
+        self.assertEqual(migrated.table_count, installed.table_count + 3)
+        self.assertEqual(migrated.migration_count, 2)
+        self.assertEqual(migrated.target_id, "0002_external_group_channels")
         self.assertEqual(
             gateway.migrate(
                 fixture.migrator_dsn,
@@ -636,7 +819,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(metrics["resumable_admin_correction_work_count"], 11)
         self.assertEqual(parent_columns, (11,))
         self.assertEqual(fixed_versions, (0,))
-        self.assertEqual(catalog_shape, (74, 996))
+        self.assertEqual(catalog_shape, (76, 1020))
 
     def test_authoritative_migration_dirty_data_rolls_back_atomically(self) -> None:
         fixture = self.create_database()
@@ -5948,7 +6131,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchall()
             self.assertEqual(
                 restored,
-                [("baseline",), ("0001_harden_authoritative_schema",)],
+                [
+                    ("baseline",),
+                    ("0001_harden_authoritative_schema",),
+                    ("0002_external_group_channels",),
+                ],
             )
 
             second_quarantine = root / "second-quarantine"

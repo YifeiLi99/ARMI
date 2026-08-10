@@ -13,8 +13,8 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CreatorResponseDeliveryId,
     EffectAdapterReceipt,
+    EffectDeliveryId,
     EffectViolation,
     FrozenEffectRequest,
     LockPlan,
@@ -72,7 +72,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
                         request.effect_id.value,
                         request.subject_id,
                         request.scene_id,
-                        request.creator_party_id,
+                        request.destination_party_id,
                         request.payload_digest.value,
                         request.payload_bytes,
                     ),
@@ -83,7 +83,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
                 if existing is None:
                     raise EffectViolation("EFFECT-RECEIVER-STATE")
                 return EffectAdapterReceipt(
-                    CreatorResponseDeliveryId(existing[0]),
+                    EffectDeliveryId(existing[0]),
                     Digest(str(existing[1])),
                     Instant(existing[2]),
                     duplicate=True,
@@ -128,7 +128,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
                 )
             )
             return EffectAdapterReceipt(
-                CreatorResponseDeliveryId(row[0]),
+                EffectDeliveryId(row[0]),
                 Digest(str(row[1])),
                 Instant(row[2]),
             )
@@ -142,7 +142,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
             if row is None:
                 return None
             return EffectAdapterReceipt(
-                CreatorResponseDeliveryId(row[0]),
+                EffectDeliveryId(row[0]),
                 Digest(str(row[1])),
                 Instant(row[2]),
                 duplicate=True,
@@ -168,7 +168,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
             str(row[3]) != request.payload_digest.value
             or int(row[4]) != request.payload_bytes
             or row[5] != request.scene_id
-            or row[6] != request.creator_party_id
+            or row[6] != request.destination_party_id
         ):
             raise EffectViolation("EFFECT-RECEIVER-CONFLICT")
         return row

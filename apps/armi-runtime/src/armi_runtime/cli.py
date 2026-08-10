@@ -30,6 +30,12 @@ from armi_runtime.composition.operational_maintenance import (
     run_artifact_retention,
     run_database_maintenance,
 )
+from armi_runtime.composition.qq_channel import (
+    QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
+    QQ_NAPCAT_ACCESS_TOKEN_PURPOSE,
+    QQ_NAPCAT_EVENT_SECRET_LOCATOR,
+    QQ_NAPCAT_EVENT_SECRET_PURPOSE,
+)
 from armi_runtime.composition.recovery import (
     create_recovery_backup,
     drill_recovery_backup,
@@ -239,6 +245,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "model.request": "model.ark_api_key",
             "web.search": "model.ark_api_key",
             "codex.runner.auth": "codex.auth_json",
+            QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
+            QQ_NAPCAT_EVENT_SECRET_PURPOSE: QQ_NAPCAT_EVENT_SECRET_LOCATOR,
         }
     try:
         configuration_environment = dict(os.environ)

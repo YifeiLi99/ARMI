@@ -65,6 +65,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-channel-napcat==0.0.0",
             "armi-kernel==0.0.0",
+            "fastapi==0.140.13",
         ),
     ),
     Distribution(
@@ -73,6 +74,7 @@ DISTRIBUTIONS = (
         project_dir=Path("apps/armi-runtime"),
         layers=("adapters", "interfaces", "workers", "composition"),
         dependencies=(
+            "armi-adapter-qq==0.0.0",
             "armi-kernel==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "fastapi==0.140.13",

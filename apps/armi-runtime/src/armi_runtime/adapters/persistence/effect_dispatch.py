@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -28,7 +28,8 @@ from .effect_grant_coordination import (
 )
 from .unit_of_work import PostgreSQLUnitOfWork
 
-_ADAPTER_BINDING = "armi.local-inbox-adapter.postgresql-v1"
+_LOCAL_ADAPTER_BINDING = "armi.local-inbox-adapter.postgresql-v1"
+_EXTERNAL_GROUP_ADAPTER_BINDING = "armi.external-group-adapter.v1"
 
 
 class _AbsentDisposition(StrEnum):
@@ -64,19 +65,25 @@ class PostgreSQLEffectDispatchRepository:
                 """
                 SELECT outbox.effect_outbox_item_id, effect.effect_id,
                        effect.subject_id, effect.scene_id,
-                       effect.context_party_id, effect.payload_artifact_id,
+                       effect.destination_party_id, effect.payload_artifact_id,
                        effect.payload_digest, effect.payload_bytes, effect.trace_id,
-                       scene.scene_key, outbox.attempt_count, outbox.claim_token
+                       scene.scene_key, outbox.attempt_count, outbox.claim_token,
+                       effect.destination_kind, binding.channel_kind,
+                       binding.account_key, binding.external_key
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = effect.scene_id
+                LEFT JOIN armi.external_channel_bindings AS binding
+                  ON binding.external_binding_id = effect.destination_binding_id
                 WHERE outbox.status = 'ready'
                   AND outbox.available_at <= statement_timestamp()
                   AND statement_timestamp() < outbox.dispatch_deadline
                   AND outbox.attempt_count < outbox.max_attempts
                   AND effect.status = 'registered'
-                  AND effect.destination_kind IN ('creator_inbox', 'other_human_inbox')
+                  AND effect.destination_kind IN (
+                      'creator_inbox', 'other_human_inbox', 'external_group'
+                  )
                 ORDER BY outbox.available_at, outbox.effect_outbox_item_id
                 FOR UPDATE OF outbox, effect SKIP LOCKED
                 LIMIT 1
@@ -88,7 +95,17 @@ class PostgreSQLEffectDispatchRepository:
         attempt_id = uuid7()
         attempt_no = int(row[10]) + 1
         claim_token = int(row[11]) + 1
-        request_digest = _request_digest(row[1], row[6], int(row[7]))
+        adapter_binding = _adapter_binding(str(row[12]))
+        request_digest = _request_digest(
+            row[1],
+            row[6],
+            int(row[7]),
+            adapter_binding=adapter_binding,
+            destination_kind=str(row[12]),
+            external_channel=None if row[13] is None else str(row[13]),
+            external_account_key=None if row[14] is None else str(row[14]),
+            external_conversation_key=None if row[15] is None else str(row[15]),
+        )
         updated = await (
             await connection.execute(
                 """
@@ -114,7 +131,7 @@ class PostgreSQLEffectDispatchRepository:
                 attempt_id,
                 row[1],
                 attempt_no,
-                _ADAPTER_BINDING,
+                adapter_binding,
                 request_digest.value,
                 claim_token,
             ),
@@ -142,6 +159,13 @@ class PostgreSQLEffectDispatchRepository:
             row[2],
             row[3],
             row[4],
+            cast(
+                Literal["creator_inbox", "other_human_inbox", "external_group"],
+                str(row[12]),
+            ),
+            None if row[13] is None else str(row[13]),
+            None if row[14] is None else str(row[14]),
+            None if row[15] is None else str(row[15]),
             Digest(str(row[6])),
             int(row[7]),
             request_digest,
@@ -161,18 +185,24 @@ class PostgreSQLEffectDispatchRepository:
                        effect.payload_artifact_id, scene.scene_key,
                        effect.effect_id, attempt.effect_attempt_id,
                        effect.subject_id, effect.scene_id,
-                       effect.context_party_id, effect.payload_digest,
-                       effect.payload_bytes, attempt.request_digest, effect.trace_id
+                       effect.destination_party_id, effect.payload_digest,
+                       effect.payload_bytes, attempt.request_digest, effect.trace_id,
+                       effect.destination_kind, binding.channel_kind,
+                       binding.account_key, binding.external_key
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
                 JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = effect.scene_id
+                LEFT JOIN armi.external_channel_bindings AS binding
+                  ON binding.external_binding_id = effect.destination_binding_id
                 WHERE outbox.status = 'claimed'
                   AND outbox.claim_expires_at <= statement_timestamp()
                   AND effect.status = 'dispatching'
-                  AND effect.destination_kind IN ('creator_inbox', 'other_human_inbox')
+                  AND effect.destination_kind IN (
+                      'creator_inbox', 'other_human_inbox', 'external_group'
+                  )
                   AND attempt.dispatch_state IN ('prepared', 'dispatching')
                 ORDER BY outbox.claim_expires_at, outbox.effect_outbox_item_id
                 FOR UPDATE OF outbox, effect, attempt SKIP LOCKED
@@ -196,6 +226,13 @@ class PostgreSQLEffectDispatchRepository:
                 row[8],
                 row[9],
                 row[10],
+                cast(
+                    Literal["creator_inbox", "other_human_inbox", "external_group"],
+                    str(row[15]),
+                ),
+                None if row[16] is None else str(row[16]),
+                None if row[17] is None else str(row[17]),
+                None if row[18] is None else str(row[18]),
                 Digest(str(row[11])),
                 int(row[12]),
                 Digest(str(row[13])),
@@ -212,18 +249,24 @@ class PostgreSQLEffectDispatchRepository:
                        outbox.claim_token, outbox.attempt_count,
                        effect.payload_artifact_id, scene.scene_key,
                        effect.effect_id, effect.subject_id,
-                       effect.scene_id, effect.context_party_id,
+                       effect.scene_id, effect.destination_party_id,
                        effect.payload_digest, effect.payload_bytes,
-                       attempt.request_digest, effect.trace_id
+                       attempt.request_digest, effect.trace_id,
+                       effect.destination_kind, binding.channel_kind,
+                       binding.account_key, binding.external_key
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
                 JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = effect.scene_id
+                LEFT JOIN armi.external_channel_bindings AS binding
+                  ON binding.external_binding_id = effect.destination_binding_id
                 WHERE outbox.status = 'unknown'
                   AND effect.status = 'unknown'
-                  AND effect.destination_kind IN ('creator_inbox', 'other_human_inbox')
+                  AND effect.destination_kind IN (
+                      'creator_inbox', 'other_human_inbox', 'external_group'
+                  )
                   AND attempt.dispatch_state = 'settled'
                   AND attempt.result_status = 'unknown'
                 ORDER BY effect.settled_at, effect.effect_id
@@ -247,6 +290,13 @@ class PostgreSQLEffectDispatchRepository:
                 row[7],
                 row[8],
                 row[9],
+                cast(
+                    Literal["creator_inbox", "other_human_inbox", "external_group"],
+                    str(row[14]),
+                ),
+                None if row[15] is None else str(row[15]),
+                None if row[16] is None else str(row[16]),
+                None if row[17] is None else str(row[17]),
                 Digest(str(row[10])),
                 int(row[11]),
                 Digest(str(row[12])),
@@ -260,20 +310,50 @@ class PostgreSQLEffectDispatchRepository:
         if snapshot.claim_owner is None:
             raise EffectViolation("EFFECT-CLAIM-STALE")
         connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        boundary = await coordinate_dispatch_boundary(
-            uow,
-            effect_id=snapshot.request.effect_id.value,
-            attempt_id=snapshot.request.attempt_id.value,
-            outbox_id=snapshot.outbox_id,
-            claim_owner=snapshot.claim_owner,
-            claim_token=snapshot.claim_token,
-            expected_operation_status="effect_dispatching",
-            cancelled_operation_status="effect_cancelled",
-        )
-        if boundary is None:
+        authorization = await (
+            await connection.execute(
+                """
+                SELECT effect.authorization_basis, effect.destination_kind,
+                       binding.status
+                FROM armi.effects AS effect
+                LEFT JOIN armi.external_channel_bindings AS binding
+                  ON binding.external_binding_id = effect.destination_binding_id
+                WHERE effect.effect_id = %s AND effect.current_attempt_id = %s
+                """,
+                (
+                    snapshot.request.effect_id.value,
+                    snapshot.request.attempt_id.value,
+                ),
+            )
+        ).fetchone()
+        if authorization is None:
             raise EffectViolation("EFFECT-CLAIM-STALE")
-        if not boundary.allowed:
-            return False
+        basis = str(authorization[0])
+        destination_kind = str(authorization[1])
+        if basis == "creator_grant":
+            boundary = await coordinate_dispatch_boundary(
+                uow,
+                effect_id=snapshot.request.effect_id.value,
+                attempt_id=snapshot.request.attempt_id.value,
+                outbox_id=snapshot.outbox_id,
+                claim_owner=snapshot.claim_owner,
+                claim_token=snapshot.claim_token,
+                expected_operation_status="effect_dispatching",
+                cancelled_operation_status="effect_cancelled",
+            )
+            if boundary is None:
+                raise EffectViolation("EFFECT-CLAIM-STALE")
+            if not boundary.allowed:
+                return False
+        elif not (
+            (basis == "runtime_builtin" and destination_kind == "other_human_inbox")
+            or (
+                basis == "runtime_configuration"
+                and destination_kind == "external_group"
+                and authorization[2] == "active"
+            )
+        ):
+            raise EffectViolation("EFFECT-AUTHORIZATION-INVALID")
         row = await (
             await connection.execute(
                 """
@@ -345,12 +425,34 @@ class PostgreSQLEffectDispatchRepository:
             reliability="reliable",
             observation_digest=receipt.receipt_digest,
             receiver_ref=receipt.delivery_id.value,
+            receiver_external_ref=receipt.external_receiver_ref,
             status="completed",
             verification="verified",
             outbox_status="delivered",
             operation_status="effect_completed",
             attempt_result="succeeded",
             error_code=None,
+        )
+
+    async def settle_rejection(
+        self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
+    ) -> None:
+        await self._settle(
+            uow,
+            snapshot,
+            observation_kind="rejection",
+            reliability="reliable",
+            observation_digest=_observation_digest(
+                snapshot, "rejection", "receiver_rejected"
+            ),
+            receiver_ref=None,
+            receiver_external_ref=None,
+            status="failed",
+            verification="verified",
+            outbox_status="dead",
+            operation_status="effect_failed",
+            attempt_result="failed",
+            error_code="EFFECT-RECEIVER-NOT-DELIVERED",
         )
 
     async def settle_absent(
@@ -375,6 +477,8 @@ class PostgreSQLEffectDispatchRepository:
             _AbsentDisposition.CANCELLED_SUPERSEDED: "POLICY-GRANT-NOT-CURRENT",
         }.get(disposition)
         if cancellation_reason is not None:
+            if grant_id is None:
+                raise EffectViolation("EFFECT-SETTLEMENT-STALE")
             await self._settle_cancelled(
                 uow,
                 snapshot,
@@ -390,6 +494,7 @@ class PostgreSQLEffectDispatchRepository:
             reliability="reliable",
             observation_digest=digest,
             receiver_ref=None,
+            receiver_external_ref=None,
             status="failed",
             verification="verified",
             outbox_status="dead",
@@ -403,13 +508,13 @@ class PostgreSQLEffectDispatchRepository:
         self,
         connection: Any,
         snapshot: EffectDispatchSnapshot,
-    ) -> tuple[_AbsentDisposition, UUID, str]:
+    ) -> tuple[_AbsentDisposition, UUID | None, str]:
         policy_ref = await (
             await connection.execute(
                 """
-                SELECT policy.matched_grant_id
+                SELECT effect.authorization_basis, policy.matched_grant_id
                 FROM armi.effects AS effect
-                JOIN armi.policy_decisions AS policy
+                LEFT JOIN armi.policy_decisions AS policy
                   ON policy.policy_decision_id = effect.policy_decision_id
                 WHERE effect.effect_id = %s
                   AND effect.current_attempt_id = %s
@@ -420,9 +525,59 @@ class PostgreSQLEffectDispatchRepository:
                 ),
             )
         ).fetchone()
-        if policy_ref is None or policy_ref[0] is None:
+        if policy_ref is None:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        grant_id = UUID(str(policy_ref[0]))
+        if str(policy_ref[0]) != "creator_grant":
+            current = await (
+                await connection.execute(
+                    """
+                    SELECT outbox.attempt_count, outbox.max_attempts,
+                           statement_timestamp() < outbox.dispatch_deadline,
+                           attempt.dispatch_state
+                    FROM armi.effect_outbox_items AS outbox
+                    JOIN armi.effects AS effect
+                      ON effect.effect_id = outbox.effect_id
+                    JOIN armi.effect_attempts AS attempt
+                      ON attempt.effect_attempt_id = effect.current_attempt_id
+                    WHERE outbox.effect_outbox_item_id = %s
+                      AND outbox.status = 'claimed'
+                      AND outbox.claim_owner = %s
+                      AND outbox.claim_token = %s
+                      AND effect.effect_id = %s
+                      AND effect.status = 'dispatching'
+                      AND effect.current_attempt_id = %s
+                      AND effect.authorization_basis IN (
+                          'runtime_builtin', 'runtime_configuration'
+                      )
+                      AND attempt.dispatch_state IN ('prepared', 'dispatching')
+                    FOR UPDATE OF outbox, effect, attempt
+                    """,
+                    (
+                        snapshot.outbox_id,
+                        snapshot.claim_owner,
+                        snapshot.claim_token,
+                        snapshot.request.effect_id.value,
+                        snapshot.request.attempt_id.value,
+                    ),
+                )
+            ).fetchone()
+            if current is None:
+                raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+            return (
+                _classify_absent_effect(
+                    attempt_count=int(current[0]),
+                    max_attempts=int(current[1]),
+                    before_dispatch_deadline=bool(current[2]),
+                    policy_current=True,
+                    grant_status="active",
+                    grant_time_valid=True,
+                ),
+                None,
+                str(current[3]),
+            )
+        if policy_ref[1] is None:
+            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+        grant_id = UUID(str(policy_ref[1]))
         grant = await (
             await connection.execute(
                 """
@@ -494,6 +649,7 @@ class PostgreSQLEffectDispatchRepository:
             reliability="inconclusive",
             observation_digest=_observation_digest(snapshot, "ambiguous", "unknown"),
             receiver_ref=None,
+            receiver_external_ref=None,
             status="unknown",
             verification="inconclusive",
             outbox_status="unknown",
@@ -514,6 +670,7 @@ class PostgreSQLEffectDispatchRepository:
             observation_kind="receipt",
             observation_digest=receipt.receipt_digest,
             receiver_ref=receipt.delivery_id.value,
+            receiver_external_ref=receipt.external_receiver_ref,
             status="completed",
             verification="verified",
             outbox_status="delivered",
@@ -532,6 +689,7 @@ class PostgreSQLEffectDispatchRepository:
                 snapshot, "query", "confirmed_not_delivered"
             ),
             receiver_ref=None,
+            receiver_external_ref=None,
             status="failed",
             verification="verified",
             outbox_status="dead",
@@ -551,6 +709,7 @@ class PostgreSQLEffectDispatchRepository:
                 snapshot, "rejection", "payload_invalid"
             ),
             receiver_ref=None,
+            receiver_external_ref=None,
             status="failed",
             verification="verified",
             outbox_status="dead",
@@ -766,6 +925,7 @@ class PostgreSQLEffectDispatchRepository:
         reliability: str,
         observation_digest: Digest,
         receiver_ref: UUID | None,
+        receiver_external_ref: str | None,
         status: str,
         verification: str,
         outbox_status: str,
@@ -783,6 +943,7 @@ class PostgreSQLEffectDispatchRepository:
             reliability,
             observation_digest,
             receiver_ref,
+            receiver_external_ref,
         )
         settlement_digest = _settlement_digest(
             snapshot, status, verification, observation_digest
@@ -883,6 +1044,7 @@ class PostgreSQLEffectDispatchRepository:
         observation_kind: str,
         observation_digest: Digest,
         receiver_ref: UUID | None,
+        receiver_external_ref: str | None,
         status: str,
         verification: str,
         outbox_status: str,
@@ -899,6 +1061,7 @@ class PostgreSQLEffectDispatchRepository:
             "reliable",
             observation_digest,
             receiver_ref,
+            receiver_external_ref,
         )
         settlement_digest = _settlement_digest(
             snapshot, status, verification, observation_digest
@@ -995,13 +1158,15 @@ class PostgreSQLEffectDispatchRepository:
         reliability: str,
         digest: Digest,
         receiver_ref: UUID | None,
+        receiver_external_ref: str | None = None,
     ) -> None:
         await connection.execute(
             """
             INSERT INTO armi.effect_observations (
                 effect_observation_id, effect_id, effect_attempt_id,
                 observation_kind, reliability, receiver_ref,
-                observation_digest) VALUES (%s,%s,%s,%s,%s,%s,%s)
+                receiver_external_ref, observation_digest)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 observation_id,
@@ -1010,22 +1175,45 @@ class PostgreSQLEffectDispatchRepository:
                 kind,
                 reliability,
                 receiver_ref,
+                receiver_external_ref,
                 digest.value,
             ),
         )
 
 
-def _request_digest(effect_id: object, payload_digest: object, size: int) -> Digest:
+def _adapter_binding(destination_kind: str) -> str:
+    if destination_kind in {"creator_inbox", "other_human_inbox"}:
+        return _LOCAL_ADAPTER_BINDING
+    if destination_kind == "external_group":
+        return _EXTERNAL_GROUP_ADAPTER_BINDING
+    raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
+
+
+def _request_digest(
+    effect_id: object,
+    payload_digest: object,
+    size: int,
+    *,
+    adapter_binding: str,
+    destination_kind: str,
+    external_channel: str | None,
+    external_account_key: str | None,
+    external_conversation_key: str | None,
+) -> Digest:
     return Digest.from_bytes(
         rfc8785.dumps(
             cast(
                 Any,
                 {
                     "schema_version": "armi.effect-dispatch.v1",
-                    "adapter_binding": _ADAPTER_BINDING,
+                    "adapter_binding": adapter_binding,
                     "effect_id": str(effect_id),
                     "payload_digest": str(payload_digest),
                     "payload_bytes": size,
+                    "destination_kind": destination_kind,
+                    "external_channel": external_channel,
+                    "external_account_key": external_account_key,
+                    "external_conversation_key": external_conversation_key,
                 },
             )
         )
