@@ -83,9 +83,6 @@ from armi_kernel.application import (
     LifeRecordKind,
     LifeRecordQuery,
     LifeRecordRetrievalKind,
-    LockPlan,
-    LockTarget,
-    LockTargetKind,
     ModelResultStatus,
     ObservedExternalGroupMessage,
     OpportunityAdmissionOutcome,
@@ -532,13 +529,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"qq-group-input-birth"),
         )
 
-        async def reject_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("external group input uses no dynamic lock")
-
         async def exercise(root: Path) -> tuple[Any, Any, Any]:
             storage = ContentAddressedArtifactStore(
                 root / "artifacts", max_object_bytes=1024 * 1024
@@ -546,7 +536,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_lock,
                 pool_min=1,
                 pool_max=1,
                 acquire_timeout_seconds=2,
@@ -566,7 +555,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             input_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_lock,
                 pool_min=1,
                 pool_max=1,
                 acquire_timeout_seconds=2,
@@ -846,7 +834,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     database_identity_digest
                 ) VALUES (%s, 'acceptance', 3, true, true, %s, %s, %s, %s, %s)
                 """,
-                (fixture.environment_id, identity, identity, identity, identity, identity),
+                (
+                    fixture.environment_id,
+                    identity,
+                    identity,
+                    identity,
+                    identity,
+                    identity,
+                ),
             )
             connection.execute("SET session_replication_role = origin")
             connection.commit()
@@ -1533,13 +1528,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"p0-s001-life-source-birth"),
         )
 
-        async def reject_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("life source uses no dynamic business lock")
-
         async def exercise(
             root: Path,
         ) -> tuple[
@@ -1552,7 +1540,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             birth_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_lock,
                 pool_min=1,
                 pool_max=1,
                 acquire_timeout_seconds=2,
@@ -1585,7 +1572,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 PostgreSQLUnitOfWorkFactory(
                     fixture.runtime_dsn,
                     environment_id=fixture.environment_id,
-                    lock_acquirer=reject_lock,
                     pool_min=1,
                     pool_max=1,
                     acquire_timeout_seconds=2,
@@ -1683,18 +1669,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"p0-s003-creator-activity-query"),
         )
 
-        async def reject_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("birth and read query need no dynamic business lock")
-
         async def exercise(root: Path) -> None:
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_lock,
                 pool_min=1,
                 pool_max=1,
                 acquire_timeout_seconds=2,
@@ -1827,7 +1805,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             maintenance_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_lock,
                 pool_min=1,
                 pool_max=1,
                 acquire_timeout_seconds=2,
@@ -1903,13 +1880,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"s039-creator-codex-intake-birth"),
         )
 
-        async def reject_unexpected_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("Creator Codex intake uses no dynamic lock target")
-
         async def exercise(
             root: Path,
         ) -> tuple[
@@ -1920,7 +1890,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_unexpected_lock,
                 pool_min=1,
                 pool_max=1,
                 acquire_timeout_seconds=2,
@@ -2280,18 +2249,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"s037-admin-correction-birth"),
         )
 
-        async def reject_unexpected_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("birth must use only its fixed advisory lock")
-
         async def birth_subject(artifact_root: Path) -> None:
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_unexpected_lock,
                 pool_min=1,
                 pool_max=1,
                 acquire_timeout_seconds=2,
@@ -2890,18 +2851,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"s033-web-observation-birth"),
         )
 
-        async def reject_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("web observation does not accept dynamic lock targets")
-
         async def exercise(data_root: Path) -> dict[str, object]:
             birth_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_lock,
                 pool_min=1,
                 pool_max=2,
                 acquire_timeout_seconds=2,
@@ -3004,9 +2957,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "tool_usage": {"web_search": 1},
                         },
                     }
-                    canonical, actions, usage, model = (
-                        normalize_full_response(response)
-                    )
+                    canonical, actions, usage, model = normalize_full_response(response)
                     return WebObservationInvocationResult(
                         WebObservationResultStatus.SUCCEEDED,
                         model,
@@ -3758,18 +3709,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        async def reject_unexpected_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("artifact registration must not invent lock targets")
-
         async def exercise(root: Path) -> dict[str, object]:
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_unexpected_lock,
                 pool_min=1,
                 pool_max=2,
                 acquire_timeout_seconds=1,
@@ -4007,18 +3950,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"s015-birth-request"),
         )
 
-        async def reject_unexpected_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("birth must use only its fixed advisory lock")
-
         async def exercise(root: Path) -> tuple[BirthResult, BirthResult]:
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_unexpected_lock,
                 pool_min=1,
                 pool_max=2,
                 acquire_timeout_seconds=2,
@@ -4323,18 +4258,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"s026-birth-request"),
         )
 
-        async def reject_unexpected_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("T-03 uses only fixed repository locks")
-
         async def birth(root: Path) -> BirthResult:
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_unexpected_lock,
                 pool_min=1,
                 pool_max=1,
                 acquire_timeout_seconds=2,
@@ -5206,7 +5133,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_unexpected_lock,
                 pool_min=1,
                 pool_max=1,
                 acquire_timeout_seconds=2,
@@ -5216,7 +5142,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             repository = PostgreSQLSubjectCommitRepository()
             await factory.open()
             try:
-                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                async with factory.unit_of_work() as unit_of_work:
                     snapshot = await repository.snapshot(unit_of_work, lease)
                     result = await repository.settle(
                         unit_of_work,
@@ -5500,7 +5426,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 response_factory = PostgreSQLUnitOfWorkFactory(
                     fixture.runtime_dsn,
                     environment_id=fixture.environment_id,
-                    lock_acquirer=reject_unexpected_lock,
                     pool_min=1,
                     pool_max=1,
                     acquire_timeout_seconds=2,
@@ -5520,15 +5445,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     response_lease = claimed[0].lease
                     assert response_lease is not None
                     response_repository = PostgreSQLResponseAdmissionRepository()
-                    async with response_factory.unit_of_work(
-                        LockPlan()
-                    ) as unit_of_work:
+                    async with response_factory.unit_of_work() as unit_of_work:
                         response_snapshot = await response_repository.snapshot(
                             unit_of_work, response_lease
                         )
-                    async with response_factory.unit_of_work(
-                        LockPlan()
-                    ) as unit_of_work:
+                    async with response_factory.unit_of_work() as unit_of_work:
                         response_result = await response_repository.settle(
                             unit_of_work,
                             lease=response_lease,
@@ -5548,15 +5469,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     effect_lease = effect_claimed[0].lease
                     assert effect_lease is not None
                     effect_repository = PostgreSQLEffectLedgerRepository()
-                    async with response_factory.unit_of_work(
-                        LockPlan()
-                    ) as unit_of_work:
+                    async with response_factory.unit_of_work() as unit_of_work:
                         effect_snapshot = await effect_repository.snapshot(
                             unit_of_work, effect_lease
                         )
-                    async with response_factory.unit_of_work(
-                        LockPlan()
-                    ) as unit_of_work:
+                    async with response_factory.unit_of_work() as unit_of_work:
                         effect_result = await effect_repository.settle(
                             unit_of_work,
                             lease=effect_lease,
@@ -5566,17 +5483,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     assert effect_result is not None
                     self.assertIs(effect_result.status, EffectStatus.REGISTERED)
                     dispatch_repository = PostgreSQLEffectDispatchRepository()
-                    async with response_factory.unit_of_work(
-                        LockPlan()
-                    ) as unit_of_work:
+                    async with response_factory.unit_of_work() as unit_of_work:
                         dispatch_snapshot = await dispatch_repository.claim(
                             unit_of_work,
                             claim_owner=ids["runtime"],
                         )
                     assert dispatch_snapshot is not None
-                    async with response_factory.unit_of_work(
-                        LockPlan()
-                    ) as unit_of_work:
+                    async with response_factory.unit_of_work() as unit_of_work:
                         await dispatch_repository.mark_dispatching(
                             unit_of_work,
                             dispatch_snapshot,
@@ -5595,9 +5508,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         duplicate_receipt.delivery_id,
                         receipt.delivery_id,
                     )
-                    async with response_factory.unit_of_work(
-                        LockPlan()
-                    ) as unit_of_work:
+                    async with response_factory.unit_of_work() as unit_of_work:
                         await dispatch_repository.settle_receipt(
                             unit_of_work,
                             dispatch_snapshot,
@@ -5794,18 +5705,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"s016-authority-birth"),
         )
 
-        async def reject_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("authority conformance has no business lock target")
-
         async def exercise(root: Path) -> tuple[int, int, tuple[str, ...]]:
             birth_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_lock,
                 pool_min=1,
                 pool_max=2,
                 acquire_timeout_seconds=2,
@@ -5879,7 +5782,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 uow_factory = PostgreSQLUnitOfWorkFactory(
                     fixture.runtime_dsn,
                     environment_id=fixture.environment_id,
-                    lock_acquirer=reject_lock,
                     pool_min=1,
                     pool_max=1,
                     acquire_timeout_seconds=2,
@@ -5892,7 +5794,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
                 async def expire_open_transaction() -> str:
                     try:
-                        async with uow_factory.unit_of_work(LockPlan()):
+                        async with uow_factory.unit_of_work():
                             entered.set()
                             await asyncio.sleep(3.2)
                     except DatabaseTransactionError as error:
@@ -6185,20 +6087,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"s017-recovery-birth"),
         )
 
-        async def reject_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("recovery conformance has no business lock target")
-
         async def exercise(
             root: Path,
         ) -> tuple[str, int, int, int, tuple[str, ...]]:
             birth_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_lock,
                 pool_min=1,
                 pool_max=2,
                 acquire_timeout_seconds=2,
@@ -7029,25 +6923,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         pool_max: int = 4,
         statement_timeout_seconds: int = 5,
     ) -> PostgreSQLUnitOfWorkFactory:
-        async def acquire_subject_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            if target.kind is not LockTargetKind.SUBJECT:
-                raise ValueError("test acquirer only owns subject locks")
-            row = await (
-                await connection.execute(
-                    "SELECT version FROM s011_test.subjects WHERE id = %s FOR UPDATE",
-                    (target.object_id,),
-                )
-            ).fetchone()
-            if row is None:
-                raise ValueError("subject lock target is missing")
-
         factory = PostgreSQLUnitOfWorkFactory(
             fixture.runtime_dsn,
             environment_id=fixture.environment_id,
-            lock_acquirer=acquire_subject_lock,
             pool_min=1,
             pool_max=pool_max,
             acquire_timeout_seconds=1,
@@ -7064,7 +6942,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         async def exercise() -> None:
             factory = await self._new_uow_factory(fixture)
             try:
-                uow = factory.unit_of_work(LockPlan())
+                uow = factory.unit_of_work()
                 action = PostCommitAction("audit.append", _uuid7())
                 async with uow:
                     connection = uow._connection_for_repository()
@@ -7084,7 +6962,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(uow.committed_actions, ())
                 self.assertEqual(uow.committed_actions, (action,))
 
-                rolled_back = factory.unit_of_work(LockPlan())
+                rolled_back = factory.unit_of_work()
                 async with rolled_back:
                     connection = rolled_back._connection_for_repository()
                     await connection.execute(
@@ -7094,7 +6972,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     rolled_back.request_rollback()
                 self.assertEqual(rolled_back.committed_actions, ())
 
-                failed = factory.unit_of_work(LockPlan())
+                failed = factory.unit_of_work()
                 with self.assertRaises(DatabaseTransactionError) as raised:
                     async with failed:
                         connection = failed._connection_for_repository()
@@ -7110,7 +6988,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     parameters: tuple[object, ...],
                     expected_code: str,
                 ) -> None:
-                    candidate = factory.unit_of_work(LockPlan())
+                    candidate = factory.unit_of_work()
                     with self.assertRaises(DatabaseTransactionError) as error:
                         async with candidate:
                             await candidate._connection_for_repository().execute(
@@ -7142,7 +7020,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "DB-TX-PRIVILEGE",
                 )
 
-                before_hook_failed = factory.unit_of_work(LockPlan())
+                before_hook_failed = factory.unit_of_work()
                 with self.assertRaisesRegex(RuntimeError, "hook failed"):
                     async with before_hook_failed:
                         connection = before_hook_failed._connection_for_repository()
@@ -7161,7 +7039,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 never_release = asyncio.Event()
 
                 async def cancel_candidate() -> None:
-                    cancelled = factory.unit_of_work(LockPlan())
+                    cancelled = factory.unit_of_work()
                     async with cancelled:
                         await cancelled._connection_for_repository().execute(
                             "INSERT INTO s011_test.entries "
@@ -7176,14 +7054,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 with self.assertRaises(asyncio.CancelledError):
                     await cancellation_task
 
-                contaminated = factory.unit_of_work(LockPlan())
+                contaminated = factory.unit_of_work()
                 async with contaminated:
                     connection = contaminated._connection_for_repository()
                     await connection.execute(
                         "SET LOCAL application_name = 's011-contaminated'"
                     )
                     contaminated.request_rollback()
-                clean = factory.unit_of_work(LockPlan())
+                clean = factory.unit_of_work()
                 async with clean:
                     connection = clean._connection_for_repository()
                     row = await (
@@ -7202,7 +7080,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "",
                         ),
                     )
-                    nested = factory.unit_of_work(LockPlan())
+                    nested = factory.unit_of_work()
                     with self.assertRaises(DatabaseTransactionError) as nested_error:
                         async with nested:
                             pass
@@ -7213,14 +7091,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 release = asyncio.Event()
 
                 async def hold_only_connection() -> None:
-                    holder = single.unit_of_work(LockPlan())
+                    holder = single.unit_of_work()
                     async with holder:
                         held.set()
                         await release.wait()
 
                 holder_task = asyncio.create_task(hold_only_connection())
                 await held.wait()
-                waiting = single.unit_of_work(LockPlan())
+                waiting = single.unit_of_work()
                 with self.assertRaises(DatabaseTransactionError) as pool_error:
                     async with waiting:
                         pass
@@ -7271,10 +7149,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
                 async def cas(value: str) -> CasStatus:
                     await start.wait()
-                    plan = LockPlan.for_cas(
-                        LockTarget(LockTargetKind.SUBJECT, subject_id, 0)
-                    )
-                    uow = factory.unit_of_work(plan)
+                    uow = factory.unit_of_work()
                     result = CasStatus.CONFLICT
                     async with uow:
                         connection = uow._connection_for_repository()
@@ -7300,7 +7175,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (CasStatus.APPLIED, CasStatus.CONFLICT),
                 )
 
-                timeout_uow = factory.unit_of_work(LockPlan())
+                timeout_uow = factory.unit_of_work()
                 with self.assertRaises(DatabaseTransactionError) as timeout_error:
                     async with timeout_uow:
                         await timeout_uow._connection_for_repository().execute(
@@ -7320,7 +7195,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     mine: asyncio.Event,
                     other: asyncio.Event,
                 ) -> str:
-                    uow = factory.unit_of_work(LockPlan())
+                    uow = factory.unit_of_work()
                     try:
                         async with uow:
                             connection = uow._connection_for_repository()
@@ -7347,7 +7222,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertIn("DB-TX-DEADLOCK", deadlock_results)
                 self.assertIn("committed", deadlock_results)
 
-                unknown_uow = factory.unit_of_work(LockPlan())
+                unknown_uow = factory.unit_of_work()
                 with self.assertRaises(DatabaseTransactionError) as unknown_error:
                     async with unknown_uow:
                         connection = unknown_uow._connection_for_repository()
@@ -7494,18 +7369,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
 
-        async def reject_unexpected_lock(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-            target: LockTarget,
-        ) -> None:
-            del connection, target
-            raise AssertionError("durable work must not invent business lock targets")
-
         async def exercise() -> dict[str, object]:
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                lock_acquirer=reject_unexpected_lock,
                 pool_min=1,
                 pool_max=3,
                 acquire_timeout_seconds=2,
@@ -7530,15 +7397,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await factory.open()
             try:
-                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                async with factory.unit_of_work() as unit_of_work:
                     first = await unit_of_work.work.enqueue(draft)
-                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                async with factory.unit_of_work() as unit_of_work:
                     duplicate = await unit_of_work.work.enqueue(
                         replace(draft, work_id=WorkId(_uuid7()))
                     )
                 self.assertEqual(first, duplicate)
                 with self.assertRaises(WorkViolation) as conflict:
-                    async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                    async with factory.unit_of_work() as unit_of_work:
                         await unit_of_work.work.enqueue(
                             replace(
                                 draft,
@@ -7652,7 +7519,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     max_attempts=1,
                     trace_id=TraceId("2" + ("4" * 31)),
                 )
-                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                async with factory.unit_of_work() as unit_of_work:
                     await unit_of_work.work.enqueue(unavailable)
                 unavailable_dispatcher = OutboxDispatcher(outbox_gateway, {})
                 self.assertEqual(
@@ -7676,7 +7543,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     deadline_at=Instant(datetime.now(UTC) + timedelta(seconds=30)),
                     max_attempts=1,
                 )
-                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                async with factory.unit_of_work() as unit_of_work:
                     await unit_of_work.work.enqueue(exhausted)
                 exhausted_claim = (
                     await gateway.claim(
@@ -7708,7 +7575,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     deadline_at=Instant(datetime.now(UTC) - timedelta(seconds=1)),
                     max_attempts=1,
                 )
-                async with factory.unit_of_work(LockPlan()) as unit_of_work:
+                async with factory.unit_of_work() as unit_of_work:
                     await unit_of_work.work.enqueue(deadline)
                 self.assertEqual(
                     await gateway.claim(

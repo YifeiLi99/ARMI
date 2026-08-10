@@ -1647,16 +1647,9 @@ def compose_codex_pipeline(
                     ) from None
                 config = prepared.effective.config
 
-                async def reject_dynamic_lock(
-                    connection: object, target: object
-                ) -> None:
-                    del connection, target
-                    raise CodexDelegationViolation("CODEX-DELEGATION-LOCK")
-
                 factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    lock_acquirer=reject_dynamic_lock,
                     pool_min=config.database.pool_min,
                     pool_max=config.database.pool_max,
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,

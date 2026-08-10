@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-import psycopg
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
 from armi_kernel.application import (
     ArtifactViolation,
     CredentialPurpose,
-    LockPlan,
-    LockTarget,
 )
 
 from armi_runtime.adapters.persistence.artifact_catalog import (
@@ -69,18 +64,10 @@ async def run_artifact_retention(
                         "artifact maintenance database access is unavailable",
                     ) from None
 
-                async def reject_dynamic_lock(
-                    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-                    target: LockTarget,
-                ) -> None:
-                    del connection, target
-                    raise ArtifactViolation("ART-DECLARATION")
-
                 config = prepared.effective.config
                 return PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    lock_acquirer=reject_dynamic_lock,
                     pool_min=1,
                     pool_max=1,
                     acquire_timeout_seconds=(
@@ -113,7 +100,6 @@ async def run_artifact_retention(
         await storage.prepare()
         if apply:
             async with factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 await PostgreSQLMaintenanceGuard().require_runtime_stopped(unit_of_work)

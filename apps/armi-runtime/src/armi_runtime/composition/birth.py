@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from importlib.resources import files
-from typing import Any, Final
+from typing import Final
 from uuid import uuid7
 
-import psycopg
 import rfc8785
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
@@ -26,8 +25,6 @@ from armi_kernel.application import (
     BirthManifest,
     BirthResult,
     BirthViolation,
-    LockPlan,
-    LockTarget,
     PublishedArtifact,
     TransactionIsolation,
 )
@@ -51,14 +48,6 @@ _RESOURCE_PACKAGE: Final = "armi_runtime.composition.runtime_resources"
 
 async def _bytes(value: bytes) -> AsyncIterator[bytes]:
     yield value
-
-
-async def _unused_lock_acquirer(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-    target: LockTarget,
-) -> None:
-    del connection, target
-    raise BirthViolation("BIRTH-STATE")
 
 
 class BirthTransaction:
@@ -249,7 +238,6 @@ class BirthTransaction:
     ) -> BirthResult | None:
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 return await self._repository.existing(unit_of_work, manifest)
@@ -273,7 +261,6 @@ async def execute_birth_with_conninfo(
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=config.environment.environment_id,
-        lock_acquirer=_unused_lock_acquirer,
         pool_min=config.database.pool_min,
         pool_max=config.database.pool_max,
         acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,

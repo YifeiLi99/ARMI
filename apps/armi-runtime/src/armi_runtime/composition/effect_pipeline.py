@@ -9,7 +9,6 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
@@ -25,8 +24,6 @@ from armi_kernel.application import (
     EffectRegistrationResult,
     EffectView,
     EffectViolation,
-    LockPlan,
-    LockTarget,
     RuntimeFence,
     SceneKey,
     WorkViolation,
@@ -137,7 +134,7 @@ class EffectRegistrationPipeline:
         lease = records[0].lease
         assert lease is not None
         try:
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 snapshot = await self._repository.snapshot(uow, lease)
             integrity_ok = (
                 await self._read_payload(
@@ -147,7 +144,7 @@ class EffectRegistrationPipeline:
                 )
                 is not None
             )
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 result = await self._repository.settle(
                     uow, lease=lease, snapshot=snapshot, integrity_ok=integrity_ok
                 )
@@ -165,7 +162,7 @@ class EffectRegistrationPipeline:
     async def get_effect(
         self, effect_id: EffectId, *, creator_party_id: UUID
     ) -> EffectView:
-        async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
+        async with self._factory.unit_of_work(read_only=True) as uow:
             view = await self._repository.get_effect(uow, effect_id, creator_party_id)
             if view.effect_kind == "codex_delegation" and view.status.value in {
                 "completed",
@@ -220,7 +217,7 @@ class EffectRegistrationPipeline:
         creator_party_id: UUID,
         kind: EffectArtifactKind,
     ) -> EffectArtifactContent:
-        async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
+        async with self._factory.unit_of_work(read_only=True) as uow:
             (
                 artifact_id,
                 digest,
@@ -238,7 +235,7 @@ class EffectRegistrationPipeline:
 
     async def dispatch_once(self) -> bool:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 snapshot = await self._dispatcher.claim(
                     uow, claim_owner=self._lease_owner
                 )
@@ -250,11 +247,11 @@ class EffectRegistrationPipeline:
                 snapshot.request.payload_bytes,
             )
             if payload is None:
-                async with self._factory.unit_of_work(LockPlan()) as uow:
+                async with self._factory.unit_of_work() as uow:
                     await self._dispatcher.settle_integrity_failure(uow, snapshot)
                 await self._notify_dispatch(snapshot, include_scene=False)
                 return True
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 dispatching = await self._dispatcher.mark_dispatching(uow, snapshot)
             if not dispatching:
                 await self._notify_dispatch(snapshot, include_scene=False)
@@ -264,7 +261,7 @@ class EffectRegistrationPipeline:
                 receipt = await self._dispatch_with_heartbeat(snapshot, payload)
             except EffectViolation as error:
                 if error.code == "EFFECT-RECEIVER-CONFLICT":
-                    async with self._factory.unit_of_work(LockPlan()) as uow:
+                    async with self._factory.unit_of_work() as uow:
                         await self._dispatcher.settle_integrity_failure(uow, snapshot)
                     await self._notify_dispatch(snapshot, include_scene=False)
                     return True
@@ -272,18 +269,18 @@ class EffectRegistrationPipeline:
                     "EFFECT-RECEIVER-NOT-DELIVERED",
                     "EFFECT-ADAPTER-UNAVAILABLE",
                 }:
-                    async with self._factory.unit_of_work(LockPlan()) as uow:
+                    async with self._factory.unit_of_work() as uow:
                         await self._dispatcher.settle_rejection(uow, snapshot)
                     await self._notify_dispatch(snapshot, include_scene=False)
                     return True
                 if error.code == "EFFECT-RESULT-UNKNOWN":
-                    async with self._factory.unit_of_work(LockPlan()) as uow:
+                    async with self._factory.unit_of_work() as uow:
                         await self._dispatcher.settle_unknown(uow, snapshot)
                     await self._notify_dispatch(snapshot, include_scene=False)
                     return True
                 return await self._reconcile(snapshot)
             self._fault_injector("adapter_after_dispatch_before_settlement")
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
             await self._notify_dispatch(snapshot, include_scene=True)
             return True
@@ -293,12 +290,12 @@ class EffectRegistrationPipeline:
 
     async def recover_once(self) -> bool:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 snapshot = await self._dispatcher.expired(uow)
             if snapshot is not None:
                 await self._reconcile(snapshot)
                 return True
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 unknown = await self._dispatcher.unknown(uow)
             if unknown is None:
                 return False
@@ -307,7 +304,7 @@ class EffectRegistrationPipeline:
             except DatabaseTransactionError, EffectViolation:
                 self._diagnostic("effect.unknown_verification.unavailable")
                 return False
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 if receipt is None:
                     await self._dispatcher.resolve_unknown_absent(uow, unknown)
                 else:
@@ -329,16 +326,16 @@ class EffectRegistrationPipeline:
         try:
             receipt = await self._adapter.observe(snapshot.request)
         except DatabaseTransactionError, EffectViolation:
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 await self._dispatcher.settle_unknown(uow, snapshot)
             await self._notify_dispatch(snapshot, include_scene=False)
             return True
         if receipt is not None:
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
             await self._notify_dispatch(snapshot, include_scene=True)
             return True
-        async with self._factory.unit_of_work(LockPlan()) as uow:
+        async with self._factory.unit_of_work() as uow:
             await self._dispatcher.settle_absent(uow, snapshot)
         await self._notify_dispatch(snapshot, include_scene=False)
         return True
@@ -352,7 +349,7 @@ class EffectRegistrationPipeline:
                 done, _ = await asyncio.wait((task,), timeout=20)
                 if task in done:
                     return task.result()
-                async with self._factory.unit_of_work(LockPlan()) as uow:
+                async with self._factory.unit_of_work() as uow:
                     await self._dispatcher.renew_claim(uow, snapshot)
         finally:
             if not task.done():
@@ -388,9 +385,7 @@ class EffectRegistrationPipeline:
         if snapshot.request.destination_kind != "creator_inbox":
             return
         try:
-            async with self._factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 view = await self._repository.get_effect(
                     unit_of_work,
                     snapshot.request.effect_id,
@@ -517,14 +512,9 @@ def build_effect_registration_pipeline(
     fault_injector: FaultInjector | None = None,
     external_group_adapter: ActionAdapterPort | None = None,
 ) -> EffectRegistrationPipeline:
-    async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
-        del connection, target
-        raise EffectViolation("EFFECT-LOCK")
-
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=reject_dynamic_lock,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

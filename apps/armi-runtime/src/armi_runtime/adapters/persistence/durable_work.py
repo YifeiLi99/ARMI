@@ -16,7 +16,6 @@ from armi_kernel.application import (
     AuditSensitivity,
     AuditViolation,
     AuditWriter,
-    LockPlan,
     WorkAttemptId,
     WorkDraft,
     WorkId,
@@ -329,7 +328,7 @@ class PostgreSQLDurableWorkGateway:
         limit: int = 1,
     ) -> tuple[WorkRecord, ...]:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
                 effective_lease_owner = (
                     unit_of_work.runtime_fence.runtime_instance_id.value
@@ -567,7 +566,7 @@ class PostgreSQLDurableWorkGateway:
 
     async def cancel_ready(self, work_id: WorkId) -> WorkRecord:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
                 row = await (
                     await connection.execute(
@@ -609,7 +608,7 @@ class PostgreSQLDurableWorkGateway:
         operation: str | None,
     ) -> WorkRecord:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
                 row = await (
                     await connection.execute(

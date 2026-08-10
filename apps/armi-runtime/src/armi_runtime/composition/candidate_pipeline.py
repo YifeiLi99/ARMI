@@ -35,8 +35,6 @@ from armi_kernel.application import (
     LifeMaterialKind,
     LifeMaterialPrivacyStatus,
     LifeMaterialStatus,
-    LockPlan,
-    LockTarget,
     MaintenancePhase,
     MemoryAccessibility,
     MemorySourceKind,
@@ -292,7 +290,7 @@ class CandidateValidationPipeline:
                 if result.change_set is not None
                 else None
             )
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 change_set_artifact = None
                 if published is not None:
                     registration = await self._catalog.register(
@@ -353,7 +351,7 @@ class CandidateValidationPipeline:
 
     async def _snapshot(self, lease: WorkLease) -> CandidateEpisodeSnapshot:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 return await self._repository.snapshot(unit_of_work, lease)
         except DatabaseTransactionError:
             raise CandidateViolation("CANDIDATE-DATABASE") from None
@@ -439,7 +437,7 @@ class CandidateValidationPipeline:
 
     async def _release(self, lease: WorkLease, code: str) -> None:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 now = await (
                     await unit_of_work._connection_for_repository().execute(  # pyright: ignore[reportPrivateUsage]
                         "SELECT statement_timestamp()"
@@ -509,14 +507,9 @@ def build_candidate_validation_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> CandidateValidationPipeline:
-    async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
-        del connection, target
-        raise CandidateViolation("CANDIDATE-LOCK")
-
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=reject_dynamic_lock,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

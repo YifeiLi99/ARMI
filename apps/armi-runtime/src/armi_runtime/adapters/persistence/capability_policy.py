@@ -72,14 +72,9 @@ class PostgreSQLCreatorGrantPolicy:
         cursor_key: bytes,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
-        async def reject_dynamic_lock(connection: Any, target: Any) -> None:
-            del connection, target
-            raise CapabilityViolation("POLICY-LOCK")
-
         self._factory = PostgreSQLUnitOfWorkFactory(
             conninfo,
             environment_id=environment_id,
-            lock_acquirer=reject_dynamic_lock,
             pool_min=pool_min,
             pool_max=pool_max,
             acquire_timeout_seconds=acquire_timeout_seconds,
@@ -128,11 +123,7 @@ class PostgreSQLCreatorGrantPolicy:
             if cursor is not None
             else None
         )
-        from armi_kernel.application import LockPlan
-
-        async with self._factory.unit_of_work(
-            LockPlan(), read_only=True
-        ) as unit_of_work:
+        async with self._factory.unit_of_work(read_only=True) as unit_of_work:
             connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
             rows = await (
                 await connection.execute(
@@ -289,9 +280,7 @@ class PostgreSQLCreatorGrantPolicy:
 
     async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult:
         try:
-            from armi_kernel.application import LockPlan
-
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
                 command_digest = _command_digest(command)
                 existing = await (
@@ -602,11 +591,9 @@ class PostgreSQLCreatorGrantPolicy:
             raise
 
     async def expire_once(self, *, limit: int = 100) -> int:
-        from armi_kernel.application import LockPlan
-
         expired_request_ids: list[UUID] = []
         cancelled_projection_refs: list[tuple[UUID, UUID]] = []
-        async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+        async with self._factory.unit_of_work() as unit_of_work:
             connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
             rows = await (
                 await connection.execute(

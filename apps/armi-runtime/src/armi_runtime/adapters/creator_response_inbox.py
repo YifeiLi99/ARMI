@@ -17,7 +17,6 @@ from armi_kernel.application import (
     EffectDeliveryId,
     EffectViolation,
     FrozenEffectRequest,
-    LockPlan,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 
@@ -41,7 +40,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
             raise EffectViolation("EFFECT-RECEIVER-PAYLOAD")
         delivery_id = uuid7()
         receipt_digest = _receipt_digest(request, delivery_id)
-        async with self._factory.unit_of_work(LockPlan()) as uow:
+        async with self._factory.unit_of_work() as uow:
             connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
             row = await (
                 await connection.execute(
@@ -132,7 +131,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
     async def observe(
         self, request: FrozenEffectRequest
     ) -> EffectAdapterReceipt | None:
-        async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
+        async with self._factory.unit_of_work(read_only=True) as uow:
             connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
             row = await self._read(connection, request)
             if row is None:

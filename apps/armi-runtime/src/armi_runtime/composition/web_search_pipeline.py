@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
@@ -23,8 +22,6 @@ from armi_kernel.application import (
     AuditSensitivity,
     CredentialLocator,
     CredentialPort,
-    LockPlan,
-    LockTarget,
     RuntimeFence,
     WebObservationAttemptId,
     WebObservationDraft,
@@ -175,7 +172,7 @@ class WebSearchPipeline:
         except ArtifactViolation:
             raise WebObservationViolation("WEB-ARTIFACT") from None
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 existing = await self._repository.existing(
                     unit_of_work,
                     subject_id=draft.subject_id,
@@ -255,14 +252,14 @@ class WebSearchPipeline:
             ] != str(snapshot.subject_id.value):
                 raise WebObservationViolation("WEB-REQUEST-IDENTITY")
             credential_identity = Digest(self._adapter.credential_fingerprint())
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 attempt_id = await self._repository.prepare_attempt(
                     unit_of_work,
                     lease=lease,
                     snapshot=snapshot,
                     credential_identity=credential_identity,
                 )
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.mark_dispatched(
                     unit_of_work,
                     lease=lease,
@@ -311,7 +308,7 @@ class WebSearchPipeline:
         request_digest: Digest,
     ) -> WebObservationRecord | None:
         try:
-            async with self._factory.unit_of_work(LockPlan(), read_only=True) as unit:
+            async with self._factory.unit_of_work(read_only=True) as unit:
                 return await self._repository.existing(
                     unit,
                     subject_id=draft.subject_id,
@@ -325,7 +322,7 @@ class WebSearchPipeline:
 
     async def _snapshot(self, lease: WorkLease) -> WebObservationSnapshot:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit:
+            async with self._factory.unit_of_work() as unit:
                 return await self._repository.snapshot(unit, lease)
         except DatabaseTransactionError:
             raise WebObservationViolation("WEB-DATABASE") from None
@@ -411,7 +408,7 @@ class WebSearchPipeline:
                 if normalized_evidence is not None
                 else ()
             )
-            async with self._factory.unit_of_work(LockPlan()) as unit:
+            async with self._factory.unit_of_work() as unit:
                 registration = await self._catalog.register(
                     unit,
                     ArtifactId(uuid7()),
@@ -481,7 +478,7 @@ class WebSearchPipeline:
                     )
                 )
             return
-        async with self._factory.unit_of_work(LockPlan()) as unit:
+        async with self._factory.unit_of_work() as unit:
             await self._repository.settle_failure(
                 unit,
                 lease=lease,
@@ -629,14 +626,9 @@ def build_web_search_pipeline(
     manifest_bytes: bytes,
     diagnostic: Diagnostic | None,
 ) -> WebSearchPipeline:
-    async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
-        del connection, target
-        raise WebObservationViolation("WEB-LOCK")
-
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=reject_dynamic_lock,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

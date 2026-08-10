@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 from uuid import UUID, uuid7
 
-import psycopg
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -19,8 +17,6 @@ from armi_kernel.application import (
     CreatorScenePort,
     CreatorSceneStatusCommand,
     CreatorSceneView,
-    LockPlan,
-    LockTarget,
     RuntimeFence,
     SceneQueryViolation,
 )
@@ -56,9 +52,7 @@ class CreatorSceneService(CreatorScenePort):
 
     async def list(self) -> CreatorSceneCollection:
         try:
-            async with self._factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 return await self._repository.list(
                     unit_of_work,
                     creator_party_id=self._creator_party_id,
@@ -70,7 +64,7 @@ class CreatorSceneService(CreatorScenePort):
 
     async def create(self, command: CreatorSceneCreateCommand) -> CreatorSceneView:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 subject_id = await self._repository.subject_id(
                     unit_of_work,
                     creator_party_id=self._creator_party_id,
@@ -109,7 +103,7 @@ class CreatorSceneService(CreatorScenePort):
         command: CreatorSceneStatusCommand,
     ) -> CreatorSceneView:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 subject_id, changed, applied = await self._repository.set_status(
                     unit_of_work,
                     creator_party_id=self._creator_party_id,
@@ -154,14 +148,6 @@ def _audit(
     )
 
 
-async def _unused_lock_acquirer(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-    target: LockTarget,
-) -> None:
-    del connection, target
-    raise SceneQueryViolation("SCENE-UPDATE-FAILED")
-
-
 def build_creator_scene_service(
     conninfo: str,
     *,
@@ -178,7 +164,6 @@ def build_creator_scene_service(
         factory=PostgreSQLUnitOfWorkFactory(
             conninfo,
             environment_id=environment_id,
-            lock_acquirer=_unused_lock_acquirer,
             pool_min=pool_min,
             pool_max=pool_max,
             acquire_timeout_seconds=acquire_timeout_seconds,

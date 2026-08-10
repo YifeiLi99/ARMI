@@ -5,13 +5,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
-    LockPlan,
-    LockTarget,
     ResponseViolation,
     RuntimeFence,
     WorkViolation,
@@ -92,10 +89,10 @@ class ResponseAdmissionPipeline:
         assert lease is not None
         snapshot: ResponseAdmissionSnapshot | None = None
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 snapshot = await self._repository.snapshot(unit_of_work, lease)
             integrity_ok = await self._verify(snapshot)
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.settle(
                     unit_of_work,
                     lease=lease,
@@ -157,14 +154,9 @@ def build_response_admission_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> ResponseAdmissionPipeline:
-    async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
-        del connection, target
-        raise ResponseViolation("RESPONSE-LOCK")
-
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=reject_dynamic_lock,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

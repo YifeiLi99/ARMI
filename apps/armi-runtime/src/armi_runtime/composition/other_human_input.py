@@ -5,10 +5,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
-import psycopg
 import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
@@ -24,8 +22,6 @@ from armi_kernel.application import (
     CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
-    LockPlan,
-    LockTarget,
     OtherHumanInputAcceptance,
     OtherHumanInputCommand,
     OtherHumanInputPort,
@@ -99,7 +95,7 @@ class OtherHumanInputService(OtherHumanInputPort):
         self, command: RegisterOtherHumanPartyCommand
     ) -> OtherHumanPartyView:
         try:
-            async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._uow_factory.unit_of_work() as unit_of_work:
                 view = await self._repository.register_party(
                     unit_of_work,
                     party_key=command.party_key,
@@ -127,7 +123,7 @@ class OtherHumanInputService(OtherHumanInputPort):
 
     async def set_scene(self, command: OtherHumanSceneCommand) -> OtherHumanSceneView:
         try:
-            async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._uow_factory.unit_of_work() as unit_of_work:
                 view = await self._repository.set_scene(
                     unit_of_work,
                     party_key=command.party_key,
@@ -227,7 +223,7 @@ class OtherHumanInputService(OtherHumanInputPort):
     ) -> OtherHumanInputContext:
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(), read_only=not lock
+                read_only=not lock
             ) as unit_of_work:
                 return await self._repository.context(
                     unit_of_work,
@@ -247,9 +243,7 @@ class OtherHumanInputService(OtherHumanInputPort):
         request_digest: Digest,
     ) -> OtherHumanInputAcceptance | None:
         try:
-            async with self._uow_factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit_of_work:
                 return await self._repository.existing(
                     unit_of_work,
                     context=context,
@@ -268,7 +262,7 @@ class OtherHumanInputService(OtherHumanInputPort):
         request_digest: Digest,
         published: PublishedArtifact,
     ) -> OtherHumanInputAcceptance:
-        async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+        async with self._uow_factory.unit_of_work() as unit_of_work:
             current = await self._repository.context(
                 unit_of_work,
                 party_key=command.party_key,
@@ -339,13 +333,6 @@ class OtherHumanInputService(OtherHumanInputPort):
             return acceptance
 
 
-async def _unused_lock_acquirer(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]], target: LockTarget
-) -> None:
-    del connection, target
-    raise OtherHumanInputViolation("DB-OTHER-HUMAN-LOCK")
-
-
 def build_other_human_input_service(
     conninfo: str,
     *,
@@ -369,7 +356,6 @@ def build_other_human_input_service(
         unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
             conninfo,
             environment_id=environment_id,
-            lock_acquirer=_unused_lock_acquirer,
             pool_min=pool_min,
             pool_max=pool_max,
             acquire_timeout_seconds=acquire_timeout_seconds,

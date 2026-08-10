@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
@@ -29,8 +28,6 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorReplyDraft,
-    LockPlan,
-    LockTarget,
     OtherHumanReplyDraft,
     PublishedArtifact,
     RuntimeFence,
@@ -183,7 +180,7 @@ class SubjectCommitPipeline:
                 )
                 for prompt in change_set.prompts
             ]
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 response_artifact = None
                 research_artifact = None
                 material_artifacts: dict[str, ArtifactRef] = {}
@@ -345,7 +342,7 @@ class SubjectCommitPipeline:
 
     async def _snapshot(self, lease: WorkLease) -> SubjectCommitSnapshot:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 return await self._repository.snapshot(unit_of_work, lease)
         except DatabaseTransactionError:
             raise SubjectCommitViolation("SUBJECT-DATABASE") from None
@@ -372,7 +369,7 @@ class SubjectCommitPipeline:
         final_attempt: bool,
     ) -> None:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 if final_attempt:
                     await self._repository.fail(
                         unit_of_work,
@@ -475,9 +472,7 @@ class SubjectCommitPipeline:
         self, snapshot: SubjectCommitSnapshot
     ) -> SubjectCommitResult | None:
         try:
-            async with self._factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 return await self._repository.existing_result(
                     unit_of_work, snapshot.validation_id
                 )
@@ -517,9 +512,7 @@ class SubjectCommitPipeline:
                 )
             )
             try:
-                async with self._factory.unit_of_work(
-                    LockPlan(), read_only=True
-                ) as unit_of_work:
+                async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                     request_ids = await self._repository.capability_request_ids(
                         unit_of_work, result.subject_commit_id
                     )
@@ -535,9 +528,7 @@ class SubjectCommitPipeline:
             except DatabaseTransactionError:
                 self._diagnostic("subject_commit.notification.lookup_failed")
         try:
-            async with self._factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 activity_ids = await self._repository.affected_activity_ids(
                     unit_of_work, snapshot.validation_id
                 )
@@ -553,9 +544,7 @@ class SubjectCommitPipeline:
         except DatabaseTransactionError:
             self._diagnostic("subject_commit.activity_notification.lookup_failed")
         try:
-            async with self._factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 memory_ids = await self._repository.affected_memory_ids(
                     unit_of_work,
                     snapshot.validation_id,
@@ -572,9 +561,7 @@ class SubjectCommitPipeline:
         except DatabaseTransactionError:
             self._diagnostic("subject_commit.memory_notification.lookup_failed")
         try:
-            async with self._factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 material_ids = await self._repository.affected_material_ids(
                     unit_of_work,
                     snapshot.validation_id,
@@ -591,9 +578,7 @@ class SubjectCommitPipeline:
         except DatabaseTransactionError:
             self._diagnostic("subject_commit.material_notification.lookup_failed")
         try:
-            async with self._factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 relationship_ids = await self._repository.affected_relationship_ids(
                     unit_of_work,
                     snapshot.validation_id,
@@ -610,9 +595,7 @@ class SubjectCommitPipeline:
         except DatabaseTransactionError:
             self._diagnostic("subject_commit.relationship_notification.lookup_failed")
         try:
-            async with self._factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 maintenance_ids = (
                     await self._repository.affected_maintenance_session_ids(
                         unit_of_work,
@@ -653,14 +636,9 @@ def build_subject_commit_pipeline(
     diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
 ) -> SubjectCommitPipeline:
-    async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
-        del connection, target
-        raise SubjectCommitViolation("SUBJECT-LOCK")
-
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=reject_dynamic_lock,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

@@ -6,7 +6,6 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -35,8 +34,6 @@ from armi_kernel.application import (
     ContextSourceIdentity,
     ContextTrustClass,
     ContextViolation,
-    LockPlan,
-    LockTarget,
     OpportunitySelector,
     RuntimeFence,
     WorkLease,
@@ -145,7 +142,7 @@ class ContextPipeline(OpportunitySelector):
 
     async def select_once(self) -> CognitiveEpisodeId | None:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 selected = await self._repository.select_one(unit_of_work)
             if selected is not None:
                 self._wakeups.notify(CONTEXT_PREPARE)
@@ -218,7 +215,7 @@ class ContextPipeline(OpportunitySelector):
                 "context.compiled",
                 snapshot,
             )
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 manifest_registration = await self._catalog.register(
                     unit_of_work,
                     ArtifactId(uuid7()),
@@ -294,7 +291,6 @@ class ContextPipeline(OpportunitySelector):
     async def _snapshot(self, lease: WorkLease) -> ContextEpisodeSnapshot:
         try:
             async with self._factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 return await self._repository.snapshot(unit_of_work, lease)
@@ -418,7 +414,7 @@ class ContextPipeline(OpportunitySelector):
 
     async def _fail_if_current(self, lease: WorkLease, code: str) -> None:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.fail(
                     unit_of_work,
                     lease=lease,
@@ -1057,17 +1053,9 @@ def build_context_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> ContextPipeline:
-    async def reject_dynamic_lock(
-        connection: Any,
-        target: LockTarget,
-    ) -> None:
-        del connection, target
-        raise ContextViolation("CTX-LOCK")
-
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=reject_dynamic_lock,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

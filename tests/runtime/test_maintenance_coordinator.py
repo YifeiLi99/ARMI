@@ -20,7 +20,7 @@ class _Factory:
     unit = object()
 
     @asynccontextmanager
-    async def unit_of_work(self, _lock_plan: object):
+    async def unit_of_work(self):
         yield self.unit
 
 

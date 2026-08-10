@@ -15,7 +15,6 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     AuditViolation,
-    LockPlan,
     WorkId,
     WorkViolation,
 )
@@ -82,7 +81,7 @@ class PostgreSQLOutboxGateway:
         limit: int,
     ) -> tuple[OutboxEnvelope, ...]:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
                 effective_claim_owner = (
                     unit_of_work.runtime_fence.runtime_instance_id.value
@@ -172,7 +171,7 @@ class PostgreSQLOutboxGateway:
         delay_seconds: int = 1,
     ) -> None:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
                 if delivered:
                     status = "delivered"

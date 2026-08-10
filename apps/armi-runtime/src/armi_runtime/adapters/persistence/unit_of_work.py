@@ -8,7 +8,7 @@ from contextlib import suppress
 from contextvars import ContextVar, Token
 from enum import StrEnum
 from types import TracebackType
-from typing import Any, Literal, Protocol, Self
+from typing import Any, Literal, Self
 from uuid import UUID
 
 import psycopg
@@ -16,8 +16,6 @@ from armi_kernel.application import (
     AuditWriter,
     BeforeCommitHook,
     DurableWorkWriter,
-    LockPlan,
-    LockTarget,
     PostCommitAction,
     RuntimeAuthorityViolation,
     RuntimeFence,
@@ -48,16 +46,6 @@ _ISOLATION_SQL = {
     TransactionIsolation.REPEATABLE_READ: sql.SQL("REPEATABLE READ"),
     TransactionIsolation.SERIALIZABLE: sql.SQL("SERIALIZABLE"),
 }
-
-
-class LockAcquirer(Protocol):
-    async def __call__(
-        self,
-        connection: psycopg.AsyncConnection[tuple[Any, ...]],
-        target: LockTarget,
-    ) -> None:
-        """Acquire exactly one registered target without dynamic SQL."""
-        ...
 
 
 class _State(StrEnum):
@@ -120,7 +108,6 @@ class PostgreSQLUnitOfWorkFactory:
         "_authority_admission",
         "_environment_id",
         "_expected_role",
-        "_lock_acquirer",
         "_pool",
         "_require_runtime_fence",
         "_statement_timeout_milliseconds",
@@ -131,7 +118,6 @@ class PostgreSQLUnitOfWorkFactory:
         conninfo: str,
         *,
         environment_id: UUID,
-        lock_acquirer: LockAcquirer,
         pool_min: int,
         pool_max: int,
         acquire_timeout_seconds: int,
@@ -164,7 +150,6 @@ class PostgreSQLUnitOfWorkFactory:
             timeout=float(acquire_timeout_seconds),
             name="armi-runtime-uow",
         )
-        self._lock_acquirer = lock_acquirer
 
     async def open(self) -> None:
         try:
@@ -181,7 +166,6 @@ class PostgreSQLUnitOfWorkFactory:
 
     def unit_of_work(
         self,
-        lock_plan: LockPlan,
         *,
         isolation: TransactionIsolation = TransactionIsolation.READ_COMMITTED,
         read_only: bool = False,
@@ -206,8 +190,6 @@ class PostgreSQLUnitOfWorkFactory:
             self._pool,
             environment_id=self._environment_id,
             expected_role=self._expected_role,
-            lock_plan=lock_plan,
-            lock_acquirer=self._lock_acquirer,
             isolation=isolation,
             read_only=read_only,
             statement_timeout_milliseconds=self._statement_timeout_milliseconds,
@@ -225,17 +207,11 @@ class PostgreSQLUnitOfWorkFactory:
         """Return the sole unfenced product-write exception for T-01 birth."""
 
         if read_only:
-            return self.unit_of_work(
-                LockPlan(),
-                isolation=isolation,
-                read_only=True,
-            )
+            return self.unit_of_work(isolation=isolation, read_only=True)
         return PostgreSQLUnitOfWork(
             self._pool,
             environment_id=self._environment_id,
             expected_role=self._expected_role,
-            lock_plan=LockPlan(),
-            lock_acquirer=self._lock_acquirer,
             isolation=isolation,
             read_only=False,
             statement_timeout_milliseconds=self._statement_timeout_milliseconds,
@@ -260,8 +236,6 @@ class PostgreSQLUnitOfWork:
         "_environment_id",
         "_expected_role",
         "_isolation",
-        "_lock_acquirer",
-        "_lock_plan",
         "_pool",
         "_read_only",
         "_rollback_requested",
@@ -278,8 +252,6 @@ class PostgreSQLUnitOfWork:
         *,
         environment_id: UUID,
         expected_role: str,
-        lock_plan: LockPlan,
-        lock_acquirer: LockAcquirer,
         isolation: TransactionIsolation,
         read_only: bool,
         statement_timeout_milliseconds: int,
@@ -290,8 +262,6 @@ class PostgreSQLUnitOfWork:
         self._pool = pool
         self._environment_id = environment_id
         self._expected_role = expected_role
-        self._lock_plan = lock_plan
-        self._lock_acquirer = lock_acquirer
         self._isolation = isolation
         self._read_only = read_only
         self._authority_admission = authority_admission
@@ -324,10 +294,6 @@ class PostgreSQLUnitOfWork:
     @property
     def environment_id(self) -> UUID:
         return self._environment_id
-
-    @property
-    def lock_plan(self) -> LockPlan:
-        return self._lock_plan
 
     @property
     def runtime_fence(self) -> RuntimeFence | None:
@@ -372,8 +338,6 @@ class PostgreSQLUnitOfWork:
             if self._runtime_fence is not None:
                 await self._acquire_runtime_fence_locks()
                 await self._verify_runtime_fence(lock_row=True)
-            for target in self._lock_plan.targets:
-                await self._lock_acquirer(self._connection, target)
         except BaseException as error:
             await self._rollback_after_enter_failure(error)
             if isinstance(error, asyncio.CancelledError):
@@ -605,7 +569,6 @@ class PostgreSQLUnitOfWork:
 
 
 __all__ = (
-    "LockAcquirer",
     "PostgreSQLUnitOfWork",
     "PostgreSQLUnitOfWorkFactory",
 )

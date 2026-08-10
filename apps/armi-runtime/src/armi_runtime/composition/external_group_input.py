@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
-import psycopg
 import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
@@ -28,8 +26,6 @@ from armi_kernel.application import (
     ExternalGroupInputPort,
     ExternalGroupView,
     ExternalGroupViolation,
-    LockPlan,
-    LockTarget,
     ObservedExternalGroupMessage,
     OtherHumanInputAcceptance,
     PublishedArtifact,
@@ -109,7 +105,7 @@ class ExternalGroupInputService(ExternalGroupInputPort):
         )
         scene_key = SceneKey(f"group-{identity.removeprefix('external-group:')[:32]}")
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 view = await self._groups.ensure_group(
                     unit_of_work,
                     channel=command.channel,
@@ -218,7 +214,7 @@ class ExternalGroupInputService(ExternalGroupInputPort):
             command.sender_key.value,
         )
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 return await self._groups.bind_sender(
                     unit_of_work,
                     channel=command.channel,
@@ -240,9 +236,7 @@ class ExternalGroupInputService(ExternalGroupInputPort):
         request_digest: Digest,
     ) -> ExternalGroupInputAcceptance | None:
         try:
-            async with self._factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 existing = await self._inputs.existing(
                     unit_of_work,
                     context=context.input,
@@ -261,7 +255,7 @@ class ExternalGroupInputService(ExternalGroupInputPort):
         request_digest: Digest,
         published: PublishedArtifact,
     ) -> ExternalGroupInputAcceptance:
-        async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+        async with self._factory.unit_of_work() as unit_of_work:
             current = await self._groups.bind_sender(
                 unit_of_work,
                 channel=command.channel,
@@ -385,13 +379,6 @@ def _acceptance(
     )
 
 
-async def _unused_lock_acquirer(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]], target: LockTarget
-) -> None:
-    del connection, target
-    raise ExternalGroupViolation("DB-EXTERNAL-GROUP-LOCK")
-
-
 def build_external_group_input_service(
     conninfo: str,
     *,
@@ -416,7 +403,6 @@ def build_external_group_input_service(
         unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
             conninfo,
             environment_id=environment_id,
-            lock_acquirer=_unused_lock_acquirer,
             pool_min=pool_min,
             pool_max=pool_max,
             acquire_timeout_seconds=acquire_timeout_seconds,

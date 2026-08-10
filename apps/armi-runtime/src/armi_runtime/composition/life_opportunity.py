@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID
 
 from armi_kernel.application import (
@@ -17,8 +16,6 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
     LifeOpportunitySourcePort,
     LifeViolation,
-    LockPlan,
-    LockTarget,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
     RuntimeFence,
@@ -73,7 +70,7 @@ class MaintenanceCoordinator:
 
     async def maintain_once(self) -> OpportunityAdmissionOutcome:
         session_id: UUID | None = None
-        async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+        async with self._factory.unit_of_work() as unit_of_work:
             progress = await self._repository.maintain_active_session(
                 unit_of_work,
                 quiet_seconds=self._quiet_seconds,
@@ -112,7 +109,7 @@ class MaintenanceCoordinator:
         session_id: UUID,
         request_id: UUID,
     ) -> UUID:
-        async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+        async with self._factory.unit_of_work() as unit_of_work:
             result = await self._repository.request_emergency_wake(
                 unit_of_work,
                 session_id=session_id,
@@ -193,7 +190,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
 
     async def admit_once(self) -> OpportunityAdmissionOutcome:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 result = await self._repository.admit_generation_available(unit_of_work)
         except LifeViolation:
             raise
@@ -246,7 +243,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
 
     async def admit_life_material_once(self) -> OpportunityAdmissionOutcome:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 return await self._repository.admit_life_material_revision(unit_of_work)
         except LifeViolation:
             raise
@@ -255,7 +252,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
 
     async def admit_creator_outreach_once(self) -> OpportunityAdmissionOutcome:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 return await self._repository.admit_creator_outreach(
                     unit_of_work,
                     policy=self._outreach_policy,
@@ -282,7 +279,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
 
     async def admit_attention_once(self) -> OpportunityAdmissionOutcome:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 return await self._repository.admit_activity_attention(
                     unit_of_work,
                     model_concurrency=self._model_concurrency,
@@ -294,7 +291,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
 
     async def admit_internal_work_once(self) -> OpportunityAdmissionOutcome:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 return await self._repository.admit_activity_internal_work(
                     unit_of_work,
                     model_concurrency=self._model_concurrency,
@@ -347,14 +344,9 @@ def build_life_opportunity_pipeline(
     creator_outreach_minimum_interval_seconds: int = 86_400,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
-    async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
-        del connection, target
-        raise LifeViolation("LIFE-LOCK")
-
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=reject_dynamic_lock,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

@@ -5,10 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
-import psycopg
 import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
@@ -31,8 +29,6 @@ from armi_kernel.application import (
     DataRightsRequesterKind,
     DataRightsScopeKind,
     DataRightsViolation,
-    LockPlan,
-    LockTarget,
     OtherHumanPartyKey,
     RuntimeFence,
 )
@@ -191,9 +187,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self, party_key: OtherHumanPartyKey
     ) -> tuple[DataRightsOrderDetail, ...]:
         try:
-            async with self._uow_factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit:
                 party_id = await self._requester_party(
                     unit, DataRightsRequesterKind.OTHER_HUMAN, party_key
                 )
@@ -207,9 +201,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self, party_key: OtherHumanPartyKey, order_id: UUID
     ) -> DataRightsOrderDetail | None:
         try:
-            async with self._uow_factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit:
                 party_id = await self._requester_party(
                     unit, DataRightsRequesterKind.OTHER_HUMAN, party_key
                 )
@@ -223,9 +215,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self, requester_party_id: UUID | None
     ) -> tuple[DataRightsOrderDetail, ...]:
         try:
-            async with self._uow_factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit:
                 return await self._details(unit, requester_party_id)
         except DatabaseTransactionError:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
@@ -234,9 +224,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self, *, order_id: UUID, requester_party_id: UUID | None
     ) -> DataRightsOrderDetail | None:
         try:
-            async with self._uow_factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit:
                 return await self._detail_in_unit(unit, order_id, requester_party_id)
         except DatabaseTransactionError:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
@@ -313,7 +301,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         command: DataRightsOrderCommand,
     ) -> DataRightsOrderResult:
         try:
-            async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._uow_factory.unit_of_work() as unit_of_work:
                 requester_party_id = await self._requester_party(
                     unit_of_work, requester_kind, party_key
                 )
@@ -396,9 +384,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         order_id: UUID,
     ) -> DataRightsOrderResult | None:
         try:
-            async with self._uow_factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit_of_work:
                 requester_party_id = await self._requester_party(
                     unit_of_work, requester_kind, party_key
                 )
@@ -472,13 +458,6 @@ class DataRightsOrderService(DataRightsOrderPort):
         )
 
 
-async def _unused_lock_acquirer(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]], target: LockTarget
-) -> None:
-    del connection, target
-    raise DataRightsViolation("DATA-RIGHTS-LOCK")
-
-
 def build_data_rights_order_service(
     conninfo: str,
     *,
@@ -496,7 +475,6 @@ def build_data_rights_order_service(
     unit_of_work_factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=_unused_lock_acquirer,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

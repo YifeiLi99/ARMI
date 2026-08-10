@@ -26,7 +26,6 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     AuditViolation,
-    LockPlan,
 )
 from armi_kernel.contracts import Purpose, TraceId
 
@@ -104,7 +103,7 @@ class ContentAddressedArtifactCoordinator:
         staged = await self._storage.stage(source, policy)
         published = await self._storage.publish(staged)
         try:
-            async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._uow_factory.unit_of_work() as unit_of_work:
                 registration = await self._catalog.register(
                     unit_of_work,
                     ArtifactId(uuid7()),
@@ -155,7 +154,7 @@ class ContentAddressedArtifactCoordinator:
                 else ArtifactIntegrityStatus.CORRUPT
             )
             try:
-                async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+                async with self._uow_factory.unit_of_work() as unit_of_work:
                     changed = await self._catalog.mark_integrity(
                         unit_of_work,
                         artifact_id,
@@ -184,7 +183,6 @@ class ContentAddressedArtifactCoordinator:
         refs: tuple[ArtifactRef, ...] = ()
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 refs = await self._catalog.all_refs(unit_of_work)
@@ -210,7 +208,6 @@ class ContentAddressedArtifactCoordinator:
         now = observed_at or datetime.now(UTC)
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 refs = await self._catalog.all_refs(unit_of_work)
@@ -232,7 +229,6 @@ class ContentAddressedArtifactCoordinator:
     async def _get(self, artifact_id: ArtifactId) -> ArtifactRef:
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 return await self._catalog.get(unit_of_work, artifact_id)

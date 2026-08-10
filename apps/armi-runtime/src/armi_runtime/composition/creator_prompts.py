@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
-import psycopg
 import rfc8785
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
@@ -29,8 +27,6 @@ from armi_kernel.application import (
     CreatorPromptRevisionCommand,
     CreatorPromptView,
     CreatorPromptViolation,
-    LockPlan,
-    LockTarget,
     PromptDocumentStatus,
     PromptKind,
     PromptRevisionKind,
@@ -199,7 +195,7 @@ class CreatorPromptService(CreatorPromptPort):
         published: PublishedArtifact,
         revision_kind: PromptRevisionKind,
     ) -> CreatorPromptSnapshot:
-        async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+        async with self._uow_factory.unit_of_work() as unit_of_work:
             current = await self._repository.get(
                 unit_of_work,
                 creator_party_id=self._creator_party_id,
@@ -251,7 +247,7 @@ class CreatorPromptService(CreatorPromptPort):
         self,
         command: CreatorPromptDeactivateCommand,
     ) -> CreatorPromptSnapshot:
-        async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+        async with self._uow_factory.unit_of_work() as unit_of_work:
             current = await self._repository.get(
                 unit_of_work,
                 creator_party_id=self._creator_party_id,
@@ -288,7 +284,6 @@ class CreatorPromptService(CreatorPromptPort):
     async def _read_snapshot(self, prompt_kind: PromptKind) -> CreatorPromptSnapshot:
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 return await self._repository.get(
@@ -433,14 +428,6 @@ class CreatorPromptService(CreatorPromptPort):
         )
 
 
-async def _unused_lock_acquirer(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-    target: LockTarget,
-) -> None:
-    del connection, target
-    raise CreatorPromptViolation("DB-PROMPT-LOCK")
-
-
 def build_creator_prompt_service(
     conninfo: str,
     *,
@@ -465,7 +452,6 @@ def build_creator_prompt_service(
         unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
             conninfo,
             environment_id=environment_id,
-            lock_acquirer=_unused_lock_acquirer,
             pool_min=pool_min,
             pool_max=pool_max,
             acquire_timeout_seconds=acquire_timeout_seconds,

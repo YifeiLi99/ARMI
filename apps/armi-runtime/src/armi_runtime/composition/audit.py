@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from armi_kernel.application import AuditQuery, AuditQueryResult, LockPlan
+from armi_kernel.application import AuditQuery, AuditQueryResult
 
 from armi_runtime.adapters.persistence.audit_events import AuditEventRepository
 from armi_runtime.adapters.persistence.unit_of_work import (
@@ -23,7 +23,6 @@ class AuditQueryGateway:
 
     async def query(self, query: AuditQuery) -> AuditQueryResult:
         async with self._unit_of_work_factory.unit_of_work(
-            LockPlan(),
             read_only=True,
         ) as unit_of_work:
             return await self._repository.query(unit_of_work, query)

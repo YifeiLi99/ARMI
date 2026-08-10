@@ -32,8 +32,6 @@ from armi_kernel.application import (
     CreatorExportResult,
     CreatorExportStatus,
     CreatorExportViolation,
-    LockPlan,
-    LockTarget,
     RuntimeFence,
     TransactionIsolation,
 )
@@ -157,9 +155,7 @@ class CreatorExportService(CreatorExportPort):
 
     async def get(self, export_id: UUID) -> CreatorExportResult | None:
         try:
-            async with self._uow_factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
                 row = await (
                     await connection.execute(
@@ -186,7 +182,7 @@ class CreatorExportService(CreatorExportPort):
         destination = str(self._destination(command.directory_name))
         export_id = uuid7()
         try:
-            async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._uow_factory.unit_of_work() as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
                 await connection.execute(
                     "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
@@ -263,7 +259,6 @@ class CreatorExportService(CreatorExportPort):
         total_rows = 0
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 isolation=TransactionIsolation.REPEATABLE_READ,
                 read_only=True,
             ) as unit_of_work:
@@ -367,7 +362,7 @@ class CreatorExportService(CreatorExportPort):
         error_code: str | None,
     ) -> CreatorExportResult:
         try:
-            async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._uow_factory.unit_of_work() as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
                 row = await (
                     await connection.execute(
@@ -575,11 +570,6 @@ def _remove_staging(path: Path, exports_root: Path) -> None:
     shutil.rmtree(path)
 
 
-async def _unused_lock_acquirer(connection: Any, target: LockTarget) -> None:
-    del connection, target
-    raise CreatorExportViolation("CREATOR-EXPORT-LOCK")
-
-
 def build_creator_export_service(
     conninfo: str,
     *,
@@ -603,7 +593,6 @@ def build_creator_export_service(
         unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
             conninfo,
             environment_id=environment_id,
-            lock_acquirer=_unused_lock_acquirer,
             pool_min=pool_min,
             pool_max=pool_max,
             acquire_timeout_seconds=acquire_timeout_seconds,

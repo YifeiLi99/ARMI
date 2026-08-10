@@ -47,7 +47,6 @@ from armi_kernel.application import (
     CreatorInputAcceptance,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
-    LockPlan,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 
@@ -110,7 +109,7 @@ class CodexTaskSourceGateway(
 
     async def admit(self, draft: CodexTaskSourceDraft) -> CodexTaskSourceId:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 return await self._repository.admit_task_source(uow, draft)
         except CodexDelegationViolation:
             raise
@@ -179,7 +178,7 @@ class CodexTaskSourceGateway(
         except ArtifactViolation, OSError:
             raise CodexDelegationViolation("CODEX-TASK-ARTIFACT") from None
         try:
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 await self._input_repository.lock_scene(
                     uow,
                     scene_id=context.scene_id,
@@ -243,7 +242,7 @@ class CodexTaskSourceGateway(
 
     async def _context(self, scene_key: str) -> CreatorInputContext:
         try:
-            async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
+            async with self._factory.unit_of_work(read_only=True) as uow:
                 return await self._input_repository.context(
                     uow,
                     scene_key=scene_key,
@@ -259,7 +258,7 @@ class CodexTaskSourceGateway(
         request_digest: Digest,
     ) -> CreatorInputAcceptance | None:
         try:
-            async with self._factory.unit_of_work(LockPlan(), read_only=True) as uow:
+            async with self._factory.unit_of_work(read_only=True) as uow:
                 return await self._repository.existing_creator_task(
                     uow,
                     context=context,
@@ -357,7 +356,7 @@ class CodexEffectPipeline:
         snapshot: CodexDispatchSnapshot | None = None
         intake_cleanup_failed = False
         try:
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 snapshot = await self._repository.claim(
                     uow, claim_owner=self._lease_owner
                 )
@@ -366,7 +365,7 @@ class CodexEffectPipeline:
             bundle = await self._read(snapshot.source_bundle)
             manifest_bytes = await self._read(snapshot.task_manifest)
             task = _task_manifest(snapshot, manifest_bytes)
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 dispatching = await self._repository.mark_dispatching(uow, snapshot)
             if not dispatching:
                 return True
@@ -474,7 +473,7 @@ class CodexEffectPipeline:
     async def _heartbeat(self, snapshot: CodexDispatchSnapshot) -> None:
         while True:
             await asyncio.sleep(20)
-            async with self._factory.unit_of_work(LockPlan()) as uow:
+            async with self._factory.unit_of_work() as uow:
                 if not await self._repository.heartbeat(uow, snapshot):
                     raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
 
@@ -631,7 +630,7 @@ class CodexEffectPipeline:
         execution_error_code: str | None,
         cleanup_error_code: str | None,
     ) -> None:
-        async with self._factory.unit_of_work(LockPlan()) as uow:
+        async with self._factory.unit_of_work() as uow:
             refs: dict[str, ArtifactRef] = {}
             for name, artifact in published.items():
                 registration = await self._catalog.register(

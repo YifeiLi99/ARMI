@@ -23,8 +23,6 @@ from armi_kernel.application import (
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
-    LockPlan,
-    LockTarget,
     RuntimeFence,
     WorkViolation,
 )
@@ -125,7 +123,7 @@ class ExactLifeQueryPipeline:
         lease = records[0].lease
         assert lease is not None
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit:
+            async with self._factory.unit_of_work() as unit:
                 snapshot = await self._repository.snapshot(unit, lease)
             status, page, failure_code = await self._execute_query(snapshot)
             result_bytes = _result_bytes(
@@ -135,7 +133,7 @@ class ExactLifeQueryPipeline:
                 failure_code=failure_code,
             )
             published = await self._publish(result_bytes, snapshot)
-            async with self._factory.unit_of_work(LockPlan()) as unit:
+            async with self._factory.unit_of_work() as unit:
                 registration = await self._catalog.register(
                     unit,
                     ArtifactId(uuid7()),
@@ -285,14 +283,9 @@ def build_exact_life_query_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> ExactLifeQueryPipeline:
-    async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
-        del connection, target
-        raise LifeRecordQueryViolation("LIFE-QUERY-LOCK")
-
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=reject_dynamic_lock,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

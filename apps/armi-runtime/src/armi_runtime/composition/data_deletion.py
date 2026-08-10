@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_kernel.application import ArtifactViolation, DataRightsViolation, LockPlan
+from armi_kernel.application import ArtifactViolation, DataRightsViolation
 
 from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
@@ -28,9 +28,7 @@ class LocalDataDeletionExecutor:
 
     async def resume_pending(self) -> None:
         try:
-            async with self._uow_factory.unit_of_work(
-                LockPlan(), read_only=True
-            ) as unit_of_work:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit_of_work:
                 order_ids = await self._repository.pending_order_ids(unit_of_work)
             for order_id in order_ids:
                 await self.execute(order_id)
@@ -39,7 +37,7 @@ class LocalDataDeletionExecutor:
 
     async def execute(self, order_id: UUID) -> None:
         try:
-            async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._uow_factory.unit_of_work() as unit_of_work:
                 artifacts = await self._repository.prepare(unit_of_work, order_id)
             for item in artifacts:
                 completed = False
@@ -48,7 +46,7 @@ class LocalDataDeletionExecutor:
                     completed = True
                 except ArtifactViolation:
                     completed = False
-                async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+                async with self._uow_factory.unit_of_work() as unit_of_work:
                     await self._repository.settle_artifact(
                         unit_of_work,
                         order_id=order_id,
@@ -56,7 +54,7 @@ class LocalDataDeletionExecutor:
                         artifact_id=item.ref.artifact_id.value,
                         completed=completed,
                     )
-            async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._uow_factory.unit_of_work() as unit_of_work:
                 await self._repository.finalize(unit_of_work, order_id)
         except DataRightsViolation:
             raise

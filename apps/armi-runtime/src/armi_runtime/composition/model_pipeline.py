@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import (
@@ -25,8 +24,6 @@ from armi_kernel.application import (
     AuditSensitivity,
     CredentialLocator,
     CredentialPort,
-    LockPlan,
-    LockTarget,
     ModelAttemptId,
     ModelInvocationResult,
     ModelRequest,
@@ -466,7 +463,7 @@ class ModelPipeline:
                 logical_kind="model.request",
                 snapshot=snapshot,
             )
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 request_registration = await self._catalog.register(
                     unit_of_work,
                     ArtifactId(uuid7()),
@@ -487,7 +484,7 @@ class ModelPipeline:
                     binding=adapter.binding,
                     request_artifact=request_registration.ref,
                 )
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.mark_dispatched(
                     unit_of_work,
                     lease=lease,
@@ -502,7 +499,7 @@ class ModelPipeline:
                     logical_kind="model.response",
                     snapshot=snapshot,
                 )
-                async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+                async with self._factory.unit_of_work() as unit_of_work:
                     response_registration = await self._catalog.register(
                         unit_of_work,
                         ArtifactId(uuid7()),
@@ -599,7 +596,7 @@ class ModelPipeline:
 
     async def _snapshot(self, lease: WorkLease) -> ModelEpisodeSnapshot:
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 return await self._repository.snapshot(unit_of_work, lease)
         except DatabaseTransactionError:
             raise ModelViolation("MODEL-DATABASE") from None
@@ -700,7 +697,7 @@ class ModelPipeline:
                 ModelResultStatus.OUTCOME_UNKNOWN,
                 ModelResultStatus.REJECTED,
             }
-        async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+        async with self._factory.unit_of_work() as unit_of_work:
             await self._repository.settle_failure(
                 unit_of_work,
                 lease=lease,
@@ -722,7 +719,7 @@ class ModelPipeline:
             self._diagnostic("model.preparation.deferred")
             return
         try:
-            async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
+            async with self._factory.unit_of_work() as unit_of_work:
                 if error.retryable:
                     now = await (
                         await unit_of_work._connection_for_repository().execute(  # pyright: ignore[reportPrivateUsage]
@@ -801,14 +798,9 @@ def build_model_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> ModelPipeline:
-    async def reject_dynamic_lock(connection: Any, target: LockTarget) -> None:
-        del connection, target
-        raise ModelViolation("MODEL-LOCK")
-
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=reject_dynamic_lock,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,

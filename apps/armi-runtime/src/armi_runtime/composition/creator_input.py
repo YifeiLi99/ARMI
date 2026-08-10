@@ -5,10 +5,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import Final
 from uuid import UUID, uuid7
 
-import psycopg
 import rfc8785
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
@@ -33,8 +32,6 @@ from armi_kernel.application import (
     CreatorOperationQueryPort,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
-    LockPlan,
-    LockTarget,
     OpportunityId,
     PublishedArtifact,
     RuntimeFence,
@@ -191,7 +188,6 @@ class EvidenceAcceptanceTransaction(
     async def get(self, opportunity_id: OpportunityId) -> CreatorOperation:
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 return await self._repository.operation(
@@ -207,7 +203,6 @@ class EvidenceAcceptanceTransaction(
     async def get_subject_summary(self) -> SubjectSummary:
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 return await self._repository.subject_summary(
@@ -226,7 +221,7 @@ class EvidenceAcceptanceTransaction(
         request_digest: Digest,
         published: PublishedArtifact,
     ) -> CreatorInputAcceptance:
-        async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
+        async with self._uow_factory.unit_of_work() as unit_of_work:
             await self._repository.lock_scene(
                 unit_of_work,
                 scene_id=expected_context.scene_id,
@@ -298,7 +293,6 @@ class EvidenceAcceptanceTransaction(
     async def _read_context(self, scene_key: str) -> CreatorInputContext:
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 return await self._repository.context(
@@ -319,7 +313,6 @@ class EvidenceAcceptanceTransaction(
     ) -> CreatorInputAcceptance | None:
         try:
             async with self._uow_factory.unit_of_work(
-                LockPlan(),
                 read_only=True,
             ) as unit_of_work:
                 return await self._repository.existing(
@@ -386,14 +379,6 @@ class EvidenceAcceptanceTransaction(
             self._diagnostic("creator.input.notification_failed")
 
 
-async def _unused_lock_acquirer(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-    target: LockTarget,
-) -> None:
-    del connection, target
-    raise CreatorInputViolation("DB-INPUT-LOCK")
-
-
 def build_evidence_acceptance_transaction(
     conninfo: str,
     *,
@@ -414,7 +399,6 @@ def build_evidence_acceptance_transaction(
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
         environment_id=environment_id,
-        lock_acquirer=_unused_lock_acquirer,
         pool_min=pool_min,
         pool_max=pool_max,
         acquire_timeout_seconds=acquire_timeout_seconds,
