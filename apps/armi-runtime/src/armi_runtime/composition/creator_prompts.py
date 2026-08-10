@@ -77,8 +77,6 @@ class CreatorPromptService(CreatorPromptPort):
         repository: CreatorPromptRepository,
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     ) -> None:
-        if type(creator_party_id) is not UUID or creator_party_id.version != 7:
-            raise CreatorPromptViolation("CON-PROMPT-CREATOR")
         self._creator_party_id = creator_party_id
         self._storage = storage
         self._catalog = catalog
@@ -103,8 +101,6 @@ class CreatorPromptService(CreatorPromptPort):
         self,
         command: CreatorPromptRevisionCommand,
     ) -> CreatorPromptView:
-        if type(command) is not CreatorPromptRevisionCommand:
-            raise CreatorPromptViolation("CON-PROMPT-COMMAND")
         self._require_creator_guidance(command.prompt_kind)
         observed = await self._read_snapshot(command.prompt_kind)
         self._require_expected(observed, command.expected_revision_id)
@@ -167,8 +163,6 @@ class CreatorPromptService(CreatorPromptPort):
         self,
         command: CreatorPromptDeactivateCommand,
     ) -> CreatorPromptView:
-        if type(command) is not CreatorPromptDeactivateCommand:
-            raise CreatorPromptViolation("CON-PROMPT-COMMAND")
         self._require_creator_guidance(command.prompt_kind)
         observed = await self._read_snapshot(command.prompt_kind)
         self._require_expected(observed, command.expected_revision_id)

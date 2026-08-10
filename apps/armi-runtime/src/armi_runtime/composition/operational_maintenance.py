@@ -48,11 +48,6 @@ async def run_artifact_retention(
 ) -> ArtifactOrphanReport | ArtifactCleanupReport:
     """Inspect or explicitly clean only proven local artifact orphans."""
 
-    if type(apply) is not bool:
-        raise RuntimeViolation(
-            "MAINTENANCE-ARTIFACT-DECLARATION",
-            "artifact maintenance mode is invalid",
-        )
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
         raise RuntimeViolation(

@@ -109,8 +109,6 @@ class CodexTaskSourceGateway(
         self._catalog = ArtifactCatalogRepository()
 
     async def admit(self, draft: CodexTaskSourceDraft) -> CodexTaskSourceId:
-        if type(draft) is not CodexTaskSourceDraft:
-            raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
         try:
             async with self._factory.unit_of_work(LockPlan()) as uow:
                 return await self._repository.admit_task_source(uow, draft)
@@ -120,8 +118,6 @@ class CodexTaskSourceGateway(
             raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
 
     async def accept(self, command: CreatorCodexTaskCommand) -> CreatorInputAcceptance:
-        if type(command) is not CreatorCodexTaskCommand:
-            raise CodexDelegationViolation("CODEX-TASK-REQUEST")
         context = await self._context(command.scene_key)
         objective_digest = Digest.from_bytes(command.objective.encode("utf-8"))
         request_digest = Digest.from_bytes(

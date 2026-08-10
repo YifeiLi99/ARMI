@@ -68,16 +68,6 @@ class PostgreSQLRuntimeAuthority:
         expected_bundle_digest: str,
         pool_timeout_seconds: int,
     ) -> None:
-        if environment_id.version != 7:
-            raise ValueError("environment_id must be UUIDv7")
-        if (
-            type(expected_bundle_digest) is not str
-            or not expected_bundle_digest.startswith("sha256:")
-            or len(expected_bundle_digest) != 71
-        ):
-            raise ValueError("expected_bundle_digest is invalid")
-        if type(pool_timeout_seconds) is not int or pool_timeout_seconds <= 0:
-            raise ValueError("pool_timeout_seconds must be positive")
         self._environment_id = environment_id
         self._expected_bundle_digest = expected_bundle_digest
         self._expected_role = physical_role_name(environment_id, "runtime")
@@ -121,7 +111,6 @@ class PostgreSQLRuntimeAuthority:
         runtime_instance_id: RuntimeInstanceId,
         lease_seconds: int,
     ) -> RuntimeAuthorityRecord:
-        _require_lease_seconds(lease_seconds)
         commit_may_be_unknown = False
         try:
             async with (
@@ -279,8 +268,6 @@ class PostgreSQLRuntimeAuthority:
         *,
         lease_seconds: int,
     ) -> RuntimeAuthorityRecord:
-        _require_fence(fence)
-        _require_lease_seconds(lease_seconds)
         try:
             async with (
                 self._pool.connection(
@@ -337,7 +324,6 @@ class PostgreSQLRuntimeAuthority:
             raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
 
     async def release(self, fence: RuntimeFence) -> RuntimeAuthorityRecord:
-        _require_fence(fence)
         try:
             async with (
                 self._pool.connection(
@@ -476,16 +462,6 @@ class PostgreSQLRuntimeAuthority:
                 return None if row is None else _record(row)
         except psycopg.Error, PoolTimeout:
             return None
-
-
-def _require_lease_seconds(value: object) -> None:
-    if type(value) is not int or not 1 <= value <= 3600:
-        raise RuntimeAuthorityViolation("AUTH-DECLARATION")
-
-
-def _require_fence(value: object) -> None:
-    if type(value) is not RuntimeFence:
-        raise RuntimeAuthorityViolation("AUTH-DECLARATION")
 
 
 def _record(row: tuple[Any, ...]) -> RuntimeAuthorityRecord:

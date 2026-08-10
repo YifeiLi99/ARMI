@@ -160,8 +160,6 @@ class PostgreSQLCreatorMaintenanceQuery:
         return CreatorMaintenanceStatus(session, waiting_input_count)
 
     async def timeline(self, session_id: UUID) -> CreatorMaintenanceTimeline:
-        if type(session_id) is not UUID or session_id.version != 7:
-            raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-ID")
         try:
             async with (
                 self._pool.connection(

@@ -29,8 +29,6 @@ class DeterministicContextCompiler(ContextCompiler):
     """Compile only immutable inputs supplied by the caller."""
 
     def compile(self, request: ContextRequest) -> ContextResult:
-        if type(request) is not ContextRequest:
-            raise ContextViolation("CTX-REQUEST")
         if request.mechanism_identity != CONTEXT_MECHANISM:
             raise ContextViolation("CTX-MECHANISM")
 

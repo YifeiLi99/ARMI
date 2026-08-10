@@ -483,8 +483,6 @@ class PostgreSQLLifeRecordQuery:
         self,
         material_id: UUID,
     ) -> CreatorLifeMaterialItem | None:
-        if type(material_id) is not UUID or material_id.version != 7:
-            raise CreatorLifeMaterialQueryViolation("LIFE-MATERIAL-QUERY-INVALID")
         try:
             async with (
                 self._pool.connection(
@@ -697,8 +695,6 @@ class PostgreSQLLifeRecordQuery:
         limit: int,
         cursor: OpaqueCursor | None = None,
     ) -> CreatorMemoryTimeline:
-        if memory_id.version != 7 or type(limit) is not int or not 1 <= limit <= 100:
-            raise LifeRecordQueryViolation("CON-LIFE-QUERY-REQUEST")
         scope = {
             "projection_version": "creator-memory.v1",
             "resource": "memory_timeline",

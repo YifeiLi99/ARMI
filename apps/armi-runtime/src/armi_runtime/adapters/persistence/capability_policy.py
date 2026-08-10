@@ -117,10 +117,6 @@ class PostgreSQLCreatorGrantPolicy:
         limit: int,
         cursor: str | None,
     ) -> dict[str, object]:
-        if type(creator_party_id) is not UUID or creator_party_id.version != 7:
-            raise CapabilityViolation("SCOPE-CAPABILITY-REQUEST")
-        if type(limit) is not int or not 1 <= limit <= 100:
-            raise CapabilityViolation("CON-CAPABILITY-PAGE")
         boundary = (
             _decode_cursor(
                 cursor,
@@ -606,8 +602,6 @@ class PostgreSQLCreatorGrantPolicy:
             raise
 
     async def expire_once(self, *, limit: int = 100) -> int:
-        if type(limit) is not int or not 1 <= limit <= 100:
-            raise CapabilityViolation("CON-CAPABILITY-PAGE")
         from armi_kernel.application import LockPlan
 
         expired_request_ids: list[UUID] = []

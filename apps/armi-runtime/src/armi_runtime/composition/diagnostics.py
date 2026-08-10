@@ -236,13 +236,6 @@ class StructuredDiagnosticLog:
         rotation_max_bytes: int = 16_777_216,
         retention_seconds: int = 604_800,
     ) -> None:
-        if (
-            type(rotation_max_bytes) is not int
-            or rotation_max_bytes <= 0
-            or type(retention_seconds) is not int
-            or retention_seconds <= 0
-        ):
-            raise RuntimeViolation("LOG-CONFIG", "diagnostic retention is invalid")
         logger = logging.Logger(f"armi-runtime.{instance_id}", level=logging.INFO)
         logger.propagate = False
         logs_root = data_root / "logs"

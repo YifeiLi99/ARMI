@@ -118,8 +118,6 @@ class EvidenceAcceptanceTransaction(
         self._fault_injector = fault_injector or _ignore_diagnostic
 
     async def accept(self, command: CreatorInputCommand) -> CreatorInputAcceptance:
-        if type(command) is not CreatorInputCommand:
-            raise CreatorInputViolation("CON-INPUT-COMMAND")
         context = await self._read_context(command.scene_key)
         try:
             staged = await self._storage.stage(
@@ -191,8 +189,6 @@ class EvidenceAcceptanceTransaction(
         await self._uow_factory.close()
 
     async def get(self, opportunity_id: OpportunityId) -> CreatorOperation:
-        if type(opportunity_id) is not OpportunityId:
-            raise CreatorInputViolation("CON-INPUT-OPPORTUNITY-ID")
         try:
             async with self._uow_factory.unit_of_work(
                 LockPlan(),
@@ -230,8 +226,6 @@ class EvidenceAcceptanceTransaction(
         request_digest: Digest,
         published: PublishedArtifact,
     ) -> CreatorInputAcceptance:
-        if type(published) is not PublishedArtifact:
-            raise CreatorInputViolation("ART-INPUT-PUBLISH")
         async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
             await self._repository.lock_scene(
                 unit_of_work,

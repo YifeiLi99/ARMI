@@ -81,13 +81,6 @@ class BrowserSessionStore:
         monotonic: Callable[[], float] = time.monotonic,
         now: Callable[[], datetime] | None = None,
     ) -> None:
-        if (
-            environment_id.version != 7
-            or creator_party_id.version != 7
-            or default_scene_key != "default"
-            or session_ttl_seconds <= 0
-        ):
-            raise BrowserSessionViolation("SEC_CREATOR_CONFIGURATION", status_code=503)
         self._environment_id = environment_id
         self._creator_party_id = creator_party_id
         self._default_scene_key = default_scene_key

@@ -46,8 +46,6 @@ class PostgreSQLMaintenanceRepository:
     ) -> MaintenanceProgress | None:
         """Advance one maintenance checkpoint, or wait at a safe boundary."""
 
-        if type(quiet_seconds) is not int or quiet_seconds < 0:
-            raise LifeViolation("LIFE-MAINTENANCE-CONFIG")
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise LifeViolation("LIFE-FENCE-REQUIRED")

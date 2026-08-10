@@ -139,8 +139,6 @@ class WebSearchPipeline:
         self._stop.set()
 
     async def admit(self, draft: WebObservationDraft) -> WebObservationRecord:
-        if type(draft) is not WebObservationDraft:
-            raise WebObservationViolation("WEB-REQUEST")
         query = draft.query_bytes.decode("utf-8", errors="strict")
         request_bytes = build_request_bytes(
             request_id=str(draft.request_id.value),

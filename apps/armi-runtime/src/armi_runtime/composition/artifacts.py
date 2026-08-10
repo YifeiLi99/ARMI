@@ -91,14 +91,6 @@ class ContentAddressedArtifactCoordinator:
         *,
         orphan_grace_seconds: int,
     ) -> None:
-        if (
-            type(storage) is not ContentAddressedArtifactStore
-            or type(catalog) is not ArtifactCatalogRepository
-            or type(unit_of_work_factory) is not PostgreSQLUnitOfWorkFactory
-            or type(orphan_grace_seconds) is not int
-            or orphan_grace_seconds <= 0
-        ):
-            raise ArtifactViolation("ART-DECLARATION")
         self._storage = storage
         self._catalog = catalog
         self._uow_factory = unit_of_work_factory
@@ -145,8 +137,6 @@ class ContentAddressedArtifactCoordinator:
         *,
         trace_id: TraceId,
     ) -> VerifiedFileStream:
-        if type(trace_id) is not TraceId:
-            raise ArtifactViolation("ART-DECLARATION")
         ref = await self._get(artifact_id)
         if ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED:
             raise ArtifactViolation(
@@ -191,12 +181,6 @@ class ContentAddressedArtifactCoordinator:
         observed_at: datetime | None = None,
     ) -> ArtifactOrphanReport:
         now = observed_at or datetime.now(UTC)
-        if (
-            type(now) is not datetime
-            or now.tzinfo is None
-            or now.utcoffset() != UTC.utcoffset(now)
-        ):
-            raise ArtifactViolation("ART-ORPHAN-SCAN")
         refs: tuple[ArtifactRef, ...] = ()
         try:
             async with self._uow_factory.unit_of_work(
@@ -224,12 +208,6 @@ class ContentAddressedArtifactCoordinator:
         observed_at: datetime | None = None,
     ) -> ArtifactCleanupReport:
         now = observed_at or datetime.now(UTC)
-        if (
-            type(now) is not datetime
-            or now.tzinfo is None
-            or now.utcoffset() != UTC.utcoffset(now)
-        ):
-            raise ArtifactViolation("ART-ORPHAN-CLEANUP")
         try:
             async with self._uow_factory.unit_of_work(
                 LockPlan(),
@@ -252,8 +230,6 @@ class ContentAddressedArtifactCoordinator:
         )
 
     async def _get(self, artifact_id: ArtifactId) -> ArtifactRef:
-        if type(artifact_id) is not ArtifactId:
-            raise ArtifactViolation("ART-DECLARATION")
         try:
             async with self._uow_factory.unit_of_work(
                 LockPlan(),

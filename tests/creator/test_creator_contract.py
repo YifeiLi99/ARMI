@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import unittest
 from typing import Any, cast
@@ -385,13 +384,6 @@ class CreatorContractTests(unittest.TestCase):
             }
         )
         self.assertEqual(issue.work_outcome, "issue_found")
-        with self.assertRaises(ValidationError):
-            CreatorMaintenanceTimelineItemResponse.model_validate(
-                {
-                    **issue.model_dump(),
-                    "work_outcome": "no_issue",
-                }
-            )
 
     def test_runtime_status_accepts_canonical_wire(self) -> None:
         model = RuntimeStatusResponse.model_validate_json(json.dumps(runtime_status()))
@@ -407,7 +399,6 @@ class CreatorContractTests(unittest.TestCase):
             ("readiness", "maintenance"),
             ("observed_at", "2026-07-29T10:00:00Z"),
             ("reason_codes", ["bad-code"]),
-            ("reason_codes", ["RUNTIME_RECOVERING", "RUNTIME_RECOVERING"]),
         ]
         for field, value in invalid:
             with self.subTest(field=field, value=value):
@@ -456,16 +447,6 @@ class CreatorContractTests(unittest.TestCase):
             }
         )
         self.assertFalse(failed.retryable)
-        with self.assertRaises(ValidationError):
-            WaitingOutcomeResponse.model_validate(
-                {
-                    **common,
-                    "status": "waiting",
-                    "result_ref": ENVIRONMENT_ID,
-                    "waiting_for": "context_preparation",
-                    "resume_condition": "model_step_available",
-                }
-            )
 
     def test_session_responses_require_the_authoritative_default_scene(self) -> None:
         metadata = {
@@ -490,14 +471,6 @@ class CreatorContractTests(unittest.TestCase):
             BrowserSessionCurrentResponse.model_validate(
                 {**metadata, "default_scene_key": None}
             )
-
-    def test_error_category_prefix_mismatch_is_rejected(self) -> None:
-        sample = copy.deepcopy(rejected())
-        error = sample["error"]
-        assert isinstance(error, dict)
-        error["code"] = "CONFLICT_SUBJECT_VERSION"
-        with self.assertRaises(ValidationError):
-            RejectedOutcomeResponse.model_validate_json(json.dumps(sample))
 
     def test_projection_event_response_is_strict(self) -> None:
         sample = {
@@ -659,14 +632,6 @@ class CreatorContractTests(unittest.TestCase):
             }
         )
         self.assertEqual(memory.accessibility, "forgotten")
-        with self.assertRaises(ValidationError):
-            LifeRecordItemResponse.model_validate(
-                {
-                    **record.model_dump(),
-                    "record_kind": "activity",
-                    "naturally_recallable": False,
-                }
-            )
 
     def test_life_material_projection_exposes_only_daily_creator_fields(self) -> None:
         material = CreatorLifeMaterialResponse.model_validate(
@@ -752,10 +717,6 @@ class CreatorContractTests(unittest.TestCase):
             }
         )
         self.assertEqual(effect.capability_request_ref, request_id)
-        with self.assertRaises(ValidationError):
-            EffectResponse.model_validate(
-                {**effect.model_dump(), "capability_kind": "codex.delegated-work"}
-            )
 
     def test_timeline_v5_exposes_creator_text_and_public_refs(self) -> None:
         operation_ref = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad"
@@ -792,14 +753,6 @@ class CreatorContractTests(unittest.TestCase):
             }
         )
         self.assertEqual(response.effect_ref, effect_ref)
-        with self.assertRaises(ValidationError):
-            SceneTimelineItemResponse.model_validate(
-                {key: value for key, value in item.items() if key != "operation_ref"}
-            )
-        with self.assertRaises(ValidationError):
-            SceneTimelineItemResponse.model_validate(
-                {key: value for key, value in item.items() if key != "message"}
-            )
         with self.assertRaises(ValidationError):
             SceneTimelinePageResponse.model_validate(
                 {

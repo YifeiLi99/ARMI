@@ -81,8 +81,6 @@ class QQGroupIngressAdapter:
     async def accept_event(
         self, event: NapCatGroupMessageEvent
     ) -> ExternalGroupInputAcceptance | None:
-        if type(event) is not NapCatGroupMessageEvent:
-            raise ExternalGroupViolation("CON-EXTERNAL-GROUP-INPUT")
         if event.self_id != self._config.account_id or event.user_id == event.self_id:
             return None
         group_label = self._config.allowed_groups.get(event.group_id)
@@ -178,8 +176,6 @@ class QQGroupEgressAdapter(ExternalGroupSendPort):
         raise ExternalGroupViolation("EXTERNAL-GROUP-RESULT-UNKNOWN")
 
     def _validate_request(self, request: ExternalGroupSendRequest) -> int:
-        if type(request) is not ExternalGroupSendRequest:
-            raise ExternalGroupViolation("CON-EXTERNAL-GROUP-SEND")
         return self._validate_route(
             request.channel, request.account_key, request.conversation_key
         )

@@ -46,12 +46,6 @@ class ArtifactCatalogRepository:
         artifact_id: ArtifactId,
         published: PublishedArtifact,
     ) -> ArtifactRegistration:
-        if (
-            type(unit_of_work) is not PostgreSQLUnitOfWork
-            or type(artifact_id) is not ArtifactId
-            or type(published) is not PublishedArtifact
-        ):
-            raise ArtifactViolation("ART-DECLARATION")
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         digest_hex = published.content_digest.value.removeprefix("sha256:")
         locator = f"objects/sha256/{digest_hex[:2]}/{digest_hex[2:4]}/{digest_hex}"
@@ -112,11 +106,6 @@ class ArtifactCatalogRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         artifact_id: ArtifactId,
     ) -> ArtifactRef:
-        if (
-            type(unit_of_work) is not PostgreSQLUnitOfWork
-            or type(artifact_id) is not ArtifactId
-        ):
-            raise ArtifactViolation("ART-DECLARATION")
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         cursor = await connection.execute(
             f"""
@@ -135,8 +124,6 @@ class ArtifactCatalogRepository:
         self,
         unit_of_work: PostgreSQLUnitOfWork,
     ) -> tuple[ArtifactRef, ...]:
-        if type(unit_of_work) is not PostgreSQLUnitOfWork:
-            raise ArtifactViolation("ART-DECLARATION")
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         cursor = await connection.execute(
             f"""
@@ -153,14 +140,9 @@ class ArtifactCatalogRepository:
         artifact_id: ArtifactId,
         status: ArtifactIntegrityStatus,
     ) -> bool:
-        if (
-            type(unit_of_work) is not PostgreSQLUnitOfWork
-            or type(artifact_id) is not ArtifactId
-            or status
-            not in (
-                ArtifactIntegrityStatus.MISSING,
-                ArtifactIntegrityStatus.CORRUPT,
-            )
+        if status not in (
+            ArtifactIntegrityStatus.MISSING,
+            ArtifactIntegrityStatus.CORRUPT,
         ):
             raise ArtifactViolation("ART-STATE")
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]

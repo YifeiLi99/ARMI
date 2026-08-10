@@ -124,13 +124,6 @@ class OpenAIArkTransport:
         instructions: str = _INSTRUCTIONS,
         schema_name: str = "armi_cognition_candidate_v7",
     ) -> None:
-        if (
-            type(instructions) is not str
-            or not instructions
-            or type(schema_name) is not str
-            or not schema_name
-        ):
-            raise ModelViolation("MODEL-BINDING")
         self._candidate_schema = candidate_schema
         self._instructions = instructions
         self._schema_name = schema_name
@@ -335,8 +328,6 @@ class VolcengineArkModelAdapter(ModelPort):
             _wipe(secret)
 
     async def tokenize(self, canonical_request: bytes) -> int:
-        if type(canonical_request) is not bytes or not canonical_request:
-            raise ModelViolation("MODEL-REQUEST")
         secret = self._copy_secret()
         try:
             return await self._transport.tokenize(
@@ -358,8 +349,6 @@ class VolcengineArkModelAdapter(ModelPort):
             _wipe(secret)
 
     async def invoke(self, request: ModelRequest) -> ModelInvocationResult:
-        if type(request) is not ModelRequest:
-            raise ModelViolation("MODEL-REQUEST")
         if request.input_tokens > self._binding.input_token_limit:
             raise ModelViolation("MODEL-BUDGET")
         secret = self._copy_secret()

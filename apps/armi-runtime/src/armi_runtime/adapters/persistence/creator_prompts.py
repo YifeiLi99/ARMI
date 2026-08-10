@@ -49,14 +49,6 @@ class CreatorPromptRepository:
         prompt_kind: PromptKind,
         for_update: bool = False,
     ) -> CreatorPromptSnapshot:
-        if (
-            type(unit_of_work) is not PostgreSQLUnitOfWork
-            or type(creator_party_id) is not UUID
-            or creator_party_id.version != 7
-            or type(prompt_kind) is not PromptKind
-            or type(for_update) is not bool
-        ):
-            raise CreatorPromptViolation("CON-PROMPT-QUERY")
         suffix = " FOR UPDATE OF document" if for_update else ""
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         row = await (
@@ -131,22 +123,11 @@ class CreatorPromptRepository:
         revision_kind: PromptRevisionKind,
     ) -> CreatorPromptSnapshot:
         if (
-            type(unit_of_work) is not PostgreSQLUnitOfWork
-            or type(current) is not CreatorPromptSnapshot
-            or type(prompt_revision_id) is not UUID
-            or prompt_revision_id.version != 7
-            or type(artifact) is not ArtifactRef
-            or type(author_party_id) is not UUID
-            or author_party_id.version != 7
-            or type(revision_kind) is not PromptRevisionKind
-            or (
-                revision_kind is PromptRevisionKind.CREATED
-                and current.current_revision_id is not None
-            )
-            or (
-                revision_kind is not PromptRevisionKind.CREATED
-                and current.current_revision_id is None
-            )
+            revision_kind is PromptRevisionKind.CREATED
+            and current.current_revision_id is not None
+        ) or (
+            revision_kind is not PromptRevisionKind.CREATED
+            and current.current_revision_id is None
         ):
             raise CreatorPromptViolation("CON-PROMPT-COMMAND")
         next_revision = (current.revision_no or 0) + 1

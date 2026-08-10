@@ -68,8 +68,6 @@ class MaintenanceCoordinator:
         self._opportunities = opportunities
         self._consideration_seconds = consideration_seconds
         self._deadline_seconds = deadline_seconds
-        if type(quiet_seconds) is not int or quiet_seconds < 0:
-            raise LifeViolation("LIFE-MAINTENANCE-CONFIG")
         self._quiet_seconds = quiet_seconds
         self._notifier = notifier
 
@@ -166,8 +164,6 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         self._repository = PostgreSQLLifeOpportunityRepository()
         self._stop = asyncio.Event()
         self._wakeups = wakeups or WorkWakeupBus()
-        if type(model_concurrency) is not int or model_concurrency < 1:
-            raise LifeViolation("LIFE-SCHEDULER-CONFIG")
         self._model_concurrency = model_concurrency
         self._outreach_policy = CreatorOutreachPolicy(
             creator_outreach_absence_seconds,

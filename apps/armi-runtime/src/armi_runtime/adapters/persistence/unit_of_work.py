@@ -141,20 +141,6 @@ class PostgreSQLUnitOfWorkFactory:
     ) -> None:
         if environment_id.version != 7:
             raise ValueError("environment_id must be UUIDv7")
-        for name, value in (
-            ("pool_min", pool_min),
-            ("pool_max", pool_max),
-            ("acquire_timeout_seconds", acquire_timeout_seconds),
-            ("statement_timeout_seconds", statement_timeout_seconds),
-        ):
-            if type(value) is not int or value <= 0:
-                raise ValueError(f"{name} must be a positive integer")
-        if pool_min > pool_max:
-            raise ValueError("pool_min must not exceed pool_max")
-        if type(require_runtime_fence) is not bool:
-            raise TypeError("require_runtime_fence must be bool")
-        if authority_admission is not None and not callable(authority_admission):
-            raise TypeError("authority_admission must be callable")
         self._environment_id = environment_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._acquire_timeout_seconds = acquire_timeout_seconds
@@ -301,12 +287,6 @@ class PostgreSQLUnitOfWork:
         authority_admission: Callable[[], RuntimeFence] | None,
         runtime_fence: RuntimeFence | None,
     ) -> None:
-        if type(lock_plan) is not LockPlan:
-            raise TypeError("lock_plan must be LockPlan")
-        if type(isolation) is not TransactionIsolation:
-            raise TypeError("isolation must be TransactionIsolation")
-        if type(read_only) is not bool:
-            raise TypeError("read_only must be bool")
         self._pool = pool
         self._environment_id = environment_id
         self._expected_role = expected_role
@@ -359,14 +339,10 @@ class PostgreSQLUnitOfWork:
 
     def add_before_commit(self, hook: BeforeCommitHook) -> None:
         self._require_active()
-        if not callable(hook):
-            raise TypeError("before-commit hook must be callable")
         self._before_commit.append(hook)
 
     def defer_after_commit(self, action: PostCommitAction) -> None:
         self._require_active()
-        if type(action) is not PostCommitAction:
-            raise TypeError("post-commit action must be PostCommitAction")
         self._deferred_actions.append(action)
 
     def request_rollback(self) -> None:
@@ -494,8 +470,6 @@ class PostgreSQLUnitOfWork:
     async def _verify_runtime_fence(self, *, lock_row: bool) -> None:
         assert self._connection is not None
         assert self._runtime_fence is not None
-        if type(lock_row) is not bool:
-            raise TypeError("lock_row must be bool")
         fence = self._runtime_fence
         locking_clause = "FOR UPDATE OF instance" if lock_row else ""
         row = await (

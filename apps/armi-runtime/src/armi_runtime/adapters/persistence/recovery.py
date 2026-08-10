@@ -128,14 +128,6 @@ class PostgreSQLRuntimeRecovery:
         pool_timeout_seconds: int,
         authority_admission: Callable[[], RuntimeFence],
     ) -> None:
-        if environment_id.version != 7 or not data_root.is_absolute():
-            raise ValueError("recovery environment declaration is invalid")
-        if (
-            type(pool_timeout_seconds) is not int
-            or pool_timeout_seconds <= 0
-            or not callable(authority_admission)
-        ):
-            raise ValueError("recovery pool declaration is invalid")
         self._environment_id = environment_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
@@ -1876,8 +1868,6 @@ class PostgreSQLRuntimeRecovery:
                 else "REC-FENCE-STALE"
             )
             raise RecoveryViolation(code) from None
-        if type(fence) is not RuntimeFence:
-            raise RecoveryViolation("REC-FENCE-STALE")
         return fence
 
 

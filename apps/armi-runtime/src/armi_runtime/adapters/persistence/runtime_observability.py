@@ -85,15 +85,6 @@ class PostgreSQLRuntimeObservation:
         acquire_timeout_seconds: int,
         statement_timeout_seconds: int,
     ) -> None:
-        if environment_id.version != 7:
-            raise ValueError("environment_id must be UUIDv7")
-        if (
-            type(acquire_timeout_seconds) is not int
-            or acquire_timeout_seconds <= 0
-            or type(statement_timeout_seconds) is not int
-            or statement_timeout_seconds <= 0
-        ):
-            raise ValueError("observation timeouts must be positive integers")
         expected_role = physical_role_name(environment_id, "runtime")
 
         async def configure(

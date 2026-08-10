@@ -63,8 +63,6 @@ class PostgreSQLAuditWriter:
         self._connection = connection
 
     async def append(self, draft: AuditDraft) -> None:
-        if type(draft) is not AuditDraft:
-            raise AuditViolation("AUD-DECLARATION")
         try:
             await self._connection.execute(
                 """
@@ -108,8 +106,6 @@ class AuditEventRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         query: AuditQuery,
     ) -> AuditQueryResult:
-        if type(query) is not AuditQuery:
-            raise AuditViolation("AUD-QUERY")
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         condition, parameters = _query_condition(query)
         try:
@@ -201,6 +197,7 @@ def _row_to_record(row: Sequence[Any]) -> AuditRecord:
         return AuditRecord(draft, Instant(row[18]))
     except AuditViolation, TypeError, ValueError:
         raise AuditViolation("AUD-READ") from None
+
 
 __all__ = (
     "AuditEventRepository",

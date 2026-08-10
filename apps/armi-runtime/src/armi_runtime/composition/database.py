@@ -1523,8 +1523,6 @@ def compose_runtime_recovery(
 ) -> PostgreSQLRuntimeRecovery:
     """Resolve the Runtime credential for the fenced startup recovery gateway."""
 
-    if not callable(authority_admission):
-        raise TypeError("authority_admission must be callable")
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
         raise DatabaseViolation(

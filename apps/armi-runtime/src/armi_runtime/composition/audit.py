@@ -18,11 +18,6 @@ class AuditQueryGateway:
         repository: AuditEventRepository,
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     ) -> None:
-        if (
-            type(repository) is not AuditEventRepository
-            or type(unit_of_work_factory) is not PostgreSQLUnitOfWorkFactory
-        ):
-            raise TypeError("audit query dependencies are invalid")
         self._repository = repository
         self._unit_of_work_factory = unit_of_work_factory
 

@@ -50,8 +50,6 @@ class RuntimeAuthorityController:
         *,
         lease_seconds: int,
     ) -> None:
-        if type(lease_seconds) is not int or lease_seconds <= 0:
-            raise ValueError("lease_seconds must be positive")
         self._port = port
         self._lease_seconds = lease_seconds
         self._state = LocalAuthorityState.INACTIVE

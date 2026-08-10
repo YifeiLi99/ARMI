@@ -102,8 +102,6 @@ class DataRightsOrderService(DataRightsOrderPort):
         party_key: OtherHumanPartyKey,
         command: DataRightsOrderCommand,
     ) -> DataRightsOrderResult:
-        if type(party_key) is not OtherHumanPartyKey:
-            raise DataRightsViolation("DATA-RIGHTS-REQUESTER")
         return await self._request(
             requester_kind=DataRightsRequesterKind.OTHER_HUMAN,
             party_key=party_key,
@@ -122,8 +120,6 @@ class DataRightsOrderService(DataRightsOrderPort):
         party_key: OtherHumanPartyKey,
         order_id: UUID,
     ) -> DataRightsOrderResult | None:
-        if type(party_key) is not OtherHumanPartyKey:
-            raise DataRightsViolation("DATA-RIGHTS-REQUESTER")
         return await self._get(
             requester_kind=DataRightsRequesterKind.OTHER_HUMAN,
             party_key=party_key,
@@ -137,8 +133,6 @@ class DataRightsOrderService(DataRightsOrderPort):
         party_key: OtherHumanPartyKey | None,
         command: DataRightsOrderCommand,
     ) -> DataRightsOrderResult:
-        if type(command) is not DataRightsOrderCommand:
-            raise DataRightsViolation("DATA-RIGHTS-COMMAND")
         result = await self._record_request(
             requester_kind=requester_kind,
             party_key=party_key,
@@ -186,15 +180,11 @@ class DataRightsOrderService(DataRightsOrderPort):
     async def list_other_human(
         self, party_key: OtherHumanPartyKey
     ) -> tuple[DataRightsOrderDetail, ...]:
-        if type(party_key) is not OtherHumanPartyKey:
-            raise DataRightsViolation("DATA-RIGHTS-REQUESTER")
         return await self._list_for_other(party_key)
 
     async def detail_other_human(
         self, party_key: OtherHumanPartyKey, order_id: UUID
     ) -> DataRightsOrderDetail | None:
-        if type(party_key) is not OtherHumanPartyKey:
-            raise DataRightsViolation("DATA-RIGHTS-REQUESTER")
         return await self._detail_for_other(party_key, order_id)
 
     async def _list_for_other(
@@ -216,8 +206,6 @@ class DataRightsOrderService(DataRightsOrderPort):
     async def _detail_for_other(
         self, party_key: OtherHumanPartyKey, order_id: UUID
     ) -> DataRightsOrderDetail | None:
-        if type(order_id) is not UUID or order_id.version != 7:
-            raise DataRightsViolation("DATA-RIGHTS-ORDER-ID")
         try:
             async with self._uow_factory.unit_of_work(
                 LockPlan(), read_only=True
@@ -245,8 +233,6 @@ class DataRightsOrderService(DataRightsOrderPort):
     async def _detail(
         self, *, order_id: UUID, requester_party_id: UUID | None
     ) -> DataRightsOrderDetail | None:
-        if type(order_id) is not UUID or order_id.version != 7:
-            raise DataRightsViolation("DATA-RIGHTS-ORDER-ID")
         try:
             async with self._uow_factory.unit_of_work(
                 LockPlan(), read_only=True
@@ -409,8 +395,6 @@ class DataRightsOrderService(DataRightsOrderPort):
         party_key: OtherHumanPartyKey | None,
         order_id: UUID,
     ) -> DataRightsOrderResult | None:
-        if type(order_id) is not UUID or order_id.version != 7:
-            raise DataRightsViolation("DATA-RIGHTS-ORDER-ID")
         try:
             async with self._uow_factory.unit_of_work(
                 LockPlan(), read_only=True

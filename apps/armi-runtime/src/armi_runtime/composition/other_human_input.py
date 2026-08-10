@@ -98,8 +98,6 @@ class OtherHumanInputService(OtherHumanInputPort):
     async def register_party(
         self, command: RegisterOtherHumanPartyCommand
     ) -> OtherHumanPartyView:
-        if type(command) is not RegisterOtherHumanPartyCommand:
-            raise OtherHumanInputViolation("CON-OTHER-HUMAN-PARTY-COMMAND")
         try:
             async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
                 view = await self._repository.register_party(
@@ -128,8 +126,6 @@ class OtherHumanInputService(OtherHumanInputPort):
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
 
     async def set_scene(self, command: OtherHumanSceneCommand) -> OtherHumanSceneView:
-        if type(command) is not OtherHumanSceneCommand:
-            raise OtherHumanInputViolation("CON-OTHER-HUMAN-SCENE-COMMAND")
         try:
             async with self._uow_factory.unit_of_work(LockPlan()) as unit_of_work:
                 view = await self._repository.set_scene(
@@ -159,8 +155,6 @@ class OtherHumanInputService(OtherHumanInputPort):
     async def accept(
         self, command: OtherHumanInputCommand
     ) -> OtherHumanInputAcceptance:
-        if type(command) is not OtherHumanInputCommand:
-            raise OtherHumanInputViolation("CON-OTHER-HUMAN-INPUT")
         context = await self._context(command, lock=False)
         try:
             staged = await self._storage.stage(

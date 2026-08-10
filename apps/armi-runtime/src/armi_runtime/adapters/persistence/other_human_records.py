@@ -182,7 +182,6 @@ class PostgreSQLOtherHumanRecordQuery:
     async def list_parties(
         self, *, limit: int, cursor: OpaqueCursor | None = None
     ) -> OtherHumanPartyRecordPage:
-        self._check_limit(limit)
         boundary: UUID | None = None
         if cursor is not None:
             boundary = self._uuid(
@@ -240,8 +239,6 @@ class PostgreSQLOtherHumanRecordQuery:
     async def list_scenes(
         self, party_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
     ) -> OtherHumanSceneRecordPage:
-        self._check_limit(limit)
-        party_id = self._valid_uuid(party_id)
         party_row = await self._fetchone(
             """
             SELECT party.party_id, party.declared_identity_key, party.display_label,
@@ -343,8 +340,6 @@ class PostgreSQLOtherHumanRecordQuery:
         limit: int,
         cursor: OpaqueCursor | None = None,
     ) -> OtherHumanTimelineRecordPage:
-        self._check_limit(limit)
-        party_id, scene_id = self._valid_uuid(party_id), self._valid_uuid(scene_id)
         visible = await self._fetchone(
             """
             SELECT 1
@@ -503,23 +498,14 @@ class PostgreSQLOtherHumanRecordQuery:
         )
 
     @staticmethod
-    def _check_limit(limit: int) -> None:
-        if type(limit) is not int or not 1 <= limit <= 100:
-            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-LIMIT")
-
-    @staticmethod
     def _uuid(value: str) -> UUID:
         try:
             parsed = UUID(value)
         except ValueError:
             raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-CURSOR") from None
-        return PostgreSQLOtherHumanRecordQuery._valid_uuid(parsed)
-
-    @staticmethod
-    def _valid_uuid(value: UUID) -> UUID:
-        if type(value) is not UUID or value.version != 7:
-            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-SCOPE")
-        return value
+        if parsed.version != 7:
+            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-CURSOR")
+        return parsed
 
 
 __all__ = ("OtherHumanRecordCursorCodec", "PostgreSQLOtherHumanRecordQuery")

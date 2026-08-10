@@ -41,8 +41,6 @@ class CreatorSceneService(CreatorScenePort):
         factory: PostgreSQLUnitOfWorkFactory,
         repository: CreatorSceneRepository,
     ) -> None:
-        if type(creator_party_id) is not UUID or creator_party_id.version != 7:
-            raise SceneQueryViolation("CON-SCENE-CREATOR")
         self._creator_party_id = creator_party_id
         self._factory = factory
         self._repository = repository
@@ -71,8 +69,6 @@ class CreatorSceneService(CreatorScenePort):
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
 
     async def create(self, command: CreatorSceneCreateCommand) -> CreatorSceneView:
-        if type(command) is not CreatorSceneCreateCommand:
-            raise SceneQueryViolation("CON-SCENE-COMMAND")
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 subject_id = await self._repository.subject_id(
@@ -112,8 +108,6 @@ class CreatorSceneService(CreatorScenePort):
         self,
         command: CreatorSceneStatusCommand,
     ) -> CreatorSceneView:
-        if type(command) is not CreatorSceneStatusCommand:
-            raise SceneQueryViolation("CON-SCENE-COMMAND")
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 subject_id, changed, applied = await self._repository.set_status(

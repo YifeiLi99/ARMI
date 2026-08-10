@@ -58,17 +58,6 @@ class NapCatHttpClient(NapCatGateway):
     async def send_group_text(
         self, *, group_id: int, text: str, echo: str
     ) -> NapCatActionResponse:
-        if type(group_id) is not int or group_id <= 0:
-            raise NapCatViolation("NAPCAT-GROUP-ID-INVALID")
-        if (
-            type(text) is not str
-            or not text.strip()
-            or "\x00" in text
-            or len(text.encode("utf-8")) > 65536
-        ):
-            raise NapCatViolation("NAPCAT-MESSAGE-INVALID")
-        if type(echo) is not str or not echo or len(echo) > 191 or "\x00" in echo:
-            raise NapCatViolation("NAPCAT-ECHO-INVALID")
         try:
             response = await self._client.post(
                 "/send_group_msg",

@@ -169,8 +169,6 @@ class PostgreSQLCreatorRelationshipQuery:
         )
 
     async def timeline(self, relationship_id: UUID) -> CreatorRelationshipTimeline:
-        if type(relationship_id) is not UUID or relationship_id.version != 7:
-            raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-ID")
         try:
             async with (
                 self._pool.connection(

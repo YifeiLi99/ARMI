@@ -111,9 +111,7 @@ class AdminConfig(BaseModel):
     postgresql_client_root: Path
     postgresql_version: Literal["18.4"] = "18.4"
     database_locator: LocatorValue = Field(title="Database Locator")
-    migrator_database_locator: LocatorValue = Field(
-        title="Migrator Database Locator"
-    )
+    migrator_database_locator: LocatorValue = Field(title="Migrator Database Locator")
     preview_key_locator: LocatorValue = Field(title="Preview Key Locator")
     expected: AdminExpectedIdentity
     logging: AdminLogSettings = AdminLogSettings()

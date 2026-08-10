@@ -96,8 +96,6 @@ class CreatorExportService(CreatorExportPort):
         await self._uow_factory.close()
 
     async def export(self, command: CreatorExportCommand) -> CreatorExportResult:
-        if type(command) is not CreatorExportCommand:
-            raise CreatorExportViolation("CREATOR-EXPORT-COMMAND")
         request_digest = Digest.from_bytes(
             rfc8785.dumps(
                 {
@@ -158,8 +156,6 @@ class CreatorExportService(CreatorExportPort):
             await asyncio.to_thread(_remove_staging, staging, self._exports_root)
 
     async def get(self, export_id: UUID) -> CreatorExportResult | None:
-        if type(export_id) is not UUID or export_id.version != 7:
-            raise CreatorExportViolation("CREATOR-EXPORT-ID")
         try:
             async with self._uow_factory.unit_of_work(
                 LockPlan(), read_only=True

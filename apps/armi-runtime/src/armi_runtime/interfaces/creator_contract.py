@@ -7,21 +7,7 @@ from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
 
-from armi_kernel.contracts import (
-    CONTRACT_VERSION,
-    AcceptedOutcome,
-    AppliedOutcome,
-    CompletedOutcome,
-    ErrorDescriptor,
-    ErrorInstanceId,
-    FailedOutcome,
-    Instant,
-    RejectedOutcome,
-    TraceId,
-    UnavailableOutcome,
-    UnknownOutcome,
-    WaitingOutcome,
-)
+from armi_kernel.contracts import CONTRACT_VERSION
 from fastapi import FastAPI, Header, Query, Security
 from fastapi.responses import Response, StreamingResponse
 from fastapi.security import HTTPBearer
@@ -101,29 +87,6 @@ class _BrowserSessionMetadataResponse(_StrictWireModel):
     issued_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     expires_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
-    @field_validator("environment_id", "creator_party_id")
-    @classmethod
-    def validate_uuid7(cls, value: str) -> str:
-        parsed = UUID(value)
-        if str(parsed) != value or parsed.version != 7:
-            raise ValueError("CON-CREATOR-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("issued_at", "expires_at")
-    @classmethod
-    def validate_instant(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-CREATOR-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_time_order(self) -> _BrowserSessionMetadataResponse:
-        issued = Instant.from_wire(self.issued_at).value
-        expires = Instant.from_wire(self.expires_at).value
-        if expires <= issued:
-            raise ValueError("CON-CREATOR-TIME: session expiry must follow issue")
-        return self
-
 
 class BrowserSessionResponse(_BrowserSessionMetadataResponse):
     browser_session_token: Annotated[str, Field(pattern=_SESSION_TOKEN_PATTERN)]
@@ -157,41 +120,6 @@ class SceneTimelineItemResponse(_StrictWireModel):
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     message: Annotated[str, Field(min_length=1, max_length=65536)] | None = None
-
-    @field_validator("timeline_item_id", "source_ref", "operation_ref", "effect_ref")
-    @classmethod
-    def validate_uuid7(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-SCENE-ID: identity must be canonical UUIDv7")
-        return value
-
-    @model_validator(mode="after")
-    def validate_operation_ref(self) -> SceneTimelineItemResponse:
-        if (self.source_kind in {"creator_input", "subject_commit"}) != (
-            self.operation_ref is not None
-        ):
-            raise ValueError(
-                "CON-SCENE-OPERATION: operation-backed item must expose its operation"
-            )
-        if (self.source_kind == "creator_response") != (self.effect_ref is not None):
-            raise ValueError(
-                "CON-SCENE-EFFECT: response-backed item must expose its effect"
-            )
-        if (self.source_kind == "creator_input") != (self.message is not None):
-            raise ValueError(
-                "CON-SCENE-MESSAGE: Creator input must expose its visible text"
-            )
-        return self
-
-    @field_validator("occurred_at")
-    @classmethod
-    def validate_occurred_at(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-SCENE-TIME: instant must be canonical")
-        return value
 
 
 class SceneTimelinePageResponse(_StrictWireModel):
@@ -284,31 +212,6 @@ class CreatorSceneResponse(_StrictWireModel):
     )
     is_default: bool
 
-    @field_validator("scene_id", "recent_context_boundary")
-    @classmethod
-    def validate_scene_uuid7(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-SCENE-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("opened_at", "closed_at")
-    @classmethod
-    def validate_scene_instant(cls, value: str | None) -> str | None:
-        if value is not None and Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-SCENE-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_scene_state(self) -> CreatorSceneResponse:
-        if (self.status == "open") != (self.closed_at is None):
-            raise ValueError("CON-SCENE-STATE: status is inconsistent")
-        if self.is_default != (self.scene_key == "default"):
-            raise ValueError("CON-SCENE-DEFAULT: identity is inconsistent")
-        return self
-
 
 class CreatorSceneCollectionResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
@@ -362,31 +265,6 @@ class CreatorActivityItemResponse(_StrictWireModel):
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     updated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
-    @field_validator("activity_id")
-    @classmethod
-    def validate_activity_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-ACTIVITY-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("created_at", "updated_at", "resume_not_before")
-    @classmethod
-    def validate_activity_time(cls, value: str | None) -> str | None:
-        if value is not None and Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-ACTIVITY-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_activity_shape(self) -> CreatorActivityItemResponse:
-        waiting = self.status in {"waiting", "paused"}
-        terminal = self.status in {"completed", "abandoned", "failed"}
-        if waiting != (
-            self.waiting_kind is not None and self.waiting_summary is not None
-        ) or terminal != (self.terminal_reason is not None):
-            raise ValueError("CON-ACTIVITY-SHAPE: projection fields are inconsistent")
-        return self
-
 
 class CreatorActivityPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
@@ -402,34 +280,6 @@ class CreatorActivityTimelineItemResponse(_StrictWireModel):
     summary: Annotated[str, Field(min_length=1, max_length=8192)] | None
     review_not_before: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-
-    @field_validator("event_id")
-    @classmethod
-    def validate_event_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-ACTIVITY-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("review_not_before", "occurred_at")
-    @classmethod
-    def validate_event_time(cls, value: str | None) -> str | None:
-        if value is not None and Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-ACTIVITY-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_event_shape(self) -> CreatorActivityTimelineItemResponse:
-        decision_only = self.event_kind in {
-            "no_action",
-            "defer",
-            "need_information",
-        }
-        if decision_only == (self.resulting_status is not None) or (
-            (self.event_kind == "defer") != (self.review_not_before is not None)
-        ):
-            raise ValueError("CON-ACTIVITY-EVENT: projection fields are inconsistent")
-        return self
 
 
 class CreatorActivityTimelineResponse(_StrictWireModel):
@@ -470,12 +320,6 @@ class CreatorRelationshipBoundaryResponse(_StrictWireModel):
     action: RelationshipBoundaryActionValue
     summary: Annotated[str, Field(min_length=1, max_length=512)]
 
-    @model_validator(mode="after")
-    def validate_boundary(self) -> CreatorRelationshipBoundaryResponse:
-        if (self.action == "end_contact") != (self.kind == "exit"):
-            raise ValueError("CON-RELATIONSHIP-BOUNDARY: boundary is inconsistent")
-        return self
-
 
 class CreatorRelationshipCommitmentResponse(_StrictWireModel):
     commitment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -486,14 +330,6 @@ class CreatorRelationshipCommitmentResponse(_StrictWireModel):
     last_event_kind: RelationshipCommitmentEventKindValue
     last_event_summary: Annotated[str, Field(min_length=1, max_length=512)]
 
-    @field_validator("commitment_id")
-    @classmethod
-    def validate_commitment_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-RELATIONSHIP-ID: identity must be canonical UUIDv7")
-        return value
-
 
 class CreatorRelationshipIssueResponse(_StrictWireModel):
     issue_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -502,57 +338,12 @@ class CreatorRelationshipIssueResponse(_StrictWireModel):
     summary: Annotated[str, Field(min_length=1, max_length=512)]
     status: Literal["open"]
 
-    @field_validator("issue_id")
-    @classmethod
-    def validate_issue_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-RELATIONSHIP-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("commitment_ids")
-    @classmethod
-    def validate_commitment_ids(cls, value: list[str]) -> list[str]:
-        if len(value) != len(set(value)):
-            raise ValueError("CON-RELATIONSHIP-ISSUE: commitments must be unique")
-        for item in value:
-            parsed = UUID(item)
-            if parsed.version != 7 or str(parsed) != item:
-                raise ValueError(
-                    "CON-RELATIONSHIP-ID: identity must be canonical UUIDv7"
-                )
-        return value
-
-    @model_validator(mode="after")
-    def validate_issue(self) -> CreatorRelationshipIssueResponse:
-        expected = 2 if self.kind == "contradictory_commitments" else 1
-        if len(self.commitment_ids) != expected:
-            raise ValueError("CON-RELATIONSHIP-ISSUE: commitment count is invalid")
-        return self
-
 
 class CreatorRelationshipCommitmentEventResponse(_StrictWireModel):
     commitment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     kind: RelationshipCommitmentEventKindValue
     summary: Annotated[str, Field(min_length=1, max_length=512)]
     related_commitment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
-
-    @field_validator("commitment_id", "related_commitment_id")
-    @classmethod
-    def validate_event_id(cls, value: str | None) -> str | None:
-        if value is not None:
-            parsed = UUID(value)
-            if parsed.version != 7 or str(parsed) != value:
-                raise ValueError(
-                    "CON-RELATIONSHIP-ID: identity must be canonical UUIDv7"
-                )
-        return value
-
-    @model_validator(mode="after")
-    def validate_event(self) -> CreatorRelationshipCommitmentEventResponse:
-        if (self.kind == "conflict_noted") != (self.related_commitment_id is not None):
-            raise ValueError("CON-RELATIONSHIP-EVENT: event is inconsistent")
-        return self
 
 
 class CreatorRelationshipRevisionResponse(_StrictWireModel):
@@ -573,21 +364,6 @@ class CreatorRelationshipRevisionResponse(_StrictWireModel):
     status: Literal["active", "ended"]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
-    @field_validator("relationship_revision_id")
-    @classmethod
-    def validate_revision_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-RELATIONSHIP-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("occurred_at")
-    @classmethod
-    def validate_revision_time(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-RELATIONSHIP-TIME: instant must be canonical")
-        return value
-
 
 class CreatorRelationshipItemResponse(_StrictWireModel):
     relationship_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -595,30 +371,6 @@ class CreatorRelationshipItemResponse(_StrictWireModel):
     head_version: Annotated[int, Field(ge=1)]
     current: CreatorRelationshipRevisionResponse
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-
-    @field_validator("relationship_id", "current_revision_id")
-    @classmethod
-    def validate_relationship_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-RELATIONSHIP-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("created_at")
-    @classmethod
-    def validate_created_at(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-RELATIONSHIP-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_head(self) -> CreatorRelationshipItemResponse:
-        if (
-            self.current_revision_id != self.current.relationship_revision_id
-            or self.head_version != self.current.revision_no
-        ):
-            raise ValueError("CON-RELATIONSHIP-HEAD: head is inconsistent")
-        return self
 
 
 class CreatorRelationshipCurrentResponse(_StrictWireModel):
@@ -682,27 +434,6 @@ class LifeRecordItemResponse(_StrictWireModel):
     naturally_recallable: bool | None
     retrieval_kind: Literal["exact_query", "creator_view"]
 
-    @field_validator("record_ref")
-    @classmethod
-    def validate_record_ref(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-LIFE-QUERY-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("occurred_at")
-    @classmethod
-    def validate_record_time(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-LIFE-QUERY-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_record_shape(self) -> LifeRecordItemResponse:
-        if (self.record_kind == "memory") != (self.naturally_recallable is not None):
-            raise ValueError("CON-LIFE-QUERY-SHAPE: recallability is inconsistent")
-        return self
-
 
 class LifeRecordPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
@@ -729,46 +460,6 @@ class CreatorLifeMaterialResponse(_StrictWireModel):
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     updated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
-    @field_validator("material_id")
-    @classmethod
-    def validate_material_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-LIFE-MATERIAL-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("title", "body")
-    @classmethod
-    def validate_material_text(cls, value: str) -> str:
-        if not value.strip() or "\x00" in value:
-            raise ValueError("CON-LIFE-MATERIAL-TEXT: text is invalid")
-        if len(value.encode("utf-8", errors="strict")) > 65_536:
-            raise ValueError("CON-LIFE-MATERIAL-TEXT: text is too large")
-        return value
-
-    @field_validator("metadata")
-    @classmethod
-    def validate_material_metadata(cls, value: dict[str, str]) -> dict[str, str]:
-        if any("\x00" in item for item in value.values()):
-            raise ValueError("CON-LIFE-MATERIAL-METADATA: metadata is invalid")
-        return value
-
-    @field_validator("created_at", "updated_at")
-    @classmethod
-    def validate_material_time(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-LIFE-MATERIAL-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_material_time_order(self) -> CreatorLifeMaterialResponse:
-        if (
-            Instant.from_wire(self.updated_at).value
-            < Instant.from_wire(self.created_at).value
-        ):
-            raise ValueError("CON-LIFE-MATERIAL-TIME: time order is invalid")
-        return self
-
 
 class CreatorMemoryItemResponse(_StrictWireModel):
     memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -782,27 +473,6 @@ class CreatorMemoryItemResponse(_StrictWireModel):
     head_version: Annotated[int, Field(ge=1)]
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     updated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-
-    @field_validator("memory_id")
-    @classmethod
-    def validate_memory_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-LIFE-QUERY-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("created_at", "updated_at")
-    @classmethod
-    def validate_memory_time(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-LIFE-QUERY-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_memory_shape(self) -> CreatorMemoryItemResponse:
-        if self.revision_no != self.head_version:
-            raise ValueError("CON-LIFE-QUERY-SHAPE: memory head is inconsistent")
-        return self
 
 
 class CreatorMemoryPageResponse(_StrictWireModel):
@@ -825,28 +495,6 @@ class CreatorMemoryTimelineItemResponse(_StrictWireModel):
     relation_kind: Literal["supports", "contradicts", "reinterprets"] | None
     related_memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-
-    @field_validator("revision_id", "related_memory_id")
-    @classmethod
-    def validate_memory_revision_id(cls, value: str | None) -> str | None:
-        if value is not None:
-            parsed = UUID(value)
-            if parsed.version != 7 or str(parsed) != value:
-                raise ValueError("CON-LIFE-QUERY-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("occurred_at")
-    @classmethod
-    def validate_memory_revision_time(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-LIFE-QUERY-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_memory_relation(self) -> CreatorMemoryTimelineItemResponse:
-        if (self.relation_kind is None) != (self.related_memory_id is None):
-            raise ValueError("CON-LIFE-QUERY-SHAPE: memory relation is incomplete")
-        return self
 
 
 class CreatorMemoryTimelineResponse(_StrictWireModel):
@@ -899,45 +547,12 @@ class CreatorMaintenanceSessionResponse(_StrictWireModel):
     updated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     finished_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
 
-    @field_validator("maintenance_session_id")
-    @classmethod
-    def validate_session_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-MAINTENANCE-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("started_at", "updated_at", "finished_at")
-    @classmethod
-    def validate_maintenance_time(cls, value: str | None) -> str | None:
-        if value is not None and Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-MAINTENANCE-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_session_shape(self) -> CreatorMaintenanceSessionResponse:
-        if self.revision_no != self.head_version or (
-            self.result_status == "running"
-        ) == (self.finished_at is not None):
-            raise ValueError("CON-MAINTENANCE-SHAPE: session fields are inconsistent")
-        return self
-
 
 class CreatorMaintenanceStatusResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     projection_version: Literal["creator-maintenance.v2"]
     session: CreatorMaintenanceSessionResponse | None
     waiting_input_count: Annotated[int, Field(ge=0)]
-
-    @model_validator(mode="after")
-    def validate_status_shape(self) -> CreatorMaintenanceStatusResponse:
-        if (self.session is None or self.session.result_status != "running") and (
-            self.waiting_input_count != 0
-        ):
-            raise ValueError(
-                "CON-MAINTENANCE-SHAPE: waiting count requires maintenance"
-            )
-        return self
 
 
 class CreatorMaintenanceTimelineItemResponse(_StrictWireModel):
@@ -949,44 +564,6 @@ class CreatorMaintenanceTimelineItemResponse(_StrictWireModel):
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     work_outcome: MaintenanceWorkOutcomeValue | None
     problem_summary: Annotated[str, Field(min_length=1, max_length=512)] | None
-
-    @field_validator("revision_id")
-    @classmethod
-    def validate_revision_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-MAINTENANCE-ID: identity must be canonical UUIDv7")
-        return value
-
-    @field_validator("occurred_at")
-    @classmethod
-    def validate_revision_time(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-MAINTENANCE-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_work_shape(self) -> CreatorMaintenanceTimelineItemResponse:
-        expected = {
-            "memory_maintenance": {"memory_changed", "memory_unchanged"},
-            "self_check": {"issue_found", "no_issue"},
-        }.get(self.phase)
-        if (
-            (expected is None and self.work_outcome is not None)
-            or (
-                expected is not None
-                and self.work_outcome is not None
-                and self.work_outcome not in expected
-            )
-            or (
-                (self.work_outcome == "issue_found")
-                != (self.problem_summary is not None)
-            )
-        ):
-            raise ValueError(
-                "CON-MAINTENANCE-WORK: phase result fields are inconsistent"
-            )
-        return self
 
 
 class CreatorMaintenanceTimelineResponse(_StrictWireModel):
@@ -1047,85 +624,6 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     ]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
-    @field_validator("occurred_at")
-    @classmethod
-    def validate_occurred_at(cls, value: str) -> str:
-        if Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-SSE-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_resource(self) -> CreatorProjectionEventResponse:
-        expected = {
-            "activity": (
-                "activity.invalidated",
-                "creator-activity.v1",
-                _UUIDV7_PATTERN,
-            ),
-            "memory": (
-                "memory.invalidated",
-                "creator-memory.v1",
-                _UUIDV7_PATTERN,
-            ),
-            "maintenance": (
-                "maintenance.invalidated",
-                "creator-maintenance.v2",
-                _UUIDV7_PATTERN,
-            ),
-            "material": (
-                "material.invalidated",
-                "life-record-query.v2",
-                _UUIDV7_PATTERN,
-            ),
-            "relationship": (
-                "relationship.invalidated",
-                "creator-relationship.v1",
-                _UUIDV7_PATTERN,
-            ),
-            "scene_timeline": (
-                "scene.timeline.invalidated",
-                "scene-timeline.v5",
-                _SCENE_KEY_PATTERN,
-            ),
-            "capability_request": (
-                "capability.request.invalidated",
-                "capability-request.v4",
-                _UUIDV7_PATTERN,
-            ),
-            "operation": (
-                "operation.invalidated",
-                "creator-operation.v1",
-                _UUIDV7_PATTERN,
-            ),
-            "other_human_record": (
-                "other_human.record.invalidated",
-                "other-human-record.v1",
-                _UUIDV7_PATTERN,
-            ),
-            "effect": (
-                "effect.invalidated",
-                "creator-effect.v2",
-                _UUIDV7_PATTERN,
-            ),
-            "subject_summary": (
-                "subject.summary.invalidated",
-                "subject-summary.v1",
-                _UUIDV7_PATTERN,
-            ),
-            "data_rights": (
-                "data.rights.invalidated",
-                "data-rights-order.v2",
-                _UUIDV7_PATTERN,
-            ),
-        }[self.resource_kind]
-        if (
-            self.event_kind != expected[0]
-            or self.projection_version != expected[1]
-            or re.fullmatch(expected[2], self.resource_ref, flags=re.ASCII) is None
-        ):
-            raise ValueError("CON-SSE-RESOURCE: event resource is inconsistent")
-        return self
-
 
 class CreatorInputRequest(_StrictWireModel):
     contract_version: Literal["1.0"]
@@ -1148,31 +646,6 @@ class RuntimeStatusResponse(_StrictWireModel):
     reason_codes: Annotated[list[ReasonCode], Field(max_length=32)]
     observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
-    @field_validator("environment_id")
-    @classmethod
-    def validate_environment_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if str(parsed) != value or parsed.version != 7:
-            raise ValueError("CON-OPENAPI-ID: environment_id must be canonical UUIDv7")
-        return value
-
-    @field_validator("reason_codes")
-    @classmethod
-    def validate_reason_codes(cls, value: list[str]) -> list[str]:
-        if len(value) != len(set(value)):
-            raise ValueError("CON-OPENAPI-REASON: reason codes must be unique")
-        if any(_REASON_CODE_PATTERN.fullmatch(code) is None for code in value):
-            raise ValueError("CON-OPENAPI-REASON: invalid reason code")
-        return value
-
-    @field_validator("observed_at")
-    @classmethod
-    def validate_observed_at(cls, value: str) -> str:
-        normalized = Instant.from_wire(value).to_wire()
-        if value != normalized:
-            raise ValueError("CON-OPENAPI-TIME: observed_at must be canonical")
-        return value
-
 
 class ErrorDescriptorResponse(_StrictWireModel):
     category: ErrorCategoryValue
@@ -1180,30 +653,12 @@ class ErrorDescriptorResponse(_StrictWireModel):
     details: dict[str, JsonValue] | None = None
     error_instance_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
 
-    @field_validator("error_instance_id")
-    @classmethod
-    def validate_error_instance_id(cls, value: str | None) -> str | None:
-        if value is not None:
-            ErrorInstanceId.from_wire(value)
-        return value
-
-    @model_validator(mode="after")
-    def validate_descriptor(self) -> ErrorDescriptorResponse:
-        ErrorDescriptor.from_wire(self.model_dump(exclude_none=True))
-        return self
-
 
 class _CommonOutcomeResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     trace_id: Annotated[str, Field(pattern=_TRACE_PATTERN)]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     message: Annotated[str, Field(min_length=1, max_length=4096)]
-
-    @field_validator("trace_id")
-    @classmethod
-    def validate_trace_id(cls, value: str) -> str:
-        TraceId(value)
-        return value
 
 
 class CreatorInputAcceptanceDetails(_StrictWireModel):
@@ -1215,43 +670,12 @@ class CreatorInputAcceptanceDetails(_StrictWireModel):
         Field(pattern=rf"^/v1/operations/{_UUIDV7_PATTERN}$"),
     ]
 
-    @field_validator("interaction_id", "evidence_id", "opportunity_id")
-    @classmethod
-    def validate_uuid7(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-INPUT-ID: identity must be canonical UUIDv7")
-        return value
-
-    @model_validator(mode="after")
-    def validate_operation_url(self) -> CreatorInputAcceptanceDetails:
-        if self.operation_url != f"/v1/operations/{self.opportunity_id}":
-            raise ValueError(
-                "CON-INPUT-OPERATION: operation URL must match opportunity"
-            )
-        return self
-
 
 class AcceptedOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["accepted"]
     result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     custodian: Literal["runtime"]
     details: CreatorInputAcceptanceDetails
-
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> AcceptedOutcomeResponse:
-        if self.result_ref != self.details.opportunity_id:
-            raise ValueError("CON-INPUT-RESULT: result must identify the opportunity")
-        AcceptedOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
-
-    @field_validator("occurred_at")
-    @classmethod
-    def validate_occurred_at(cls, value: str) -> str:
-        normalized = Instant.from_wire(value).to_wire()
-        if value != normalized:
-            raise ValueError("CON-OPENAPI-TIME: occurred_at must be canonical")
-        return value
 
 
 class WaitingOutcomeResponse(_CommonOutcomeResponse):
@@ -1291,52 +715,16 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "codex_result_accepted",
     ]
 
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> WaitingOutcomeResponse:
-        WaitingOutcome.from_wire(self.model_dump(exclude_none=True))
-        if (
-            self.waiting_for,
-            self.resume_condition,
-        ) not in {
-            ("context_preparation", "context_prepared"),
-            ("model_attempt", "model_step_available"),
-            ("model_response", "model_returned"),
-            ("candidate_validation", "candidate_validation_available"),
-            ("candidate_validation", "candidate_validated"),
-            ("subject_commit", "subject_commit_available"),
-            ("response_admission", "response_admitted"),
-            ("effect_registration", "effect_registered"),
-            ("effect_dispatch", "effect_settled"),
-            ("capability_decision", "codex_grant_resolved"),
-            ("codex_dispatch", "codex_dispatched"),
-            ("codex_verification", "codex_verified"),
-            ("codex_result_acceptance", "codex_result_accepted"),
-            ("future_opportunity", "opportunity_available"),
-            ("new_evidence", "creator_evidence_accepted"),
-        }:
-            raise ValueError("CON-INPUT-OPERATION: waiting state is inconsistent")
-        return self
-
 
 class AppliedOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["applied"]
     result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     state_version: Annotated[int, Field(ge=0)]
 
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> AppliedOutcomeResponse:
-        AppliedOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
-
 
 class CompletedOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["completed"]
     result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> CompletedOutcomeResponse:
-        CompletedOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
 
 
 class FailedOutcomeResponse(_CommonOutcomeResponse):
@@ -1344,21 +732,11 @@ class FailedOutcomeResponse(_CommonOutcomeResponse):
     error: ErrorDescriptorResponse
     retryable: bool
 
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> FailedOutcomeResponse:
-        FailedOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
-
 
 class RejectedOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["rejected"]
     error: ErrorDescriptorResponse
     details: dict[str, JsonValue] | None = None
-
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> RejectedOutcomeResponse:
-        RejectedOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
 
 
 class UnknownOutcomeResponse(_CommonOutcomeResponse):
@@ -1367,22 +745,12 @@ class UnknownOutcomeResponse(_CommonOutcomeResponse):
     custodian: Literal["runtime"]
     verification_action: Literal["verify_creator_inbox", "verify_codex_result"]
 
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> UnknownOutcomeResponse:
-        UnknownOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
-
 
 class UnavailableOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["unavailable"]
     error: ErrorDescriptorResponse
     details: dict[str, JsonValue] | None = None
     recovery_hint: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
-
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> UnavailableOutcomeResponse:
-        UnavailableOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
 
 
 class CreatorOperationDetails(_StrictWireModel):
@@ -1418,11 +786,6 @@ class OperationAcceptedOutcomeResponse(_CommonOutcomeResponse):
     custodian: Literal["runtime"]
     details: CreatorOperationDetails
 
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> OperationAcceptedOutcomeResponse:
-        AcceptedOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
-
 
 class OperationAppliedOutcomeResponse(AppliedOutcomeResponse):
     details: CreatorOperationDetails
@@ -1441,22 +804,12 @@ class OperationRejectedOutcomeResponse(_CommonOutcomeResponse):
     error: ErrorDescriptorResponse
     details: CreatorOperationDetails
 
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> OperationRejectedOutcomeResponse:
-        RejectedOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
-
 
 class OperationUnavailableOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["unavailable"]
     error: ErrorDescriptorResponse
     details: CreatorOperationDetails
     recovery_hint: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
-
-    @model_validator(mode="after")
-    def validate_kernel_contract(self) -> OperationUnavailableOutcomeResponse:
-        UnavailableOutcome.from_wire(self.model_dump(exclude_none=True))
-        return self
 
 
 class OperationFailedOutcomeResponse(FailedOutcomeResponse):
@@ -1496,14 +849,6 @@ class SubjectSummaryResponse(_StrictWireModel):
     ]
     latest_commit_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-
-    @model_validator(mode="after")
-    def validate_summary(self) -> SubjectSummaryResponse:
-        if [item.kind for item in self.components] != ["self", "mind", "life_mode"]:
-            raise ValueError("CON-SUBJECT-SUMMARY: component order is invalid")
-        if Instant.from_wire(self.observed_at).to_wire() != self.observed_at:
-            raise ValueError("CON-SUBJECT-SUMMARY: time is not canonical")
-        return self
 
 
 class EffectResponse(_StrictWireModel):
@@ -1555,76 +900,6 @@ class EffectResponse(_StrictWireModel):
     cleanup_status: Literal["succeeded", "failed"] | None = None
     result_acceptance_status: Literal["pending", "accepted"] | None = None
 
-    @model_validator(mode="after")
-    def validate_effect(self) -> EffectResponse:
-        for value in (
-            self.effect_id,
-            self.root_operation_ref,
-            self.capability_request_ref,
-            self.grant_ref,
-        ):
-            parsed = UUID(value)
-            if parsed.version != 7 or str(parsed) != value:
-                raise ValueError("CON-EFFECT-ID: identity must be canonical UUIDv7")
-        if (
-            self.effect_kind == "creator_response"
-            and self.capability_kind != "creator.scene.reply"
-        ) or (
-            self.effect_kind == "codex_delegation"
-            and self.capability_kind != "codex.delegated-work"
-        ):
-            raise ValueError("CON-EFFECT-CAPABILITY: capability link is invalid")
-        if (self.status == "cancelled") != (self.cancelled_at is not None):
-            raise ValueError("CON-EFFECT-STATE: cancellation time mismatch")
-        if (self.last_observation_kind is None) != (
-            self.last_observation_reliability is None
-        ):
-            raise ValueError("CON-EFFECT-OBSERVATION: observation is incomplete")
-        if (self.status == "unknown") != (self.verification_action is not None):
-            raise ValueError("CON-EFFECT-VERIFICATION: action is inconsistent")
-        if self.effect_kind == "creator_response" and (
-            (self.status == "completed") != (self.response_text is not None)
-        ):
-            raise ValueError("CON-EFFECT-VISIBILITY: response visibility is invalid")
-        if self.effect_kind == "codex_delegation" and self.response_text is not None:
-            raise ValueError("CON-EFFECT-VISIBILITY: response visibility is invalid")
-        codex_fields = (
-            self.model_id,
-            self.sdk_identity,
-            self.source_tree_digest,
-            self.validation_status,
-            self.cleanup_status,
-            self.result_acceptance_status,
-        )
-        if self.effect_kind == "creator_response" and any(
-            value is not None for value in codex_fields
-        ):
-            raise ValueError("CON-EFFECT-VISIBILITY: Codex fields are invalid")
-        if (
-            self.effect_kind == "codex_delegation"
-            and self.status
-            in {
-                "completed",
-                "failed",
-                "unknown",
-            }
-            and any(value is None for value in codex_fields)
-        ):
-            raise ValueError("CON-EFFECT-VERIFICATION: Codex result is incomplete")
-        if Instant.from_wire(self.registered_at).to_wire() != self.registered_at:
-            raise ValueError("CON-EFFECT-TIME: time must be canonical")
-        if (
-            self.cancelled_at is not None
-            and Instant.from_wire(self.cancelled_at).to_wire() != self.cancelled_at
-        ):
-            raise ValueError("CON-EFFECT-TIME: time must be canonical")
-        if (
-            self.settled_at is not None
-            and Instant.from_wire(self.settled_at).to_wire() != self.settled_at
-        ):
-            raise ValueError("CON-EFFECT-TIME: time must be canonical")
-        return self
-
 
 class _EffectiveGrantResponseBase(_StrictWireModel):
     grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -1633,26 +908,6 @@ class _EffectiveGrantResponseBase(_StrictWireModel):
     valid_until: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     ended_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
 
-    @model_validator(mode="after")
-    def validate_grant(self) -> _EffectiveGrantResponseBase:
-        valid_from = Instant.from_wire(self.valid_from)
-        valid_until = Instant.from_wire(self.valid_until)
-        if valid_from.to_wire() != self.valid_from:
-            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
-        if valid_until.to_wire() != self.valid_until:
-            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
-        ended_at = (
-            Instant.from_wire(self.ended_at) if self.ended_at is not None else None
-        )
-        if ended_at is not None:
-            if ended_at.to_wire() != self.ended_at:
-                raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
-            if not valid_from.value <= ended_at.value <= valid_until.value:
-                raise ValueError("CON-CAPABILITY-TIME: end time is outside the grant")
-        if (self.status == "active") != (self.ended_at is None):
-            raise ValueError("CON-CAPABILITY-GRANT: end time is inconsistent")
-        return self
-
 
 class CreatorReplyEffectiveGrantResponse(_EffectiveGrantResponseBase):
     scope_kind: Literal["creator_scene_reply"]
@@ -1660,12 +915,6 @@ class CreatorReplyEffectiveGrantResponse(_EffectiveGrantResponseBase):
     consumed_uses: Annotated[int, Field(ge=0, le=16)]
     remaining_uses: Annotated[int, Field(ge=0, le=16)]
     max_payload_bytes: Annotated[int, Field(ge=1, le=65536)]
-
-    @model_validator(mode="after")
-    def validate_usage(self) -> CreatorReplyEffectiveGrantResponse:
-        if self.consumed_uses + self.remaining_uses != self.max_uses:
-            raise ValueError("CON-CAPABILITY-GRANT: usage counts are inconsistent")
-        return self
 
 
 class CodexEffectiveGrantResponse(_EffectiveGrantResponseBase):
@@ -1676,12 +925,6 @@ class CodexEffectiveGrantResponse(_EffectiveGrantResponseBase):
     workspace_scope: Literal["isolated_ephemeral"]
     artifact_scope: Literal["explicit_only"]
     network_access: Literal[False]
-
-    @model_validator(mode="after")
-    def validate_usage(self) -> CodexEffectiveGrantResponse:
-        if self.consumed_uses + self.remaining_uses != self.max_uses:
-            raise ValueError("CON-CAPABILITY-GRANT: usage counts are inconsistent")
-        return self
 
 
 type EffectiveGrantResponse = (
@@ -1713,68 +956,6 @@ class CapabilityRequestItemResponse(_StrictWireModel):
         Annotated[str, Field(pattern=r"[A-Z][A-Z0-9-]{2,127}")] | None
     ) = None
     effective_grant: EffectiveGrantResponse | None = None
-
-    @field_validator("capability_request_id", "subject_id", "scene_id")
-    @classmethod
-    def validate_identity(cls, value: str | None) -> str | None:
-        if value is not None:
-            parsed = UUID(value)
-            if parsed.version != 7 or str(parsed) != value:
-                raise ValueError("CON-CAPABILITY-ID: identity must be UUIDv7")
-        return value
-
-    @model_validator(mode="after")
-    def validate_scope(self) -> CapabilityRequestItemResponse:
-        if Instant.from_wire(self.created_at).to_wire() != self.created_at:
-            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
-        if (
-            Instant.from_wire(self.status_changed_at).to_wire()
-            != self.status_changed_at
-        ):
-            raise ValueError("CON-CAPABILITY-TIME: time must be canonical")
-        if self.capability_kind == "creator.scene.reply":
-            if (
-                self.operation != "send"
-                or self.purpose != "respond_to_creator"
-                or self.max_payload_bytes is None
-                or self.audience_scope != "creator"
-                or self.data_scope != "creator_visible_response"
-                or any(
-                    value is not None
-                    for value in (
-                        self.workspace_scope,
-                        self.artifact_scope,
-                        self.network_access,
-                    )
-                )
-            ):
-                raise ValueError("CON-CAPABILITY-SCOPE: reply scope is invalid")
-        elif (
-            self.operation != "execute"
-            or self.purpose != "delegate_codex_work"
-            or self.max_uses != 1
-            or self.max_payload_bytes is not None
-            or self.valid_for_seconds > 3600
-            or self.audience_scope is not None
-            or self.data_scope is not None
-            or self.workspace_scope != "isolated_ephemeral"
-            or self.artifact_scope != "explicit_only"
-            or self.network_access is not False
-        ):
-            raise ValueError("CON-CAPABILITY-SCOPE: Codex scope is invalid")
-        if self.status in {"granted", "limited", "revoked", "expired"} and (
-            self.effective_grant is None
-        ):
-            raise ValueError("CON-CAPABILITY-STATE: grant reference is missing")
-        if self.status in {"pending", "denied"} and self.effective_grant is not None:
-            raise ValueError("CON-CAPABILITY-STATE: grant reference is inconsistent")
-        if self.effective_grant is not None:
-            expected_grant_status = (
-                "active" if self.status in {"granted", "limited"} else self.status
-            )
-            if self.effective_grant.status != expected_grant_status:
-                raise ValueError("CON-CAPABILITY-STATE: grant status is inconsistent")
-        return self
 
 
 class CapabilityRequestPageResponse(_StrictWireModel):
@@ -1876,60 +1057,6 @@ class CreatorPromptResponse(_StrictWireModel):
     content: Annotated[str, Field(min_length=1, max_length=65_536)] | None
     activated_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
 
-    @field_validator(
-        "prompt_document_id",
-        "current_revision_id",
-        "previous_revision_id",
-    )
-    @classmethod
-    def validate_prompt_id(cls, value: str | None) -> str | None:
-        if value is not None:
-            parsed = UUID(value)
-            if parsed.version != 7 or str(parsed) != value:
-                raise ValueError("CON-PROMPT-ID: identity must be UUIDv7")
-        return value
-
-    @field_validator("activated_at")
-    @classmethod
-    def validate_activated_at(cls, value: str | None) -> str | None:
-        if value is not None and Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-PROMPT-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_revision(self) -> CreatorPromptResponse:
-        revision_values = (
-            self.current_revision_id,
-            self.revision_no,
-            self.revision_kind,
-            self.content,
-            self.activated_at,
-        )
-        if (self.current_revision_id is not None) != all(
-            value is not None for value in revision_values
-        ):
-            raise ValueError("CON-PROMPT-REVISION: revision is inconsistent")
-        if self.current_revision_id is None and self.status != "active":
-            raise ValueError("CON-PROMPT-STATUS: status is inconsistent")
-        if (self.revision_kind == "deactivated") != (self.status == "inactive"):
-            raise ValueError("CON-PROMPT-STATUS: status is inconsistent")
-        if (self.revision_no == 1) != (
-            self.current_revision_id is not None and self.previous_revision_id is None
-        ) and self.current_revision_id is not None:
-            raise ValueError("CON-PROMPT-REVISION: predecessor is inconsistent")
-        if self.content is not None:
-            try:
-                encoded = self.content.encode("utf-8", errors="strict")
-            except UnicodeError:
-                raise ValueError("CON-PROMPT-CONTENT: content is invalid") from None
-            if (
-                not self.content.strip()
-                or "\x00" in self.content
-                or len(encoded) > 65_536
-            ):
-                raise ValueError("CON-PROMPT-CONTENT: content is invalid")
-        return self
-
 
 class CreatorExportRequest(_StrictWireModel):
     contract_version: Literal["1.0"]
@@ -1962,27 +1089,6 @@ class CreatorExportResponse(_StrictWireModel):
     completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
     newly_created: bool
 
-    @field_validator("export_id")
-    @classmethod
-    def validate_export_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-EXPORT-ID: identity must be UUIDv7")
-        return value
-
-    @field_validator("created_at", "completed_at")
-    @classmethod
-    def validate_export_time(cls, value: str | None) -> str | None:
-        if value is not None and Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-EXPORT-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_export_result(self) -> CreatorExportResponse:
-        if (self.status == "running") != (self.completed_at is None):
-            raise ValueError("CON-EXPORT-STATE: result is inconsistent")
-        return self
-
 
 class DataRightsOrderRequest(_StrictWireModel):
     contract_version: Literal["1.0"]
@@ -2007,37 +1113,6 @@ class DataRightsOrderResponse(_StrictWireModel):
     completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
     newly_created: bool
 
-    @field_validator("order_id", "requester_party_id", "scope_party_id")
-    @classmethod
-    def validate_data_rights_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-DATA-RIGHTS-ID: identity must be UUIDv7")
-        return value
-
-    @field_validator("effective_at", "completed_at")
-    @classmethod
-    def validate_data_rights_time(cls, value: str | None) -> str | None:
-        if value is not None and Instant.from_wire(value).to_wire() != value:
-            raise ValueError("CON-DATA-RIGHTS-TIME: instant must be canonical")
-        return value
-
-    @model_validator(mode="after")
-    def validate_data_rights_scope(self) -> DataRightsOrderResponse:
-        if self.requester_party_id != self.scope_party_id:
-            raise ValueError("CON-DATA-RIGHTS-SCOPE: scope must be requester-owned")
-        if (self.order_kind == "stop_contact") != (self.scope_kind == "party_contact"):
-            raise ValueError("CON-DATA-RIGHTS-SCOPE: scope is inconsistent")
-        if (self.order_kind == "delete_related") != (
-            self.execution_status != "not_required"
-        ):
-            raise ValueError("CON-DATA-RIGHTS-STATE: execution is inconsistent")
-        if (self.execution_status in {"completed", "partial"}) != (
-            self.completed_at is not None
-        ):
-            raise ValueError("CON-DATA-RIGHTS-STATE: completion is inconsistent")
-        return self
-
 
 class DataRightsDeletionItemResponse(_StrictWireModel):
     item_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -2059,16 +1134,6 @@ class DataRightsDeletionItemResponse(_StrictWireModel):
     )
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
-
-    @model_validator(mode="after")
-    def validate_item(self) -> DataRightsDeletionItemResponse:
-        UUID(self.item_id)
-        Instant.from_wire(self.created_at)
-        if self.completed_at is not None:
-            Instant.from_wire(self.completed_at)
-        if (self.result_status == "pending") != (self.completed_at is None):
-            raise ValueError("CON-DATA-RIGHTS-ITEM: settlement is inconsistent")
-        return self
 
 
 class DataRightsTimelineItemResponse(_StrictWireModel):
@@ -2107,22 +1172,6 @@ class DataRightsOrderDetailResponse(_StrictWireModel):
         ],
         Field(max_length=3),
     ]
-
-    @model_validator(mode="after")
-    def validate_detail(self) -> DataRightsOrderDetailResponse:
-        if self.requester_party_id != self.scope_party_id:
-            raise ValueError("CON-DATA-RIGHTS-SCOPE: scope must be requester-owned")
-        if (self.order_kind == "stop_contact") != (self.scope_kind == "party_contact"):
-            raise ValueError("CON-DATA-RIGHTS-SCOPE: scope is inconsistent")
-        if (self.order_kind == "delete_related") != (
-            self.execution_status != "not_required"
-        ):
-            raise ValueError("CON-DATA-RIGHTS-STATE: execution is inconsistent")
-        if (self.execution_status in {"completed", "partial"}) != (
-            self.completed_at is not None
-        ):
-            raise ValueError("CON-DATA-RIGHTS-STATE: completion is inconsistent")
-        return self
 
 
 class DataRightsOrderCollectionResponse(_StrictWireModel):

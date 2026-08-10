@@ -336,8 +336,6 @@ class HealthPayload(_StrictModel):
     role_status: Literal["verified", "unavailable", "rejected"]
     error_code: str | None = None
 
-    _environment_id = field_validator("environment_id")(_uuid7)
-
 
 class SchemaStatusPayload(_StrictModel):
     status: Literal["current", "dirty", "unavailable"]
@@ -345,8 +343,6 @@ class SchemaStatusPayload(_StrictModel):
     table_count: int
     missing_tables: tuple[str, ...] = ()
     error_code: str | None = None
-
-    _environment_id = field_validator("environment_id")(_uuid7)
 
 
 class AdminToolResult[PayloadT](_StrictModel):
@@ -358,8 +354,6 @@ class AdminToolResult[PayloadT](_StrictModel):
     observed_versions: dict[str, int | str | None] = Field(default_factory=dict)
     started_at: str
     ended_at: str
-
-    _operation_id = field_validator("operation_id")(_uuid7)
 
 
 HealthResult = AdminToolResult[HealthPayload]

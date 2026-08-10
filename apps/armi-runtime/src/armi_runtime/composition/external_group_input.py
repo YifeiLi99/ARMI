@@ -101,8 +101,6 @@ class ExternalGroupInputService(ExternalGroupInputPort):
     async def ensure_group(
         self, command: EnsureExternalGroupCommand
     ) -> ExternalGroupView:
-        if type(command) is not EnsureExternalGroupCommand:
-            raise ExternalGroupViolation("CON-EXTERNAL-GROUP-ENSURE")
         identity = _identity(
             command.channel.value,
             command.account_key.value,
@@ -142,8 +140,6 @@ class ExternalGroupInputService(ExternalGroupInputPort):
     async def accept(
         self, command: ObservedExternalGroupMessage
     ) -> ExternalGroupInputAcceptance:
-        if type(command) is not ObservedExternalGroupMessage:
-            raise ExternalGroupViolation("CON-EXTERNAL-GROUP-INPUT")
         context = await self._bind(command)
         try:
             staged = await self._storage.stage(

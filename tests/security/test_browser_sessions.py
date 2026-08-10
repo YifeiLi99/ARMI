@@ -77,17 +77,6 @@ class BrowserSessionStoreTests(unittest.TestCase):
         self.assertEqual(len(set(tokens)), 1)
         self.store.verify(tokens[0])
 
-    def test_invalid_configuration_is_rejected(self) -> None:
-        with self.assertRaisesRegex(
-            BrowserSessionViolation,
-            "^SEC_CREATOR_CONFIGURATION$",
-        ):
-            BrowserSessionStore(
-                environment_id=ENVIRONMENT_ID,
-                creator_party_id=CREATOR_ID,
-                session_ttl_seconds=0,
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

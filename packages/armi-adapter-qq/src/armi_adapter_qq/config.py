@@ -19,19 +19,6 @@ class QQNapCatBindingConfig:
     event_port: int
     request_body_max_bytes: int
 
-    def __post_init__(self) -> None:
-        if type(self.adapter) is not QQAdapterConfig:
-            raise ValueError("QQ adapter configuration is invalid")
-        if type(self.api_base_url) is not str or not self.api_base_url:
-            raise ValueError("NapCat API URL is invalid")
-        if type(self.event_port) is not int or not 1024 <= self.event_port <= 65535:
-            raise ValueError("QQ event port is invalid")
-        if (
-            type(self.request_body_max_bytes) is not int
-            or not 1024 <= self.request_body_max_bytes <= 1_048_576
-        ):
-            raise ValueError("QQ event body limit is invalid")
-
 
 def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
     if not path.exists():

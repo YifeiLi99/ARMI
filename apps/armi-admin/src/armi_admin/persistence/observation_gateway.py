@@ -52,8 +52,6 @@ class AdminObservationGateway:
         expected_role: str,
         artifact_root: Path,
     ) -> None:
-        if not artifact_root.is_absolute() or artifact_root.is_symlink():
-            raise ValueError("ADMIN-OBSERVATION-ARTIFACT-ROOT")
         self._conninfo = conninfo
         self._expected_role = expected_role
         self._storage = ContentAddressedArtifactStore(
@@ -260,7 +258,7 @@ class AdminObservationGateway:
             return parse_life_material_artifact(
                 self._storage.read_verified_bytes(ref)
             ).decode("utf-8", errors="strict")
-        except (ArtifactViolation, UnicodeError, ValueError):
+        except ArtifactViolation, UnicodeError, ValueError:
             raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT") from None
 
     def trace_flow(self, selector: tuple[str, str]) -> dict[str, Any]:

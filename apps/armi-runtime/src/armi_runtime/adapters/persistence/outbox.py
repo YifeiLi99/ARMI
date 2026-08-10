@@ -81,11 +81,6 @@ class PostgreSQLOutboxGateway:
         lease_seconds: int,
         limit: int,
     ) -> tuple[OutboxEnvelope, ...]:
-        _require_uuid7(claim_owner)
-        if type(lease_seconds) is not int or lease_seconds <= 0:
-            raise WorkViolation("OUTBOX-DECLARATION")
-        if type(limit) is not int or not 1 <= limit <= 100:
-            raise WorkViolation("OUTBOX-DECLARATION")
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
@@ -161,13 +156,6 @@ class PostgreSQLOutboxGateway:
         error_code: str,
         delay_seconds: int,
     ) -> None:
-        if (
-            type(error_code) is not str
-            or re.fullmatch(r"OUTBOX-[A-Z0-9-]+", error_code) is None
-            or type(delay_seconds) is not int
-            or delay_seconds <= 0
-        ):
-            raise WorkViolation("OUTBOX-DECLARATION")
         await self._settle(
             envelope,
             delivered=False,
@@ -183,8 +171,6 @@ class PostgreSQLOutboxGateway:
         error_code: str | None,
         delay_seconds: int = 1,
     ) -> None:
-        if type(envelope) is not OutboxEnvelope:
-            raise WorkViolation("OUTBOX-DECLARATION")
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
@@ -281,17 +267,8 @@ class OutboxDispatcher:
         gateway: PostgreSQLOutboxGateway,
         handlers: Mapping[str, OutboxHandler],
     ) -> None:
-        if type(gateway) is not PostgreSQLOutboxGateway:
-            raise WorkViolation("OUTBOX-DECLARATION")
-        checked: dict[str, OutboxHandler] = {}
-        for message_kind, handler in handlers.items():
-            if type(message_kind) is not str or _TOKEN.fullmatch(message_kind) is None:
-                raise WorkViolation("OUTBOX-DECLARATION")
-            if not callable(handler):
-                raise WorkViolation("OUTBOX-DECLARATION")
-            checked[message_kind] = handler
         self._gateway = gateway
-        self._handlers = checked
+        self._handlers = dict(handlers)
 
     async def dispatch_once(
         self,
@@ -363,11 +340,6 @@ def _outbox_audit(
         sensitivity=AuditSensitivity.INTERNAL,
         request=AuditReference("durable_work", envelope.work_id.value),
     )
-
-
-def _require_uuid7(value: object) -> None:
-    if type(value) is not UUID or value.version != 7:
-        raise WorkViolation("OUTBOX-DECLARATION")
 
 
 def _translate_database_error(error: DatabaseTransactionError) -> WorkViolation:

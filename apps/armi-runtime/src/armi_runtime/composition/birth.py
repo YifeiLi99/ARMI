@@ -79,8 +79,6 @@ class BirthTransaction:
         self._uow_factory = unit_of_work_factory
 
     async def birth(self, manifest: BirthManifest) -> BirthResult:
-        if type(manifest) is not BirthManifest:
-            raise BirthViolation("BIRTH-MANIFEST")
         anchor_bytes = rfc8785.dumps(
             {
                 "schema_version": manifest.personality_anchor.schema_version,

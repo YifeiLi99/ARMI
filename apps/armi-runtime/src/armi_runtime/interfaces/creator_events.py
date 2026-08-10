@@ -12,7 +12,6 @@ from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
 
 from armi_kernel.application import (
-    CreatorEventViolation,
     CreatorProjectionInvalidation,
 )
 
@@ -164,8 +163,6 @@ class CreatorEventBroker:
         return self._epoch
 
     async def notify(self, invalidation: CreatorProjectionInvalidation) -> None:
-        if type(invalidation) is not CreatorProjectionInvalidation:
-            raise CreatorEventViolation("CON-SSE-EVENT")
         async with self._lock:
             sequence = self._sequence + 1
             event_id = f"sse-v1.{self._epoch}.{sequence}"

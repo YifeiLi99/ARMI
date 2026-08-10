@@ -11,8 +11,6 @@ class PostgreSQLMaintenanceGuard:
     __slots__ = ()
 
     async def require_runtime_stopped(self, unit_of_work: PostgreSQLUnitOfWork) -> None:
-        if type(unit_of_work) is not PostgreSQLUnitOfWork:
-            raise ArtifactViolation("ART-DECLARATION")
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         row = await (
             await connection.execute(

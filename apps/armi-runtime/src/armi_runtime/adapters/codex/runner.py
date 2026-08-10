@@ -66,7 +66,7 @@ class IsolatedCodexRunner(CodexRunnerPort):
         credential_port: CredentialPort,
         auth_locator: CredentialLocator,
     ) -> None:
-        if not run_root.is_absolute() or type(auth_locator) is not CredentialLocator:
+        if not run_root.is_absolute():
             raise CodexRunnerViolation("CODEX-CONFIG")
         self._run_root = run_root
         self._credential_port = credential_port
@@ -82,8 +82,6 @@ class IsolatedCodexRunner(CodexRunnerPort):
         *,
         cancellation: threading.Event | None = None,
     ) -> tuple[CodexRunResult, CodexRunArtifactSet]:
-        if type(task) is not CodexTaskManifest:
-            raise CodexRunnerViolation("CODEX-TASK-MANIFEST")
         execution = task.execution_id.value.hex
         intake = self._run_root / "intake" / execution
         bundle = intake / f"{task.source_bundle_digest.value[7:]}.zip"

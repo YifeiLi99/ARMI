@@ -11,7 +11,7 @@ import stat
 from collections.abc import AsyncIterable
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
@@ -85,8 +85,6 @@ class VerifiedFileStream:
         self._file: BinaryIO | None = file_value
 
     async def read(self, size: int = -1) -> bytes:
-        if type(size) is not int or size < -1:
-            raise ArtifactViolation("ART-STATE")
         if self._file is None:
             raise ArtifactViolation("ART-STATE")
         return await asyncio.to_thread(self._file.read, size)
@@ -147,8 +145,6 @@ class ContentAddressedArtifactStore:
         source: AsyncIterable[bytes],
         policy: ArtifactPolicy,
     ) -> StagedArtifact:
-        if type(policy) is not ArtifactPolicy or not hasattr(source, "__aiter__"):
-            raise ArtifactViolation("ART-DECLARATION")
         await self.prepare()
         stage_id = ArtifactId(uuid7())
         stage_path = self._staging / f"stage-{stage_id.value.hex}.tmp"
@@ -196,8 +192,6 @@ class ContentAddressedArtifactStore:
         return staged
 
     async def publish(self, staged: StagedArtifact) -> PublishedArtifact:
-        if type(staged) is not StagedArtifact:
-            raise ArtifactViolation("ART-DECLARATION")
         stage_path = self._staged.get(staged.stage_id)
         if stage_path is None:
             raise ArtifactViolation("ART-STATE")
@@ -257,8 +251,6 @@ class ContentAddressedArtifactStore:
         )
 
     async def discard(self, staged: StagedArtifact) -> None:
-        if type(staged) is not StagedArtifact:
-            raise ArtifactViolation("ART-DECLARATION")
         path = self._staged.pop(staged.stage_id, None)
         if path is not None:
             try:
@@ -267,29 +259,21 @@ class ContentAddressedArtifactStore:
                 raise ArtifactViolation("ART-STAGING-IO") from None
 
     async def open_verified(self, ref: ArtifactRef) -> VerifiedFileStream:
-        if type(ref) is not ArtifactRef:
-            raise ArtifactViolation("ART-DECLARATION")
         file_value = await asyncio.to_thread(self._open_registered_sync, ref)
         return VerifiedFileStream(file_value)
 
     def read_verified_bytes(self, ref: ArtifactRef) -> bytes:
         """Read one registered object through the same verified storage boundary."""
 
-        if type(ref) is not ArtifactRef:
-            raise ArtifactViolation("ART-DECLARATION")
         file_value = self._open_registered_sync(ref)
         try:
             return file_value.read()
         finally:
             file_value.close()
 
-    def settle_unregistered(
-        self, digest: Digest
-    ) -> UnregisteredArtifactDisposition:
+    def settle_unregistered(self, digest: Digest) -> UnregisteredArtifactDisposition:
         """Delete or quarantine an object whose catalog row was already removed."""
 
-        if type(digest) is not Digest:
-            raise ArtifactViolation("ART-DECLARATION")
         self._prepare_sync()
         digest_hex = digest.value.removeprefix("sha256:")
         path = self._object_path(digest_hex)
@@ -324,8 +308,7 @@ class ContentAddressedArtifactStore:
             or not stat.S_ISREG(current.st_mode)
             or current.st_nlink != 1
             or path.is_symlink()
-            or getattr(current, "st_file_attributes", 0)
-            & _FILE_ATTRIBUTE_REPARSE_POINT
+            or getattr(current, "st_file_attributes", 0) & _FILE_ATTRIBUTE_REPARSE_POINT
         ):
             raise ArtifactViolation("ART-PATH-UNSAFE")
         try:
@@ -337,8 +320,6 @@ class ContentAddressedArtifactStore:
     async def delete_verified(self, ref: ArtifactRef) -> bool:
         """Delete one exact registered object after revalidating its identity."""
 
-        if type(ref) is not ArtifactRef:
-            raise ArtifactViolation("ART-DECLARATION")
         try:
             return await asyncio.to_thread(self._delete_verified_sync, ref)
         except FileNotFoundError:
@@ -354,12 +335,6 @@ class ContentAddressedArtifactStore:
         cutoff: datetime,
         registered: dict[str, ArtifactRef],
     ) -> tuple[StorageFinding, ...]:
-        if (
-            type(cutoff) is not datetime
-            or cutoff.tzinfo is None
-            or cutoff.utcoffset() != UTC.utcoffset(cutoff)
-        ):
-            raise ArtifactViolation("ART-ORPHAN-SCAN")
         try:
             return await asyncio.to_thread(
                 self._scan_sync,
@@ -379,12 +354,6 @@ class ContentAddressedArtifactStore:
     ) -> StorageCleanupResult:
         """Delete only revalidated stale staging and unregistered objects."""
 
-        if (
-            type(cutoff) is not datetime
-            or cutoff.tzinfo is None
-            or cutoff.utcoffset() != UTC.utcoffset(cutoff)
-        ):
-            raise ArtifactViolation("ART-ORPHAN-CLEANUP")
         try:
             return await asyncio.to_thread(
                 self._cleanup_sync,

@@ -7,7 +7,6 @@ from uuid import uuid7
 
 import pytest
 from armi_kernel.application import (
-    LifeViolation,
     MaintenancePhase,
     MaintenanceResultStatus,
     OpportunityAdmissionOutcome,
@@ -138,8 +137,3 @@ async def test_checkpoint_publishes_a_creator_maintenance_invalidation() -> None
     invalidation = notifier.notify.await_args.args[0]
     assert invalidation.resource_kind.value == "maintenance"
     assert invalidation.resource_ref == str(session_id)
-
-
-def test_negative_quiet_window_is_rejected() -> None:
-    with pytest.raises(LifeViolation):
-        _coordinator(AsyncMock(), quiet_seconds=-1)

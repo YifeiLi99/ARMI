@@ -86,8 +86,6 @@ class PostgreSQLDurableWorkWriter:
         self._actor_ref = actor_ref
 
     async def enqueue(self, draft: WorkDraft) -> WorkRecord:
-        if type(draft) is not WorkDraft:
-            raise WorkViolation("WORK-DECLARATION")
         try:
             inserted = await (
                 await self._connection.execute(
@@ -190,9 +188,6 @@ class PostgreSQLDurableWorkWriter:
         not_before: Instant,
         error_code: str | None = None,
     ) -> WorkRecord:
-        if type(not_before) is not Instant:
-            raise WorkViolation("WORK-DECLARATION")
-        _require_error_code(error_code)
         return await self._settle(
             lease,
             """
@@ -229,8 +224,6 @@ class PostgreSQLDurableWorkWriter:
         lease: WorkLease,
         result: WorkResultRef,
     ) -> WorkRecord:
-        if type(result) is not WorkResultRef:
-            raise WorkViolation("WORK-DECLARATION")
         return await self._settle(
             lease,
             """
@@ -264,7 +257,6 @@ class PostgreSQLDurableWorkWriter:
         )
 
     async def fail(self, lease: WorkLease, *, error_code: str) -> WorkRecord:
-        _require_error_code(error_code)
         return await self._settle(
             lease,
             """
@@ -300,7 +292,6 @@ class PostgreSQLDurableWorkWriter:
         parameters: tuple[object, ...],
         operation: str,
     ) -> WorkRecord:
-        _require_lease(lease)
         try:
             row = await (
                 await self._connection.execute(
@@ -337,11 +328,6 @@ class PostgreSQLDurableWorkGateway:
         lease_seconds: int,
         limit: int = 1,
     ) -> tuple[WorkRecord, ...]:
-        _require_token(work_kind)
-        _require_uuid7(lease_owner)
-        _require_positive(lease_seconds)
-        if type(limit) is not int or not 1 <= limit <= 100:
-            raise WorkViolation("WORK-DECLARATION")
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
@@ -445,8 +431,6 @@ class PostgreSQLDurableWorkGateway:
             raise _translate_transaction_error(error) from None
 
     async def renew(self, lease: WorkLease, *, lease_seconds: int) -> WorkLease:
-        _require_lease(lease)
-        _require_positive(lease_seconds)
         record = await self._transition(
             lease,
             """
@@ -484,10 +468,6 @@ class PostgreSQLDurableWorkGateway:
         not_before: Instant,
         error_code: str | None = None,
     ) -> WorkRecord:
-        _require_lease(lease)
-        if type(not_before) is not Instant:
-            raise WorkViolation("WORK-DECLARATION")
-        _require_error_code(error_code)
         return await self._transition(
             lease,
             """
@@ -524,9 +504,6 @@ class PostgreSQLDurableWorkGateway:
         lease: WorkLease,
         result: WorkResultRef,
     ) -> WorkRecord:
-        _require_lease(lease)
-        if type(result) is not WorkResultRef:
-            raise WorkViolation("WORK-DECLARATION")
         return await self._transition(
             lease,
             """
@@ -560,8 +537,6 @@ class PostgreSQLDurableWorkGateway:
         )
 
     async def fail(self, lease: WorkLease, *, error_code: str) -> WorkRecord:
-        _require_lease(lease)
-        _require_error_code(error_code)
         return await self._transition(
             lease,
             """
@@ -591,8 +566,6 @@ class PostgreSQLDurableWorkGateway:
         )
 
     async def cancel_ready(self, work_id: WorkId) -> WorkRecord:
-        if type(work_id) is not WorkId:
-            raise WorkViolation("WORK-DECLARATION")
         try:
             async with self._factory.unit_of_work(LockPlan()) as unit_of_work:
                 connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
@@ -862,41 +835,6 @@ def _observed_outbox_audit(
         subject_id=record.draft.subject_id,
         request=AuditReference("durable_work", record.draft.work_id.value),
     )
-
-
-def _require_uuid7(value: object) -> None:
-    if type(value) is not UUID or value.version != 7:
-        raise WorkViolation("WORK-DECLARATION")
-
-
-def _require_positive(value: object) -> None:
-    if type(value) is not int or value <= 0:
-        raise WorkViolation("WORK-DECLARATION")
-
-
-def _require_token(value: object) -> None:
-    if (
-        type(value) is not str
-        or re.fullmatch(
-            r"[a-z][a-z0-9._-]{0,63}",
-            value,
-            re.ASCII,
-        )
-        is None
-    ):
-        raise WorkViolation("WORK-DECLARATION")
-
-
-def _require_lease(value: object) -> None:
-    if type(value) is not WorkLease:
-        raise WorkViolation("WORK-DECLARATION")
-
-
-def _require_error_code(value: object) -> None:
-    if value is not None and (
-        type(value) is not str or _ERROR_CODE.fullmatch(value) is None
-    ):
-        raise WorkViolation("WORK-DECLARATION")
 
 
 def _translate_transaction_error(error: DatabaseTransactionError) -> WorkViolation:

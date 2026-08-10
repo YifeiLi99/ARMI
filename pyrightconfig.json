@@ -9,6 +9,7 @@
   ],
   "extraPaths": [
     "packages/armi-kernel/src",
+    "packages/armi-artifact-store/src",
     "packages/armi-postgresql-contract/src",
     "packages/armi-channel-napcat/src",
     "packages/armi-adapter-qq/src",
@@ -20,6 +21,7 @@
   "typeCheckingMode": "standard",
   "strict": [
     "packages/armi-kernel/src",
+    "packages/armi-artifact-store/src",
     "packages/armi-channel-napcat/src",
     "packages/armi-adapter-qq/src",
     "apps/armi-runtime/src",

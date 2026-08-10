@@ -42,17 +42,6 @@ class PostgreSQLDatabaseMaintenance:
         statement_timeout_seconds: int,
         lock_timeout_seconds: int,
     ) -> DatabaseMaintenanceReport:
-        if (
-            environment_id.version != 7
-            or type(statement_timeout_seconds) is not int
-            or statement_timeout_seconds <= 0
-            or type(lock_timeout_seconds) is not int
-            or lock_timeout_seconds <= 0
-        ):
-            raise DatabaseViolation(
-                "DB-MAINTENANCE-FAILED",
-                "database maintenance configuration is invalid",
-            )
         try:
             with psycopg.connect(conninfo, autocommit=True) as connection:
                 connection.execute("SET search_path TO pg_catalog, armi")

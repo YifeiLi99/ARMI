@@ -57,8 +57,6 @@ class RuntimeSupervisor:
     async def drain(self, *, deadline_seconds: int) -> bool:
         """Stop admission, finish owned work, release authority, then heartbeat."""
 
-        if type(deadline_seconds) is not int or deadline_seconds <= 0:
-            raise ValueError("deadline_seconds must be positive")
         authority = self._authority
         if authority is not None and authority.snapshot().state in {
             LocalAuthorityState.ACTIVE,

@@ -63,16 +63,6 @@ class RuntimeObservationDriver:
         diagnostic_status: Callable[[], DiagnosticSinkStatus],
         diagnostic: Callable[[str], None] | None = None,
     ) -> None:
-        if (
-            not data_root.is_absolute()
-            or type(sample_interval_seconds) is not int
-            or sample_interval_seconds <= 0
-            or type(disk_warning_free_bytes) is not int
-            or type(disk_critical_free_bytes) is not int
-            or disk_critical_free_bytes <= 0
-            or disk_warning_free_bytes <= disk_critical_free_bytes
-        ):
-            raise ValueError("runtime observation configuration is invalid")
         self._port = port
         self._data_root = data_root
         self._interval_seconds = sample_interval_seconds

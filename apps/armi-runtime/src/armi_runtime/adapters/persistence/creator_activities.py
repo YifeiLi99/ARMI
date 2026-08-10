@@ -139,8 +139,6 @@ class PostgreSQLCreatorActivityQuery:
         )
 
     async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline:
-        if type(activity_id) is not UUID or activity_id.version != 7:
-            raise CreatorActivityViolation("ACTIVITY-QUERY-ID")
         try:
             async with (
                 self._pool.connection(

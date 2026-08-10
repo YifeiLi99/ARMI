@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import uuid7
 
 from armi_kernel.application import CredentialPurpose
@@ -186,26 +186,22 @@ class AdminToolService:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
         try:
             if name == "correction_status":
-                if not isinstance(request, CorrectionStatusRequest):
-                    raise ValueError("ADMIN-INPUT-CONTRACT")
-                result = self._corrections.status(str(request.preview_token))
+                typed = cast(CorrectionStatusRequest, request)
+                result = self._corrections.status(str(typed.preview_token))
             elif name == "tail_diagnostics":
-                if not isinstance(request, TailDiagnosticsRequest):
-                    raise ValueError("ADMIN-INPUT-CONTRACT")
-                result = self._tail_diagnostics(int(request.limit))
+                typed_tail = cast(TailDiagnosticsRequest, request)
+                result = self._tail_diagnostics(int(typed_tail.limit))
             else:
                 gateway = self._observation_gateway()
                 if name == "runtime_status":
                     result = gateway.runtime_status()
                 elif name == "subject_snapshot":
-                    if not isinstance(request, SubjectSnapshotRequest):
-                        raise ValueError("ADMIN-INPUT-CONTRACT")
+                    typed_snapshot = cast(SubjectSnapshotRequest, request)
                     result = gateway.subject_snapshot(
-                        private=request.detail == "private"
+                        private=typed_snapshot.detail == "private"
                     )
                 elif name == "trace_flow":
-                    if not isinstance(request, TraceFlowRequest):
-                        raise ValueError("ADMIN-INPUT-CONTRACT")
+                    typed_trace = cast(TraceFlowRequest, request)
                     selector = next(
                         (key, value)
                         for key in (
@@ -214,17 +210,16 @@ class AdminToolService:
                             "effect_id",
                             "trace_id",
                         )
-                        if (value := getattr(request, key)) is not None
+                        if (value := getattr(typed_trace, key)) is not None
                     )
                     result = gateway.trace_flow(selector)
                 elif name == "inspect_scope":
-                    if not isinstance(request, InspectScopeRequest):
-                        raise ValueError("ADMIN-INPUT-CONTRACT")
+                    typed_scope = cast(InspectScopeRequest, request)
                     result = gateway.inspect_scope(
-                        str(request.kind),
-                        tuple(request.object_ids),
+                        str(typed_scope.kind),
+                        tuple(typed_scope.object_ids),
                     )
-                    result["relations"] = list(request.relations)
+                    result["relations"] = list(typed_scope.relations)
                 else:
                     raise ValueError("ADMIN-TOOL-NOT-REGISTERED")
             return self._tool_success(started, result)
@@ -271,15 +266,13 @@ class AdminToolService:
             )
         try:
             if name == "environment_initialize":
-                if not isinstance(request, EnvironmentInitializeRequest):
-                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
-                result = self._initialize_environment(request.birth_mode)
+                typed_initialize = cast(EnvironmentInitializeRequest, request)
+                result = self._initialize_environment(typed_initialize.birth_mode)
             elif name == "environment_reset_preview":
                 result = self._control.preview_reset()
             elif name == "environment_reset":
-                if not isinstance(request, EnvironmentResetRequest):
-                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
-                result = self._control.apply_reset(str(request.preview_token))
+                typed_reset = cast(EnvironmentResetRequest, request)
+                result = self._control.apply_reset(str(typed_reset.preview_token))
                 self._register_environment(int(result["incarnation"]))
                 self._requires_reload = True
             elif name == "runtime_start":
@@ -294,57 +287,54 @@ class AdminToolService:
                 self._control.wait_until_stopped()
                 result = self._control.start_runtime()
             elif name == "inject_creator_input":
-                if not isinstance(request, InjectCreatorInputRequest):
-                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
+                typed_input = cast(InjectCreatorInputRequest, request)
                 result = self._control.send_control(
                     "input",
                     {
-                        "message": str(request.message),
-                        "idempotency_key": str(request.idempotency_key),
+                        "message": str(typed_input.message),
+                        "idempotency_key": str(typed_input.idempotency_key),
                     },
                 )
             elif name == "advance_test_clock":
-                if not isinstance(request, AdvanceTestClockRequest):
-                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
+                typed_clock = cast(AdvanceTestClockRequest, request)
                 self._require_test_controls()
                 result = self._control.send_control(
-                    "clock", {"seconds": int(request.seconds)}
+                    "clock", {"seconds": int(typed_clock.seconds)}
                 )
             elif name == "arm_fault":
-                if not isinstance(request, ArmFaultRequest):
-                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
+                typed_fault = cast(ArmFaultRequest, request)
                 self._require_test_controls()
                 result = self._control.send_control(
                     "fault",
                     {
                         "action": "arm",
-                        "fault": str(request.fault),
-                        "duration_seconds": int(request.duration_seconds),
+                        "fault": str(typed_fault.fault),
+                        "duration_seconds": int(typed_fault.duration_seconds),
                     },
                 )
             elif name == "clear_faults":
                 self._require_test_controls()
                 result = self._control.send_control("fault", {"action": "clear"})
             elif name == "run_test":
-                if not isinstance(request, RunTestRequest):
-                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
+                typed_test = cast(RunTestRequest, request)
                 self._require_test_controls()
-                result = self._run_test(str(request.scenario))
+                result = self._run_test(str(typed_test.scenario))
             elif name == "preview_correction":
-                if not isinstance(request, PreviewCorrectionRequest):
-                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
-                result = self._corrections.preview(request.spec.model_dump(mode="json"))
+                typed_preview = cast(PreviewCorrectionRequest, request)
+                result = self._corrections.preview(
+                    typed_preview.spec.model_dump(mode="json")
+                )
             elif name == "apply_correction":
-                if not isinstance(request, ApplyCorrectionRequest):
-                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
+                typed_apply = cast(ApplyCorrectionRequest, request)
                 result = self._corrections.apply(
-                    request.spec.model_dump(mode="json"),
-                    str(request.preview_token),
+                    typed_apply.spec.model_dump(mode="json"),
+                    str(typed_apply.preview_token),
                 )
             elif name == "settle_correction_work":
-                if not isinstance(request, SettleCorrectionWorkRequest):
-                    raise AdminControlError("ADMIN-INPUT-CONTRACT")
-                result = self._corrections.settle_side_work(str(request.side_work_id))
+                typed_settle = cast(SettleCorrectionWorkRequest, request)
+                result = self._corrections.settle_side_work(
+                    str(typed_settle.side_work_id)
+                )
             else:
                 raise AdminControlError("ADMIN-TOOL-NOT-REGISTERED")
             outcome = self._tool_success(started, result)
@@ -382,10 +372,9 @@ class AdminToolService:
     def _runtime_control(
         self, request: AdminMutationRequest, command: str
     ) -> dict[str, Any]:
-        if not isinstance(request, RuntimeControlRequest):
-            raise AdminControlError("ADMIN-INPUT-CONTRACT")
+        typed = cast(RuntimeControlRequest, request)
         return self._control.send_control(
-            command, {}, expected_instance_id=request.expected_instance_id
+            command, {}, expected_instance_id=typed.expected_instance_id
         )
 
     def _read_snapshot(self) -> AdminSchemaSnapshot:

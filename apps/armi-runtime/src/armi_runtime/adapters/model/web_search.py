@@ -147,13 +147,9 @@ def normalize_provider_response(
                     if annotation.get("type") != "url_citation":
                         raise WebSearchViolation("WEB-SEARCH-RESPONSE-SOURCE")
                     url = _source_url(annotation.get("url"))
-                    title = _text(
-                        annotation.get("title"), "WEB-SEARCH-RESPONSE-SOURCE"
-                    )
+                    title = _text(annotation.get("title"), "WEB-SEARCH-RESPONSE-SOURCE")
                     citation_count += 1
-                    normalized_citations.append(
-                        {"url": url, "title": title}
-                    )
+                    normalized_citations.append({"url": url, "title": title})
                 content.append(
                     {"type": part.get("type"), "citations": normalized_citations}
                 )
@@ -174,9 +170,7 @@ def normalize_provider_response(
     web_search_calls_value = (
         tool_usage_map.get("web_search") if tool_usage_map is not None else None
     )
-    input_tokens = _positive_int(
-        usage.get("input_tokens"), "WEB-SEARCH-RESPONSE-USAGE"
-    )
+    input_tokens = _positive_int(usage.get("input_tokens"), "WEB-SEARCH-RESPONSE-USAGE")
     output_tokens = _positive_int(
         usage.get("output_tokens"), "WEB-SEARCH-RESPONSE-USAGE"
     )
@@ -185,11 +179,7 @@ def normalize_provider_response(
     )
     if calls < 1 or calls > MAX_TOOL_CALLS or messages != 1:
         raise WebSearchViolation("WEB-SEARCH-RESPONSE-EVIDENCE")
-    if (
-        citation_count < 1
-        or citation_count > MAX_SOURCES
-        or web_search_calls < calls
-    ):
+    if citation_count < 1 or citation_count > MAX_SOURCES or web_search_calls < calls:
         raise WebSearchViolation("WEB-SEARCH-RESPONSE-EVIDENCE")
     normalized: dict[str, object] = {
         "model": model,
