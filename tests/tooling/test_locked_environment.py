@@ -52,6 +52,20 @@ class LockedEnvironmentTests(unittest.TestCase):
             [],
         )
 
+    def test_manifest_only_keeps_consumed_tool_integrity_values(self) -> None:
+        manifest = json.loads(
+            (ROOT / "tools/toolchain-manifest.json").read_text(encoding="utf-8")
+        )
+        tools = {item["id"]: item for item in manifest["tools"]}
+        self.assertEqual(
+            {tool_id for tool_id, item in tools.items() if "archive_sha256" in item},
+            {"uv", "node", "postgresql"},
+        )
+        self.assertEqual(
+            {tool_id for tool_id, item in tools.items() if "install_digest" in item},
+            {"postgresql"},
+        )
+
     def test_unsupported_platform_is_rejected(self) -> None:
         violations = check_repository(
             self.root,

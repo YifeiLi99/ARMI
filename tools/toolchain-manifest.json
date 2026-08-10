@@ -19,25 +19,20 @@
       "id": "cpython",
       "version": "3.14.6",
       "acquisition": "uv-managed",
-      "archive_url": null,
-      "archive_sha256": null,
-      "install_digest": "3c6d868f2604f113468fbf2bd9398d42acb2466d21b32cb4f0c7fd54d4fd71cd"
+      "archive_url": null
     },
     {
       "id": "uv",
       "version": "0.11.33",
       "acquisition": "pypi-wheel",
       "archive_url": "https://files.pythonhosted.org/packages/dd/be/b90df95297cdae2cbd5a83fddf429a304b17a0e9c277ca02190d995cbe09/uv-0.11.33-py3-none-win_amd64.whl",
-      "archive_sha256": "521229afa69ad5f57127de800120cb2bea1ac729a05a0851aaf920124f8edf66",
-      "install_digest": "b06d20dc4fab6f0a7772b9d070904f21b099d1ff8b613dc9dd949dc6706ad657"
+      "archive_sha256": "521229afa69ad5f57127de800120cb2bea1ac729a05a0851aaf920124f8edf66"
     },
     {
       "id": "uv-build",
       "version": "0.11.33",
       "acquisition": "bundled-with-uv",
-      "archive_url": null,
-      "archive_sha256": null,
-      "install_digest": null
+      "archive_url": null
     },
     {
       "id": "postgresql",
@@ -52,40 +47,31 @@
       "version": "24.18.0",
       "acquisition": "official-windows-x64-zip",
       "archive_url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-win-x64.zip",
-      "archive_sha256": "0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821",
-      "install_digest": "9a4eb5f1c29c6a2e93852ead46b999e284a6a5ca8bab4d4e241d587d025a52de"
+      "archive_sha256": "0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821"
     },
     {
       "id": "npm",
       "version": "11.16.0",
       "acquisition": "bundled-with-node",
-      "archive_url": null,
-      "archive_sha256": null,
-      "install_digest": "3ce7cba6f5128dd5f54c98b6a5036b0f850496878cc2e21044b675fe3c594e3e"
+      "archive_url": null
     },
     {
       "id": "playwright-chromium",
       "version": "1228",
       "acquisition": "playwright-python-1.61.0",
-      "archive_url": null,
-      "archive_sha256": null,
-      "install_digest": "b798f9e53a98d29eb7f36f8c409f905d3184780a04d2bcb56989067194784bd1"
+      "archive_url": null
     },
     {
       "id": "codex-cli",
       "version": "0.144.4",
       "acquisition": "isolated-npm-lock",
-      "archive_url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.4.tgz",
-      "archive_sha256": null,
-      "install_digest": "66d97219c9f5a770b30da627be49ab4c390b4869e8ae0738f40a4f35047c8fb7"
+      "archive_url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.4.tgz"
     },
     {
       "id": "pyright",
       "version": "1.1.411",
       "acquisition": "isolated-npm-lock",
-      "archive_url": "https://registry.npmjs.org/pyright/-/pyright-1.1.411.tgz",
-      "archive_sha256": null,
-      "install_digest": "23189c1db45e8dae7d120aa54d22e955c46e367ff1ad6ec508282219f913cf40"
+      "archive_url": "https://registry.npmjs.org/pyright/-/pyright-1.1.411.tgz"
     }
   ],
   "lockfiles": [

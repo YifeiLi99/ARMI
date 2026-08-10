@@ -10,10 +10,24 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$archiveUrl = 'https://get.enterprisedb.com/postgresql/postgresql-18.4-1-windows-x64-binaries.zip'
-$expectedArchiveSha = '7effe34c0bf89027b3f171447d351cbc460f4566c8d0f643daec67f140787858'
-$expectedInstallSha = '0205691fc599bc780d55e653edbf7085fa5474f3eb6d6b8227bd60b3a8ba4a9f'
-$toolRootPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..' $ToolRoot))
+$workspaceRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$manifestPath = Join-Path $workspaceRoot 'tools/toolchain-manifest.json'
+$manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+$postgresqlSpec = $manifest.tools | Where-Object id -eq 'postgresql' | Select-Object -First 1
+if ($null -eq $postgresqlSpec) {
+    throw 'PG-METADATA: PostgreSQL tool specification is missing'
+}
+$archiveUrl = [string]$postgresqlSpec.archive_url
+$expectedArchiveSha = [string]$postgresqlSpec.archive_sha256
+$expectedInstallSha = [string]$postgresqlSpec.install_digest
+if (
+    [string]::IsNullOrWhiteSpace($archiveUrl) -or
+    $expectedArchiveSha -notmatch '^[0-9a-f]{64}$' -or
+    $expectedInstallSha -notmatch '^[0-9a-f]{64}$'
+) {
+    throw 'PG-METADATA: PostgreSQL integrity specification is invalid'
+}
+$toolRootPath = [System.IO.Path]::GetFullPath((Join-Path $workspaceRoot $ToolRoot))
 $cacheRoot = Join-Path $toolRootPath 'cache/postgresql'
 $installRoot = Join-Path $toolRootPath 'installs/postgresql/18.4'
 $archivePath = Join-Path $cacheRoot 'postgresql-18.4-1-windows-x64-binaries.zip'
