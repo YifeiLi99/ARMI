@@ -6,6 +6,7 @@ requires-python = "==3.14.*"
 members = [
     "armi-adapter-qq",
     "armi-admin",
+    "armi-artifact-store",
     "armi-channel-napcat",
     "armi-kernel",
     "armi-postgresql-contract",
@@ -66,6 +67,7 @@ name = "armi-admin"
 version = "0.0.0"
 source = { editable = "apps/armi-admin" }
 dependencies = [
+    { name = "armi-artifact-store" },
     { name = "armi-kernel" },
     { name = "armi-postgresql-contract" },
     { name = "mcp" },
@@ -77,12 +79,28 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "mcp", specifier = "==2.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
     { name = "pydantic", specifier = "==2.13.4" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
+name = "armi-artifact-store"
+version = "0.0.0"
+source = { editable = "packages/armi-artifact-store" }
+dependencies = [
+    { name = "armi-kernel" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
 
@@ -113,6 +131,7 @@ version = "0.0.0"
 source = { editable = "apps/armi-runtime" }
 dependencies = [
     { name = "armi-adapter-qq" },
+    { name = "armi-artifact-store" },
     { name = "armi-kernel" },
     { name = "armi-postgresql-contract" },
     { name = "fastapi" },
@@ -129,6 +148,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-adapter-qq", editable = "packages/armi-adapter-qq" },
+    { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "fastapi", specifier = "==0.140.13" },

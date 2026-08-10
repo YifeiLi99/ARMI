@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     ActionAdapterPort,
     CreatorEventResourceKind,
@@ -31,7 +32,6 @@ from armi_kernel.application import (
     WorkViolation,
 )
 
-from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.creator_response_inbox import (
     PostgreSQLLocalInbox,
 )

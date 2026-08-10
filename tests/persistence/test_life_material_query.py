@@ -9,10 +9,10 @@ from typing import Any, Self
 from uuid import UUID, uuid7
 
 import pytest
-from armi_kernel.application import CreatorLifeMaterialQueryViolation
-from armi_runtime.adapters.artifacts.life_material_codec import (
+from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
+from armi_kernel.application import CreatorLifeMaterialQueryViolation
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 
 

@@ -8,10 +8,10 @@ from uuid import UUID, uuid7
 
 import pytest
 from armi_admin.persistence.observation_gateway import AdminObservationGateway
-from armi_kernel.contracts import Digest
-from armi_runtime.adapters.artifacts.life_material_codec import (
+from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
+from armi_kernel.contracts import Digest
 
 
 class _Observation(AdminObservationGateway):

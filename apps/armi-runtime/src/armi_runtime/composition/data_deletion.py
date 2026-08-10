@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import ArtifactViolation, DataRightsViolation, LockPlan
 
-from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError

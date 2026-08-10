@@ -44,6 +44,13 @@ DISTRIBUTIONS = (
         dependencies=(),
     ),
     Distribution(
+        name="armi-artifact-store",
+        module="armi_artifact_store",
+        project_dir=Path("packages/armi-artifact-store"),
+        layers=(),
+        dependencies=("armi-kernel==0.0.0", "rfc8785==0.1.4"),
+    ),
+    Distribution(
         name="armi-postgresql-contract",
         module="armi_postgresql_contract",
         project_dir=Path("packages/armi-postgresql-contract"),
@@ -75,6 +82,7 @@ DISTRIBUTIONS = (
         layers=("adapters", "interfaces", "workers", "composition"),
         dependencies=(
             "armi-adapter-qq==0.0.0",
+            "armi-artifact-store==0.0.0",
             "armi-kernel==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "fastapi==0.140.13",
@@ -94,6 +102,7 @@ DISTRIBUTIONS = (
         project_dir=Path("apps/armi-admin"),
         layers=("application", "mcp", "persistence", "process_control"),
         dependencies=(
+            "armi-artifact-store==0.0.0",
             "armi-kernel==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "mcp==2.0.0",

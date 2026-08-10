@@ -41,6 +41,9 @@ from armi_admin.mcp.contracts import (
 from armi_admin.mcp.service import AdminToolService
 from armi_admin.persistence.observation_gateway import AdminObservationGateway
 from armi_admin.persistence.role_session import AdminRoleBoundPool
+from armi_artifact_store.content_store import (
+    ContentAddressedArtifactStore,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -119,9 +122,6 @@ from armi_kernel.contracts import (
     OpaqueCursor,
     SubjectId,
     TraceId,
-)
-from armi_runtime.adapters.artifacts.content_store import (
-    ContentAddressedArtifactStore,
 )
 from armi_runtime.adapters.creator_response_inbox import (
     PostgreSQLLocalInbox,

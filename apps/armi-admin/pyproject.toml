@@ -3,6 +3,7 @@ name = "armi-admin"
 version = "0.0.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "armi-artifact-store==0.0.0",
     "armi-kernel==0.0.0",
     "armi-postgresql-contract==0.0.0",
     "mcp==2.0.0",
@@ -16,6 +17,7 @@ dependencies = [
 armi-admin-mcp = "armi_admin.mcp.entrypoint:main"
 
 [tool.uv.sources]
+armi-artifact-store = { workspace = true }
 armi-kernel = { workspace = true }
 armi-postgresql-contract = { workspace = true }
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -47,7 +48,6 @@ from armi_kernel.contracts import (
     TraceId,
 )
 
-from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.model.web_search_custody import (
     ArkWebSearchAdapter,
     build_request_bytes,

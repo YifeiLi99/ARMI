@@ -32,6 +32,7 @@ ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳�
 
 ```text
 packages/armi-kernel/       领域、应用端口与稳定公共契约
+packages/armi-artifact-store/ Runtime/Admin 共用的内容寻址制品存储
 packages/armi-postgresql-contract/ Runtime/Admin 共用的 catalog 指纹合同
 packages/armi-channel-napcat/ 独立 NapCat/OneBot 渠道驱动
 packages/armi-adapter-qq/    QQ 与内核外部群端口的独立适配器

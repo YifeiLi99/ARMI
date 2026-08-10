@@ -9,6 +9,9 @@ from typing import Any
 from uuid import UUID, uuid7
 
 import psycopg
+from armi_artifact_store.content_store import (
+    ContentAddressedArtifactStore,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -33,9 +36,6 @@ from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
-from armi_runtime.adapters.artifacts.content_store import (
-    ContentAddressedArtifactStore,
-)
 from armi_runtime.adapters.persistence.role_policy import physical_role_name
 
 from .audit_events import PostgreSQLAuditWriter

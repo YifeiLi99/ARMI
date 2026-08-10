@@ -12,6 +12,7 @@ from collections.abc import AsyncIterable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO, Final, Self
@@ -51,6 +52,12 @@ class StorageCleanupResult:
     removed_counts: tuple[tuple[str, int], ...]
     removed_bytes: int
     remaining: tuple[StorageFinding, ...]
+
+
+class UnregisteredArtifactDisposition(StrEnum):
+    DELETED = "deleted"
+    ALREADY_ABSENT = "already_absent"
+    QUARANTINED = "quarantined"
 
 
 class _ByHandleFileInformation(ctypes.Structure):
@@ -262,25 +269,70 @@ class ContentAddressedArtifactStore:
     async def open_verified(self, ref: ArtifactRef) -> VerifiedFileStream:
         if type(ref) is not ArtifactRef:
             raise ArtifactViolation("ART-DECLARATION")
-        digest_hex = ref.content_digest.value.removeprefix("sha256:")
+        file_value = await asyncio.to_thread(self._open_registered_sync, ref)
+        return VerifiedFileStream(file_value)
+
+    def read_verified_bytes(self, ref: ArtifactRef) -> bytes:
+        """Read one registered object through the same verified storage boundary."""
+
+        if type(ref) is not ArtifactRef:
+            raise ArtifactViolation("ART-DECLARATION")
+        file_value = self._open_registered_sync(ref)
+        try:
+            return file_value.read()
+        finally:
+            file_value.close()
+
+    def settle_unregistered(
+        self, digest: Digest
+    ) -> UnregisteredArtifactDisposition:
+        """Delete or quarantine an object whose catalog row was already removed."""
+
+        if type(digest) is not Digest:
+            raise ArtifactViolation("ART-DECLARATION")
+        self._prepare_sync()
+        digest_hex = digest.value.removeprefix("sha256:")
         path = self._object_path(digest_hex)
         try:
-            file_value = await asyncio.to_thread(
-                self._open_verified_sync,
-                path,
-                ref.content_digest,
-                ref.byte_size,
-                self._objects,
-            )
+            file_value = _open_windows_verified_handle(path, self._objects)
         except FileNotFoundError:
-            raise ArtifactViolation("ART-MISSING") from None
-        except ArtifactViolation as error:
-            if error.code == "ART-CORRUPT":
-                await asyncio.to_thread(self._quarantine_corrupt_sync, path, digest_hex)
+            return UnregisteredArtifactDisposition.ALREADY_ABSENT
+        except ArtifactViolation:
             raise
         except OSError:
             raise ArtifactViolation("ART-PATH-UNSAFE") from None
-        return VerifiedFileStream(file_value)
+        corrupt = False
+        try:
+            metadata = os.fstat(file_value.fileno())
+            if metadata.st_size <= 0:
+                corrupt = True
+            hasher = hashlib.sha256()
+            while chunk := file_value.read(1024 * 1024):
+                hasher.update(chunk)
+            corrupt = corrupt or f"sha256:{hasher.hexdigest()}" != digest.value
+            opened_device = metadata.st_dev
+            opened_inode = metadata.st_ino
+        finally:
+            file_value.close()
+        if corrupt:
+            self._quarantine_corrupt_sync(path, digest_hex)
+            return UnregisteredArtifactDisposition.QUARANTINED
+        current = path.lstat()
+        if (
+            current.st_dev != opened_device
+            or current.st_ino != opened_inode
+            or not stat.S_ISREG(current.st_mode)
+            or current.st_nlink != 1
+            or path.is_symlink()
+            or getattr(current, "st_file_attributes", 0)
+            & _FILE_ATTRIBUTE_REPARSE_POINT
+        ):
+            raise ArtifactViolation("ART-PATH-UNSAFE")
+        try:
+            path.unlink()
+        except OSError:
+            raise ArtifactViolation("ART-DELETE-IO") from None
+        return UnregisteredArtifactDisposition.DELETED
 
     async def delete_verified(self, ref: ArtifactRef) -> bool:
         """Delete one exact registered object after revalidating its identity."""
@@ -384,6 +436,26 @@ class ContentAddressedArtifactStore:
             raise ArtifactViolation("ART-PATH-UNSAFE")
         path.unlink()
         return True
+
+    def _open_registered_sync(self, ref: ArtifactRef) -> BinaryIO:
+        self._prepare_sync()
+        digest_hex = ref.content_digest.value.removeprefix("sha256:")
+        path = self._object_path(digest_hex)
+        try:
+            return self._open_verified_sync(
+                path,
+                ref.content_digest,
+                ref.byte_size,
+                self._objects,
+            )
+        except FileNotFoundError:
+            raise ArtifactViolation("ART-MISSING") from None
+        except ArtifactViolation as error:
+            if error.code == "ART-CORRUPT":
+                self._quarantine_corrupt_sync(path, digest_hex)
+            raise
+        except OSError:
+            raise ArtifactViolation("ART-PATH-UNSAFE") from None
 
     def _assert_safe_tree(self) -> None:
         for path in (
@@ -711,4 +783,6 @@ __all__ = (
     "ContentAddressedArtifactStore",
     "StorageCleanupResult",
     "StorageFinding",
+    "UnregisteredArtifactDisposition",
+    "VerifiedFileStream",
 )

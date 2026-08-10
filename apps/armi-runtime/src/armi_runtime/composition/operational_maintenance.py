@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import psycopg
+from armi_artifact_store.content_store import (
+    ContentAddressedArtifactStore,
+)
 from armi_kernel.application import (
     ArtifactViolation,
     CredentialPurpose,
@@ -12,9 +15,6 @@ from armi_kernel.application import (
     LockTarget,
 )
 
-from armi_runtime.adapters.artifacts.content_store import (
-    ContentAddressedArtifactStore,
-)
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )

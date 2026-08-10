@@ -13,6 +13,7 @@ from uuid import UUID
 
 import psycopg
 import rfc8785
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -32,8 +33,6 @@ from armi_kernel.contracts import Digest, Instant, OpaqueCursor
 from psycopg import sql
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
-
-from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 
 from .role_policy import physical_role_name
 

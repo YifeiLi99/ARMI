@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import stat
 from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
@@ -12,6 +9,18 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
+from armi_artifact_store import (
+    ContentAddressedArtifactStore,
+    parse_life_material_artifact,
+)
+from armi_kernel.application import (
+    ArtifactId,
+    ArtifactIntegrityStatus,
+    ArtifactPrivacyScope,
+    ArtifactRef,
+    ArtifactViolation,
+)
+from armi_kernel.contracts import Digest
 from armi_postgresql_contract.catalog_fingerprint import (
     database_catalog_digest,
 )
@@ -34,7 +43,7 @@ def _safe(value: Any) -> Any:
 class AdminObservationGateway:
     """Execute only static, bounded SELECT and environment registration statements."""
 
-    __slots__ = ("_artifact_root", "_conninfo", "_expected_role")
+    __slots__ = ("_conninfo", "_expected_role", "_storage")
 
     def __init__(
         self,
@@ -47,7 +56,10 @@ class AdminObservationGateway:
             raise ValueError("ADMIN-OBSERVATION-ARTIFACT-ROOT")
         self._conninfo = conninfo
         self._expected_role = expected_role
-        self._artifact_root = artifact_root
+        self._storage = ContentAddressedArtifactStore(
+            artifact_root,
+            max_object_bytes=104_857_600,
+        )
 
     def environment(self) -> dict[str, Any] | None:
         row = self._one(
@@ -239,96 +251,30 @@ class AdminObservationGateway:
         }
 
     def _read_material_body(self, row: tuple[Any, ...]) -> str:
-        content_digest = str(row[14])
-        if (
-            len(content_digest) != 71
-            or not content_digest.startswith("sha256:")
-            or any(
-                character not in "0123456789abcdef" for character in content_digest[7:]
-            )
-            or str(row[15]) != "application/json"
-            or type(row[16]) is not int
-            or not 1 <= row[16] <= 131_072
-            or str(row[18]) != "life.material.content"
-            or str(row[19]) != "private"
-            or str(row[20]) != "verified"
-        ):
-            raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
-        digest_hex = content_digest[7:]
-        expected_locator = (
-            f"objects/sha256/{digest_hex[:2]}/{digest_hex[2:4]}/{digest_hex}"
-        )
-        if str(row[17]) != expected_locator:
-            raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
-        path = self._artifact_root / Path(expected_locator)
-        resolved_root = self._artifact_root.resolve(strict=True)
-        root_metadata = self._artifact_root.lstat()
-        if (
-            self._artifact_root.is_symlink()
-            or not self._artifact_root.is_dir()
-            or getattr(root_metadata, "st_file_attributes", 0)
-            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-        ):
-            raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
-        resolved_path = path.resolve(strict=True)
-        if not resolved_path.is_relative_to(resolved_root):
-            raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
-        current = path.parent
-        while current != self._artifact_root:
-            metadata = current.lstat()
-            if (
-                current.is_symlink()
-                or not current.is_dir()
-                or getattr(metadata, "st_file_attributes", 0)
-                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-            ):
-                raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
-            current = current.parent
-        metadata = path.lstat()
-        if (
-            path.is_symlink()
-            or not path.is_file()
-            or metadata.st_nlink != 1
-            or metadata.st_size != row[16]
-            or getattr(metadata, "st_file_attributes", 0)
-            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-        ):
-            raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
-        with path.open("rb") as stream:
-            artifact_bytes = stream.read(131_073)
-        if (
-            len(artifact_bytes) != row[16]
-            or hashlib.sha256(artifact_bytes).hexdigest() != digest_hex
-        ):
-            raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT")
         try:
-            decoded: object = json.loads(
-                artifact_bytes.decode("utf-8", errors="strict")
-            )
-            if type(decoded) is not dict:
-                raise ValueError
-            envelope = cast(dict[str, object], decoded)
-            body = envelope.get("body")
             if (
-                set(envelope) != {"body", "schema_version"}
-                or envelope.get("schema_version") != "armi.life-material-content.v1"
-                or type(body) is not str
-                or not body.strip()
-                or "\x00" in body
-                or json.dumps(
-                    envelope,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                ).encode("utf-8")
-                != artifact_bytes
-                or f"sha256:{hashlib.sha256(body.encode('utf-8')).hexdigest()}"
-                != str(row[12])
+                str(row[15]) != "application/json"
+                or type(row[16]) is not int
+                or not 1 <= row[16] <= 131_072
+                or str(row[18]) != "life.material.content"
+                or str(row[19]) != "private"
+                or str(row[20]) != "verified"
             ):
                 raise ValueError
-        except UnicodeError, ValueError, json.JSONDecodeError:
+            ref = ArtifactRef(
+                artifact_id=ArtifactId(UUID(str(row[13]))),
+                content_digest=Digest(str(row[14])),
+                byte_size=row[16],
+                media_type=str(row[15]),
+                logical_kind=str(row[18]),
+                privacy_scope=ArtifactPrivacyScope(str(row[19])),
+                integrity_status=ArtifactIntegrityStatus(str(row[20])),
+            )
+            return parse_life_material_artifact(
+                self._storage.read_verified_bytes(ref)
+            ).decode("utf-8", errors="strict")
+        except (ArtifactViolation, UnicodeError, ValueError):
             raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT") from None
-        return body
 
     def trace_flow(self, selector: tuple[str, str]) -> dict[str, Any]:
         kind, value = selector

@@ -9,6 +9,7 @@ from uuid import UUID, uuid7
 
 import psycopg
 import rfc8785
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -37,7 +38,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, Purpose, SubjectId
 
-from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.external_group_input import (

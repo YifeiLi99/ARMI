@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
+from armi_artifact_store.content_store import (
+    ContentAddressedArtifactStore,
+    StorageFinding,
+    VerifiedFileStream,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -25,11 +30,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Purpose, TraceId
 
-from armi_runtime.adapters.artifacts.content_store import (
-    ContentAddressedArtifactStore,
-    StorageFinding,
-    VerifiedFileStream,
-)
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )

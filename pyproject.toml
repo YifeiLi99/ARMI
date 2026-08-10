@@ -20,6 +20,7 @@ build-constraint-dependencies = ["uv_build==0.11.33"]
 [tool.uv.workspace]
 members = [
     "packages/armi-kernel",
+    "packages/armi-artifact-store",
     "packages/armi-postgresql-contract",
     "packages/armi-channel-napcat",
     "packages/armi-adapter-qq",

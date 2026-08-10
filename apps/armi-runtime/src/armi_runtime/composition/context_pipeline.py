@@ -10,6 +10,12 @@ from typing import Any
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_artifact_store.content_store import (
+    ContentAddressedArtifactStore,
+)
+from armi_artifact_store.life_material_codec import (
+    parse_life_material_artifact,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -38,12 +44,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 
-from armi_runtime.adapters.artifacts.content_store import (
-    ContentAddressedArtifactStore,
-)
-from armi_runtime.adapters.artifacts.life_material_codec import (
-    parse_life_material_artifact,
-)
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )

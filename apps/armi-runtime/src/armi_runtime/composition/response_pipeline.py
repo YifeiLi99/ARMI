@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     LockPlan,
     LockTarget,
@@ -16,7 +17,6 @@ from armi_kernel.application import (
     WorkViolation,
 )
 
-from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.response_admission import (
     PostgreSQLResponseAdmissionRepository,

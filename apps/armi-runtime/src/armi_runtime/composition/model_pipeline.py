@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_artifact_store.content_store import (
+    ContentAddressedArtifactStore,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -35,9 +38,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 
-from armi_runtime.adapters.artifacts.content_store import (
-    ContentAddressedArtifactStore,
-)
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,

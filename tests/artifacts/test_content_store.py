@@ -11,6 +11,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid7
 
+from armi_artifact_store.content_store import (
+    ContentAddressedArtifactStore,
+    UnregisteredArtifactDisposition,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -20,9 +24,6 @@ from armi_kernel.application import (
     ArtifactViolation,
 )
 from armi_kernel.contracts import Digest, TraceId
-from armi_runtime.adapters.artifacts.content_store import (
-    ContentAddressedArtifactStore,
-)
 
 
 async def _chunks(*values: object) -> AsyncIterator[bytes]:
@@ -121,6 +122,43 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.store.delete_verified(_reference(content)))
         with self.assertRaisesRegex(ArtifactViolation, "ART-MISSING"):
             await self.store.open_verified(_reference(content))
+
+    async def test_sync_read_and_unregistered_settlement_share_verifier(self) -> None:
+        content = b"shared-owner"
+        staged = await self.store.stage(_chunks(content), _policy())
+        published = await self.store.publish(staged)
+
+        self.assertEqual(self.store.read_verified_bytes(_reference(content)), content)
+        self.assertEqual(
+            self.store.settle_unregistered(published.content_digest),
+            UnregisteredArtifactDisposition.DELETED,
+        )
+        self.assertEqual(
+            self.store.settle_unregistered(published.content_digest),
+            UnregisteredArtifactDisposition.ALREADY_ABSENT,
+        )
+
+    async def test_unregistered_corruption_is_quarantined(self) -> None:
+        content = b"cleanup-corrupt"
+        staged = await self.store.stage(_chunks(content), _policy())
+        published = await self.store.publish(staged)
+        digest_hex = published.content_digest.value.removeprefix("sha256:")
+        object_path = (
+            self.root
+            / "objects"
+            / "sha256"
+            / digest_hex[:2]
+            / digest_hex[2:4]
+            / digest_hex
+        )
+        object_path.write_bytes(b"tampered")
+
+        self.assertEqual(
+            self.store.settle_unregistered(published.content_digest),
+            UnregisteredArtifactDisposition.QUARANTINED,
+        )
+        self.assertFalse(object_path.exists())
+        self.assertEqual(len(list((self.root / "quarantine").iterdir())), 1)
 
     async def test_corrupt_object_is_quarantined_before_bytes_are_released(
         self,

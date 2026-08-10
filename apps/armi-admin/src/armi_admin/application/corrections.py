@@ -6,14 +6,14 @@ import base64
 import hashlib
 import hmac
 import json
-import os
-import stat
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import uuid7
 
 import rfc8785
-from armi_kernel.application import CredentialPurpose
+from armi_artifact_store import ContentAddressedArtifactStore
+from armi_kernel.application import ArtifactViolation, CredentialPurpose
+from armi_kernel.contracts import Digest
 
 from armi_admin.persistence import (
     AdminCorrectionGateway,
@@ -258,48 +258,14 @@ class AdminCorrectionCoordinator:
         return parsed.astimezone(UTC)
 
     def _settle_artifact_file(self, work: dict[str, Any]) -> str:
-        digest = str(work["content_digest"])
-        if not digest.startswith("sha256:") or len(digest) != 71:
-            raise AdminCorrectionError("ADMIN-CORRECTION-ARTIFACT-DIGEST")
-        hex_digest = digest.removeprefix("sha256:")
         artifact_root = self._config.environment_root / "data" / "artifacts"
-        object_path = (
-            artifact_root
-            / "objects"
-            / "sha256"
-            / hex_digest[:2]
-            / hex_digest[2:4]
-            / hex_digest
-        )
-        resolved_root = artifact_root.resolve(strict=False)
-        if not object_path.resolve(strict=False).is_relative_to(resolved_root):
-            raise AdminCorrectionError("ADMIN-CORRECTION-ARTIFACT-SCOPE")
-        if not object_path.exists():
-            return "already_absent"
-        metadata = object_path.lstat()
-        reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-        attributes = getattr(metadata, "st_file_attributes", 0)
-        if (
-            object_path.is_symlink()
-            or not object_path.is_file()
-            or metadata.st_nlink != 1
-            or bool(attributes & reparse)
-        ):
-            raise AdminCorrectionError("ADMIN-CORRECTION-ARTIFACT-FILE")
-        observed = hashlib.sha256()
-        with object_path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                observed.update(chunk)
-        if observed.hexdigest() == hex_digest:
-            object_path.unlink()
-            return "deleted"
-        quarantine = artifact_root / "quarantine"
-        quarantine.mkdir(parents=True, exist_ok=True)
-        target = quarantine / f"admin-correction-{work['work_id']}.corrupt"
-        if target.exists():
-            raise AdminCorrectionError("ADMIN-CORRECTION-QUARANTINE-EXISTS")
-        os.replace(object_path, target)
-        return "quarantined"
+        try:
+            return ContentAddressedArtifactStore(
+                artifact_root,
+                max_object_bytes=104_857_600,
+            ).settle_unregistered(Digest(str(work["content_digest"]))).value
+        except (ArtifactViolation, ValueError):
+            raise AdminCorrectionError("ADMIN-CORRECTION-ARTIFACT-FILE") from None
 
 
 __all__ = ("AdminCorrectionCoordinator", "AdminCorrectionError")

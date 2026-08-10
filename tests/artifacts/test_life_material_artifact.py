@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from armi_runtime.adapters.artifacts.life_material_codec import (
+from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
     parse_life_material_artifact,
 )

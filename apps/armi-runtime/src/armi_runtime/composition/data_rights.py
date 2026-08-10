@@ -10,6 +10,7 @@ from uuid import UUID, uuid7
 
 import psycopg
 import rfc8785
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -37,7 +38,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest, Instant, Purpose
 
-from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
 from armi_runtime.adapters.persistence.data_rights import (
     DataRightsOrderRepository,

@@ -7,6 +7,7 @@ from importlib.resources import files
 from typing import Final
 from uuid import UUID
 
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     ActionAdapterPort,
     CandidateViolation,
@@ -34,7 +35,6 @@ from armi_kernel.application import (
     WebResearchViolation,
 )
 
-from armi_runtime.adapters.artifacts.content_store import ContentAddressedArtifactStore
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
