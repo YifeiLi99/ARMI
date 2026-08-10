@@ -13,9 +13,10 @@ import json
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 from uuid import uuid7
 
-from armi_kernel.application import CredentialLocator, ModelResultStatus
+from armi_kernel.application import CredentialLocator, ModelResultStatus, ModelUsage
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
@@ -96,17 +97,15 @@ async def _verify(env_file: Path) -> dict[str, object]:
     elapsed_ms = round((time.perf_counter() - started) * 1000)
     if result.status is not ModelResultStatus.SUCCEEDED:
         raise RuntimeError(result.error_code or "MODEL-LIVE-FAILED")
-    assert result.provider_request_id is not None
-    assert result.provider_model_id is not None
-    assert result.usage is not None
+    usage = cast(ModelUsage, result.usage)
     return {
         "provider": binding.provider,
         "requested_model_id": binding.model_id,
-        "provider_model_id": result.provider_model_id,
-        "input_tokens": result.usage.input_tokens,
-        "output_tokens": result.usage.output_tokens,
-        "cached_input_tokens": result.usage.cached_input_tokens,
-        "estimated_cost_microyuan": result.usage.estimated_cost_microyuan,
+        "provider_model_id": cast(str, result.provider_model_id),
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cached_input_tokens": usage.cached_input_tokens,
+        "estimated_cost_microyuan": usage.estimated_cost_microyuan,
         "elapsed_ms": elapsed_ms,
         "tools_enabled": False,
         "store": False,

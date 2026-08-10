@@ -11,6 +11,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
 _SESSION_BEARER = re.compile(r"^browser-v1\.[A-Za-z0-9_-]{43}$", re.ASCII)
@@ -132,8 +133,7 @@ class BrowserSessionStore:
                 if stored is not None and self._monotonic() >= stored.expires_monotonic:
                     self._session = None
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            assert stored is not None
-            return stored.metadata
+            return cast(_StoredSession, stored).metadata
 
     def revoke_all(self) -> None:
         with self._lock:

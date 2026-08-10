@@ -92,7 +92,6 @@ from .activity_internal_work_candidate_contract import (
     InternalWorkCompleteDecision,
     InternalWorkMaterialChange,
     InternalWorkMaterialCreate,
-    InternalWorkMaterialUpdate,
     InternalWorkNeedInformationDecision,
     InternalWorkNoResultDecision,
     InternalWorkProgressDecision,
@@ -121,10 +120,10 @@ from .dialogue_candidate_contract import (
     DialogueCommitmentChange,
     DialogueExactLifeQueryDecision,
     DialogueExactLifeQueryDecisionV18,
+    DialogueExperience,
     DialogueMaterialChange,
     DialogueMaterialChangeV7,
     DialogueMaterialContentChange,
-    DialogueMaterialStateChange,
     DialogueMemoryChange,
     DialogueRelationshipChange,
     DialogueReplyDecision,
@@ -1345,12 +1344,12 @@ class DeterministicCandidateValidator:
             )
             proposal_no += 1
         if candidate.relationship_change is not None:
-            assert candidate.experience is not None
-            assert experience is not None
+            dialogue_experience = cast(DialogueExperience, candidate.experience)
+            experience_draft = cast(CandidateExperienceDraft, experience)
             relationship, relationship_error = _bind_dialogue_relationship(
                 candidate.relationship_change,
-                experience=candidate.experience,
-                source_experience_ref=experience.proposal_ref,
+                experience=dialogue_experience,
+                source_experience_ref=experience_draft.proposal_ref,
                 proposal_ref=f"proposal:{proposal_no}",
                 evidence=evidence,
                 bases=bases,
@@ -2896,7 +2895,6 @@ def _bind_dialogue_material(
         isinstance(change, (DialogueMaterialContentChange, DialogueMaterialChangeV7))
         and change.action == "create"
     ):
-        assert change.material_kind is not None
         body_bytes = change.body.encode("utf-8", errors="strict")
         return (
             CandidateLifeMaterialDraft(
@@ -2905,7 +2903,7 @@ def _bind_dialogue_material(
                 (evidence.ordinal,),
                 _derived_material_id(context.model_attempt_id),
                 context.subject_party_id,
-                LifeMaterialKind(change.material_kind),
+                LifeMaterialKind(cast(str, change.material_kind)),
                 None,
                 0,
                 change.title,
@@ -2971,8 +2969,6 @@ def _bind_dialogue_material(
             ),
             None,
         )
-
-    assert isinstance(change, DialogueMaterialStateChange)
     privacy_status = {
         "set_private": LifeMaterialPrivacyStatus.PRIVATE,
         "set_creator_visible": LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
@@ -3034,8 +3030,6 @@ def _bind_internal_work_material(
             ),
             None,
         )
-
-    assert isinstance(change, InternalWorkMaterialUpdate)
     target_basis = next(
         (
             item
@@ -3140,8 +3134,7 @@ def _bind_dialogue_memory_revision(
         ):
             return None, "CANDIDATE-MEMORY-RELATION"
         related_memory_id = related_basis.source_ref
-        assert change.relation_kind is not None
-        relation_kind = MemoryRelationKind(change.relation_kind)
+        relation_kind = MemoryRelationKind(cast(str, change.relation_kind))
 
     revision_kind = {
         "recall": MemoryRevisionKind.RECALLED,
@@ -3238,8 +3231,7 @@ def _bind_maintenance_memory_revision(
         ):
             return None, "CANDIDATE-MAINTENANCE-MEMORY-RELATION"
         related_memory_id = related_basis.source_ref
-        assert change.relation_kind is not None
-        relation_kind = MemoryRelationKind(change.relation_kind)
+        relation_kind = MemoryRelationKind(cast(str, change.relation_kind))
 
     revision_kind = {
         "consolidate": MemoryRevisionKind.RECALLED,
@@ -3549,21 +3541,20 @@ def _bind_dialogue_commitment(
                 else b"creator-relationship-commitment"
             ),
         )
-        assert change.party is not None
-        assert change.scope is not None
-        assert change.content is not None
         next_commitment = RelationshipCommitment(
             commitment_id,
-            RelationshipPartyRole("subject" if change.party == "armi" else "other"),
-            change.scope,
-            change.content,
+            RelationshipPartyRole(
+                "subject" if cast(str, change.party) == "armi" else "other"
+            ),
+            cast(str, change.scope),
+            cast(str, change.content),
             status,
             event_kind,
             change.event_summary,
         )
         commitments.append(next_commitment)
     else:
-        assert target is not None
+        target = cast(CandidateRelationshipCommitmentContext, target)
         commitment_id = target.commitment.commitment_id
         if change.action not in {"note_conflict"} and (
             target.commitment.status is not RelationshipCommitmentStatus.ACTIVE
@@ -3790,8 +3781,7 @@ def _component_failure(
     if proposal.payload.expected_version != version:
         return "CANDIDATE-VERSION-MISMATCH"
     if not any(
-        basis.item_kind == owner.value
-        and basis.source_version == version
+        basis.item_kind == owner.value and basis.source_version == version
         for basis in bases
     ):
         return "CANDIDATE-COMPONENT-BASIS"
@@ -3996,8 +3986,7 @@ def _codex_delegation_failure(
     ):
         return "CANDIDATE-CODEX-TASK-IDENTITY"
     if not any(
-        basis.item_kind == "codex_task_source"
-        and basis.source_ref == source_id
+        basis.item_kind == "codex_task_source" and basis.source_ref == source_id
         for basis in bases
     ):
         return "CANDIDATE-CODEX-TASK-BASIS"

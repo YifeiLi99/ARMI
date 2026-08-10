@@ -8,7 +8,7 @@ from contextlib import suppress
 from contextvars import ContextVar, Token
 from enum import StrEnum
 from types import TracebackType
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast
 from uuid import UUID
 
 import psycopg
@@ -282,14 +282,12 @@ class PostgreSQLUnitOfWork:
     @property
     def audit(self) -> AuditWriter:
         self._require_active()
-        assert self._audit is not None
-        return self._audit
+        return cast(PostgreSQLAuditWriter, self._audit)
 
     @property
     def work(self) -> DurableWorkWriter:
         self._require_active()
-        assert self._work is not None
-        return self._work
+        return cast(PostgreSQLDurableWorkWriter, self._work)
 
     @property
     def environment_id(self) -> UUID:
@@ -432,12 +430,11 @@ class PostgreSQLUnitOfWork:
             )
 
     async def _verify_runtime_fence(self, *, lock_row: bool) -> None:
-        assert self._connection is not None
-        assert self._runtime_fence is not None
-        fence = self._runtime_fence
+        connection = cast(psycopg.AsyncConnection[tuple[Any, ...]], self._connection)
+        fence = cast(RuntimeFence, self._runtime_fence)
         locking_clause = "FOR UPDATE OF instance" if lock_row else ""
         row = await (
-            await self._connection.execute(
+            await connection.execute(
                 f"""
                 SELECT
                     instance.status,
@@ -483,14 +480,13 @@ class PostgreSQLUnitOfWork:
             )
 
     async def _acquire_runtime_fence_locks(self) -> None:
-        assert self._connection is not None
-        assert self._runtime_fence is not None
-        fence = self._runtime_fence
+        connection = cast(psycopg.AsyncConnection[tuple[Any, ...]], self._connection)
+        fence = cast(RuntimeFence, self._runtime_fence)
         for kind, value in (
             ("subject", fence.subject_id),
             ("generation", fence.life_generation_id),
         ):
-            await self._connection.execute(
+            await connection.execute(
                 """
                 SELECT pg_advisory_xact_lock(
                     pg_catalog.hashtextextended(%s, 0)
@@ -500,15 +496,15 @@ class PostgreSQLUnitOfWork:
             )
 
     async def _set_transaction_characteristics(self) -> None:
-        assert self._connection is not None
-        await self._connection.execute(
+        connection = cast(psycopg.AsyncConnection[tuple[Any, ...]], self._connection)
+        await connection.execute(
             sql.SQL("SET TRANSACTION ISOLATION LEVEL {}").format(
                 _ISOLATION_SQL[self._isolation]
             )
         )
         if self._read_only:
-            await self._connection.execute("SET TRANSACTION READ ONLY")
-        await self._connection.execute(
+            await connection.execute("SET TRANSACTION READ ONLY")
+        await connection.execute(
             "SELECT pg_catalog.set_config('statement_timeout', %s, true)",
             (f"{self._statement_timeout_milliseconds}ms",),
         )
@@ -564,8 +560,7 @@ class PostgreSQLUnitOfWork:
     ) -> psycopg.AsyncConnection[tuple[Any, ...]]:
         """Package-private access for registered persistence adapters."""
         self._require_active()
-        assert self._connection is not None
-        return self._connection
+        return cast(psycopg.AsyncConnection[tuple[Any, ...]], self._connection)
 
 
 __all__ = (

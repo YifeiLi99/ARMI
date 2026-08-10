@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import psycopg
@@ -1092,7 +1092,6 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchone()
-            assert counts is not None
             capability_counts = await (
                 await connection.execute(
                     """
@@ -1136,7 +1135,6 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchone()
-            assert capability_counts is not None
             response_counts = await (
                 await connection.execute(
                     """
@@ -1211,7 +1209,6 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchone()
-            assert response_counts is not None
             effect_counts = await (
                 await connection.execute(
                     """
@@ -1259,7 +1256,6 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchone()
-            assert effect_counts is not None
             effect_execution_counts = await (
                 await connection.execute(
                     """
@@ -1388,7 +1384,6 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchone()
-            assert effect_execution_counts is not None
             await connection.execute(
                 """
                 UPDATE armi.observation_attempts AS attempt
@@ -1473,7 +1468,6 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchone()
-            assert web_counts is not None
             web_evidence_counts = await (
                 await connection.execute(
                     """
@@ -1516,7 +1510,6 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchone()
-            assert web_evidence_counts is not None
             codex_counts = await (
                 await connection.execute(
                     """
@@ -1545,7 +1538,6 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchone()
-            assert codex_counts is not None
             admin_correction_work_count = await (
                 await connection.execute(
                     """
@@ -1561,7 +1553,17 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchone()
-            assert admin_correction_work_count is not None
+            counts = cast(tuple[Any, ...], counts)
+            capability_counts = cast(tuple[Any, ...], capability_counts)
+            response_counts = cast(tuple[Any, ...], response_counts)
+            effect_counts = cast(tuple[Any, ...], effect_counts)
+            effect_execution_counts = cast(tuple[Any, ...], effect_execution_counts)
+            web_counts = cast(tuple[Any, ...], web_counts)
+            web_evidence_counts = cast(tuple[Any, ...], web_evidence_counts)
+            codex_counts = cast(tuple[Any, ...], codex_counts)
+            admin_correction_work_count = cast(
+                tuple[Any, ...], admin_correction_work_count
+            )
             if int(counts[7]) > 0:
                 blockers += 1
                 sorted_findings = tuple(

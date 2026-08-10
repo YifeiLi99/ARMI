@@ -54,6 +54,31 @@ from .contracts import (
 )
 
 _EXPECTED_POSTGRESQL = 180004
+ObservationToolName = Literal[
+    "correction_status",
+    "inspect_scope",
+    "runtime_status",
+    "subject_snapshot",
+    "tail_diagnostics",
+    "trace_flow",
+]
+MutationToolName = Literal[
+    "advance_test_clock",
+    "apply_correction",
+    "arm_fault",
+    "clear_faults",
+    "environment_initialize",
+    "environment_reset",
+    "environment_reset_preview",
+    "inject_creator_input",
+    "preview_correction",
+    "run_test",
+    "runtime_drain",
+    "runtime_restart",
+    "runtime_start",
+    "runtime_stop",
+    "settle_correction_work",
+]
 _REQUIRED_SCHEMA_TABLES = frozenset(
     {
         "activities",
@@ -179,7 +204,7 @@ class AdminToolService:
         )
 
     def observe(
-        self, name: str, request: ObservationRequest
+        self, name: ObservationToolName, request: ObservationRequest
     ) -> AdminToolResult[dict[str, Any]]:
         started = datetime.now(UTC)
         if request.environment_id != self._config.environment_id:
@@ -220,8 +245,6 @@ class AdminToolService:
                         tuple(typed_scope.object_ids),
                     )
                     result["relations"] = list(typed_scope.relations)
-                else:
-                    raise ValueError("ADMIN-TOOL-NOT-REGISTERED")
             return self._tool_success(started, result)
         except AdminCorrectionError as exc:
             return self._correction_failure(started, str(exc))
@@ -229,7 +252,7 @@ class AdminToolService:
             return self._tool_failure(started, "failed", "ADMIN-OBSERVATION-FAILED")
 
     def mutate(
-        self, name: str, request: AdminMutationRequest
+        self, name: MutationToolName, request: AdminMutationRequest
     ) -> AdminToolResult[dict[str, Any]]:
         started = datetime.now(UTC)
         if request.environment_id != self._config.environment_id:
@@ -335,8 +358,6 @@ class AdminToolService:
                 result = self._corrections.settle_side_work(
                     str(typed_settle.side_work_id)
                 )
-            else:
-                raise AdminControlError("ADMIN-TOOL-NOT-REGISTERED")
             outcome = self._tool_success(started, result)
         except AdminCorrectionError as exc:
             outcome = self._correction_failure(started, str(exc))
@@ -400,7 +421,9 @@ class AdminToolService:
             artifact_root=self._config.environment_root / "data" / "artifacts",
         )
 
-    def _initialize_environment(self, birth_mode: str) -> dict[str, Any]:
+    def _initialize_environment(
+        self, birth_mode: Literal["unborn", "manifest"]
+    ) -> dict[str, Any]:
         initialization = self._control.initialize_environment(birth_mode)
         gateway = self._observation_gateway()
         existing = gateway.environment()

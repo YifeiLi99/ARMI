@@ -162,8 +162,7 @@ class CandidateValidationPipeline:
             raise CandidateViolation("CANDIDATE-DATABASE") from None
         if not records:
             return False
-        lease = records[0].lease
-        assert lease is not None
+        lease = cast(WorkLease, records[0].lease)
         try:
             snapshot = await self._snapshot(lease)
             response_bytes = await self._read_response(snapshot)

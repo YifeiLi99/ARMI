@@ -9,7 +9,7 @@ make handler drift harder to detect.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import psycopg
@@ -19,6 +19,13 @@ from psycopg.types.json import Jsonb
 from .role_session import AdminRoleBoundPool
 
 _AUTHORITY_KEY_PREFIX = "armi.runtime-authority:"
+CorrectionKind = Literal[
+    "delete_uncommitted_creator_input",
+    "reconcile_unknown_creator_effect",
+    "repair_subject_component_head",
+    "replace_subject_component",
+    "requeue_stuck_work",
+]
 
 
 class AdminCorrectionGatewayError(RuntimeError):
@@ -405,7 +412,7 @@ class AdminCorrectionGateway:
         side_work_id: str,
         for_update: bool,
     ) -> dict[str, Any]:
-        kind = spec["correction_kind"]
+        kind = cast(CorrectionKind, spec["correction_kind"])
         if kind in {"replace_subject_component", "repair_subject_component_head"}:
             return self._component_snapshot(
                 connection,
@@ -424,11 +431,9 @@ class AdminCorrectionGateway:
             )
         if kind == "requeue_stuck_work":
             return self._work_snapshot(connection, spec, for_update=for_update)
-        if kind == "reconcile_unknown_creator_effect":
-            return self._effect_snapshot(
-                connection, spec, result_id=result_id, for_update=for_update
-            )
-        raise AdminCorrectionGatewayError("ADMIN-CORRECTION-KIND")
+        return self._effect_snapshot(
+            connection, spec, result_id=result_id, for_update=for_update
+        )
 
     @staticmethod
     def _component_snapshot(
@@ -735,7 +740,7 @@ class AdminCorrectionGateway:
         spec: dict[str, Any],
         snapshot: dict[str, Any],
     ) -> dict[str, Any]:
-        kind = spec["correction_kind"]
+        kind = cast(CorrectionKind, spec["correction_kind"])
         handler = cast(dict[str, Any], snapshot["handler"])
         if kind == "replace_subject_component":
             connection.execute(
@@ -801,8 +806,6 @@ class AdminCorrectionGateway:
                 raise AdminCorrectionGatewayError("ADMIN-CORRECTION-WORK-CAS")
         elif kind == "reconcile_unknown_creator_effect":
             self._reconcile_effect(connection, handler)
-        else:
-            raise AdminCorrectionGatewayError("ADMIN-CORRECTION-KIND")
         return {
             "side_work_id": handler.get("side_work_id")
             if snapshot["side_work_required"]

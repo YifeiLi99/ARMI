@@ -154,8 +154,7 @@ class EffectiveConfig:
 
     def redacted_view(self) -> dict[str, object]:
         view = self.config.model_dump(mode="json")
-        environment = view["environment"]
-        assert isinstance(environment, dict)
+        environment = cast(dict[str, object], view["environment"])
         environment["data_root"] = {"configured": True}
         locators: dict[str, object] = {}
         for name, locator in self.config.secret_locators.items():

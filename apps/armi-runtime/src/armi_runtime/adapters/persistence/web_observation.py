@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -18,6 +18,7 @@ from armi_kernel.application import (
     WebObservationRequestStatus,
     WebObservationResultStatus,
     WebObservationToolCallId,
+    WebObservationUsage,
     WebObservationViolation,
     WorkId,
     WorkLease,
@@ -258,8 +259,6 @@ class PostgreSQLWebObservationRepository:
     ) -> None:
         if result.status is not WebObservationResultStatus.SUCCEEDED:
             raise WebObservationViolation("WEB-RESULT")
-        assert result.usage is not None
-        assert result.provider_model_id is not None
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await self._assert_lease(connection, lease, snapshot.request_id)
         for ordinal, action in enumerate(result.tool_actions, start=1):
@@ -277,7 +276,7 @@ class PostgreSQLWebObservationRepository:
                     action.value,
                 ),
             )
-        usage = result.usage
+        usage = cast(WebObservationUsage, result.usage)
         updated = await (
             await connection.execute(
                 """
@@ -292,7 +291,7 @@ class PostgreSQLWebObservationRepository:
                 RETURNING observation_attempt_id
                 """,
                 (
-                    result.provider_model_id,
+                    cast(str, result.provider_model_id),
                     result_artifact.artifact_id.value,
                     usage.input_tokens,
                     usage.output_tokens,

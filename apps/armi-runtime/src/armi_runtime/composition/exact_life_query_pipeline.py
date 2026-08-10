@@ -24,6 +24,7 @@ from armi_kernel.application import (
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
     RuntimeFence,
+    WorkLease,
     WorkViolation,
 )
 
@@ -120,8 +121,7 @@ class ExactLifeQueryPipeline:
             raise LifeRecordQueryViolation("LIFE-QUERY-DATABASE") from None
         if not records:
             return False
-        lease = records[0].lease
-        assert lease is not None
+        lease = cast(WorkLease, records[0].lease)
         try:
             async with self._factory.unit_of_work() as unit:
                 snapshot = await self._repository.snapshot(unit, lease)

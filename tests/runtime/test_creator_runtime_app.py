@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -115,6 +116,7 @@ from armi_runtime.composition.lifecycle import LifecycleController
 from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import (
     _creator_visible_codex_artifact,
+    _operation_wire,
     create_runtime_app,
 )
 from armi_runtime.interfaces.creator_contract import (
@@ -937,6 +939,166 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.maintenance_query = _CreatorMaintenanceQuery()
         self.relationship_query = _CreatorRelationshipQuery()
         self.emergency_wake = _EmergencyWake(self.maintenance_query)
+
+    def test_every_creator_operation_phase_has_an_explicit_projection(self) -> None:
+        acceptance = self.creator_input.acceptance
+        expected_status = {
+            CreatorOperationPhase.ACCEPTED: "accepted",
+            CreatorOperationPhase.CONTEXT_PREPARING: "waiting",
+            CreatorOperationPhase.CONTEXT_PREPARED: "waiting",
+            CreatorOperationPhase.MODEL_CALLING: "waiting",
+            CreatorOperationPhase.MODEL_RETURNED: "waiting",
+            CreatorOperationPhase.CANDIDATE_VALIDATING: "waiting",
+            CreatorOperationPhase.CANDIDATE_VALIDATED: "waiting",
+            CreatorOperationPhase.CANDIDATE_REJECTED: "rejected",
+            CreatorOperationPhase.SUBJECT_COMMITTING: "waiting",
+            CreatorOperationPhase.RESPONSE_ADMISSION: "waiting",
+            CreatorOperationPhase.RESPONSE_ACCEPTED: "accepted",
+            CreatorOperationPhase.EFFECT_REGISTRATION: "waiting",
+            CreatorOperationPhase.EFFECT_REGISTERED: "accepted",
+            CreatorOperationPhase.EFFECT_DISPATCHING: "waiting",
+            CreatorOperationPhase.EFFECT_COMPLETED: "completed",
+            CreatorOperationPhase.EFFECT_FAILED: "failed",
+            CreatorOperationPhase.EFFECT_UNKNOWN: "unknown",
+            CreatorOperationPhase.EFFECT_CANCELLED: "rejected",
+            CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "waiting",
+            CreatorOperationPhase.CODEX_DISPATCHING: "waiting",
+            CreatorOperationPhase.CODEX_VERIFYING: "waiting",
+            CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "waiting",
+            CreatorOperationPhase.CODEX_RESULT_REJECTED: "rejected",
+            CreatorOperationPhase.CODEX_COMPLETED: "completed",
+            CreatorOperationPhase.CODEX_FAILED: "failed",
+            CreatorOperationPhase.CODEX_UNKNOWN: "unknown",
+            CreatorOperationPhase.CODEX_CANCELLED: "rejected",
+            CreatorOperationPhase.FORMAL_DECLINED: "completed",
+            CreatorOperationPhase.FORMAL_NO_ACTION: "completed",
+            CreatorOperationPhase.RESPONSE_UNAUTHORIZED: "rejected",
+            CreatorOperationPhase.RESPONSE_UNAVAILABLE: "unavailable",
+            CreatorOperationPhase.RESPONSE_FAILED: "failed",
+            CreatorOperationPhase.APPLIED: "applied",
+            CreatorOperationPhase.COMPLETED: "completed",
+            CreatorOperationPhase.DEFERRED: "waiting",
+            CreatorOperationPhase.NEED_INFORMATION: "waiting",
+            CreatorOperationPhase.STALE_CONFLICT: "rejected",
+            CreatorOperationPhase.FAILED: "failed",
+        }
+        completion_kind = {
+            CreatorOperationPhase.ACCEPTED: "cognition",
+            CreatorOperationPhase.CONTEXT_PREPARING: "cognition",
+            CreatorOperationPhase.CONTEXT_PREPARED: "cognition",
+            CreatorOperationPhase.MODEL_CALLING: "cognition",
+            CreatorOperationPhase.MODEL_RETURNED: "cognition",
+            CreatorOperationPhase.CANDIDATE_VALIDATING: "cognition",
+            CreatorOperationPhase.CANDIDATE_VALIDATED: "cognition",
+            CreatorOperationPhase.CANDIDATE_REJECTED: "cognition",
+            CreatorOperationPhase.SUBJECT_COMMITTING: "cognition",
+            CreatorOperationPhase.RESPONSE_ADMISSION: "response_effect",
+            CreatorOperationPhase.RESPONSE_ACCEPTED: "response_effect",
+            CreatorOperationPhase.EFFECT_REGISTRATION: "response_effect",
+            CreatorOperationPhase.EFFECT_REGISTERED: "response_effect",
+            CreatorOperationPhase.EFFECT_DISPATCHING: "response_effect",
+            CreatorOperationPhase.EFFECT_COMPLETED: "response_effect",
+            CreatorOperationPhase.EFFECT_FAILED: "response_effect",
+            CreatorOperationPhase.EFFECT_UNKNOWN: "response_effect",
+            CreatorOperationPhase.EFFECT_CANCELLED: "response_effect",
+            CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "codex_effect",
+            CreatorOperationPhase.CODEX_DISPATCHING: "codex_effect",
+            CreatorOperationPhase.CODEX_VERIFYING: "codex_effect",
+            CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "codex_effect",
+            CreatorOperationPhase.CODEX_RESULT_REJECTED: "codex_effect",
+            CreatorOperationPhase.CODEX_COMPLETED: "codex_effect",
+            CreatorOperationPhase.CODEX_FAILED: "codex_effect",
+            CreatorOperationPhase.CODEX_UNKNOWN: "codex_effect",
+            CreatorOperationPhase.CODEX_CANCELLED: "codex_effect",
+            CreatorOperationPhase.FORMAL_DECLINED: "formal_decline",
+            CreatorOperationPhase.FORMAL_NO_ACTION: "formal_no_action",
+            CreatorOperationPhase.RESPONSE_UNAUTHORIZED: "response_effect",
+            CreatorOperationPhase.RESPONSE_UNAVAILABLE: "response_effect",
+            CreatorOperationPhase.RESPONSE_FAILED: "response_effect",
+            CreatorOperationPhase.APPLIED: "subject_change",
+            CreatorOperationPhase.COMPLETED: "no_change",
+            CreatorOperationPhase.DEFERRED: "cognition",
+            CreatorOperationPhase.NEED_INFORMATION: "cognition",
+            CreatorOperationPhase.STALE_CONFLICT: "cognition",
+            CreatorOperationPhase.FAILED: "cognition",
+        }
+        delivery_state = {
+            CreatorOperationPhase.RESPONSE_ACCEPTED: "not_started",
+            CreatorOperationPhase.EFFECT_REGISTRATION: "not_started",
+            CreatorOperationPhase.EFFECT_REGISTERED: "registered",
+            CreatorOperationPhase.EFFECT_DISPATCHING: "dispatching",
+            CreatorOperationPhase.EFFECT_COMPLETED: "completed",
+            CreatorOperationPhase.EFFECT_FAILED: "failed",
+            CreatorOperationPhase.EFFECT_UNKNOWN: "unknown",
+            CreatorOperationPhase.EFFECT_CANCELLED: "cancelled",
+            CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "not_started",
+            CreatorOperationPhase.CODEX_DISPATCHING: "dispatching",
+            CreatorOperationPhase.CODEX_VERIFYING: "dispatching",
+            CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "completed",
+            CreatorOperationPhase.CODEX_RESULT_REJECTED: "completed",
+            CreatorOperationPhase.CODEX_COMPLETED: "completed",
+            CreatorOperationPhase.CODEX_FAILED: "failed",
+            CreatorOperationPhase.CODEX_UNKNOWN: "unknown",
+            CreatorOperationPhase.CODEX_CANCELLED: "cancelled",
+        }
+        effect_phases = {
+            CreatorOperationPhase.EFFECT_REGISTERED,
+            CreatorOperationPhase.EFFECT_DISPATCHING,
+            CreatorOperationPhase.EFFECT_COMPLETED,
+            CreatorOperationPhase.EFFECT_FAILED,
+            CreatorOperationPhase.EFFECT_UNKNOWN,
+            CreatorOperationPhase.EFFECT_CANCELLED,
+            CreatorOperationPhase.CODEX_DISPATCHING,
+            CreatorOperationPhase.CODEX_VERIFYING,
+            CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE,
+            CreatorOperationPhase.CODEX_RESULT_REJECTED,
+            CreatorOperationPhase.CODEX_COMPLETED,
+            CreatorOperationPhase.CODEX_FAILED,
+            CreatorOperationPhase.CODEX_UNKNOWN,
+            CreatorOperationPhase.CODEX_CANCELLED,
+        }
+        failure_phases = {
+            CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
+            CreatorOperationPhase.RESPONSE_UNAVAILABLE,
+            CreatorOperationPhase.RESPONSE_FAILED,
+            CreatorOperationPhase.EFFECT_FAILED,
+            CreatorOperationPhase.EFFECT_UNKNOWN,
+            CreatorOperationPhase.CODEX_FAILED,
+            CreatorOperationPhase.CODEX_UNKNOWN,
+        }
+
+        self.assertEqual(set(expected_status), set(CreatorOperationPhase))
+        self.assertEqual(set(completion_kind), set(CreatorOperationPhase))
+        for phase in CreatorOperationPhase:
+            failure_code = None
+            if phase is CreatorOperationPhase.FAILED:
+                failure_code = "MODEL-FAILED"
+            elif phase in {
+                CreatorOperationPhase.CANDIDATE_REJECTED,
+                CreatorOperationPhase.CODEX_RESULT_REJECTED,
+            }:
+                failure_code = "CANDIDATE-REJECTED"
+            elif phase is CreatorOperationPhase.STALE_CONFLICT:
+                failure_code = "CONFLICT_SUBJECT_STATE_STALE"
+            elif phase in failure_phases:
+                failure_code = "PROJECTION-FAILED"
+            operation = CreatorOperation(
+                acceptance,
+                phase,
+                failure_code=failure_code,
+                subject_version=2 if phase is CreatorOperationPhase.APPLIED else None,
+                effect_ref=uuid7() if phase in effect_phases else None,
+            )
+            with self.subTest(phase=phase.value):
+                wire = _operation_wire(operation)
+                details = cast(dict[str, object], wire["details"])
+                self.assertIsInstance(details, dict)
+                self.assertEqual(wire["status"], expected_status[phase])
+                self.assertEqual(details["completion_kind"], completion_kind[phase])
+                if phase in delivery_state:
+                    self.assertEqual(details["delivery_state"], delivery_state[phase])
+                else:
+                    self.assertNotIn("delivery_state", details)
 
     def test_codex_final_result_projects_only_verified_deliverable(self) -> None:
         content, media_type = _creator_visible_codex_artifact(

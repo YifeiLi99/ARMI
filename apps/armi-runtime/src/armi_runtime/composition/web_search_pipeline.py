@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
@@ -241,8 +242,7 @@ class WebSearchPipeline:
             raise WebObservationViolation("WEB-DATABASE") from None
         if not records:
             return False
-        lease = records[0].lease
-        assert lease is not None
+        lease = cast(WorkLease, records[0].lease)
         try:
             snapshot = await self._snapshot(lease)
             request_bytes = await self._read_request(snapshot)
@@ -371,15 +371,14 @@ class WebSearchPipeline:
         result: WebObservationInvocationResult,
     ) -> None:
         if result.status is WebObservationResultStatus.SUCCEEDED:
-            assert result.canonical_result_bytes is not None
             published = await self._publish(
-                result.canonical_result_bytes,
+                cast(bytes, result.canonical_result_bytes),
                 logical_kind="web.search.result",
                 trace_id=snapshot.trace_id,
             )
             try:
                 normalized_evidence = (
-                    normalize_web_evidence(result.canonical_result_bytes)
+                    normalize_web_evidence(cast(bytes, result.canonical_result_bytes))
                     if snapshot.research_intent_id is not None
                     else None
                 )

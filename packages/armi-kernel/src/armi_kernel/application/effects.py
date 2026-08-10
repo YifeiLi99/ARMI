@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, cast, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.contracts import Digest, Instant, TraceId
@@ -165,8 +165,8 @@ class FrozenEffectRequest:
                 for value in route
             ):
                 raise EffectViolation("CON-EFFECT-DESTINATION")
-            assert self.external_channel is not None
-            if re.fullmatch(r"^[a-z][a-z0-9._-]{0,63}$", self.external_channel) is None:
+            external_channel = cast(str, self.external_channel)
+            if re.fullmatch(r"^[a-z][a-z0-9._-]{0,63}$", external_channel) is None:
                 raise EffectViolation("CON-EFFECT-DESTINATION")
         elif any(value is not None for value in route):
             raise EffectViolation("CON-EFFECT-DESTINATION")

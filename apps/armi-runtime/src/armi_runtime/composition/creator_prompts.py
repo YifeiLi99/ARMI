@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -393,21 +394,20 @@ class CreatorPromptService(CreatorPromptPort):
         trace_id: TraceId,
         request_digest: Digest,
     ) -> AuditDraft:
-        assert changed.revision_no is not None
-        assert changed.content_digest is not None
-        assert changed.revision_kind is not None
         return AuditDraft(
             audit_event_id=AuditEventId(uuid7()),
             actor=AuditReference("creator", self._creator_party_id),
             purpose=Purpose("creator.prompt.manage"),
-            operation=f"creator.prompt.{changed.revision_kind.value}",
+            operation=(
+                f"creator.prompt.{cast(PromptRevisionKind, changed.revision_kind).value}"
+            ),
             target=AuditReference("prompt_document", changed.prompt_document_id),
             result_status=AuditResultStatus.APPLIED,
             trace_id=trace_id,
             sensitivity=AuditSensitivity.RESTRICTED,
             subject_id=SubjectId(changed.subject_id),
             before_version=current.revision_no or 0,
-            after_version=changed.revision_no,
+            after_version=cast(int, changed.revision_no),
         )
 
     @staticmethod

@@ -359,7 +359,7 @@ class PostgreSQLCreatorGrantPolicy:
                     )
                     if command.decision is CreatorGrantDecision.LIMIT:
                         if capability is CapabilityKind.CREATOR_SCENE_REPLY:
-                            assert payload_bytes is not None
+                            payload_bytes = cast(int, payload_bytes)
                             original = (duration, uses, payload_bytes)
                             duration = _narrow(command.valid_for_seconds, duration)
                             uses = _narrow(command.max_uses, uses)
@@ -560,7 +560,6 @@ class PostgreSQLCreatorGrantPolicy:
                     subject_id,
                     _root_operation_id,
                 ) in cancelled_effects:
-                    assert cancellation_grant_id is not None
                     await unit_of_work.audit.append(
                         AuditDraft(
                             AuditEventId(uuid7()),
@@ -573,7 +572,7 @@ class PostgreSQLCreatorGrantPolicy:
                             AuditSensitivity.PRIVATE,
                             subject_id=SubjectId(subject_id),
                             grant=AuditReference(
-                                "permission_grant", cancellation_grant_id
+                                "permission_grant", cast(UUID, cancellation_grant_id)
                             ),
                         )
                     )

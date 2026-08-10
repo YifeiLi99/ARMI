@@ -15,6 +15,7 @@ from armi_admin.application import AdminConfig, AdminCredentialPort
 from armi_admin.mcp.contracts import (
     ApplyCorrectionRequest,
     CorrectionStatusRequest,
+    EnvironmentInitializeRequest,
     HealthRequest,
     InjectCreatorInputRequest,
     PreviewCorrectionRequest,
@@ -396,6 +397,66 @@ class AdminProtocolTests(unittest.TestCase):
                     "environment_id": ENVIRONMENT_ID,
                     "preview_token": "x" * 64,
                     "unknown": True,
+                }
+            )
+
+        correction_specs = (
+            spec.model_dump(),
+            {
+                "correction_kind": "repair_subject_component_head",
+                "component_kind": "self",
+                "expected_component_version": 1,
+                "target_revision_id": ENVIRONMENT_ID,
+            },
+            {
+                "correction_kind": "delete_uncommitted_creator_input",
+                "interaction_id": ENVIRONMENT_ID,
+            },
+            {
+                "correction_kind": "requeue_stuck_work",
+                "work_id": ENVIRONMENT_ID,
+            },
+            {
+                "correction_kind": "reconcile_unknown_creator_effect",
+                "effect_id": ENVIRONMENT_ID,
+            },
+        )
+        for index, correction_spec in enumerate(correction_specs):
+            with self.subTest(correction_kind=correction_spec["correction_kind"]):
+                parsed = PreviewCorrectionRequest.model_validate(
+                    {
+                        "environment_id": ENVIRONMENT_ID,
+                        "environment_incarnation": 1,
+                        "idempotency_key": f"preview-contract-{index}",
+                        "purpose": "admin.preview_correction",
+                        "spec": correction_spec,
+                    }
+                )
+                self.assertEqual(
+                    parsed.spec.correction_kind,
+                    correction_spec["correction_kind"],
+                )
+
+        for birth_mode in ("unborn", "manifest"):
+            with self.subTest(birth_mode=birth_mode):
+                initialized = EnvironmentInitializeRequest.model_validate(
+                    {
+                        "environment_id": ENVIRONMENT_ID,
+                        "environment_incarnation": 1,
+                        "idempotency_key": f"initialize-{birth_mode}",
+                        "purpose": "admin.environment_initialize",
+                        "birth_mode": birth_mode,
+                    }
+                )
+                self.assertEqual(initialized.birth_mode, birth_mode)
+        with self.assertRaises(ValueError):
+            EnvironmentInitializeRequest.model_validate(
+                {
+                    "environment_id": ENVIRONMENT_ID,
+                    "environment_incarnation": 1,
+                    "idempotency_key": "initialize-invalid",
+                    "purpose": "admin.environment_initialize",
+                    "birth_mode": "unknown",
                 }
             )
 

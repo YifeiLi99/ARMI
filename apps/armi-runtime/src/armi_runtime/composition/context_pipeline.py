@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -164,8 +165,7 @@ class ContextPipeline(OpportunitySelector):
             raise ContextViolation("CTX-DATABASE") from None
         if not claimed:
             return False
-        lease = claimed[0].lease
-        assert lease is not None
+        lease = cast(WorkLease, claimed[0].lease)
         try:
             snapshot = await self._snapshot(lease)
             evidence_bytes = (
@@ -533,14 +533,13 @@ def _context_request(
             )
         )
     if snapshot.scene_id is not None:
-        assert snapshot.scene_bytes is not None
         items.append(
             _item(
                 ContextSection.SCENE,
                 "current_scene",
                 snapshot.scene_id,
                 1,
-                snapshot.scene_bytes,
+                cast(bytes, snapshot.scene_bytes),
                 ContextTrustClass.RUNTIME_AUTHORITY,
                 required=snapshot.purpose == "consider_creator_outreach",
                 relevance=80,
@@ -900,7 +899,6 @@ def _context_request(
         )
     )
     if snapshot.evidence is not None:
-        assert evidence_bytes is not None
         items.append(
             _item(
                 ContextSection.EVIDENCE,
@@ -911,7 +909,7 @@ def _context_request(
                 ),
                 snapshot.evidence.source_id,
                 snapshot.evidence.source_version,
-                evidence_bytes,
+                cast(bytes, evidence_bytes),
                 (
                     ContextTrustClass.RUNTIME_AUTHORITY
                     if snapshot.evidence.source_kind == "life_query_result"

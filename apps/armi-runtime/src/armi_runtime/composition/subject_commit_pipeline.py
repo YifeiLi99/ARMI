@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
@@ -139,8 +140,7 @@ class SubjectCommitPipeline:
         if not records:
             return False
         record = records[0]
-        lease = record.lease
-        assert lease is not None
+        lease = cast(WorkLease, record.lease)
         final_attempt = record.attempt_count >= record.draft.max_attempts
         try:
             snapshot = await self._snapshot(lease)

@@ -748,7 +748,6 @@ class PostgreSQLCandidateValidationRepository:
             if resolved is None:
                 raise CandidateViolation("CANDIDATE-OPPORTUNITY-STATE")
             if snapshot.purpose == "consider_codex_result":
-                assert result.error_code is not None
                 operation = await (
                     await connection.execute(
                         """
@@ -766,13 +765,13 @@ class PostgreSQLCandidateValidationRepository:
                           AND operation.outcome IS NULL
                         RETURNING operation.operation_id
                         """,
-                        (result.error_code, snapshot.opportunity_id),
+                        (cast(str, result.error_code), snapshot.opportunity_id),
                     )
                 ).fetchone()
                 if operation is None:
                     raise CandidateViolation("CANDIDATE-CODEX-RESULT-LINK")
         if change_set is not None:
-            assert change_set_artifact is not None
+            artifact = cast(ArtifactRef, change_set_artifact)
             now_row = await (
                 await connection.execute("SELECT statement_timestamp()")
             ).fetchone()
@@ -785,7 +784,7 @@ class PostgreSQLCandidateValidationRepository:
                     _COMMIT_WORK_KIND,
                     WorkOwner("cognitive_episode", snapshot.episode_id),
                     IdempotencyKey(f"subject-commit:{snapshot.episode_id}"),
-                    change_set_artifact.content_digest,
+                    artifact.content_digest,
                     50,
                     now,
                     Instant(now.value + timedelta(seconds=3600)),
@@ -829,8 +828,7 @@ async def _insert_items(
     result: CandidateValidationResult,
     snapshot: CandidateEpisodeSnapshot,
 ) -> None:
-    change_set = result.change_set
-    assert change_set is not None
+    change_set = cast(SubjectChangeSet, result.change_set)
     item_id_by_ordinal = dict(snapshot.basis_item_ids)
     drafts = _validation_drafts(change_set)
     for ordinal, draft in enumerate(

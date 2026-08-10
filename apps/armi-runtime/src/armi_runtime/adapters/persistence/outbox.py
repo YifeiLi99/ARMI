@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -135,8 +135,7 @@ class PostgreSQLOutboxGateway:
                             (effective_claim_owner, lease_seconds, item_id),
                         )
                     ).fetchone()
-                    assert row is not None
-                    envelopes.append(_row_to_envelope(row))
+                    envelopes.append(_row_to_envelope(cast(tuple[Any, ...], row)))
                 return tuple(envelopes)
         except WorkViolation:
             raise

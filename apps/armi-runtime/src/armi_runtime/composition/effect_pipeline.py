@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
@@ -26,6 +27,7 @@ from armi_kernel.application import (
     EffectViolation,
     RuntimeFence,
     SceneKey,
+    WorkLease,
     WorkViolation,
 )
 
@@ -131,8 +133,7 @@ class EffectRegistrationPipeline:
             raise EffectViolation("EFFECT-DATABASE") from None
         if not records:
             return False
-        lease = records[0].lease
-        assert lease is not None
+        lease = cast(WorkLease, records[0].lease)
         try:
             async with self._factory.unit_of_work() as uow:
                 snapshot = await self._repository.snapshot(uow, lease)

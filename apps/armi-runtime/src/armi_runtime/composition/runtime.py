@@ -10,6 +10,7 @@ import selectors
 import signal
 import threading
 from collections.abc import Generator
+from typing import cast
 from uuid import uuid7
 
 import uvicorn
@@ -107,6 +108,7 @@ from .qq_channel import QQChannelBinding, compose_qq_channel
 from .runtime_errors import RuntimeViolation
 from .runtime_observability import RuntimeObservationDriver
 from .supervisor import RuntimeSupervisor
+from .web_research_pipeline import WebResearchAdmissionPipeline
 from .work_wakeup import WorkWakeupBus
 
 EXIT_GRACEFUL = 0
@@ -192,7 +194,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     response_pipeline = None
     effect_pipeline = None
     web_search_pipeline = None
-    web_research_pipeline = None
+    web_research_pipeline: WebResearchAdmissionPipeline | None = None
     codex_pipeline = None
     admin_control: RuntimeAdminControlServer | None = None
     work_wakeups = WorkWakeupBus()
@@ -717,7 +719,7 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         )
         if authority is not None:
             supervisor.start(
-                heartbeat_loop(),
+                heartbeat_loop(authority),
                 name="runtime-authority-heartbeat",
                 heartbeat=True,
             )
@@ -752,9 +754,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
                     name=f"model-invoke-worker-{index + 1}",
                 )
         if web_search_pipeline is not None:
-            assert web_research_pipeline is not None
+            research_pipeline = cast(
+                WebResearchAdmissionPipeline, web_research_pipeline
+            )
             supervisor.start(
-                web_research_pipeline.run_worker(),
+                research_pipeline.run_worker(),
                 name="web-research-admission-worker",
             )
             for index in range(config.web.concurrency):
@@ -912,12 +916,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         diagnostic.emit("runtime.lifecycle.stopped", result_code="LIFE_STOPPED")
         diagnostic.close()
 
-    async def heartbeat_loop() -> None:
-        assert authority is not None
+    async def heartbeat_loop(controller: RuntimeAuthorityController) -> None:
         while True:
             await asyncio.sleep(config.runtime.heartbeat_seconds)
             try:
-                snapshot = await authority.heartbeat_once()
+                snapshot = await controller.heartbeat_once()
             except RuntimeAuthorityViolation:
                 diagnostic.emit(
                     "runtime.authority.lost",

@@ -8,7 +8,7 @@ import secrets
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Literal, Protocol, TypedDict, assert_never, cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -191,7 +191,7 @@ from .creator_events import (
     parse_last_event_id,
     stream_creator_events,
 )
-from .static_assets import StaticAssetStore
+from .static_assets import StaticAsset, StaticAssetStore
 
 _BEARER = re.compile(r"^Bearer ([\x21-\x7e]{1,4096})$", re.ASCII)
 _PROXY_HEADERS = frozenset(
@@ -1008,11 +1008,10 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             resume_condition="effect_registered",
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_REGISTERED:
-        assert operation.effect_ref is not None
         return AcceptedOutcome(
             **_outcome_common(),
             message="The effect is registered but has not been dispatched.",
-            result_ref=ResultRef(operation.effect_ref),
+            result_ref=ResultRef(cast(UUID, operation.effect_ref)),
             custodian="runtime",
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_DISPATCHING:
@@ -1040,11 +1039,10 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             retryable=False,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_UNKNOWN:
-        assert operation.effect_ref is not None
         return UnknownOutcome(
             **_outcome_common(),
             message="The Creator response result requires authoritative verification.",
-            result_ref=ResultRef(operation.effect_ref),
+            result_ref=ResultRef(cast(UUID, operation.effect_ref)),
             custodian="runtime",
             verification_action="verify_creator_inbox",
         ).to_wire()
@@ -1112,11 +1110,10 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             retryable=False,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.CODEX_UNKNOWN:
-        assert operation.effect_ref is not None
         return UnknownOutcome(
             **_outcome_common(),
             message="The Codex delegation result requires authoritative verification.",
-            result_ref=ResultRef(operation.effect_ref),
+            result_ref=ResultRef(cast(UUID, operation.effect_ref)),
             custodian="runtime",
             verification_action="verify_codex_result",
         ).to_wire()
@@ -1126,17 +1123,16 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             message="The Codex delegation was cancelled before completion.",
             error=ErrorDescriptor(ErrorCategory.POLICY, "POLICY_CODEX_CANCELLED"),
         ).to_wire()
-    if operation.phase in {
-        CreatorOperationPhase.FORMAL_DECLINED,
-        CreatorOperationPhase.FORMAL_NO_ACTION,
-    }:
+    if operation.phase is CreatorOperationPhase.FORMAL_DECLINED:
         return CompletedOutcome(
             **_outcome_common(),
-            message=(
-                "Cognition formally declined to respond."
-                if operation.phase is CreatorOperationPhase.FORMAL_DECLINED
-                else "Cognition formally chose not to act."
-            ),
+            message="Cognition formally declined to respond.",
+            result_ref=result_ref,
+        ).to_wire()
+    if operation.phase is CreatorOperationPhase.FORMAL_NO_ACTION:
+        return CompletedOutcome(
+            **_outcome_common(),
+            message="Cognition formally chose not to act.",
             result_ref=result_ref,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.RESPONSE_UNAUTHORIZED:
@@ -1168,12 +1164,11 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             retryable=False,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.APPLIED:
-        assert operation.subject_version is not None
         return AppliedOutcome(
             **_outcome_common(),
             message="The subject change is authoritatively committed.",
             result_ref=result_ref,
-            state_version=operation.subject_version,
+            state_version=cast(int, operation.subject_version),
         ).to_wire()
     if operation.phase is CreatorOperationPhase.COMPLETED:
         return CompletedOutcome(
@@ -1215,57 +1210,62 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
                 "INTEGRITY_COGNITION_CANDIDATE_REJECTED",
             ),
         ).to_wire()
-    return FailedOutcome(
-        **_outcome_common(),
-        message="Cognition preparation failed.",
-        error=ErrorDescriptor(
-            ErrorCategory.INTERNAL,
-            "INTERNAL_COGNITION_PREPARATION_FAILED",
-        ),
-        retryable=False,
-    ).to_wire()
+    if operation.phase is CreatorOperationPhase.FAILED:
+        return FailedOutcome(
+            **_outcome_common(),
+            message="Cognition preparation failed.",
+            error=ErrorDescriptor(
+                ErrorCategory.INTERNAL,
+                "INTERNAL_COGNITION_PREPARATION_FAILED",
+            ),
+            retryable=False,
+        ).to_wire()
+    return assert_never(operation.phase)
 
 
 def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
     wire = _operation_outcome_wire(operation)
     phase = operation.phase
-    if phase is CreatorOperationPhase.FORMAL_DECLINED:
-        completion_kind = "formal_decline"
-    elif phase is CreatorOperationPhase.FORMAL_NO_ACTION:
-        completion_kind = "formal_no_action"
-    elif phase is CreatorOperationPhase.COMPLETED:
-        completion_kind = "no_change"
-    elif phase is CreatorOperationPhase.APPLIED:
-        completion_kind = "subject_change"
-    elif phase in {
-        CreatorOperationPhase.RESPONSE_ADMISSION,
-        CreatorOperationPhase.RESPONSE_ACCEPTED,
-        CreatorOperationPhase.EFFECT_REGISTRATION,
-        CreatorOperationPhase.EFFECT_REGISTERED,
-        CreatorOperationPhase.EFFECT_DISPATCHING,
-        CreatorOperationPhase.EFFECT_COMPLETED,
-        CreatorOperationPhase.EFFECT_FAILED,
-        CreatorOperationPhase.EFFECT_UNKNOWN,
-        CreatorOperationPhase.EFFECT_CANCELLED,
-        CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
-        CreatorOperationPhase.RESPONSE_UNAVAILABLE,
-        CreatorOperationPhase.RESPONSE_FAILED,
-    }:
-        completion_kind = "response_effect"
-    elif phase in {
-        CreatorOperationPhase.CODEX_CAPABILITY_DECISION,
-        CreatorOperationPhase.CODEX_DISPATCHING,
-        CreatorOperationPhase.CODEX_VERIFYING,
-        CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE,
-        CreatorOperationPhase.CODEX_RESULT_REJECTED,
-        CreatorOperationPhase.CODEX_COMPLETED,
-        CreatorOperationPhase.CODEX_FAILED,
-        CreatorOperationPhase.CODEX_UNKNOWN,
-        CreatorOperationPhase.CODEX_CANCELLED,
-    }:
-        completion_kind = "codex_effect"
-    else:
-        completion_kind = "cognition"
+    completion_kind = {
+        CreatorOperationPhase.ACCEPTED: "cognition",
+        CreatorOperationPhase.CONTEXT_PREPARING: "cognition",
+        CreatorOperationPhase.CONTEXT_PREPARED: "cognition",
+        CreatorOperationPhase.MODEL_CALLING: "cognition",
+        CreatorOperationPhase.MODEL_RETURNED: "cognition",
+        CreatorOperationPhase.CANDIDATE_VALIDATING: "cognition",
+        CreatorOperationPhase.CANDIDATE_VALIDATED: "cognition",
+        CreatorOperationPhase.CANDIDATE_REJECTED: "cognition",
+        CreatorOperationPhase.SUBJECT_COMMITTING: "cognition",
+        CreatorOperationPhase.RESPONSE_ADMISSION: "response_effect",
+        CreatorOperationPhase.RESPONSE_ACCEPTED: "response_effect",
+        CreatorOperationPhase.EFFECT_REGISTRATION: "response_effect",
+        CreatorOperationPhase.EFFECT_REGISTERED: "response_effect",
+        CreatorOperationPhase.EFFECT_DISPATCHING: "response_effect",
+        CreatorOperationPhase.EFFECT_COMPLETED: "response_effect",
+        CreatorOperationPhase.EFFECT_FAILED: "response_effect",
+        CreatorOperationPhase.EFFECT_UNKNOWN: "response_effect",
+        CreatorOperationPhase.EFFECT_CANCELLED: "response_effect",
+        CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "codex_effect",
+        CreatorOperationPhase.CODEX_DISPATCHING: "codex_effect",
+        CreatorOperationPhase.CODEX_VERIFYING: "codex_effect",
+        CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "codex_effect",
+        CreatorOperationPhase.CODEX_RESULT_REJECTED: "codex_effect",
+        CreatorOperationPhase.CODEX_COMPLETED: "codex_effect",
+        CreatorOperationPhase.CODEX_FAILED: "codex_effect",
+        CreatorOperationPhase.CODEX_UNKNOWN: "codex_effect",
+        CreatorOperationPhase.CODEX_CANCELLED: "codex_effect",
+        CreatorOperationPhase.FORMAL_DECLINED: "formal_decline",
+        CreatorOperationPhase.FORMAL_NO_ACTION: "formal_no_action",
+        CreatorOperationPhase.RESPONSE_UNAUTHORIZED: "response_effect",
+        CreatorOperationPhase.RESPONSE_UNAVAILABLE: "response_effect",
+        CreatorOperationPhase.RESPONSE_FAILED: "response_effect",
+        CreatorOperationPhase.APPLIED: "subject_change",
+        CreatorOperationPhase.COMPLETED: "no_change",
+        CreatorOperationPhase.DEFERRED: "cognition",
+        CreatorOperationPhase.NEED_INFORMATION: "cognition",
+        CreatorOperationPhase.STALE_CONFLICT: "cognition",
+        CreatorOperationPhase.FAILED: "cognition",
+    }[phase]
     delivery_state = {
         CreatorOperationPhase.RESPONSE_ACCEPTED: "not_started",
         CreatorOperationPhase.EFFECT_REGISTRATION: "not_started",
@@ -3484,11 +3484,9 @@ def create_runtime_app(
         scope = await _other_human_record_scope(request)
         if isinstance(scope, JSONResponse):
             return scope
-        assert other_human_record_query is not None
         try:
-            page = await other_human_record_query.list_parties(
-                limit=scope[0], cursor=scope[1]
-            )
+            query = cast(OtherHumanRecordQueryPort, other_human_record_query)
+            page = await query.list_parties(limit=scope[0], cursor=scope[1])
         except OtherHumanRecordViolation as error:
             status = 400 if error.code.endswith(("CURSOR", "LIMIT")) else 503
             return JSONResponse(
@@ -3514,9 +3512,9 @@ def create_runtime_app(
         scope = await _other_human_record_scope(request)
         if isinstance(scope, JSONResponse):
             return scope
-        assert other_human_record_query is not None
         try:
-            page = await other_human_record_query.list_scenes(
+            query = cast(OtherHumanRecordQueryPort, other_human_record_query)
+            page = await query.list_scenes(
                 UUID(party_id), limit=scope[0], cursor=scope[1]
             )
         except ValueError:
@@ -3567,9 +3565,9 @@ def create_runtime_app(
         scope = await _other_human_record_scope(request)
         if isinstance(scope, JSONResponse):
             return scope
-        assert other_human_record_query is not None
         try:
-            page = await other_human_record_query.timeline(
+            query = cast(OtherHumanRecordQueryPort, other_human_record_query)
+            page = await query.timeline(
                 UUID(party_id),
                 UUID(scene_id),
                 limit=scope[0],
@@ -4296,8 +4294,7 @@ def create_runtime_app(
 
     @app.get("/ui/", include_in_schema=False)
     async def creator_index() -> Response:
-        asset = assets.get("index.html")
-        assert asset is not None
+        asset = cast(StaticAsset, assets.get("index.html"))
         return Response(
             content=asset.content,
             media_type=asset.media_type,

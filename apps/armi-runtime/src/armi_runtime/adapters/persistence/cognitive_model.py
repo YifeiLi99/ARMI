@@ -20,7 +20,6 @@ from armi_kernel.application import (
     ModelAttemptId,
     ModelBinding,
     ModelInvocationResult,
-    ModelResultStatus,
     ModelUsage,
     ModelViolation,
     WorkDraft,
@@ -278,10 +277,6 @@ class PostgreSQLCognitiveModelRepository:
         response_artifact: ArtifactRef,
         result: ModelInvocationResult,
     ) -> None:
-        assert result.status is ModelResultStatus.SUCCEEDED
-        assert result.usage is not None
-        assert result.provider_request_id is not None
-        assert result.provider_model_id is not None
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await self._assert_lease(connection, lease, snapshot.episode_id)
         await self._settle_attempt(

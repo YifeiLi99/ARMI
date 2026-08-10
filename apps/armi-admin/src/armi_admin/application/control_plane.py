@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import uuid7
 
 from armi_kernel.application import CredentialPurpose
@@ -185,9 +185,9 @@ class AdminControlPlane:
             "status": "reset",
         }
 
-    def initialize_environment(self, birth_mode: str) -> dict[str, Any]:
-        if birth_mode not in {"unborn", "manifest"}:
-            raise AdminControlError("ADMIN-INITIALIZE-BIRTH-MODE")
+    def initialize_environment(
+        self, birth_mode: Literal["unborn", "manifest"]
+    ) -> dict[str, Any]:
         if self._descriptor_path().exists():
             raise AdminControlError("ADMIN-RUNTIME-NOT-STOPPED")
         self._validate_template_manifest()

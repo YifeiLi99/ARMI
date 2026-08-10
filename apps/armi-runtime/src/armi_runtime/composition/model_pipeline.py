@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import (
@@ -436,8 +437,7 @@ class ModelPipeline:
             raise ModelViolation("MODEL-DATABASE") from None
         if not records:
             return False
-        lease = records[0].lease
-        assert lease is not None
+        lease = cast(WorkLease, records[0].lease)
         try:
             snapshot = await self._snapshot(lease)
             adapter = self._adapter_for(snapshot.purpose)
@@ -493,9 +493,8 @@ class ModelPipeline:
                 )
             result, lease = await self._invoke_with_renewal(adapter, request, lease)
             if result.status is ModelResultStatus.SUCCEEDED:
-                assert result.response_bytes is not None
                 published_response = await self._publish(
-                    result.response_bytes,
+                    cast(bytes, result.response_bytes),
                     logical_kind="model.response",
                     snapshot=snapshot,
                 )

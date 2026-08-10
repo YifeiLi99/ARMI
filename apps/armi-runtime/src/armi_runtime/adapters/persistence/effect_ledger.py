@@ -275,7 +275,7 @@ class PostgreSQLEffectLedgerRepository:
                     ),
                 )
             ).fetchone()
-            assert row is not None
+            row = cast(tuple[Any, ...], row)
             if snapshot.effect_kind == "creator_response":
                 await connection.execute(
                     """UPDATE armi.dialogue_decisions

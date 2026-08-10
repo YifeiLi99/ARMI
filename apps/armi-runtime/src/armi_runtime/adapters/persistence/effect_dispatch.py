@@ -200,7 +200,6 @@ class PostgreSQLEffectDispatchRepository:
         ).fetchone()
         if row is None:
             return None
-        assert row[1] is not None
         return EffectDispatchSnapshot(
             row[0],
             row[1],

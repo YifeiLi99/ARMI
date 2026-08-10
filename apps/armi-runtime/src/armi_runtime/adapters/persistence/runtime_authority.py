@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import psycopg
@@ -196,7 +196,7 @@ class PostgreSQLRuntimeAuthority:
                         (generation_id,),
                     )
                 ).fetchone()
-                assert token_row is not None
+                token_row = cast(tuple[Any, ...], token_row)
                 fence_token = int(token_row[0])
                 row = await (
                     await connection.execute(
@@ -235,7 +235,7 @@ class PostgreSQLRuntimeAuthority:
                         ),
                     )
                 ).fetchone()
-                assert row is not None
+                row = cast(tuple[Any, ...], row)
                 await writer.append(
                     _audit_draft(
                         actor_ref=runtime_instance_id.value,

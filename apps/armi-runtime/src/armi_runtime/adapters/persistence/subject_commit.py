@@ -37,6 +37,7 @@ from armi_kernel.application import (
     FormalNoActionDraft,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
+    RuntimeFence,
     SleepDecisionKind,
     SubjectChangeSet,
     SubjectCommitId,
@@ -597,8 +598,7 @@ class PostgreSQLSubjectCommitRepository:
 
         commit_id = SubjectCommitId(uuid7())
         new_version = change_set.base_subject_version + 1
-        fence = unit_of_work.runtime_fence
-        assert fence is not None
+        fence = cast(RuntimeFence, unit_of_work.runtime_fence)
         await connection.execute(
             """
             INSERT INTO armi.subject_commits (
@@ -1351,8 +1351,7 @@ async def _insert_application(
     commit_id: SubjectCommitId | None = None,
     successor_id: UUID | None = None,
 ) -> None:
-    fence = unit_of_work.runtime_fence
-    assert fence is not None
+    fence = cast(RuntimeFence, unit_of_work.runtime_fence)
     await connection.execute(
         """
         INSERT INTO armi.cognitive_candidate_applications (

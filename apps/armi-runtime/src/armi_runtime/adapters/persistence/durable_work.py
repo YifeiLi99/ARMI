@@ -387,8 +387,7 @@ class PostgreSQLDurableWorkGateway:
                             ),
                         )
                     ).fetchone()
-                    assert row is not None
-                    record = _row_to_record(row)
+                    record = _row_to_record(cast(tuple[Any, ...], row))
                     await unit_of_work.audit.append(
                         _record_audit(
                             self._factory.environment_id,
@@ -457,8 +456,7 @@ class PostgreSQLDurableWorkGateway:
             ),
             operation=None,
         )
-        assert record.lease is not None
-        return record.lease
+        return cast(WorkLease, record.lease)
 
     async def release(
         self,

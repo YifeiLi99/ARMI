@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
+from typing import cast
 from uuid import uuid7
 
 from armi_channel_napcat import (
@@ -146,7 +147,6 @@ class QQGroupEgressAdapter(ExternalGroupSendPort):
             raise ExternalGroupViolation("EXTERNAL-GROUP-RESULT-UNKNOWN") from None
         except NapCatViolation:
             raise ExternalGroupViolation("EXTERNAL-GROUP-RESULT-UNKNOWN") from None
-        assert response.message_id is not None
         receipt_bytes = json.dumps(
             {
                 "schema_version": "armi.external-group-receipt.v1",
@@ -162,7 +162,7 @@ class QQGroupEgressAdapter(ExternalGroupSendPort):
             separators=(",", ":"),
         ).encode("utf-8")
         return ExternalGroupSendReceipt(
-            response.message_id,
+            cast(str, response.message_id),
             Digest.from_bytes(receipt_bytes),
             Instant(datetime.now(UTC)),
         )

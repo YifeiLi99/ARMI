@@ -168,8 +168,8 @@ def _query_condition(query: AuditQuery) -> tuple[str, tuple[object, ...]]:
             "request_kind = %s AND request_ref = %s",
             (query.request.kind, query.request.reference),
         )
-    assert query.trace_id is not None
-    return "trace_id = %s", (query.trace_id.value,)
+    trace_id = cast(TraceId, query.trace_id)
+    return "trace_id = %s", (trace_id.value,)
 
 
 def _row_to_record(row: Sequence[Any]) -> AuditRecord:
