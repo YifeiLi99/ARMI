@@ -7,7 +7,6 @@ strict dispatch table and make compatibility drift easier.
 
 from __future__ import annotations
 
-import json
 from typing import Annotated, Any, Literal, cast
 
 from pydantic import (
@@ -18,6 +17,8 @@ from pydantic import (
     TypeAdapter,
     model_validator,
 )
+
+from .strict_model_json import strict_model_value
 
 HISTORICAL_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v5"
 HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v6"
@@ -971,37 +972,35 @@ def parse_dialogue_candidate(
     *,
     version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> CreatorDialogueCandidate:
-    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    value = strict_model_value(value)
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V17.validate_json(encoded, strict=True)
+        return _ADAPTER_V17.validate_python(value, strict=True)
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V18.validate_json(encoded, strict=True)
+        return _ADAPTER_V18.validate_python(value, strict=True)
     if version == HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V15.validate_json(encoded, strict=True)
+        return _ADAPTER_V15.validate_python(value, strict=True)
     if version == HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V16.validate_json(encoded, strict=True)
+        return _ADAPTER_V16.validate_python(value, strict=True)
     if version == HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V13.validate_json(encoded, strict=True)
+        return _ADAPTER_V13.validate_python(value, strict=True)
     if version == HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V14.validate_json(encoded, strict=True)
+        return _ADAPTER_V14.validate_python(value, strict=True)
     if version == HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V11.validate_json(encoded, strict=True)
+        return _ADAPTER_V11.validate_python(value, strict=True)
     if version == HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V12.validate_json(encoded, strict=True)
+        return _ADAPTER_V12.validate_python(value, strict=True)
     if version == HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V9.validate_json(encoded, strict=True)
+        return _ADAPTER_V9.validate_python(value, strict=True)
     if version == HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V10.validate_json(encoded, strict=True)
+        return _ADAPTER_V10.validate_python(value, strict=True)
     if version == HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V7.validate_json(encoded, strict=True)
+        return _ADAPTER_V7.validate_python(value, strict=True)
     if version == HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V8.validate_json(encoded, strict=True)
+        return _ADAPTER_V8.validate_python(value, strict=True)
     if version == HISTORICAL_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V5.validate_json(encoded, strict=True)
+        return _ADAPTER_V5.validate_python(value, strict=True)
     if version == HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V6.validate_json(encoded, strict=True)
+        return _ADAPTER_V6.validate_python(value, strict=True)
     raise ValueError("unsupported dialogue candidate version")
 
 

@@ -9,11 +9,20 @@ import re
 import tomllib
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from armi_kernel.application import CredentialLocator
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    WithJsonSchema,
+    field_validator,
+    model_validator,
+)
 
 ADMIN_CONFIG_ENV = "ARMI_ADMIN_CONFIG"
 _MAX_CONFIG_BYTES = 64 * 1024
@@ -46,6 +55,25 @@ def _validate_digest(value: str) -> str:
     return value
 
 
+def _parse_credential_locator(value: object) -> CredentialLocator:
+    if isinstance(value, CredentialLocator):
+        return value
+    if not isinstance(value, str):
+        raise ValueError("ADMIN-CONFIG-DATABASE-LOCATOR")
+    try:
+        return CredentialLocator.parse(value)
+    except ValueError as exc:
+        raise ValueError("ADMIN-CONFIG-DATABASE-LOCATOR") from exc
+
+
+LocatorValue = Annotated[
+    CredentialLocator,
+    BeforeValidator(_parse_credential_locator),
+    PlainSerializer(lambda value: value.identity(), return_type=str),
+    WithJsonSchema({"type": "string"}),
+]
+
+
 class AdminExpectedIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -64,7 +92,12 @@ class AdminLogSettings(BaseModel):
 class AdminConfig(BaseModel):
     """One explicit non-production environment binding."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+        strict=True,
+    )
 
     schema_version: Literal["armi.admin-config.v4"]
     environment_kind: AdminEnvironmentKind
@@ -77,9 +110,11 @@ class AdminConfig(BaseModel):
     template_manifest: Path
     postgresql_client_root: Path
     postgresql_version: Literal["18.4"] = "18.4"
-    database_locator: str
-    migrator_database_locator: str
-    preview_key_locator: str
+    database_locator: LocatorValue = Field(title="Database Locator")
+    migrator_database_locator: LocatorValue = Field(
+        title="Migrator Database Locator"
+    )
+    preview_key_locator: LocatorValue = Field(title="Preview Key Locator")
     expected: AdminExpectedIdentity
     logging: AdminLogSettings = AdminLogSettings()
 
@@ -97,14 +132,10 @@ class AdminConfig(BaseModel):
         "database_locator", "migrator_database_locator", "preview_key_locator"
     )
     @classmethod
-    def _credential_locator(cls, value: str) -> str:
-        try:
-            locator = CredentialLocator.parse(value)
-        except ValueError as exc:
-            raise ValueError("ADMIN-CONFIG-DATABASE-LOCATOR") from exc
-        if locator.scheme not in {"env", "file"}:
+    def _credential_locator(cls, value: CredentialLocator) -> CredentialLocator:
+        if value.scheme not in {"env", "file"}:
             raise ValueError("ADMIN-CONFIG-DATABASE-LOCATOR")
-        if locator.scheme == "env" and locator.target not in {
+        if value.scheme == "env" and value.target not in {
             "ARMI_SECRET_ADMIN_DATABASE",
             "ARMI_SECRET_MIGRATOR_DATABASE",
             "ARMI_SECRET_ADMIN_PREVIEW_KEY",
@@ -137,12 +168,6 @@ class AdminConfig(BaseModel):
 
     @model_validator(mode="after")
     def _not_production(self) -> Self:
-        if str(self.environment_kind) not in {
-            "development",
-            "system_test",
-            "acceptance",
-        }:
-            raise ValueError("ADMIN-CONFIG-ENVIRONMENT-KIND")
         if self.test_controls_enabled and self.environment_kind not in {
             AdminEnvironmentKind.SYSTEM_TEST,
             AdminEnvironmentKind.ACCEPTANCE,
@@ -158,15 +183,15 @@ class AdminConfig(BaseModel):
 
     @property
     def locator(self) -> CredentialLocator:
-        return CredentialLocator.parse(self.database_locator)
+        return self.database_locator
 
     @property
     def migrator_locator(self) -> CredentialLocator:
-        return CredentialLocator.parse(self.migrator_database_locator)
+        return self.migrator_database_locator
 
     @property
     def preview_locator(self) -> CredentialLocator:
-        return CredentialLocator.parse(self.preview_key_locator)
+        return self.preview_key_locator
 
     def safe_digest(self) -> str:
         payload = {

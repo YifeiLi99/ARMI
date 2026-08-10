@@ -18,8 +18,6 @@ from armi_runtime.adapters.model.web_search import (
     TOOL_DECLARATION,
     WebSearchViolation,
     normalize_provider_response,
-    validate_response,
-    validate_tool_declaration,
 )
 from openai import AsyncOpenAI
 
@@ -81,7 +79,6 @@ def _cost(evidence: Mapping[str, int], rates: tuple[int, int]) -> int:
 
 
 async def _run(root: Path, env_file: Path) -> dict[str, object]:
-    validate_tool_declaration(dict(TOOL_DECLARATION))
     http_client = httpx.AsyncClient(trust_env=False)
     client = AsyncOpenAI(
         api_key=_read_key(env_file),
@@ -106,8 +103,7 @@ async def _run(root: Path, env_file: Path) -> dict[str, object]:
         raw = cast(dict[str, object], response.model_dump(mode="json"))
         if not isinstance(raw.get("id"), str) or not raw["id"]:
             raise WebSearchViolation("WEB-SEARCH-LIVE-REQUEST-ID")
-        normalized = normalize_provider_response(raw)
-        evidence = validate_response(normalized)
+        _normalized, evidence = normalize_provider_response(raw)
         estimated_cost = _cost(evidence, _rates(root))
         return {
             "status": "pass",

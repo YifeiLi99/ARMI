@@ -15,6 +15,8 @@ from pydantic import (
     model_validator,
 )
 
+from .strict_model_json import strict_model_value
+
 HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
     "armi.other-human-dialogue-candidate.v1"
 )
@@ -204,6 +206,23 @@ def parse_other_human_dialogue_candidate(
 ) -> OtherHumanDialogueCandidate:
     try:
         raw = json.loads(value)
+    except Exception:
+        raise ModelViolation("MODEL-RESPONSE-CONTRACT") from None
+    return parse_other_human_dialogue_candidate_value(
+        raw,
+        allowed_context_refs=allowed_context_refs,
+        expected_version=expected_version,
+    )
+
+
+def parse_other_human_dialogue_candidate_value(
+    raw: object,
+    *,
+    allowed_context_refs: frozenset[str],
+    expected_version: str = OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+) -> OtherHumanDialogueCandidate:
+    raw = strict_model_value(raw)
+    try:
         if expected_version == HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
             historical = _HISTORICAL_ADAPTER.validate_python(raw, strict=True)
             if isinstance(historical, _HistoricalOtherHumanReplyDecision):
@@ -267,4 +286,5 @@ __all__ = (
     "OtherHumanTerminalDecision",
     "candidate_schema",
     "parse_other_human_dialogue_candidate",
+    "parse_other_human_dialogue_candidate_value",
 )

@@ -97,7 +97,7 @@ from .other_human_dialogue_candidate_contract import (
     OtherHumanDialogueCandidate,
     OtherHumanReplyDecision,
     OtherHumanTerminalDecision,
-    parse_other_human_dialogue_candidate,
+    parse_other_human_dialogue_candidate_value,
 )
 from .other_human_dialogue_candidate_contract import (
     candidate_schema as other_human_candidate_schema,
@@ -108,6 +108,7 @@ from .sleep_decision_candidate_contract import (
     parse_sleep_decision_candidate,
     sleep_decision_candidate_schema,
 )
+from .strict_model_json import strict_model_value
 
 MODEL_BINDING_VERSION = "armi.model-bindings.v1"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
@@ -819,12 +820,8 @@ def parse_candidate(
         }:
             other_human_value = dict(candidate_object)
             other_human_value.pop("schema_version", None)
-            candidate = parse_other_human_dialogue_candidate(
-                json.dumps(
-                    other_human_value,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                ).encode("utf-8"),
+            candidate = parse_other_human_dialogue_candidate_value(
+                other_human_value,
                 allowed_context_refs=allowed_context_refs,
                 expected_version=expected_version,
             )
@@ -905,9 +902,8 @@ def parse_candidate(
                 if version == WEB_CANDIDATE_VERSION
                 else _CANDIDATE_ADAPTER
             )
-            candidate = adapter.validate_json(
-                json.dumps(raw, ensure_ascii=False, separators=(",", ":")),
-                strict=True,
+            candidate = adapter.validate_python(
+                strict_model_value(cast(object, raw)), strict=True
             )
     except Exception:
         raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None

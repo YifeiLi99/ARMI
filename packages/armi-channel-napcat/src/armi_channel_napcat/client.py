@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 from urllib.parse import urlsplit
 
 import httpx
@@ -13,7 +12,7 @@ from .contracts import (
     NapCatAmbiguousDelivery,
     NapCatRejected,
     NapCatViolation,
-    parse_onebot_message,
+    parse_onebot_document,
 )
 
 
@@ -85,13 +84,12 @@ class NapCatHttpClient(NapCatGateway):
             document = response.json()
         except ValueError:
             raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID") from None
-        if type(document) is not dict:
-            raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID")
+        if isinstance(document, dict):
+            document["echo"] = echo
         # OneBot's HTTP endpoint correlates by its synchronous response and does
         # not define the WebSocket-level echo field. Keep the local request ref
         # only for the normalized response contract.
-        document["echo"] = echo
-        parsed = parse_onebot_message(json.dumps(document, separators=(",", ":")))
+        parsed = parse_onebot_document(cast(object, document))
         if not isinstance(parsed, NapCatActionResponse):
             raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID")
         if not parsed.succeeded:

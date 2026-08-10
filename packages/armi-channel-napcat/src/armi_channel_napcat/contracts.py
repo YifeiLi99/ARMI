@@ -88,6 +88,12 @@ def parse_onebot_message(
         document = json.loads(value)
     except UnicodeDecodeError, json.JSONDecodeError:
         raise NapCatViolation("NAPCAT-FRAME-INVALID") from None
+    return parse_onebot_document(document)
+
+
+def parse_onebot_document(
+    document: object,
+) -> NapCatGroupMessageEvent | NapCatActionResponse | None:
     if type(document) is not dict:
         raise NapCatViolation("NAPCAT-FRAME-INVALID")
     document = cast(dict[str, Any], document)
