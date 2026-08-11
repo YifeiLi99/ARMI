@@ -35,6 +35,7 @@ def main() -> int:
         default=Path(__file__).resolve().parents[1],
     )
     parser.add_argument("--wheel", type=Path)
+    parser.add_argument("--creator-resources", type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
     wheel = args.wheel
@@ -54,6 +55,14 @@ def main() -> int:
     source_root = (
         root / "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources"
     )
+    built_root = (
+        args.creator_resources.resolve()
+        if args.creator_resources is not None
+        else root / "apps/armi-runtime/build/creator-web-resources"
+    )
+    if not (built_root / "manifest.json").is_file():
+        print("WEB-WHEEL-MISSING: built Creator resources are absent", file=sys.stderr)
+        return 1
     creator_files = {
         path.relative_to(source_root).as_posix(): path.read_bytes()
         for path in source_root.rglob("*")
@@ -61,6 +70,13 @@ def main() -> int:
         and "__pycache__" not in path.relative_to(source_root).parts
         and path.suffix != ".pyc"
     }
+    creator_files.update(
+        {
+            path.relative_to(built_root).as_posix(): path.read_bytes()
+            for path in built_root.rglob("*")
+            if path.is_file()
+        }
+    )
     runtime_root = (
         root / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources"
     )
@@ -98,7 +114,6 @@ def main() -> int:
             b"[console_scripts]\n"
             b"armi = armi_runtime.cli:main\n"
             b"armi-codex-runner = armi_runtime.codex_runner_cli:main\n"
-            b"\n"
         )
     if missing:
         print(f"WEB-WHEEL-MISSING: {', '.join(missing)}", file=sys.stderr)

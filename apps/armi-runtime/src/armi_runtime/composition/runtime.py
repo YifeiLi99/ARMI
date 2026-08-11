@@ -10,6 +10,7 @@ import selectors
 import signal
 import threading
 from collections.abc import Generator
+from pathlib import Path
 from typing import cast
 from uuid import uuid7
 
@@ -137,7 +138,11 @@ class _RuntimeServer(uvicorn.Server):
                 signal.signal(current, handler)
 
 
-async def _serve(prepared: PreparedEnvironment) -> int:
+async def _serve(
+    prepared: PreparedEnvironment,
+    *,
+    creator_web_resources: Path | None,
+) -> int:
     config = prepared.effective.config
     instance_uuid = uuid7()
     instance_id = str(instance_uuid)
@@ -152,7 +157,11 @@ async def _serve(prepared: PreparedEnvironment) -> int:
         rotation_max_bytes=config.diagnostics.rotation_max_bytes,
         retention_seconds=config.diagnostics.retention_seconds,
     )
-    assets = StaticAssetStore.load_packaged()
+    assets = (
+        StaticAssetStore.load_packaged()
+        if creator_web_resources is None
+        else StaticAssetStore.load_directory(creator_web_resources)
+    )
     lifecycle.start()
     diagnostic.emit("runtime.lifecycle.starting", result_code="LIFE_STARTING")
     database_reasons = runtime_database_reason(prepared)
@@ -1170,12 +1179,16 @@ async def _serve(prepared: PreparedEnvironment) -> int:
     return EXIT_GRACEFUL
 
 
-def run_runtime(prepared: PreparedEnvironment) -> int:
+def run_runtime(
+    prepared: PreparedEnvironment,
+    *,
+    creator_web_resources: Path | None = None,
+) -> int:
     """Run exactly one process-local Runtime; no reload or worker discovery."""
 
     try:
         return asyncio.run(
-            _serve(prepared),
+            _serve(prepared, creator_web_resources=creator_web_resources),
             loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
         )
     except KeyboardInterrupt:

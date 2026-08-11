@@ -7,6 +7,8 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import files
+from importlib.resources.abc import Traversable
+from pathlib import Path
 from types import MappingProxyType
 from typing import cast
 
@@ -36,7 +38,31 @@ class StaticAssetStore:
 
     @classmethod
     def load_packaged(cls) -> StaticAssetStore:
-        root = files(_RESOURCE_PACKAGE)
+        return cls._load(files(_RESOURCE_PACKAGE))
+
+    @classmethod
+    def load_directory(cls, root: Path) -> StaticAssetStore:
+        if not root.is_absolute():
+            raise AssetViolation(
+                "WEB-ASSET-ROOT",
+                "the Creator resource root must be an absolute path",
+            )
+        try:
+            resolved = root.resolve(strict=True)
+        except OSError:
+            raise AssetViolation(
+                "WEB-ASSET-ROOT",
+                "the Creator resource root is unavailable",
+            ) from None
+        if not resolved.is_dir():
+            raise AssetViolation(
+                "WEB-ASSET-ROOT",
+                "the Creator resource root is not a directory",
+            )
+        return cls._load(resolved)
+
+    @classmethod
+    def _load(cls, root: Traversable | Path) -> StaticAssetStore:
         try:
             raw_manifest = root.joinpath("manifest.json").read_bytes()
             parsed = cast(object, json.loads(raw_manifest))

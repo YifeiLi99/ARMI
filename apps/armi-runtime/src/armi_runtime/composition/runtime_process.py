@@ -169,7 +169,30 @@ class RuntimeProcessManager:
         self._state_path = run_root / "runtime-process.json"
         self._lock_path = run_root / "runtime-process.lock"
 
-    def start(self) -> dict[str, Any]:
+    def start(
+        self,
+        *,
+        creator_web_resources: Path | None = None,
+    ) -> dict[str, Any]:
+        resolved_creator_resources: Path | None = None
+        if creator_web_resources is not None:
+            if not creator_web_resources.is_absolute():
+                raise RuntimeViolation(
+                    "WEB-ASSET-ROOT",
+                    "the Creator resource root must be an absolute path",
+                )
+            try:
+                resolved_creator_resources = creator_web_resources.resolve(strict=True)
+            except OSError:
+                raise RuntimeViolation(
+                    "WEB-ASSET-ROOT",
+                    "the Creator resource root is unavailable",
+                ) from None
+            if not resolved_creator_resources.is_dir():
+                raise RuntimeViolation(
+                    "WEB-ASSET-ROOT",
+                    "the Creator resource root is not a directory",
+                )
         with self._exclusive():
             current = self.status()
             if current["status"] == "running":
@@ -208,6 +231,11 @@ class RuntimeProcessManager:
                 "--environment-root",
                 os.fspath(self._environment_root),
             )
+            if resolved_creator_resources is not None:
+                command += (
+                    "--creator-web-resources",
+                    os.fspath(resolved_creator_resources),
+                )
             environment = {
                 name: os.environ[name]
                 for name in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP")

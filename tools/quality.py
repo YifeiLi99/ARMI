@@ -127,6 +127,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         expected = (
             "armi_adapter_qq",
             "armi_admin",
+            "armi_artifact_store",
             "armi_channel_napcat",
             "armi_kernel",
             "armi_postgresql_contract",
@@ -135,9 +136,9 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         wheels = [name for name in artifacts if name.endswith(".whl")]
         source_distributions = [name for name in artifacts if name.endswith(".tar.gz")]
         valid = (
-            len(artifacts) == 12
-            and len(wheels) == 6
-            and len(source_distributions) == 6
+            len(artifacts) == 14
+            and len(wheels) == 7
+            and len(source_distributions) == 7
             and all(
                 any(name.startswith(prefix) for name in wheels) for prefix in expected
             )
@@ -146,23 +147,24 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
                 for prefix in expected
             )
         )
-        return valid, f"python build artifacts: {', '.join(artifacts)}"
-
-    def validate_creator_build() -> tuple[bool, str]:
-        resources = (
-            root / "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources"
+        summary = f"python build artifacts: {', '.join(artifacts)}"
+        if not valid:
+            return False, summary
+        runtime_wheels = sorted(
+            path for path in python_dist.glob("armi_runtime*.whl") if path.is_file()
         )
-        command = (
-            str(managed_python),
-            "-B",
-            str(root / "tools/check_repository_hygiene.py"),
-            "--root",
-            str(root),
-            "--path",
-            str(resources),
-        )
+        if len(runtime_wheels) != 1:
+            return False, f"{summary}\nexpected one Runtime wheel"
         completed = subprocess.run(
-            command,
+            (
+                str(managed_python),
+                "-B",
+                str(root / "tools/verify_creator_wheel.py"),
+                "--root",
+                str(root),
+                "--wheel",
+                str(runtime_wheels[0]),
+            ),
             cwd=root,
             check=False,
             capture_output=True,
@@ -170,12 +172,31 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             encoding="utf-8",
             errors="replace",
         )
-        output = "\n".join(
+        verification = "\n".join(
             item.strip()
             for item in (completed.stdout, completed.stderr)
             if item.strip()
         )
-        return completed.returncode == 0, output
+        return completed.returncode == 0, f"{summary}\n{verification}"
+
+    def validate_creator_build() -> tuple[bool, str]:
+        resources = root / "apps/armi-runtime/build/creator-web-resources"
+        required = (
+            resources / "manifest.json",
+            resources / "static/index.html",
+            resources / "static/.vite/manifest.json",
+        )
+        missing = tuple(
+            path.relative_to(resources).as_posix()
+            for path in required
+            if not path.is_file()
+        )
+        assets = tuple((resources / "static/assets").glob("*"))
+        valid = not missing and any(path.suffix == ".js" for path in assets)
+        details = (
+            f"missing: {', '.join(missing)}" if missing else f"assets: {len(assets)}"
+        )
+        return valid, details
 
     def py(*arguments: str) -> tuple[str, ...]:
         return (str(venv_python), *arguments)

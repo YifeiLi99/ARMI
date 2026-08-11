@@ -35,6 +35,12 @@
       "archive_url": null
     },
     {
+      "id": "hatchling",
+      "version": "1.31.0",
+      "acquisition": "pypi-wheel",
+      "archive_url": null
+    },
+    {
       "id": "postgresql",
       "version": "18.4",
       "acquisition": "edb-official-windows-x64-binary-archive",
@@ -77,7 +83,7 @@
   "lockfiles": [
     {
       "path": "uv.lock",
-      "sha256": "35fed88db7b4c1c16cca211f027178b289355c912e1526cdee71f105e39d0e86"
+      "sha256": "1d5e736d6d5dd89489f3efc98785d1ec2d6a8edcfc9472fb8cc7ec7d9a604bc2"
     },
     {
       "path": "apps/armi-creator-web/package-lock.json",

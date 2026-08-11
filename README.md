@@ -60,7 +60,15 @@ docs/                       私有叙述性设计与外部研究资料
 .\start_armi.ps1 -OpenBrowser
 ```
 
-默认环境根是源码仓库同级的 `ARMI-Environment`。也可以通过 `-EnvironmentRoot` 或 `ARMI_ENVIRONMENT_ROOT` 显式覆盖。脚本会同步锁定依赖、检查环境、启动并等待 PostgreSQL、检查数据库、启动 Runtime，并以业务 readiness 为最终成功条件；它不会暗中执行数据库安装或出生初始化。
+默认环境根是源码仓库同级的 `ARMI-Environment`。也可以通过 `-EnvironmentRoot` 或 `ARMI_ENVIRONMENT_ROOT` 显式覆盖。脚本会同步锁定依赖，把 Creator Web 构建到被 Git 忽略的 `apps/armi-runtime/build/`，检查环境、启动并等待 PostgreSQL、检查数据库、启动 Runtime，并以业务 readiness 为最终成功条件；它不会暗中执行数据库安装或出生初始化。
+
+修改 Creator 前端时，先用上述脚本启动 Runtime，再在另一个 PowerShell 终端运行 Vite 开发服务器：
+
+```powershell
+.\tools\start_creator_web_dev.ps1 -OpenBrowser
+```
+
+开发页面位于 `http://127.0.0.1:5173/ui/`，Vite 只在开发期代理 `/v1`；日常 Runtime 仍在自己的 `/ui/` 同源提供构建页面。生成的 JS/CSS 不进入 Git，发布 wheel 则会在构建时携带同一套静态资源，安装后不需要 Node。
 
 开发数据库固定使用 Docker 中的 PostgreSQL 18.4 + pgvector 0.8.6：
 
@@ -85,7 +93,7 @@ uv run armi stop --environment-root C:\path\to\environment
 
 自动化 Creator 对话不需要驱动浏览器。运行中的环境可通过 `armi creator send` 把输入送入与工作台相同的正式 Creator intake；重复调用需要自行传入稳定的 `--idempotency-key`。消息也可通过 `--message-file <path>` 读取，或用 `--message-file -` 从标准输入读取。Codex 管理会话可使用 Admin MCP 的 `inject_creator_input`，两条入口最终进入同一 Runtime intake，不直接写数据库。
 
-Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。
+日常及安装后的 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。Vite 地址仅用于源码前端开发。
 
 `db install` 按 manifest 顺序在同一事务中安装冻结的模块化 v1 基线；任一模块失败都会整体回滚。新环境必须继续执行 `db migrate --apply`，达到当前 catalog 后才能 `bootstrap birth`。安装会拒绝已有用户对象，并核对列、约束、索引、owner/ACL 与扩展身份组成的完整 catalog 指纹。基线建立前的开发数据库应在确认可丢弃后重建，不提供兼容登记入口。此后结构变化只新增编号 migration，迁移前须停止 Runtime 并完成可验证备份与恢复准备。
 

@@ -8,6 +8,7 @@
   },
   "packageManager": "npm@11.16.0",
   "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "format:check": "prettier --check package.json index.html tsconfig.json vite.config.ts vitest.config.ts src",
     "lint": "oxlint --deny-warnings src",
     "typecheck": "tsc --project tsconfig.json --noEmit",

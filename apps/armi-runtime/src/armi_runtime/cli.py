@@ -61,9 +61,12 @@ def _parser() -> argparse.ArgumentParser:
     runtime_command = runtime.add_subparsers(dest="runtime_command", required=True)
     runtime_start = runtime_command.add_parser("start")
     runtime_start.add_argument("--environment-root", type=Path, required=True)
+    runtime_start.add_argument("--creator-web-resources", type=Path)
     for lifecycle_command in ("start", "status", "stop"):
         lifecycle = command.add_parser(lifecycle_command)
         lifecycle.add_argument("--environment-root", type=Path)
+        if lifecycle_command == "start":
+            lifecycle.add_argument("--creator-web-resources", type=Path)
     creator = command.add_parser("creator")
     creator_command = creator.add_subparsers(dest="creator_command", required=True)
     creator_send = creator_command.add_parser("send")
@@ -381,7 +384,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             str(prepared.effective.config.environment.environment_id),
         )
         try:
-            result = getattr(process, args.command)()
+            result = (
+                (
+                    process.start()
+                    if args.creator_web_resources is None
+                    else process.start(
+                        creator_web_resources=args.creator_web_resources,
+                    )
+                )
+                if args.command == "start"
+                else getattr(process, args.command)()
+            )
         except RuntimeViolation as error:
             _safe_failure(error)
             return 3
@@ -416,7 +429,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
-    return run_runtime(prepared)
+    return run_runtime(
+        prepared,
+        creator_web_resources=args.creator_web_resources,
+    )
 
 
 __all__ = ("main",)

@@ -170,6 +170,37 @@ class RuntimeCliTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["status"], "started")
         manager_type.return_value.start.assert_called_once_with()
 
+    def test_background_start_forwards_creator_resource_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resources = root / "creator-web-resources"
+            resources.mkdir()
+            make_environment(root)
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                redirect_stdout(io.StringIO()),
+            ):
+                manager_type.return_value.start.return_value = {
+                    "status": "started",
+                    "pid": 1234,
+                    "runtime": {"runtime_state": "ready"},
+                }
+                exit_code = main(
+                    (
+                        "start",
+                        "--environment-root",
+                        str(root.resolve()),
+                        "--creator-web-resources",
+                        str(resources.resolve()),
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        manager_type.return_value.start.assert_called_once_with(
+            creator_web_resources=resources.resolve()
+        )
+
     def test_background_status_defaults_to_current_environment_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -1,4 +1,4 @@
-"""Generate and verify the deterministic Creator OpenAPI and static resources."""
+"""Verify Creator contracts and build ignored deterministic static resources."""
 
 from __future__ import annotations
 
@@ -17,9 +17,10 @@ from typing import Any
 
 from armi_runtime.interfaces.creator_contract import build_creator_openapi
 
-RESOURCE_RELATIVE = Path(
+CONTRACT_RESOURCE_RELATIVE = Path(
     "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources"
 )
+BUILD_RESOURCE_RELATIVE = Path("apps/armi-runtime/build/creator-web-resources")
 GENERATED_RELATIVE = Path("apps/armi-creator-web/src/api/generated/creator.ts")
 CREATOR_RELATIVE = Path("apps/armi-creator-web")
 EXPECTED_NODE = "v24.18.0"
@@ -270,25 +271,19 @@ def validate_static_bytes(path: Path, value: bytes) -> None:
         raise CreatorBuildError("SEC-WEB-EXTERNAL", f"external URL in {path.name}")
 
 
-def generate(root: Path, tool_root: Path, stage: Path) -> tuple[Path, Path]:
+def generate(root: Path, tool_root: Path, stage: Path) -> tuple[Path, Path, Path]:
     node, package = validate_tools(root, tool_root)
     creator = root / CREATOR_RELATIVE
+    openapi_path = stage / "openapi.json"
     generated = stage / "generated/creator.ts"
     resources = stage / "resources"
     static = resources / "static"
     generated.parent.mkdir(parents=True, exist_ok=True)
     resources.mkdir(parents=True, exist_ok=True)
-    (resources / "__init__.py").write_text(
-        '"""Packaged Creator OpenAPI and deterministic static resources."""\n\n'
-        "__all__ = ()\n",
-        encoding="utf-8",
-        newline="\n",
-    )
 
     schema = build_creator_openapi()
     validate_openapi(schema)
     openapi_bytes = render_json(schema)
-    openapi_path = resources / "openapi.json"
     openapi_path.write_bytes(openapi_bytes)
 
     environment = os.environ.copy()
@@ -390,7 +385,7 @@ def generate(root: Path, tool_root: Path, stage: Path) -> tuple[Path, Path]:
         "runtime_discovery": False,
     }
     (resources / "manifest.json").write_bytes(render_json(manifest))
-    return generated, resources
+    return openapi_path, generated, resources
 
 
 def files_under(root: Path) -> dict[str, bytes]:
@@ -410,38 +405,33 @@ def compare_file(expected: Path, actual: Path, *, code: str) -> None:
         raise CreatorBuildError(code, f"committed artifact drift: {actual}")
 
 
-def compare_tree(expected: Path, actual: Path) -> None:
-    expected_files = files_under(expected)
-    actual_files = files_under(actual)
-    if expected_files.keys() != actual_files.keys():
-        raise CreatorBuildError(
-            "WEB-ASSET-SET",
-            "committed Creator resource file set has drifted",
-        )
-    for path, value in expected_files.items():
-        if actual_files[path] != value:
-            raise CreatorBuildError(
-                "WEB-ASSET-DIGEST",
-                f"committed Creator resource drift: {path}",
-            )
-
-
-def write_artifacts(
+def write_contract(
     root: Path,
+    openapi: Path,
     generated: Path,
-    resources: Path,
 ) -> None:
     generated_target = root / GENERATED_RELATIVE
-    resource_target = root / RESOURCE_RELATIVE
+    openapi_target = root / CONTRACT_RESOURCE_RELATIVE / "openapi.json"
     generated_target.parent.mkdir(parents=True, exist_ok=True)
+    openapi_target.write_bytes(openapi.read_bytes())
     generated_target.write_bytes(generated.read_bytes())
-    if resource_target.exists():
-        resolved = resource_target.resolve()
-        allowed = (root / "apps/armi-runtime/src/armi_runtime/interfaces").resolve()
-        if allowed not in resolved.parents:
-            raise CreatorBuildError("WEB-ASSET-PATH", "unsafe resource target")
-        shutil.rmtree(resource_target)
-    shutil.copytree(resources, resource_target)
+
+
+def write_resources(root: Path, resources: Path, output_root: Path) -> None:
+    target = output_root.resolve()
+    allowed_roots = (
+        (root / "apps/armi-runtime/build").resolve(),
+        (root / ".tmp").resolve(),
+    )
+    if not any(allowed in target.parents for allowed in allowed_roots):
+        raise CreatorBuildError(
+            "WEB-ASSET-PATH",
+            "Creator build output must be below apps/armi-runtime/build or .tmp",
+        )
+    if target.exists():
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(resources, target)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -452,13 +442,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=Path(__file__).resolve().parents[1],
     )
     parser.add_argument("--tool-root", type=Path)
-    parser.add_argument("--write", action="store_true")
+    parser.add_argument("--write-contract", action="store_true")
+    parser.add_argument("--output-root", type=Path)
     args = parser.parse_args(argv)
     root = args.root.resolve()
     tool_root = (
         args.tool_root.resolve()
         if args.tool_root
         else Path(os.environ.get("ARMI_TOOL_ROOT", str(root / ".armi-tools"))).resolve()
+    )
+    output_root = (
+        args.output_root.resolve()
+        if args.output_root is not None
+        else (root / BUILD_RESOURCE_RELATIVE).resolve()
     )
     temporary_root = root / ".tmp"
     temporary_root.mkdir(exist_ok=True)
@@ -467,18 +463,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             prefix="creator-build-",
             dir=temporary_root,
         ) as temporary:
-            generated, resources = generate(root, tool_root, Path(temporary))
-            if args.write:
-                write_artifacts(root, generated, resources)
+            openapi, generated, resources = generate(root, tool_root, Path(temporary))
+            if args.write_contract:
+                write_contract(root, openapi, generated)
             else:
+                compare_file(
+                    openapi,
+                    root / CONTRACT_RESOURCE_RELATIVE / "openapi.json",
+                    code="CON-OPENAPI-DRIFT",
+                )
                 compare_file(
                     generated,
                     root / GENERATED_RELATIVE,
                     code="WEB-GEN-DRIFT",
                 )
-                compare_tree(resources, root / RESOURCE_RELATIVE)
-        action = "written" if args.write else "verified"
-        print(f"creator-static: {action}")
+            write_resources(root, resources, output_root)
+        contract_action = "written" if args.write_contract else "verified"
+        print(f"creator-static: built; contract: {contract_action}")
         return 0
     except CreatorBuildError as error:
         print(f"{error.code}: {error}", file=sys.stderr)

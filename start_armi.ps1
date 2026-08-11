@@ -53,8 +53,19 @@ try {
     }
 
     $script:armiExecutable = Join-Path $workspace '.venv/Scripts/armi.exe'
+    $managedPython = Join-Path $workspace '.venv/Scripts/python.exe'
     if (-not (Test-Path -LiteralPath $script:armiExecutable -PathType Leaf)) {
         throw 'ARMI-START-CLI: the armi executable is unavailable after uv sync.'
+    }
+
+    $creatorResources = Join-Path $workspace 'apps/armi-runtime/build/creator-web-resources'
+    Write-Host 'Building Creator Web resources...'
+    & $managedPython -B (Join-Path $workspace 'tools/build_creator_web.py') `
+        --root $workspace `
+        --tool-root (Join-Path $workspace '.armi-tools') `
+        --output-root $creatorResources
+    if ($LASTEXITCODE -ne 0) {
+        throw 'ARMI-START-CREATOR-WEB: Creator Web build failed.'
     }
 
     Write-Host 'Checking the ARMI environment...'
@@ -75,7 +86,8 @@ try {
     Write-Host 'Starting the ARMI Runtime...'
     $null = Invoke-ArmiJson @(
         'start',
-        '--environment-root', $resolvedEnvironmentRoot
+        '--environment-root', $resolvedEnvironmentRoot,
+        '--creator-web-resources', $creatorResources
     )
     $status = Invoke-ArmiJson @(
         'status',

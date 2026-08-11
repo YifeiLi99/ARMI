@@ -401,15 +401,12 @@ def main() -> int:
         else Path(os.environ.get("ARMI_TOOL_ROOT", str(root / ".armi-tools"))).resolve()
     )
     executable = tool_root / "installs/playwright/chromium-1228/chrome-win64/chrome.exe"
-    static = (
-        root / "apps/armi-runtime/src/armi_runtime/interfaces/"
-        "creator_web_resources/static"
-    )
+    static = root / "apps/armi-runtime/build/creator-web-resources/static"
     if not executable.is_file():
         print("WEB-BROWSER-TOOL: pinned Chromium is missing", file=sys.stderr)
         return 2
     if not (static / "index.html").is_file():
-        print("WEB-BROWSER-ASSET: packaged Creator entry is missing", file=sys.stderr)
+        print("WEB-BROWSER-ASSET: built Creator entry is missing", file=sys.stderr)
         return 1
 
     results: list[dict[str, Any]] = []
@@ -451,20 +448,24 @@ def main() -> int:
                         )
                         response = page.goto(
                             f"{origin}/ui/",
-                            wait_until="networkidle",
+                            wait_until="domcontentloaded",
                         )
                         if response is None or response.status != 200:
                             raise RuntimeError("WEB-BROWSER-HTTP: entry did not load")
-                        heading = page.get_by_role(
-                            "heading",
-                            name="ARMI Creator",
-                        )
-                        if not heading.is_visible():
+                        authenticated = page.locator(".authenticated-view")
+                        authenticated.wait_for()
+                        if not authenticated.is_visible():
                             raise RuntimeError(
-                                "WEB-BROWSER-VISIBLE: Creator entry is hidden"
+                                "WEB-BROWSER-VISIBLE: Creator workspace is hidden"
                             )
-                        page.get_by_text("本机连接正常").wait_for()
+                        page.get_by_text("本机连接正常").wait_for(state="attached")
                         page.get_by_text("browser.event").wait_for()
+                        mobile_menu = page.get_by_role(
+                            "button", name="打开导航", exact=True
+                        )
+                        if mobile_menu.is_visible():
+                            mobile_menu.click()
+                        page.get_by_role("button", name="能力授权", exact=True).click()
                         capability_item = page.locator("li.capability-item").filter(
                             has_text="creator.scene.reply"
                         )
@@ -494,11 +495,16 @@ def main() -> int:
                                 "WEB-BROWSER-SSE: invalidation did not refetch "
                                 "the authoritative timeline"
                             )
-                        page.locator(".session-actions").get_by_role(
+                        if mobile_menu.is_visible():
+                            mobile_menu.click()
+                        page.get_by_role(
+                            "button", name="运行与维护", exact=True
+                        ).click()
+                        page.locator(".session-summary").get_by_role(
                             "button", name="重新读取状态"
                         ).click()
                         page.wait_for_load_state("networkidle")
-                        if page.get_by_text("ready").count() != 2:
+                        if page.get_by_text("ready").count() != 3:
                             raise RuntimeError(
                                 "WEB-BROWSER-STATUS: authenticated state is missing"
                             )
@@ -518,6 +524,9 @@ def main() -> int:
                             raise RuntimeError(
                                 "SEC-WEB-TOKEN-DOM: session token reached the DOM"
                             )
+                        if mobile_menu.is_visible():
+                            mobile_menu.click()
+                        page.get_by_role("button", name="对话", exact=True).click()
                         message = "精确保留的 Creator 输入"
                         page.get_by_label("输入内容").fill(message)
                         page.get_by_role("button", name="提交输入").click()
@@ -570,8 +579,8 @@ def main() -> int:
                             raise RuntimeError(
                                 "SEC-WEB-IDEMPOTENCY-STORAGE: intent key persisted"
                             )
-                        page.reload(wait_until="networkidle")
-                        page.get_by_text("本机连接正常").wait_for()
+                        page.reload(wait_until="domcontentloaded")
+                        page.get_by_text("本机连接正常").wait_for(state="attached")
                         page.get_by_text("browser.event").wait_for()
                         overflow = page.evaluate(
                             "() => document.documentElement.scrollWidth > "

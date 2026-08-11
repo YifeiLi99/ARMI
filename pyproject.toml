@@ -15,7 +15,7 @@ dev = [
 
 [tool.uv]
 package = false
-build-constraint-dependencies = ["uv_build==0.11.33"]
+build-constraint-dependencies = ["hatchling==1.31.0", "uv_build==0.11.33"]
 
 [tool.uv.workspace]
 members = [

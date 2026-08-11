@@ -362,6 +362,7 @@ def check_repository(
             "cpython": TARGET_PYTHON,
             "uv": TARGET_UV,
             "uv-build": TARGET_UV,
+            "hatchling": "1.31.0",
             "node": TARGET_NODE,
             "npm": TARGET_NPM,
             "codex-cli": "0.144.4",

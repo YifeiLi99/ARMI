@@ -24,6 +24,8 @@ class RuntimeProcessManagerTests(unittest.TestCase):
     def test_start_uses_detached_process_and_waits_for_control(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            creator_resources = root / "creator-web-resources"
+            creator_resources.mkdir()
             manager = RuntimeProcessManager(root, "environment-1")
             process = Mock(pid=1234)
             process.poll.return_value = None
@@ -51,11 +53,17 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                     side_effect=launch,
                 ) as popen,
             ):
-                result = manager.start()
+                result = manager.start(
+                    creator_web_resources=creator_resources.resolve()
+                )
 
             self.assertEqual(result["status"], "started")
             options = popen.call_args.kwargs
             command = popen.call_args.args[0]
+            self.assertEqual(
+                command[-2:],
+                ("--creator-web-resources", str(creator_resources.resolve())),
+            )
             self.assertIs(options["stdin"], subprocess.DEVNULL)
             self.assertIs(options["stdout"], subprocess.DEVNULL)
             self.assertIs(options["stderr"], subprocess.DEVNULL)
@@ -72,6 +80,15 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                 (root / "run" / "runtime-process.json").read_text(encoding="utf-8")
             )
             self.assertEqual(state["pid"], 1234)
+
+    def test_start_rejects_missing_creator_resource_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = RuntimeProcessManager(root, "environment-1")
+            with self.assertRaises(RuntimeViolation) as raised:
+                manager.start(creator_web_resources=(root / "missing").resolve())
+
+        self.assertEqual(raised.exception.code, "WEB-ASSET-ROOT")
 
     def test_spawn_failure_is_safe_and_cleans_control_material(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

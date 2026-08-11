@@ -29,21 +29,11 @@ def temporary_root() -> Path:
 
 
 class CreatorBuildTests(unittest.TestCase):
-    def test_committed_manifest_is_canonical_and_has_exact_metadata(self) -> None:
-        path = RESOURCE_ROOT / "manifest.json"
-        manifest = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["schema_version"], "armi.creator-static.v1")
-        self.assertEqual(manifest["base_path"], "/ui/")
-        self.assertEqual(manifest["entrypoint"], "static/index.html")
-        self.assertFalse(manifest["runtime_discovery"])
-        self.assertNotIn("timestamp", manifest)
-        self.assertNotIn("revision", manifest)
-        self.assertNotIn("openapi", manifest)
-        self.assertNotIn("generated_types", manifest)
-        self.assertNotIn("package_lock_sha256", manifest)
-        self.assertNotIn("vite_manifest_sha256", manifest)
-        self.assertTrue(
-            all(not Path(item["path"]).is_absolute() for item in manifest["assets"])
+    def test_source_resource_package_contains_no_built_assets(self) -> None:
+        self.assertFalse((RESOURCE_ROOT / "manifest.json").exists())
+        static = RESOURCE_ROOT / "static"
+        self.assertFalse(
+            static.is_dir() and any(path.is_file() for path in static.rglob("*"))
         )
 
     def test_two_isolated_generations_are_byte_identical(self) -> None:
@@ -51,20 +41,32 @@ class CreatorBuildTests(unittest.TestCase):
             tempfile.TemporaryDirectory(dir=temporary_root()) as first,
             tempfile.TemporaryDirectory(dir=temporary_root()) as second,
         ):
-            first_types, first_resources = generate(
+            first_openapi, first_types, first_resources = generate(
                 ROOT,
                 TOOL_ROOT,
                 Path(first),
             )
-            second_types, second_resources = generate(
+            second_openapi, second_types, second_resources = generate(
                 ROOT,
                 TOOL_ROOT,
                 Path(second),
             )
+            self.assertEqual(first_openapi.read_bytes(), second_openapi.read_bytes())
             self.assertEqual(first_types.read_bytes(), second_types.read_bytes())
             self.assertEqual(
                 files_under(first_resources),
                 files_under(second_resources),
+            )
+            manifest = json.loads(
+                (first_resources / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["schema_version"], "armi.creator-static.v1")
+            self.assertEqual(manifest["base_path"], "/ui/")
+            self.assertEqual(manifest["entrypoint"], "static/index.html")
+            self.assertFalse(manifest["runtime_discovery"])
+            self.assertNotIn("timestamp", manifest)
+            self.assertTrue(
+                all(not Path(item["path"]).is_absolute() for item in manifest["assets"])
             )
 
     def test_extra_openapi_path_is_rejected_with_stable_code(self) -> None:

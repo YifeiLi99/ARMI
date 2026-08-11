@@ -230,7 +230,10 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
             ],
         ),
         ("tool.uv.package", False),
-        ("tool.uv.build-constraint-dependencies", ["uv_build==0.11.33"]),
+        (
+            "tool.uv.build-constraint-dependencies",
+            ["hatchling==1.31.0", "uv_build==0.11.33"],
+        ),
         ("tool.uv.workspace.members", EXPECTED_MEMBERS),
     ):
         actual: object
@@ -262,6 +265,7 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
         tool = metadata.get("tool", {})
         if not isinstance(project, dict) or not isinstance(build_system, dict):
             continue
+        runtime_distribution = distribution.name == "armi-runtime"
         expected_fields = (
             ("project.name", project.get("name"), distribution.name),
             ("project.version", project.get("version"), WORKSPACE_VERSION),
@@ -290,12 +294,12 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
             (
                 "build-system.requires",
                 build_system.get("requires"),
-                BUILD_REQUIREMENTS,
+                ["hatchling==1.31.0"] if runtime_distribution else BUILD_REQUIREMENTS,
             ),
             (
                 "build-system.build-backend",
                 build_system.get("build-backend"),
-                BUILD_BACKEND,
+                "hatchling.build" if runtime_distribution else BUILD_BACKEND,
             ),
         )
         for field, actual, expected in expected_fields:
@@ -356,6 +360,7 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
         "engines": {"node": "24.18.0"},
         "packageManager": "npm@11.16.0",
         "scripts": {
+            "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
             "format:check": "prettier --check package.json index.html tsconfig.json vite.config.ts vitest.config.ts src",
             "lint": "oxlint --deny-warnings src",
             "typecheck": "tsc --project tsconfig.json --noEmit",
