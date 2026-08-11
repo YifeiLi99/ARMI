@@ -442,7 +442,7 @@ async def _admit_phase_work(
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, eligibility_status,
+                context_party_id, purpose, eligibility_status,
                 current_disposition, root_opportunity_id, reconsideration_no,
                 source_kind, source_ref, source_version,
                 activity_id) VALUES (
@@ -494,7 +494,7 @@ async def _admit_phase_work(
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, eligibility_status,
+                context_party_id, purpose, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no,
                 source_kind, source_ref, source_version,
@@ -502,7 +502,10 @@ async def _admit_phase_work(
                 %s, NULL, %s, NULL, NULL, %s, 'eligible', 'open',
                 %s, %s, 1, 'maintenance_phase_revision', %s, %s,
                 NULL)
-            ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+            ON CONFLICT (
+                subject_id, source_kind, source_ref, source_version,
+                purpose, reconsideration_no
+            ) DO NOTHING
             RETURNING opportunity_id
             """,
             (
