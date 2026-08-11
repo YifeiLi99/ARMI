@@ -1,0 +1,34 @@
+"""Select the configured external-content recognizer by trusted part kind."""
+
+from __future__ import annotations
+
+from armi_kernel.application import (
+    ExternalContentRecognitionPort,
+    ExternalContentRecognitionRequest,
+    ExternalContentRecognitionResult,
+    ExternalMessagePartKind,
+)
+
+
+class ExternalContentRecognizer:
+    __slots__ = ("_ark", "_speech")
+
+    def __init__(
+        self,
+        *,
+        ark: ExternalContentRecognitionPort,
+        speech: ExternalContentRecognitionPort,
+    ) -> None:
+        self._ark = ark
+        self._speech = speech
+
+    async def recognize(
+        self, request: ExternalContentRecognitionRequest
+    ) -> ExternalContentRecognitionResult:
+        adapter = (
+            self._speech if request.kind is ExternalMessagePartKind.AUDIO else self._ark
+        )
+        return await adapter.recognize(request)
+
+
+__all__ = ("ExternalContentRecognizer",)

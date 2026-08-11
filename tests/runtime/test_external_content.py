@@ -1,22 +1,32 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import unittest
 from pathlib import Path
 
+import httpx
 from armi_kernel.application import (
+    CredentialLocator,
     ExternalContentRecognitionRequest,
+    ExternalContentRecognitionResult,
+    ExternalContentRecognitionStatus,
     ExternalMessagePartKind,
     ExternalMessageViolation,
 )
 from armi_kernel.contracts import TraceId
+from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
 from armi_runtime.adapters.model.external_content import (
     _input_message,
     load_external_recognition_binding,
 )
+from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.external_content_extractors import (
     extract_external_content,
+)
+from armi_runtime.composition.external_content_recognizer import (
+    ExternalContentRecognizer,
 )
 from docx import Document
 from openpyxl import Workbook
@@ -106,18 +116,21 @@ class ExternalContentModelRequestTests(unittest.TestCase):
             )
         )
         self.assertEqual(
-            binding.model_for(ExternalMessagePartKind.IMAGE),
-            "doubao-seed-evolving",
+            binding.target_for(ExternalMessagePartKind.IMAGE),
+            ("volcengine_ark", "doubao-seed-evolving"),
         )
         self.assertEqual(
-            binding.model_for(ExternalMessagePartKind.AUDIO),
-            "doubao-seed-2-0-lite-260428",
+            binding.target_for(ExternalMessagePartKind.AUDIO),
+            ("volcengine_doubao_speech", "bigmodel"),
+        )
+        self.assertEqual(
+            binding.target_for(ExternalMessagePartKind.VIDEO),
+            ("volcengine_ark", "doubao-seed-2-0-lite-260428"),
         )
 
     def test_builds_base64_requests_for_each_provider_media_kind(self) -> None:
         expected_types = {
             ExternalMessagePartKind.IMAGE: "input_image",
-            ExternalMessagePartKind.AUDIO: "input_audio",
             ExternalMessagePartKind.VIDEO: "input_video",
             ExternalMessagePartKind.FILE: "input_file",
         }
@@ -134,6 +147,135 @@ class ExternalContentModelRequestTests(unittest.TestCase):
                 )
                 self.assertEqual(value["content"][1]["type"], expected)
                 self.assertNotIn("file_id", json.dumps(value))
+
+
+class DoubaoSpeechRecognizerTests(unittest.TestCase):
+    def _recognizer(self, handler) -> DoubaoSpeechRecognizer:
+        bindings = load_external_recognition_binding(
+            Path(
+                "apps/armi-runtime/src/armi_runtime/composition/"
+                "runtime_resources/model-bindings.manifest.json"
+            )
+        )
+        return DoubaoSpeechRecognizer(
+            credential_port=EnvironmentFileCredentialPort(
+                environment={"ARMI_SECRET_SPEECH_TEST": "test-speech-key"},
+                secret_roots=(Path.cwd(),),
+            ),
+            locator=CredentialLocator.parse("env:ARMI_SECRET_SPEECH_TEST"),
+            binding=bindings.speech,
+            transport=httpx.MockTransport(handler),
+        )
+
+    def test_sends_flash_asr_contract_and_returns_transcript(self) -> None:
+        observed: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            observed.append(request)
+            return httpx.Response(
+                200,
+                headers={
+                    "X-Api-Status-Code": "20000000",
+                    "X-Tt-Logid": "speech-log-id",
+                },
+                json={
+                    "audio_info": {"duration": 1200},
+                    "result": {"text": "Hello, ARMI.", "utterances": []},
+                },
+            )
+
+        result = asyncio.run(self._recognizer(handler).recognize(_audio_request()))
+
+        self.assertEqual(result.status, ExternalContentRecognitionStatus.SUCCEEDED)
+        self.assertEqual(result.text, "Hello, ARMI.")
+        self.assertEqual(result.provider, "volcengine_doubao_speech")
+        self.assertEqual(result.model_id, "bigmodel")
+        self.assertEqual(result.provider_request_id, "speech-log-id")
+        self.assertNotIn(b"test-speech-key", result.raw_response or b"")
+        request = observed[0]
+        self.assertEqual(request.headers["X-Api-Key"], "test-speech-key")
+        self.assertEqual(request.headers["X-Api-Resource-Id"], "volc.bigasr.auc_turbo")
+        document = json.loads(request.content)
+        self.assertEqual(document["user"]["uid"], "test-speech-key")
+        self.assertEqual(document["audio"]["data"], "SUQz")
+        self.assertEqual(document["request"]["model_name"], "bigmodel")
+
+    def test_maps_provider_rejection_and_timeout_without_retry(self) -> None:
+        calls = 0
+
+        def rejected(_request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(
+                200,
+                headers={"X-Api-Status-Code": "45000151"},
+                json={"result": {}},
+            )
+
+        failed = asyncio.run(self._recognizer(rejected).recognize(_audio_request()))
+        self.assertEqual(failed.status, ExternalContentRecognitionStatus.FAILED)
+        self.assertEqual(failed.error_code, "EXTERNAL-MESSAGE-RECOGNITION-ASR-45000151")
+        self.assertEqual(calls, 1)
+
+        def timeout(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("timeout", request=request)
+
+        unknown = asyncio.run(self._recognizer(timeout).recognize(_audio_request()))
+        self.assertEqual(unknown.status, ExternalContentRecognitionStatus.UNKNOWN)
+
+    def test_router_uses_speech_only_for_audio(self) -> None:
+        ark = _RecordingRecognizer("ark")
+        speech = _RecordingRecognizer("speech")
+        router = ExternalContentRecognizer(ark=ark, speech=speech)
+
+        asyncio.run(router.recognize(_audio_request()))
+        asyncio.run(
+            router.recognize(
+                ExternalContentRecognitionRequest(
+                    ExternalMessagePartKind.VIDEO,
+                    b"video",
+                    "sample.mp4",
+                    "video/mp4",
+                    TraceId("2" * 32),
+                )
+            )
+        )
+
+        self.assertEqual(speech.kinds, [ExternalMessagePartKind.AUDIO])
+        self.assertEqual(ark.kinds, [ExternalMessagePartKind.VIDEO])
+
+
+class _RecordingRecognizer:
+    def __init__(self, provider: str) -> None:
+        self.provider = provider
+        self.kinds: list[ExternalMessagePartKind] = []
+
+    async def recognize(
+        self, request: ExternalContentRecognitionRequest
+    ) -> ExternalContentRecognitionResult:
+        self.kinds.append(request.kind)
+        return ExternalContentRecognitionResult(
+            ExternalContentRecognitionStatus.SUCCEEDED,
+            "ok",
+            self.provider,
+            "test-model",
+            None,
+            None,
+            None,
+            None,
+            b"{}\n",
+            None,
+        )
+
+
+def _audio_request() -> ExternalContentRecognitionRequest:
+    return ExternalContentRecognitionRequest(
+        ExternalMessagePartKind.AUDIO,
+        b"ID3",
+        "sample.mp3",
+        "audio/mpeg",
+        TraceId("1" * 32),
+    )
 
 
 if __name__ == "__main__":

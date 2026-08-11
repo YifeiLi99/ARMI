@@ -751,7 +751,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     storage=storage,
                     fetch=_ExternalMediaFetch(),
                     recognizer=_ExternalContentRecognizer(),
-                    model_for=lambda _kind: "test_model",
+                    target_for=lambda _kind: ("test_provider", "test_model"),
                     wakeups=WorkWakeupBus(),
                 )
                 await pipeline.open()

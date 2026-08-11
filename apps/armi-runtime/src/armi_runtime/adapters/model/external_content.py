@@ -1,4 +1,4 @@
-"""Volcengine Ark multimodal recognition for external message content."""
+"""Volcengine Ark visual, video, and document recognition."""
 
 from __future__ import annotations
 
@@ -23,23 +23,36 @@ from armi_kernel.application import (
 )
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
+from .doubao_speech import DoubaoSpeechRecognitionBinding
+
 _PURPOSE = CredentialPurpose("model.request")
 
 
 @dataclass(frozen=True, slots=True)
-class ExternalRecognitionBinding:
+class ArkExternalRecognitionBinding:
     api_base: str
     visual_document_model_id: str
-    audio_video_model_id: str
+    video_model_id: str
     output_token_limit: int
     timeout_seconds: int
 
     def model_for(self, kind: ExternalMessagePartKind) -> str:
         return (
-            self.audio_video_model_id
-            if kind in {ExternalMessagePartKind.AUDIO, ExternalMessagePartKind.VIDEO}
+            self.video_model_id
+            if kind is ExternalMessagePartKind.VIDEO
             else self.visual_document_model_id
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalRecognitionBindings:
+    ark: ArkExternalRecognitionBinding
+    speech: DoubaoSpeechRecognitionBinding
+
+    def target_for(self, kind: ExternalMessagePartKind) -> tuple[str, str]:
+        if kind is ExternalMessagePartKind.AUDIO:
+            return "volcengine_doubao_speech", self.speech.model_id
+        return "volcengine_ark", self.ark.model_for(kind)
 
 
 class VolcengineArkExternalContentRecognizer(ExternalContentRecognitionPort):
@@ -50,7 +63,7 @@ class VolcengineArkExternalContentRecognizer(ExternalContentRecognitionPort):
         *,
         credential_port: CredentialPort,
         locator: CredentialLocator,
-        binding: ExternalRecognitionBinding,
+        binding: ArkExternalRecognitionBinding,
     ) -> None:
         self._credential_port = credential_port
         self._locator = locator
@@ -59,6 +72,8 @@ class VolcengineArkExternalContentRecognizer(ExternalContentRecognitionPort):
     async def recognize(
         self, request: ExternalContentRecognitionRequest
     ) -> ExternalContentRecognitionResult:
+        if request.kind is ExternalMessagePartKind.AUDIO:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-RECOGNITION-KIND")
         model_id = self._binding.model_for(request.kind)
         secret = self._copy_secret()
         client: AsyncOpenAI | None = None
@@ -133,36 +148,46 @@ class VolcengineArkExternalContentRecognizer(ExternalContentRecognitionPort):
             ) from None
 
 
-def load_external_recognition_binding(path: Path) -> ExternalRecognitionBinding:
+def load_external_recognition_binding(path: Path) -> ExternalRecognitionBindings:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))[
             "external_content_recognition"
         ]
-        binding = ExternalRecognitionBinding(
+        ark = ArkExternalRecognitionBinding(
             api_base=value["api_base"],
             visual_document_model_id=value["visual_document_model_id"],
-            audio_video_model_id=value["audio_video_model_id"],
+            video_model_id=value["video_model_id"],
             output_token_limit=value["output_token_limit"],
             timeout_seconds=value["timeout_seconds"],
+        )
+        speech = DoubaoSpeechRecognitionBinding(
+            api_url=value["speech_api_url"],
+            resource_id=value["speech_resource_id"],
+            model_id=value["speech_model_id"],
+            timeout_seconds=value["speech_timeout_seconds"],
         )
     except OSError, KeyError, TypeError, json.JSONDecodeError:
         raise ValueError("external recognition binding is invalid") from None
     if (
-        binding.api_base != "https://ark.cn-beijing.volces.com/api/v3"
-        or not binding.visual_document_model_id
-        or not binding.audio_video_model_id
-        or not 1 <= binding.output_token_limit <= 4096
-        or not 1 <= binding.timeout_seconds <= 300
+        ark.api_base != "https://ark.cn-beijing.volces.com/api/v3"
+        or not ark.visual_document_model_id
+        or not ark.video_model_id
+        or not 1 <= ark.output_token_limit <= 4096
+        or not 1 <= ark.timeout_seconds <= 300
+        or speech.api_url
+        != "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
+        or speech.resource_id != "volc.bigasr.auc_turbo"
+        or speech.model_id != "bigmodel"
+        or not 1 <= speech.timeout_seconds <= 300
     ):
         raise ValueError("external recognition binding is invalid")
-    return binding
+    return ExternalRecognitionBindings(ark=ark, speech=speech)
 
 
 def _input_message(request: ExternalContentRecognitionRequest) -> dict[str, Any]:
     encoded = base64.b64encode(request.content).decode("ascii")
     instructions = {
         ExternalMessagePartKind.IMAGE: "描述图片中实际可见的内容和文字,不确定之处必须明确标出。",
-        ExternalMessagePartKind.AUDIO: "转写语音,并说明重要的非语言声音,听不清之处必须明确标出。",
         ExternalMessagePartKind.VIDEO: "按时间顺序概括画面、动作、可见文字和声音,不确定之处必须明确标出。",
         ExternalMessagePartKind.FILE: "概括 PDF 的结构和主要内容,不确定或无法读取之处必须明确标出。",
     }[request.kind]
@@ -170,11 +195,6 @@ def _input_message(request: ExternalContentRecognitionRequest) -> dict[str, Any]
         media = {
             "type": "input_image",
             "image_url": f"data:{request.media_type};base64,{encoded}",
-        }
-    elif request.kind is ExternalMessagePartKind.AUDIO:
-        media = {
-            "type": "input_audio",
-            "input_audio": {"data": encoded, "format": "mp3"},
         }
     elif request.kind is ExternalMessagePartKind.VIDEO:
         media = {
@@ -211,7 +231,8 @@ def _failure(
 
 
 __all__ = (
-    "ExternalRecognitionBinding",
+    "ArkExternalRecognitionBinding",
+    "ExternalRecognitionBindings",
     "VolcengineArkExternalContentRecognizer",
     "load_external_recognition_binding",
 )

@@ -143,6 +143,7 @@ class RuntimeCliTests(unittest.TestCase):
             "creator.bootstrap.verify": "creator.bearer",
             "creator.timeline.cursor": "creator.bearer",
             "model.request": "model.ark_api_key",
+            "speech.recognition": "speech.volc_api_key",
             "web.search": "model.ark_api_key",
             "codex.runner.auth": "codex.auth_json",
             "channel.qq.napcat.api": "channel.qq.napcat_access_token",

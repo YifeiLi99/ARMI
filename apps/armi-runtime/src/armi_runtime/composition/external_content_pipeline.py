@@ -65,11 +65,11 @@ class ExternalContentPipeline:
         "_factory",
         "_fetch",
         "_lease_owner",
-        "_model_for",
         "_recognizer",
         "_repository",
         "_stop",
         "_storage",
+        "_target_for",
         "_wakeups",
         "_work",
     )
@@ -81,7 +81,7 @@ class ExternalContentPipeline:
         storage: ContentAddressedArtifactStore,
         fetch: ExternalMediaFetchPort,
         recognizer: ExternalContentRecognitionPort,
-        model_for: Callable[[ExternalMessagePartKind], str],
+        target_for: Callable[[ExternalMessagePartKind], tuple[str, str]],
         wakeups: WorkWakeupBus,
         diagnostic: Diagnostic | None = None,
     ) -> None:
@@ -89,7 +89,7 @@ class ExternalContentPipeline:
         self._storage = storage
         self._fetch = fetch
         self._recognizer = recognizer
-        self._model_for = model_for
+        self._target_for = target_for
         self._wakeups = wakeups
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._catalog = ArtifactCatalogRepository()
@@ -225,12 +225,12 @@ class ExternalContentPipeline:
                         interpretation_text=extracted.text,
                     )
                 return
-            model_id = self._model_for(part.kind)
+            provider, model_id = self._target_for(part.kind)
             request_evidence = await self._publish(
                 json.dumps(
                     {
                         "schema_version": "armi.external-content-recognition-request.v1",
-                        "provider": "volcengine_ark",
+                        "provider": provider,
                         "model_id": model_id,
                         "part_kind": part.kind.value,
                         "file_name": downloaded.file_name,
@@ -257,7 +257,7 @@ class ExternalContentPipeline:
                     part_id=part.part_id,
                     raw_artifact_id=raw_registration.ref.artifact_id.value,
                     request_artifact_id=request_registration.ref.artifact_id.value,
-                    provider="volcengine_ark",
+                    provider=provider,
                     model_id=model_id,
                 )
             result = await self._recognizer.recognize(
@@ -530,7 +530,7 @@ def build_external_content_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     fetch: ExternalMediaFetchPort,
     recognizer: ExternalContentRecognitionPort,
-    model_for: Callable[[ExternalMessagePartKind], str],
+    target_for: Callable[[ExternalMessagePartKind], tuple[str, str]],
     wakeups: WorkWakeupBus,
     diagnostic: Diagnostic | None = None,
 ) -> ExternalContentPipeline:
@@ -550,7 +550,7 @@ def build_external_content_pipeline(
         ),
         fetch=fetch,
         recognizer=recognizer,
-        model_for=model_for,
+        target_for=target_for,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )

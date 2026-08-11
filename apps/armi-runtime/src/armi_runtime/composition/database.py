@@ -38,6 +38,7 @@ from armi_kernel.application import (
 )
 
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
+from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
 from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
@@ -110,6 +111,7 @@ from .external_content_pipeline import (
     ExternalContentPipeline,
     build_external_content_pipeline,
 )
+from .external_content_recognizer import ExternalContentRecognizer
 from .external_message_input import (
     ExternalMessageInputService,
     build_external_message_input_service,
@@ -141,6 +143,7 @@ from .work_wakeup import WorkWakeupBus
 RUNTIME_LOCATOR_NAME: Final = "database.runtime"
 MIGRATOR_LOCATOR_NAME: Final = "database.migrator"
 MODEL_LOCATOR_NAME: Final = "model.ark_api_key"
+SPEECH_LOCATOR_NAME: Final = "speech.volc_api_key"
 CODEX_LOCATOR_NAME: Final = "codex.auth_json"
 
 _REASON_BY_CODE: Final = {
@@ -951,7 +954,8 @@ def compose_external_content_pipeline(
         RUNTIME_LOCATOR_NAME
     )
     model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
-    if database_locator is None or model_locator is None:
+    speech_locator = prepared.effective.config.secret_locators.get(SPEECH_LOCATOR_NAME)
+    if database_locator is None or model_locator is None or speech_locator is None:
         raise ModelViolation("MODEL-CREDENTIAL")
     try:
         with prepared.credential_port.resolve(
@@ -986,12 +990,19 @@ def compose_external_content_pipeline(
                     ),
                     authority_admission=authority_admission,
                     fetch=fetch,
-                    recognizer=VolcengineArkExternalContentRecognizer(
-                        credential_port=prepared.credential_port,
-                        locator=model_locator,
-                        binding=recognition_binding,
+                    recognizer=ExternalContentRecognizer(
+                        ark=VolcengineArkExternalContentRecognizer(
+                            credential_port=prepared.credential_port,
+                            locator=model_locator,
+                            binding=recognition_binding.ark,
+                        ),
+                        speech=DoubaoSpeechRecognizer(
+                            credential_port=prepared.credential_port,
+                            locator=speech_locator,
+                            binding=recognition_binding.speech,
+                        ),
                     ),
-                    model_for=recognition_binding.model_for,
+                    target_for=recognition_binding.target_for,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                 )
