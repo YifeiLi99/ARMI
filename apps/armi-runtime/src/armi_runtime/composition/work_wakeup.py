@@ -13,6 +13,7 @@ SUBJECT_COMMIT = "cognition.subject.commit"
 RESPONSE_ADMIT = "cognition.response.admit"
 EFFECT_REGISTER = "effect.register"
 EXACT_LIFE_QUERY = "life.query.execute"
+EXTERNAL_CONTENT = "external.content"
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +84,7 @@ __all__ = (
     "CONTEXT_PREPARE",
     "EFFECT_REGISTER",
     "EXACT_LIFE_QUERY",
+    "EXTERNAL_CONTENT",
     "MODEL_INVOKE",
     "OPPORTUNITY_AVAILABLE",
     "RESPONSE_ADMIT",

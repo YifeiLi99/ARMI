@@ -5,10 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from armi_channel_napcat import NapCatHttpClient, NapCatViolation
-from armi_kernel.application import ActionAdapterPort, ExternalMessageInputPort
+from armi_kernel.application import (
+    ActionAdapterPort,
+    ExternalMediaFetchPort,
+    ExternalMessageInputPort,
+)
 from fastapi import FastAPI
 
-from .adapter import QQEffectAdapter, QQEgressAdapter, QQIngressAdapter
+from .adapter import (
+    QQEffectAdapter,
+    QQEgressAdapter,
+    QQIngressAdapter,
+    QQMediaFetchAdapter,
+)
 from .config import QQNapCatBindingConfig
 from .webhook import create_qq_event_app
 
@@ -20,6 +29,7 @@ class QQNapCatBindingViolation(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class QQNapCatBinding:
     effect_adapter: ActionAdapterPort
+    media_fetch: ExternalMediaFetchPort
     event_app: FastAPI
     event_port: int
     _gateway: NapCatHttpClient
@@ -37,9 +47,14 @@ def create_qq_napcat_binding(
 ) -> QQNapCatBinding:
     try:
         token = access_token.decode("utf-8", errors="strict")
+        gateway = NapCatHttpClient(
+            base_url=config.api_base_url,
+            access_token=token,
+        )
         ingress = QQIngressAdapter(
             config=config.adapter,
             input_port=input_port,
+            gateway=gateway,
         )
         event_app = create_qq_event_app(
             config=config.adapter,
@@ -47,15 +62,12 @@ def create_qq_napcat_binding(
             signing_secret=event_signing_secret,
             request_body_max_bytes=config.request_body_max_bytes,
         )
-        gateway = NapCatHttpClient(
-            base_url=config.api_base_url,
-            access_token=token,
-        )
     except NapCatViolation, UnicodeDecodeError, ValueError:
         raise QQNapCatBindingViolation from None
     egress = QQEgressAdapter(config=config.adapter, gateway=gateway)
     return QQNapCatBinding(
         QQEffectAdapter(egress),
+        QQMediaFetchAdapter(config=config.adapter, gateway=gateway),
         event_app,
         config.event_port,
         gateway,

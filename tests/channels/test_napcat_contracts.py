@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import unittest
 
@@ -191,6 +192,53 @@ class NapCatContractTests(unittest.TestCase):
         asyncio.run(exercise())
         self.assertEqual(
             observed, [("/send_private_msg", {"user_id": 30003, "message": "你好"})]
+        )
+
+    def test_reads_image_record_video_and_file_actions(self) -> None:
+        observed: list[tuple[str, dict[str, object]]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            observed.append((request.url.path, json.loads(request.content)))
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "retcode": 0,
+                    "data": {
+                        "base64": base64.b64encode(b"media").decode(),
+                        "file_name": "sample.bin",
+                    },
+                },
+            )
+
+        async def exercise() -> None:
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token="test-token",
+                    client=client,
+                )
+                for kind in ("image", "audio", "video", "file"):
+                    downloaded = await gateway.fetch_media(
+                        locator=f"{kind}-locator", kind=kind, max_bytes=1024
+                    )
+                    self.assertEqual(downloaded.content, b"media")
+
+        asyncio.run(exercise())
+        self.assertEqual(
+            observed,
+            [
+                ("/get_image", {"file": "image-locator"}),
+                (
+                    "/get_record",
+                    {"file": "audio-locator", "out_format": "mp3"},
+                ),
+                ("/get_file", {"file": "video-locator"}),
+                ("/get_file", {"file": "file-locator"}),
+            ],
         )
 
 

@@ -74,5 +74,12 @@
       "response_contract_version": "armi.maintenance-work-candidate.v1"
     }
   },
+  "external_content_recognition": {
+    "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+    "audio_video_model_id": "doubao-seed-2-0-lite-260428",
+    "output_token_limit": 2048,
+    "timeout_seconds": 180,
+    "visual_document_model_id": "doubao-seed-evolving"
+  },
   "schema_version": "armi.model-bindings.v1"
 }

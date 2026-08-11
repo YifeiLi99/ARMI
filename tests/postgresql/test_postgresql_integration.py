@@ -76,9 +76,14 @@ from armi_kernel.application import (
     EffectStatus,
     ExternalAccountKey,
     ExternalChannel,
+    ExternalContentRecognitionResult,
+    ExternalContentRecognitionStatus,
     ExternalConversationKey,
     ExternalConversationKind,
+    ExternalMediaContent,
     ExternalMessageKey,
+    ExternalMessagePart,
+    ExternalMessagePartKind,
     ExternalPartyKey,
     LifeRecordActor,
     LifeRecordKind,
@@ -201,6 +206,7 @@ from armi_runtime.composition.candidate_validator import (
 )
 from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
+from armi_runtime.composition.external_content_pipeline import ExternalContentPipeline
 from armi_runtime.composition.external_message_input import ExternalMessageInputService
 from armi_runtime.composition.life_opportunity import LifeOpportunityPipeline
 from armi_runtime.composition.model_contract import (
@@ -213,6 +219,7 @@ from armi_runtime.composition.model_contract import (
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
 from armi_runtime.composition.web_search_pipeline import build_web_search_pipeline
+from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -335,6 +342,31 @@ class DatabaseFixture:
     admin_role_dsn: str
     migrator_dsn: str
     provisioner_dsn: str
+
+
+class _ExternalMediaFetch:
+    async def fetch(self, **_kwargs: object) -> ExternalMediaContent:
+        return ExternalMediaContent(
+            b"\x89PNG\r\n\x1a\nrecognition-sample",
+            "sample.png",
+            "image/png",
+        )
+
+
+class _ExternalContentRecognizer:
+    async def recognize(self, request) -> ExternalContentRecognitionResult:
+        return ExternalContentRecognitionResult(
+            ExternalContentRecognitionStatus.SUCCEEDED,
+            "图片里有一张测试卡片。",
+            "test_provider",
+            "test_model",
+            "test_model",
+            "request-1",
+            10,
+            5,
+            b'{"result":"ok"}\n',
+            None,
+        )
 
 
 @unittest.skipUnless(_ADMIN_DSN, "isolated PostgreSQL 18.4 is not running")
@@ -615,7 +647,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ExternalMessageKey("30003"),
                     ExternalPartyKey("40004"),
                     "小明",
-                    "大家好",
+                    (ExternalMessagePart(ExternalMessagePartKind.TEXT, text="大家好"),),
                     Instant(datetime(2026, 8, 10, 12, tzinfo=UTC)),
                     TraceId("2" * 32),
                     addressed_to_subject=True,
@@ -634,7 +666,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         ExternalMessageKey("30003"),
                         ExternalPartyKey("40004"),
                         "小明",
-                        "私聊你好",
+                        (
+                            ExternalMessagePart(
+                                ExternalMessagePartKind.TEXT, text="私聊你好"
+                            ),
+                        ),
                         Instant(datetime(2026, 8, 10, 13, tzinfo=UTC)),
                         TraceId("4" * 32),
                         addressed_to_subject=True,
@@ -646,7 +682,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         message_key=ExternalMessageKey("30004"),
                         sender_key=ExternalPartyKey("90009"),
                         sender_display_label="主人",
-                        message="群里你好",
+                        parts=(
+                            ExternalMessagePart(
+                                ExternalMessagePartKind.TEXT, text="群里你好"
+                            ),
+                        ),
                         trace_id=TraceId("5" * 32),
                     )
                 )
@@ -659,7 +699,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ExternalMessageKey("30005"),
                     ExternalPartyKey("90009"),
                     "主人",
-                    "重复内容",
+                    (
+                        ExternalMessagePart(
+                            ExternalMessagePartKind.TEXT, text="重复内容"
+                        ),
+                    ),
                     Instant(datetime(2026, 8, 10, 14, tzinfo=UTC)),
                     TraceId("6" * 32),
                     addressed_to_subject=True,
@@ -673,6 +717,84 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         trace_id=TraceId("7" * 32),
                     )
                 )
+                media_message = replace(
+                    creator_private,
+                    message_key=ExternalMessageKey("30007"),
+                    parts=(
+                        ExternalMessagePart(
+                            ExternalMessagePartKind.TEXT, text="这是什么?"
+                        ),
+                        ExternalMessagePart(
+                            ExternalMessagePartKind.IMAGE,
+                            locator="image-locator",
+                            file_name="sample.png",
+                            media_type="image/png",
+                            byte_size=32,
+                        ),
+                    ),
+                    observed_at=Instant(datetime(2026, 8, 10, 14, 2, tzinfo=UTC)),
+                    trace_id=TraceId("8" * 32),
+                )
+                media = await service.accept(media_message)
+                self.assertIsNone(media.evidence_id)
+                pipeline_factory = PostgreSQLUnitOfWorkFactory(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    pool_min=1,
+                    pool_max=1,
+                    acquire_timeout_seconds=2,
+                    statement_timeout_seconds=5,
+                    require_runtime_fence=False,
+                )
+                pipeline = ExternalContentPipeline(
+                    factory=pipeline_factory,
+                    storage=storage,
+                    fetch=_ExternalMediaFetch(),
+                    recognizer=_ExternalContentRecognizer(),
+                    model_for=lambda _kind: "test_model",
+                    wakeups=WorkWakeupBus(),
+                )
+                await pipeline.open()
+                try:
+                    self.assertTrue(await pipeline.execute_once())
+                    self.assertTrue(await pipeline.execute_once())
+                    self.assertFalse(await pipeline.execute_once())
+                finally:
+                    await pipeline.close()
+                media_repeated = await service.accept(
+                    replace(media_message, trace_id=TraceId("9" * 32))
+                )
+                silent_group_media = await service.accept(
+                    replace(
+                        group_message,
+                        message_key=ExternalMessageKey("30008"),
+                        parts=(
+                            ExternalMessagePart(
+                                ExternalMessagePartKind.IMAGE,
+                                locator="silent-image",
+                            ),
+                        ),
+                        addressed_to_subject=False,
+                        trace_id=TraceId("a" * 32),
+                    )
+                )
+                mixed_group_media = await service.accept(
+                    replace(
+                        group_message,
+                        message_key=ExternalMessageKey("30009"),
+                        parts=(
+                            ExternalMessagePart(
+                                ExternalMessagePartKind.TEXT, text="群聊文字"
+                            ),
+                            ExternalMessagePart(
+                                ExternalMessagePartKind.IMAGE,
+                                locator="unaddressed-image",
+                            ),
+                        ),
+                        addressed_to_subject=False,
+                        trace_id=TraceId("b" * 32),
+                    )
+                )
                 return (
                     creator,
                     first,
@@ -681,6 +803,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     creator_group,
                     creator_private_first,
                     creator_private_second,
+                    media,
+                    media_repeated,
+                    silent_group_media,
+                    mixed_group_media,
                 )
             finally:
                 await service.close()
@@ -694,6 +820,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_group,
                 creator_private_first,
                 creator_private_second,
+                media,
+                media_repeated,
+                silent_group_media,
+                mixed_group_media,
             ) = asyncio.run(
                 exercise(Path(temporary).resolve()),
                 loop_factory=lambda: asyncio.SelectorEventLoop(
@@ -707,6 +837,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertNotEqual(
             first.conversation_binding_id, private.conversation_binding_id
         )
+        self.assertIsNone(media.evidence_id)
+        self.assertFalse(media_repeated.newly_accepted)
+        self.assertEqual(media_repeated.interaction_id, media.interaction_id)
+        self.assertIsNotNone(media_repeated.evidence_id)
+        self.assertIsNotNone(media_repeated.opportunity_id)
+        self.assertIsNone(silent_group_media.evidence_id)
+        self.assertIsNone(silent_group_media.opportunity_id)
+        self.assertIsNotNone(mixed_group_media.evidence_id)
+        self.assertIsNotNone(mixed_group_media.opportunity_id)
         self.assertEqual(creator_group.sender_party_id, creator.creator_party_id)
         self.assertEqual(creator_group.sender_party_kind, "creator")
         self.assertNotEqual(creator.scene_id, creator_group.scene_id)
@@ -750,6 +889,51 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     creator_private_second.interaction_id.value,
                 ),
             ).fetchone()
+            media_state = connection.execute(
+                """
+                SELECT input.recognition_status,
+                       count(DISTINCT part.external_message_part_id),
+                       count(DISTINCT attempt.recognition_attempt_id),
+                       count(DISTINCT evidence.evidence_id),
+                       count(DISTINCT opportunity.opportunity_id)
+                FROM armi.party_input_interactions AS input
+                JOIN armi.external_message_parts AS part
+                  ON part.interaction_id = input.interaction_id
+                LEFT JOIN armi.external_content_recognition_attempts AS attempt
+                  ON attempt.external_message_part_id = part.external_message_part_id
+                LEFT JOIN armi.external_evidence AS evidence
+                  ON evidence.interaction_id = input.interaction_id
+                LEFT JOIN armi.opportunities AS opportunity
+                  ON opportunity.evidence_id = evidence.evidence_id
+                WHERE input.interaction_id = %s
+                GROUP BY input.recognition_status
+                """,
+                (media.interaction_id.value,),
+            ).fetchone()
+            group_media_state = connection.execute(
+                """
+                SELECT input.external_message_key, input.recognition_status,
+                       count(evidence.evidence_id),
+                       count(work.work_id),
+                       min(part.processing_status)
+                FROM armi.party_input_interactions AS input
+                JOIN armi.external_message_parts AS part
+                  ON part.interaction_id = input.interaction_id
+                 AND part.part_kind = 'image'
+                LEFT JOIN armi.external_evidence AS evidence
+                  ON evidence.interaction_id = input.interaction_id
+                LEFT JOIN armi.durable_work AS work
+                  ON work.owner_ref = input.interaction_id
+                 AND work.work_kind = 'external.content.recognize'
+                WHERE input.interaction_id IN (%s, %s)
+                GROUP BY input.external_message_key, input.recognition_status
+                ORDER BY input.external_message_key
+                """,
+                (
+                    silent_group_media.interaction_id.value,
+                    mixed_group_media.interaction_id.value,
+                ),
+            ).fetchall()
         self.assertEqual(
             shape,
             (
@@ -765,6 +949,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(
             shared_artifact,
             (1, 2, "creator.input.text", "creator_visible"),
+        )
+        self.assertEqual(media_state, ("succeeded", 2, 1, 1, 1))
+        self.assertEqual(
+            group_media_state,
+            [
+                ("30008", "skipped", 0, 0, "skipped"),
+                ("30009", "not_required", 1, 0, "skipped"),
+            ],
         )
 
     def test_baseline_failure_rolls_back_all_tables(self) -> None:
@@ -796,6 +988,53 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(namespace, ("armi",))
         self.assertEqual(tables, (0,))
+
+    def test_external_content_revision_migrates_0000_to_0001(self) -> None:
+        fixture = self.create_database()
+        source = Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            schema_root = Path(temporary) / "schema"
+            shutil.copytree(source, schema_root)
+            (
+                schema_root / "alembic/versions/0001_external_message_content_parts.py"
+            ).unlink()
+            installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            )
+        self.assertEqual(installed.current_revision, "0000")
+        migrated = PostgreSQLSchemaGateway().migrate(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        self.assertEqual(migrated.current_revision, "0001")
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            shape = connection.execute(
+                """
+                SELECT to_regclass('armi.external_message_parts'),
+                       to_regclass('armi.external_content_recognition_attempts'),
+                       has_table_privilege(
+                         current_user, 'armi.external_message_parts', 'INSERT,UPDATE'
+                       ),
+                       EXISTS (
+                         SELECT 1 FROM information_schema.columns
+                         WHERE table_schema = 'armi'
+                           AND table_name = 'party_input_interactions'
+                           AND column_name = 'cognition_content_digest'
+                       )
+                """
+            ).fetchone()
+        self.assertEqual(
+            shape,
+            (
+                "external_message_parts",
+                "external_content_recognition_attempts",
+                True,
+                True,
+            ),
+        )
 
     def test_missing_and_unknown_alembic_revisions_are_rejected(self) -> None:
         missing_fixture = self.create_database()
@@ -845,10 +1084,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0001_probe.py").write_text(
+            (schema_root / "alembic/versions/0002_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0001'\n"
-                "down_revision = '0000'\n"
+                "revision = '0002'\n"
+                "down_revision = '0001'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -903,8 +1142,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0001")
-            self.assertEqual(migrated.head_revision, "0001")
+            self.assertEqual(migrated.current_revision, "0002")
+            self.assertEqual(migrated.head_revision, "0002")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -925,10 +1164,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0001_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0002_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0001'\n"
-                "down_revision = '0000'\n"
+                "revision = '0002'\n"
+                "down_revision = '0001'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -953,7 +1192,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0000",)])
+            self.assertEqual(history, [("0001",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -6000,7 +6239,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0000",)])
+            self.assertEqual(restored, [("0001",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

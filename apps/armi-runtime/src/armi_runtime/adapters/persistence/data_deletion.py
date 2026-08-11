@@ -324,8 +324,39 @@ class LocalDataDeletionRepository:
                 JOIN armi.action_intents AS intent
                   ON intent.action_intent_id = revision.action_intent_id
                 WHERE intent.context_party_id = %s
+                UNION
+                SELECT part.raw_artifact_id
+                FROM armi.external_message_parts AS part
+                JOIN armi.party_input_interactions AS interaction
+                  ON interaction.interaction_id = part.interaction_id
+                WHERE interaction.source_party_id = %s
+                  AND part.raw_artifact_id IS NOT NULL
+                UNION
+                SELECT part.interpretation_artifact_id
+                FROM armi.external_message_parts AS part
+                JOIN armi.party_input_interactions AS interaction
+                  ON interaction.interaction_id = part.interaction_id
+                WHERE interaction.source_party_id = %s
+                  AND part.interpretation_artifact_id IS NOT NULL
+                UNION
+                SELECT attempt.request_artifact_id
+                FROM armi.external_content_recognition_attempts AS attempt
+                JOIN armi.external_message_parts AS part
+                  ON part.external_message_part_id = attempt.external_message_part_id
+                JOIN armi.party_input_interactions AS interaction
+                  ON interaction.interaction_id = part.interaction_id
+                WHERE interaction.source_party_id = %s
+                UNION
+                SELECT attempt.response_artifact_id
+                FROM armi.external_content_recognition_attempts AS attempt
+                JOIN armi.external_message_parts AS part
+                  ON part.external_message_part_id = attempt.external_message_part_id
+                JOIN armi.party_input_interactions AS interaction
+                  ON interaction.interaction_id = part.interaction_id
+                WHERE interaction.source_party_id = %s
+                  AND attempt.response_artifact_id IS NOT NULL
                 """,
-                (party_id,) * 7,
+                (party_id,) * 11,
             )
         ).fetchall()
         return tuple(row[0] for row in rows)

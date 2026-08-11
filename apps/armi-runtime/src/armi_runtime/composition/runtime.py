@@ -84,6 +84,7 @@ from .database import (
     compose_data_rights_order_service,
     compose_effect_registration_pipeline,
     compose_exact_life_query_pipeline,
+    compose_external_content_pipeline,
     compose_external_message_input,
     compose_life_opportunity_pipeline,
     compose_life_record_query,
@@ -191,6 +192,7 @@ async def _serve(
     creator_input = None
     other_human_input = None
     external_message_input = None
+    external_content_pipeline = None
     qq_channel: QQChannelBinding | None = None
     qq_server: _RuntimeServer | None = None
     other_human_record_query = None
@@ -408,6 +410,23 @@ async def _serve(
                 prepared,
                 input_port=external_message_input,
             )
+            if qq_channel is not None:
+                try:
+                    external_content_pipeline = compose_external_content_pipeline(
+                        prepared,
+                        authority_admission=authority.require_writable,
+                        fetch=qq_channel.media_fetch,
+                        wakeups=work_wakeups,
+                        diagnostic=lambda event: diagnostic.emit(
+                            event,
+                            result_code="EXTERNAL_CONTENT",
+                        ),
+                    )
+                    await external_content_pipeline.open()
+                except ModelViolation:
+                    raise ExternalMessageViolation(
+                        "EXTERNAL-MESSAGE-RECOGNITION-UNAVAILABLE"
+                    ) from None
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
@@ -626,6 +645,8 @@ async def _serve(
                 await other_human_input.close()
             if external_message_input is not None:
                 await external_message_input.close()
+            if external_content_pipeline is not None:
+                await external_content_pipeline.close()
             if qq_channel is not None:
                 await qq_channel.close()
             if context_pipeline is not None:
@@ -756,6 +777,11 @@ async def _serve(
                 exact_life_query_pipeline.run_worker(),
                 name="exact-life-query-worker",
             )
+        if external_content_pipeline is not None:
+            supervisor.start(
+                external_content_pipeline.run_worker(),
+                name="external-content-worker",
+            )
         if model_pipeline is not None:
             for index in range(config.model.concurrency):
                 supervisor.start(
@@ -855,6 +881,8 @@ async def _serve(
             await other_human_input.close()
         if external_message_input is not None:
             await external_message_input.close()
+        if external_content_pipeline is not None:
+            external_content_pipeline.stop()
         if context_pipeline is not None:
             context_pipeline.stop()
         if life_opportunity_pipeline is not None:
@@ -888,6 +916,8 @@ async def _serve(
             await life_opportunity_pipeline.close()
         if exact_life_query_pipeline is not None:
             await exact_life_query_pipeline.close()
+        if external_content_pipeline is not None:
+            await external_content_pipeline.close()
         if life_record_query is not None:
             await life_record_query.close()
         if model_pipeline is not None:

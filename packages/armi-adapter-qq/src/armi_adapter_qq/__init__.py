@@ -5,6 +5,7 @@ from .adapter import (
     QQEffectAdapter,
     QQEgressAdapter,
     QQIngressAdapter,
+    QQMediaFetchAdapter,
 )
 from .binding import (
     QQNapCatBinding,
@@ -24,6 +25,7 @@ __all__ = (
     "QQEffectAdapter",
     "QQEgressAdapter",
     "QQIngressAdapter",
+    "QQMediaFetchAdapter",
     "QQNapCatBinding",
     "QQNapCatBindingConfig",
     "QQNapCatBindingViolation",

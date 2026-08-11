@@ -110,7 +110,8 @@ class CreatorInputRepository:
                     evidence.evidence_id,
                     opportunity.opportunity_id,
                     interaction.request_digest,
-                    interaction.content_digest
+                    COALESCE(interaction.cognition_content_digest,
+                             interaction.content_digest)
                 FROM armi.party_input_interactions AS interaction
                 JOIN armi.external_evidence AS evidence
                   ON evidence.interaction_id
@@ -296,7 +297,8 @@ class CreatorInputRepository:
                     evidence.evidence_id,
                     requested.opportunity_id,
                     interaction.request_digest,
-                    interaction.content_digest,
+                    COALESCE(interaction.cognition_content_digest,
+                             interaction.content_digest),
                     opportunity.current_disposition,
                     episode.status,
                     episode.failure_code,

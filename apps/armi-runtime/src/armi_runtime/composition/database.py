@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from importlib.resources import files
+from pathlib import Path
 from typing import Final
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from armi_kernel.application import (
     CredentialPort,
     CredentialPurpose,
     DataRightsViolation,
+    ExternalMediaFetchPort,
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeViolation,
@@ -36,6 +38,10 @@ from armi_kernel.application import (
 )
 
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
+from armi_runtime.adapters.model.external_content import (
+    VolcengineArkExternalContentRecognizer,
+    load_external_recognition_binding,
+)
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
@@ -99,6 +105,10 @@ from .environment import PreparedEnvironment
 from .exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
     build_exact_life_query_pipeline,
+)
+from .external_content_pipeline import (
+    ExternalContentPipeline,
+    build_external_content_pipeline,
 )
 from .external_message_input import (
     ExternalMessageInputService,
@@ -929,6 +939,68 @@ def compose_external_message_input(
         ) from None
 
 
+def compose_external_content_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+    fetch: ExternalMediaFetchPort,
+    wakeups: WorkWakeupBus,
+    diagnostic: Callable[[str], None] | None = None,
+) -> ExternalContentPipeline:
+    database_locator = prepared.effective.config.secret_locators.get(
+        RUNTIME_LOCATOR_NAME
+    )
+    model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
+    if database_locator is None or model_locator is None:
+        raise ModelViolation("MODEL-CREDENTIAL")
+    try:
+        with prepared.credential_port.resolve(
+            database_locator, CredentialPurpose("database.runtime")
+        ) as handle:
+
+            def create(value: memoryview) -> ExternalContentPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise ModelViolation("MODEL-DATABASE") from None
+                config = prepared.effective.config
+                try:
+                    recognition_binding = load_external_recognition_binding(
+                        Path(__file__).parent
+                        / "runtime_resources/model-bindings.manifest.json"
+                    )
+                except ValueError:
+                    raise ModelViolation("MODEL-BINDING-MANIFEST") from None
+                return build_external_content_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=(
+                        config.database.pool_acquire_timeout_seconds
+                    ),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                    authority_admission=authority_admission,
+                    fetch=fetch,
+                    recognizer=VolcengineArkExternalContentRecognizer(
+                        credential_port=prepared.credential_port,
+                        locator=model_locator,
+                        binding=recognition_binding,
+                    ),
+                    model_for=recognition_binding.model_for,
+                    wakeups=wakeups,
+                    diagnostic=diagnostic,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise ModelViolation("MODEL-CREDENTIAL") from None
+
+
 def compose_creator_prompt_service(
     prepared: PreparedEnvironment,
     *,
@@ -1692,6 +1764,7 @@ __all__ = (
     "compose_data_rights_order_service",
     "compose_effect_registration_pipeline",
     "compose_exact_life_query_pipeline",
+    "compose_external_content_pipeline",
     "compose_external_message_input",
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",

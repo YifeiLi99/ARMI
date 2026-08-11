@@ -8,6 +8,7 @@ from uuid import uuid7
 
 import httpx
 from armi_adapter_qq import QQAdapterConfig, QQIngressAdapter, create_qq_event_app
+from armi_channel_napcat import NapCatActionResponse, NapCatDownloadedFile
 from armi_kernel.application import (
     EvidenceId,
     ExternalMessageInputAcceptance,
@@ -41,6 +42,20 @@ class _InputPort:
         )
 
 
+class _Gateway:
+    async def send_group_text(self, *, group_id: int, text: str, echo: str):
+        return NapCatActionResponse("ok", 0, "1", echo)
+
+    async def send_private_text(self, *, user_id: int, text: str, echo: str):
+        return NapCatActionResponse("ok", 0, "1", echo)
+
+    async def get_message_sender(self, *, message_id: str) -> int | None:
+        return None
+
+    async def fetch_media(self, *, locator: str, kind: str, max_bytes: int):
+        return NapCatDownloadedFile(b"media", "sample.bin", "application/octet-stream")
+
+
 class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
     async def test_accepts_friend_and_acknowledges_temporary_private(self) -> None:
         secret = b"local-test-secret"
@@ -56,7 +71,9 @@ class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
         )
         app = create_qq_event_app(
             config=config,
-            ingress=QQIngressAdapter(config=config, input_port=port),
+            ingress=QQIngressAdapter(
+                config=config, input_port=port, gateway=_Gateway()
+            ),
             signing_secret=secret,
             request_body_max_bytes=4096,
         )
@@ -108,7 +125,9 @@ class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
         )
         app = create_qq_event_app(
             config=config,
-            ingress=QQIngressAdapter(config=config, input_port=port),
+            ingress=QQIngressAdapter(
+                config=config, input_port=port, gateway=_Gateway()
+            ),
             signing_secret=secret,
             request_body_max_bytes=4096,
         )

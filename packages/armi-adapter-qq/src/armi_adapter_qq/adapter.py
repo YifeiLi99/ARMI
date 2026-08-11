@@ -27,9 +27,15 @@ from armi_kernel.application import (
     ExternalChannel,
     ExternalConversationKey,
     ExternalConversationKind,
+    ExternalMediaContent,
+    ExternalMediaFetchPort,
     ExternalMessageInputAcceptance,
     ExternalMessageInputPort,
     ExternalMessageKey,
+    ExternalMessageOutputPart,
+    ExternalMessageOutputPartKind,
+    ExternalMessagePart,
+    ExternalMessagePartKind,
     ExternalMessageSendReceipt,
     ExternalMessageSendRequest,
     ExternalMessageViolation,
@@ -97,21 +103,26 @@ class QQAdapterConfig:
 
 
 class QQIngressAdapter:
-    __slots__ = ("_config", "_input")
+    __slots__ = ("_config", "_gateway", "_input")
 
     def __init__(
-        self, *, config: QQAdapterConfig, input_port: ExternalMessageInputPort
+        self,
+        *,
+        config: QQAdapterConfig,
+        input_port: ExternalMessageInputPort,
+        gateway: NapCatGateway,
     ) -> None:
         self._config = config
         self._input = input_port
+        self._gateway = gateway
 
     async def accept_event(
         self, event: NapCatGroupMessageEvent | NapCatPrivateMessageEvent
     ) -> ExternalMessageInputAcceptance | None:
         if event.self_id != self._config.account_id or event.user_id == event.self_id:
             return None
-        message = event.render_text()
-        if message is None:
+        parts = _message_parts(event.segments)
+        if not parts:
             return None
         try:
             observed_at = Instant(datetime.fromtimestamp(event.time, UTC))
@@ -129,7 +140,10 @@ class QQIngressAdapter:
             kind = ExternalConversationKind.GROUP
             conversation_key = str(event.group_id)
             conversation_label = group_label
-            addressed = event.self_id in event.mentioned_ids
+            addressed = (
+                event.self_id in event.mentioned_ids
+                or await self._replies_to_self(event)
+            )
         else:
             if (
                 event.user_id != self._config.creator_user_id
@@ -151,12 +165,27 @@ class QQIngressAdapter:
                 ExternalMessageKey(event.message_id),
                 ExternalPartyKey(str(event.user_id)),
                 event.sender_label,
-                message,
+                parts,
                 observed_at,
                 TraceId(uuid7().hex),
                 addressed,
             )
         )
+
+    async def _replies_to_self(self, event: NapCatGroupMessageEvent) -> bool:
+        for kind, data in event.segments:
+            if kind != "reply":
+                continue
+            message_id = data.get("id")
+            if not message_id:
+                continue
+            try:
+                sender = await self._gateway.get_message_sender(message_id=message_id)
+            except NapCatViolation:
+                continue
+            if sender == event.self_id:
+                return True
+        return False
 
 
 class QQEgressAdapter:
@@ -171,7 +200,15 @@ class QQEgressAdapter:
     ) -> ExternalMessageSendReceipt:
         receiver_id = self.validate_route(request)
         try:
-            text = request.content.decode("utf-8", errors="strict")
+            if (
+                len(request.parts) != 1
+                or request.parts[0].kind is not ExternalMessageOutputPartKind.TEXT
+                or request.parts[0].text is None
+            ):
+                raise ExternalMessageViolation(
+                    "EXTERNAL-MESSAGE-CAPABILITY-UNAVAILABLE"
+                )
+            text = request.parts[0].text
             echo = f"{request.effect_id}:{request.attempt_id}"
             if request.conversation_kind is ExternalConversationKind.GROUP:
                 response = await self._gateway.send_group_text(
@@ -181,8 +218,6 @@ class QQEgressAdapter:
                 response = await self._gateway.send_private_text(
                     user_id=receiver_id, text=text, echo=echo
                 )
-        except UnicodeDecodeError:
-            raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-UNICODE") from None
         except NapCatRejected:
             raise ExternalMessageViolation(
                 "EXTERNAL-MESSAGE-DELIVERY-REJECTED"
@@ -227,6 +262,54 @@ class QQEgressAdapter:
         ):
             raise ExternalMessageViolation("SCOPE-EXTERNAL-MESSAGE-NOT-ALLOWED")
         return receiver_id
+
+
+class QQMediaFetchAdapter(ExternalMediaFetchPort):
+    __slots__ = ("_config", "_gateway")
+
+    def __init__(self, *, config: QQAdapterConfig, gateway: NapCatGateway) -> None:
+        self._config = config
+        self._gateway = gateway
+
+    async def fetch(
+        self,
+        *,
+        channel: ExternalChannel,
+        account_key: ExternalAccountKey,
+        kind: ExternalMessagePartKind,
+        locator: str,
+        max_bytes: int,
+    ) -> ExternalMediaContent:
+        if (
+            channel.value != "qq"
+            or account_key.value != str(self._config.account_id)
+            or kind
+            not in {
+                ExternalMessagePartKind.IMAGE,
+                ExternalMessagePartKind.AUDIO,
+                ExternalMessagePartKind.VIDEO,
+                ExternalMessagePartKind.FILE,
+            }
+        ):
+            raise ExternalMessageViolation("SCOPE-EXTERNAL-MESSAGE-NOT-ALLOWED")
+        try:
+            downloaded = await self._gateway.fetch_media(
+                locator=locator,
+                kind=kind.value,
+                max_bytes=max_bytes,
+            )
+        except NapCatViolation as error:
+            code = (
+                "EXTERNAL-MESSAGE-MEDIA-TOO-LARGE"
+                if error.code == "NAPCAT-MEDIA-TOO-LARGE"
+                else "EXTERNAL-MESSAGE-MEDIA-UNAVAILABLE"
+            )
+            raise ExternalMessageViolation(code) from None
+        return ExternalMediaContent(
+            downloaded.content,
+            downloaded.file_name,
+            downloaded.media_type,
+        )
 
 
 class QQEffectAdapter(ActionAdapterPort):
@@ -283,7 +366,12 @@ def _send_request(
         ExternalAccountKey(request.external_account_key),
         kind,
         ExternalConversationKey(request.external_conversation_key),
-        payload,
+        (
+            ExternalMessageOutputPart(
+                ExternalMessageOutputPartKind.TEXT,
+                text=payload.decode("utf-8", errors="strict"),
+            ),
+        ),
         request.trace_id,
     )
 
@@ -299,9 +387,95 @@ def _effect_violation(error: ExternalMessageViolation) -> EffectViolation:
     return EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
 
 
+def _message_parts(
+    segments: tuple[tuple[str, dict[str, str]], ...],
+) -> tuple[ExternalMessagePart, ...]:
+    parts: list[ExternalMessagePart] = []
+    for kind, data in segments:
+        if kind == "text":
+            text = data.get("text", "")
+            if text:
+                parts.append(
+                    ExternalMessagePart(ExternalMessagePartKind.TEXT, text=text)
+                )
+        elif kind == "at":
+            target = data.get("qq")
+            if target:
+                parts.append(
+                    ExternalMessagePart(
+                        ExternalMessagePartKind.MENTION, target_key=target
+                    )
+                )
+        elif kind == "reply":
+            target = data.get("id")
+            if target:
+                parts.append(
+                    ExternalMessagePart(
+                        ExternalMessagePartKind.REPLY, target_key=target
+                    )
+                )
+        elif kind == "face":
+            label = data.get("raw") or data.get("id") or "未知"
+            parts.append(ExternalMessagePart(ExternalMessagePartKind.FACE, text=label))
+        elif kind in {"image", "mface", "record", "video", "file"}:
+            locator = (
+                data.get("file_id") or data.get("file") or data.get("url")
+                if kind == "file"
+                else data.get("file") or data.get("file_id") or data.get("url")
+            )
+            if not locator:
+                parts.append(
+                    ExternalMessagePart(
+                        ExternalMessagePartKind.UNKNOWN,
+                        text=_unknown_part_label(kind, data),
+                    )
+                )
+                continue
+            mapped_kind = {
+                "image": ExternalMessagePartKind.IMAGE,
+                "mface": ExternalMessagePartKind.IMAGE,
+                "record": ExternalMessagePartKind.AUDIO,
+                "video": ExternalMessagePartKind.VIDEO,
+                "file": ExternalMessagePartKind.FILE,
+            }[kind]
+            raw_size = data.get("file_size")
+            byte_size = int(raw_size) if raw_size and raw_size.isdecimal() else None
+            parts.append(
+                ExternalMessagePart(
+                    mapped_kind,
+                    locator=locator,
+                    file_name=(
+                        data.get("file_name")
+                        or data.get("name")
+                        or (data.get("file") if kind == "file" else None)
+                    ),
+                    media_type=data.get("mime_type"),
+                    byte_size=byte_size,
+                )
+            )
+        else:
+            parts.append(
+                ExternalMessagePart(
+                    ExternalMessagePartKind.UNKNOWN,
+                    text=_unknown_part_label(kind, data),
+                )
+            )
+    return tuple(parts)
+
+
+def _unknown_part_label(kind: str, data: dict[str, str]) -> str:
+    details = [
+        f"{key}={data[key]}"
+        for key in ("summary", "name", "title", "label")
+        if data.get(key)
+    ]
+    return kind if not details else f"{kind} ({', '.join(details)})"
+
+
 __all__ = (
     "QQAdapterConfig",
     "QQEffectAdapter",
     "QQEgressAdapter",
     "QQIngressAdapter",
+    "QQMediaFetchAdapter",
 )

@@ -16,6 +16,7 @@ from armi_adapter_qq import (
 from armi_channel_napcat import (
     NapCatActionResponse,
     NapCatAmbiguousDelivery,
+    NapCatDownloadedFile,
     NapCatGroupMessageEvent,
     NapCatPrivateMessageEvent,
     NapCatRejected,
@@ -68,6 +69,14 @@ class _Gateway:
     async def send_private_text(self, *, user_id: int, text: str, echo: str):
         return await self._send("private", user_id, text, echo)
 
+    async def get_message_sender(self, *, message_id: str) -> int | None:
+        return 10001 if message_id == "armi-message" else 30003
+
+    async def fetch_media(self, *, locator: str, kind: str, max_bytes: int):
+        return NapCatDownloadedFile(
+            b"media", f"sample.{kind}", "application/octet-stream"
+        )
+
     async def _send(self, kind: str, target: int, text: str, echo: str):
         if self.error is not None:
             raise self.error
@@ -90,7 +99,9 @@ def _config() -> QQAdapterConfig:
 class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_ingress_maps_group_and_friend_private(self) -> None:
         port = _InputPort()
-        adapter = QQIngressAdapter(config=_config(), input_port=port)
+        adapter = QQIngressAdapter(
+            config=_config(), input_port=port, gateway=_Gateway()
+        )
         group = NapCatGroupMessageEvent(
             1_800_000_000,
             10001,
@@ -116,10 +127,16 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(port.accepted[0].addressed_to_subject)
         self.assertEqual(port.accepted[1].conversation_key.value, "90009")
+        self.assertEqual(
+            [part.kind.value for part in port.accepted[0].parts],
+            ["mention", "text"],
+        )
 
     async def test_ingress_ignores_unlisted_wrong_account_and_self(self) -> None:
         port = _InputPort()
-        adapter = QQIngressAdapter(config=_config(), input_port=port)
+        adapter = QQIngressAdapter(
+            config=_config(), input_port=port, gateway=_Gateway()
+        )
         events = (
             NapCatGroupMessageEvent(
                 1, 10001, "1", 99999, 3, "x", (("text", {"text": "x"}),)
@@ -135,6 +152,41 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(await adapter.accept_event(event))
         self.assertEqual(port.accepted, [])
 
+    async def test_ingress_preserves_multimodal_order_and_resolves_reply_target(
+        self,
+    ) -> None:
+        port = _InputPort()
+        adapter = QQIngressAdapter(
+            config=_config(), input_port=port, gateway=_Gateway()
+        )
+        event = NapCatGroupMessageEvent(
+            1_800_000_000,
+            10001,
+            "media-1",
+            20002,
+            30003,
+            "小明",
+            (
+                ("reply", {"id": "armi-message"}),
+                ("text", {"text": "看看"}),
+                ("image", {"file": "image-locator", "file_size": "12"}),
+                ("record", {"file": "audio-locator"}),
+                ("video", {"file": "video-locator"}),
+                ("file", {"file_id": "file-locator", "name": "report.pdf"}),
+                ("poke", {"type": "1"}),
+            ),
+        )
+        await adapter.accept_event(event)
+        self.assertEqual(len(port.accepted), 1)
+        accepted = port.accepted[0]
+        self.assertTrue(accepted.addressed_to_subject)
+        self.assertEqual(
+            [part.kind.value for part in accepted.parts],
+            ["reply", "text", "image", "audio", "video", "file", "unknown"],
+        )
+        self.assertEqual(accepted.parts[2].byte_size, 12)
+        self.assertEqual(accepted.parts[5].file_name, "report.pdf")
+
     async def test_reply_switches_require_allowlist_exceptions(self) -> None:
         port = _InputPort()
         config = QQAdapterConfig(
@@ -146,7 +198,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             frozenset({30003}),
             frozenset({20002}),
         )
-        adapter = QQIngressAdapter(config=config, input_port=port)
+        adapter = QQIngressAdapter(config=config, input_port=port, gateway=_Gateway())
         events = (
             NapCatPrivateMessageEvent(
                 1, 10001, "1", 40004, "路人", (("text", {"text": "x"}),)

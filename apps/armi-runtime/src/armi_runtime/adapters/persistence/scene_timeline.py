@@ -340,7 +340,8 @@ class PostgreSQLSceneTimelineQuery:
                             LEFT JOIN armi.artifacts AS artifact
                               ON artifact.artifact_id = evidence.artifact_id
                              AND artifact.content_digest =
-                                 interaction.content_digest
+                                 COALESCE(interaction.cognition_content_digest,
+                                          interaction.content_digest)
                             LEFT JOIN armi.opportunities AS opportunity
                               ON opportunity.evidence_id = evidence.evidence_id
                              AND opportunity.subject_id = evidence.subject_id
@@ -416,7 +417,8 @@ class PostgreSQLSceneTimelineQuery:
                             LEFT JOIN armi.artifacts AS artifact
                               ON artifact.artifact_id = evidence.artifact_id
                              AND artifact.content_digest =
-                                 interaction.content_digest
+                                 COALESCE(interaction.cognition_content_digest,
+                                          interaction.content_digest)
                             LEFT JOIN armi.opportunities AS opportunity
                               ON opportunity.evidence_id = evidence.evidence_id
                              AND opportunity.subject_id = evidence.subject_id

@@ -49,7 +49,7 @@ from armi_runtime.adapters.persistence.other_human_input import (
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
-from .work_wakeup import OPPORTUNITY_AVAILABLE, WorkWakeupBus
+from .work_wakeup import EXTERNAL_CONTENT, OPPORTUNITY_AVAILABLE, WorkWakeupBus
 
 
 async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
@@ -169,13 +169,24 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         if existing is not None:
             await self._storage.discard(staged)
             return existing
-        try:
-            published = await self._storage.publish(staged)
-        except ArtifactViolation, OSError:
-            raise ExternalMessageViolation("ART-EXTERNAL-MESSAGE-PUBLISH") from None
+        deferred = _deferred_recognition(command)
+        published = None
+        if deferred is None:
+            try:
+                published = await self._storage.publish(staged)
+            except ArtifactViolation, OSError:
+                raise ExternalMessageViolation("ART-EXTERNAL-MESSAGE-PUBLISH") from None
+        else:
+            await self._storage.discard(staged)
         try:
             accepted = await self._commit(
-                command, context, idempotency_key, request_digest, published
+                command,
+                context,
+                idempotency_key,
+                request_digest,
+                staged.content_digest,
+                published,
+                deferred,
             )
         except DatabaseTransactionError as error:
             if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
@@ -186,7 +197,11 @@ class ExternalMessageInputService(ExternalMessageInputPort):
                     return recovered
             raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-UNAVAILABLE") from None
         if accepted.newly_accepted:
-            self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+            self._wakeups.notify(
+                EXTERNAL_CONTENT
+                if accepted.opportunity_id is None and command.has_media
+                else OPPORTUNITY_AVAILABLE
+            )
             await self._notify(command, context)
         return accepted
 
@@ -263,22 +278,12 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         request_digest: Digest,
     ) -> ExternalMessageInputAcceptance | None:
         async with self._factory.unit_of_work(read_only=True) as unit_of_work:
-            if context.creator_input is not None:
-                value = await self._creator_inputs.existing(
-                    unit_of_work,
-                    context=context.creator_input,
-                    idempotency_key=idempotency_key.value,
-                    request_digest=request_digest,
-                )
-            else:
-                assert context.other_input is not None
-                value = await self._other_inputs.existing(
-                    unit_of_work,
-                    context=context.other_input,
-                    idempotency_key=idempotency_key.value,
-                    request_digest=request_digest,
-                )
-        return None if value is None else _acceptance(context, value)
+            return await self._messages.existing_external(
+                unit_of_work,
+                context=context,
+                idempotency_key=idempotency_key.value,
+                request_digest=request_digest,
+            )
 
     async def _commit(
         self,
@@ -286,7 +291,9 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         expected: ExternalMessageInputContext,
         idempotency_key: IdempotencyKey,
         request_digest: Digest,
-        published: PublishedArtifact,
+        content_digest: Digest,
+        published: PublishedArtifact | None,
+        deferred: str | None,
     ) -> ExternalMessageInputAcceptance:
         async with self._factory.unit_of_work() as unit_of_work:
             current = await self._messages.bind_message(
@@ -325,44 +332,69 @@ class ExternalMessageInputService(ExternalMessageInputPort):
                 )
             ):
                 raise ExternalMessageViolation("SCOPE-EXTERNAL-MESSAGE-DATA-RIGHTS")
-            registration = await self._catalog.register(
-                unit_of_work, ArtifactId(uuid7()), published
-            )
-            if current.creator_input is not None:
-                value = await self._creator_inputs.create(
+            if deferred is not None:
+                acceptance = await self._messages.create_deferred(
                     unit_of_work,
-                    context=current.creator_input,
-                    idempotency_key=idempotency_key.value,
+                    context=current,
+                    command=command,
+                    idempotency_key=idempotency_key,
                     request_digest=request_digest,
-                    content_digest=registration.ref.content_digest,
-                    artifact_id=registration.ref.artifact_id.value,
-                    trace_id=command.trace_id.value,
-                    external_binding_id=current.conversation_binding_id,
-                    external_message_key=command.message_key.value,
-                    addressed_to_subject=command.addressed_to_subject,
+                    content_digest=content_digest,
+                    recognition_status=deferred,
                 )
             else:
-                assert current.other_input is not None
-                value = await self._other_inputs.create(
-                    unit_of_work,
-                    context=current.other_input,
-                    idempotency_key=idempotency_key.value,
-                    request_digest=request_digest,
-                    content_digest=registration.ref.content_digest,
-                    artifact_id=registration.ref.artifact_id.value,
-                    trace_id=command.trace_id.value,
-                    external_binding_id=current.conversation_binding_id,
-                    external_message_key=command.message_key.value,
-                    addressed_to_subject=command.addressed_to_subject,
+                assert published is not None
+                registration = await self._catalog.register(
+                    unit_of_work, ArtifactId(uuid7()), published
                 )
-            acceptance = _acceptance(current, value)
+                if current.creator_input is not None:
+                    value = await self._creator_inputs.create(
+                        unit_of_work,
+                        context=current.creator_input,
+                        idempotency_key=idempotency_key.value,
+                        request_digest=request_digest,
+                        content_digest=registration.ref.content_digest,
+                        artifact_id=registration.ref.artifact_id.value,
+                        trace_id=command.trace_id.value,
+                        external_binding_id=current.conversation_binding_id,
+                        external_message_key=command.message_key.value,
+                        addressed_to_subject=command.addressed_to_subject,
+                    )
+                else:
+                    assert current.other_input is not None
+                    value = await self._other_inputs.create(
+                        unit_of_work,
+                        context=current.other_input,
+                        idempotency_key=idempotency_key.value,
+                        request_digest=request_digest,
+                        content_digest=registration.ref.content_digest,
+                        artifact_id=registration.ref.artifact_id.value,
+                        trace_id=command.trace_id.value,
+                        external_binding_id=current.conversation_binding_id,
+                        external_message_key=command.message_key.value,
+                        addressed_to_subject=command.addressed_to_subject,
+                    )
+                await self._messages.add_parts(
+                    unit_of_work,
+                    interaction_id=value.interaction_id.value,
+                    command=command,
+                    media_status="skipped" if command.has_media else "not_required",
+                )
+                acceptance = _acceptance(current, value)
             await unit_of_work.audit.append(
                 AuditDraft(
                     AuditEventId(uuid7()),
                     AuditReference(current.sender_party_kind, current.sender_party_id),
                     Purpose("external_message.input"),
                     "external_message.input.accepted",
-                    AuditReference("opportunity", acceptance.opportunity_id.value),
+                    AuditReference(
+                        "opportunity"
+                        if acceptance.opportunity_id is not None
+                        else "external_message_input",
+                        acceptance.opportunity_id.value
+                        if acceptance.opportunity_id is not None
+                        else acceptance.interaction_id.value,
+                    ),
                     AuditResultStatus.ACCEPTED,
                     command.trace_id,
                     AuditSensitivity.PRIVATE,
@@ -381,22 +413,12 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         idempotency_key: IdempotencyKey,
         request_digest: Digest,
     ) -> ExternalMessageInputAcceptance | None:
-        if context.creator_input is not None:
-            value = await self._creator_inputs.existing(
-                unit_of_work,  # type: ignore[arg-type]
-                context=context.creator_input,
-                idempotency_key=idempotency_key.value,
-                request_digest=request_digest,
-            )
-        else:
-            assert context.other_input is not None
-            value = await self._other_inputs.existing(
-                unit_of_work,  # type: ignore[arg-type]
-                context=context.other_input,
-                idempotency_key=idempotency_key.value,
-                request_digest=request_digest,
-            )
-        return None if value is None else _acceptance(context, value)
+        return await self._messages.existing_external(
+            unit_of_work,  # type: ignore[arg-type]
+            context=context,
+            idempotency_key=idempotency_key.value,
+            request_digest=request_digest,
+        )
 
 
 def _request_digest(
@@ -408,7 +430,7 @@ def _request_digest(
     return Digest.from_bytes(
         rfc8785.dumps(
             {
-                "schema_version": "armi.external-message-input.v1",
+                "schema_version": "armi.external-message-input.v2",
                 "environment_id": str(environment_id),
                 "subject_id": str(context.subject_id),
                 "scene_id": str(context.scene_id),
@@ -423,9 +445,34 @@ def _request_digest(
                 "observed_at": command.observed_at.to_wire(),
                 "addressed_to_subject": command.addressed_to_subject,
                 "content_digest": content_digest.value,
+                "parts": [
+                    {
+                        "kind": part.kind.value,
+                        "text": part.text,
+                        "target_key": part.target_key,
+                        "locator": part.locator,
+                        "file_name": part.file_name,
+                        "media_type": part.media_type,
+                        "byte_size": part.byte_size,
+                    }
+                    for part in command.parts
+                ],
             }
         )
     )
+
+
+def _deferred_recognition(command: ObservedExternalMessage) -> str | None:
+    if not command.has_media:
+        return None
+    if command.conversation_kind.value == "direct" or command.addressed_to_subject:
+        return "pending"
+    if not any(
+        part.kind.value in {"text", "mention", "reply", "face"}
+        for part in command.parts
+    ):
+        return "skipped"
+    return None
 
 
 def _identity(channel: str, account: str, kind: str, external_key: str) -> str:

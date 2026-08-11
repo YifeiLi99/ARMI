@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid7
 
 from armi_kernel.application import (
     ConfigureExternalCreatorCommand,
     ExternalConversationKind,
     ExternalCreatorBinding,
+    ExternalMessageInputAcceptance,
+    ExternalMessageInteractionId,
     ExternalMessageViolation,
     ObservedExternalMessage,
+    WorkDraft,
+    WorkId,
+    WorkOwner,
+    WorkPayloadRef,
 )
+from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
 
 from .creator_input import CreatorInputContext
 from .other_human_input import OtherHumanInputContext
@@ -235,6 +243,177 @@ class ExternalMessageInputRepository:
             person=person_binding,
             conversation_identity_key=conversation_identity_key,
             scene_key=scene_key,
+        )
+
+    async def existing_external(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        context: ExternalMessageInputContext,
+        idempotency_key: str,
+        request_digest: Digest,
+    ) -> ExternalMessageInputAcceptance | None:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                SELECT interaction.interaction_id,
+                       evidence.evidence_id,
+                       opportunity.opportunity_id,
+                       interaction.request_digest,
+                       COALESCE(interaction.cognition_content_digest,
+                                interaction.content_digest)
+                FROM armi.party_input_interactions AS interaction
+                LEFT JOIN armi.external_evidence AS evidence
+                  ON evidence.interaction_id = interaction.interaction_id
+                LEFT JOIN armi.opportunities AS opportunity
+                  ON opportunity.evidence_id = evidence.evidence_id
+                 AND opportunity.root_opportunity_id = opportunity.opportunity_id
+                WHERE interaction.source_party_id = %s
+                  AND interaction.scene_id = %s
+                  AND interaction.idempotency_key = %s
+                """,
+                (context.sender_party_id, context.scene_id, idempotency_key),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        if str(row[3]) != request_digest.value:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-IDEMPOTENCY-MISMATCH")
+        from armi_kernel.application import EvidenceId, OpportunityId
+
+        return ExternalMessageInputAcceptance(
+            context.conversation_binding_id,
+            context.sender_party_id,
+            context.sender_party_kind,
+            context.scene_id,
+            ExternalMessageInteractionId(row[0]),
+            None if row[1] is None else EvidenceId(row[1]),
+            None if row[2] is None else OpportunityId(row[2]),
+            request_digest,
+            Digest(str(row[4])),
+            False,
+        )
+
+    async def add_parts(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        interaction_id: UUID,
+        command: ObservedExternalMessage,
+        media_status: str,
+    ) -> tuple[UUID, ...]:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        part_ids: list[UUID] = []
+        for ordinal, part in enumerate(command.parts, start=1):
+            part_id = uuid7()
+            status = media_status if part.requires_recognition else "not_required"
+            settled_at = datetime.now(UTC) if status == "skipped" else None
+            await connection.execute(
+                """
+                INSERT INTO armi.external_message_parts (
+                    external_message_part_id, interaction_id, ordinal, part_kind,
+                    text_value, target_key, external_locator, declared_file_name,
+                    declared_media_type, declared_byte_size, processing_status,
+                    settled_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    part_id,
+                    interaction_id,
+                    ordinal,
+                    part.kind.value,
+                    part.text,
+                    part.target_key,
+                    part.locator,
+                    part.file_name,
+                    part.media_type,
+                    part.byte_size,
+                    status,
+                    settled_at,
+                ),
+            )
+            part_ids.append(part_id)
+        return tuple(part_ids)
+
+    async def create_deferred(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        context: ExternalMessageInputContext,
+        command: ObservedExternalMessage,
+        idempotency_key: IdempotencyKey,
+        request_digest: Digest,
+        content_digest: Digest,
+        recognition_status: str,
+    ) -> ExternalMessageInputAcceptance:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        interaction_id = uuid7()
+        purpose = (
+            "creator_message"
+            if context.creator_input is not None
+            else "other_human_message"
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.party_input_interactions (
+                interaction_id, subject_id, scene_id, source_party_id, purpose,
+                idempotency_key, request_digest, content_digest, trace_id,
+                external_binding_id, external_message_key, addressed_to_subject,
+                recognition_status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                interaction_id,
+                context.subject_id,
+                context.scene_id,
+                context.sender_party_id,
+                purpose,
+                idempotency_key.value,
+                request_digest.value,
+                content_digest.value,
+                command.trace_id.value,
+                context.conversation_binding_id,
+                command.message_key.value,
+                command.addressed_to_subject,
+                recognition_status,
+            ),
+        )
+        await self.add_parts(
+            unit_of_work,
+            interaction_id=interaction_id,
+            command=command,
+            media_status="pending" if recognition_status == "pending" else "skipped",
+        )
+        if recognition_status == "pending":
+            now = Instant(datetime.now(UTC))
+            await unit_of_work.work.enqueue(
+                WorkDraft(
+                    WorkId(uuid7()),
+                    "external.content.recognize",
+                    WorkOwner("external_message", interaction_id),
+                    idempotency_key,
+                    request_digest,
+                    80,
+                    now,
+                    Instant(now.value + timedelta(hours=1)),
+                    1,
+                    command.trace_id,
+                    subject_id=SubjectId(context.subject_id),
+                    payload=WorkPayloadRef("external_message", interaction_id),
+                )
+            )
+        return ExternalMessageInputAcceptance(
+            context.conversation_binding_id,
+            context.sender_party_id,
+            context.sender_party_kind,
+            context.scene_id,
+            ExternalMessageInteractionId(interaction_id),
+            None,
+            None,
+            request_digest,
+            content_digest,
+            True,
         )
 
     async def _bind_direct(

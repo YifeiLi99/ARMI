@@ -204,7 +204,8 @@ class OtherHumanInputRepository:
                 """
                 SELECT interaction.interaction_id, evidence.evidence_id,
                        opportunity.opportunity_id, interaction.request_digest,
-                       interaction.content_digest
+                       COALESCE(interaction.cognition_content_digest,
+                                interaction.content_digest)
                 FROM armi.party_input_interactions AS interaction
                 JOIN armi.external_evidence AS evidence
                   ON evidence.interaction_id = interaction.interaction_id
