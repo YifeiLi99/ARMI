@@ -193,7 +193,7 @@ class PostgreSQLEffectLedgerRepository:
                    operation.operation_kind, revision.capability_kind,
                    revision.operation_class, revision.purpose,
                    operation.action_intent_id,
-                   CASE WHEN operation.operation_kind = 'creator_response'
+                   CASE WHEN operation.operation_kind = 'party_response'
                         THEN binding.external_binding_id END
             FROM armi.durable_work AS work
             JOIN armi.action_operations AS operation
