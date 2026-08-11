@@ -18,12 +18,32 @@ REQUIRED = {
     f"{PACKAGE_PREFIX}static/.vite/manifest.json",
     f"{RUNTIME_PREFIX}runtime.defaults.toml",
     f"{RUNTIME_PREFIX}runtime-composition.manifest.json",
+    f"{RUNTIME_PREFIX}schema/alembic/env.py",
+    f"{RUNTIME_PREFIX}schema/alembic/versions/0000_baseline.py",
+    *{
+        f"{RUNTIME_PREFIX}schema/baseline/{name}"
+        for name in (
+            "10_runtime_and_subject.sql",
+            "20_artifacts_parties_interactions.sql",
+            "30_cognition_and_provenance.sql",
+            "40_life_memory_relationships.sql",
+            "50_activities_and_maintenance.sql",
+            "60_actions_work_and_effects.sql",
+            "70_web_codex_audit_data_rights.sql",
+            "80_cross_domain_constraints_and_indexes.sql",
+            "90_static_catalog.sql",
+            "99_privileges.sql",
+        )
+    },
 }
 FORBIDDEN_PARTS = (
     "node_modules",
     "armi-creator-web/src",
     ".map",
     "/tests/",
+    "runtime_resources/schema/baseline/baseline.sql",
+    "runtime_resources/schema/baseline/manifest.json",
+    "runtime_resources/schema/migrations/",
 )
 
 

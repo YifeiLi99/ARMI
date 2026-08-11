@@ -81,6 +81,7 @@ DISTRIBUTIONS = (
         project_dir=Path("apps/armi-runtime"),
         layers=("adapters", "interfaces", "workers", "composition"),
         dependencies=(
+            "alembic==1.18.5",
             "armi-adapter-qq==0.0.0",
             "armi-artifact-store==0.0.0",
             "armi-kernel==0.0.0",

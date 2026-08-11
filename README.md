@@ -33,7 +33,7 @@ ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳�
 ```text
 packages/armi-kernel/       领域、应用端口与稳定公共契约
 packages/armi-artifact-store/ Runtime/Admin 共用的内容寻址制品存储
-packages/armi-postgresql-contract/ Runtime/Admin 共用的 catalog 指纹合同
+packages/armi-postgresql-contract/ Runtime/Admin 恢复与观测共用的 catalog 证据
 packages/armi-channel-napcat/ 独立 NapCat/OneBot 渠道驱动
 packages/armi-adapter-qq/    QQ 与内核统一外部消息端口的独立适配器
 apps/armi-runtime/          权威 Runtime、适配器、接口与组合根
@@ -83,7 +83,6 @@ docs/                       私有叙述性设计与外部研究资料
 uv sync --frozen
 uv run armi config check --environment-root C:\path\to\environment
 uv run armi db install --environment-root C:\path\to\environment
-uv run armi db migrate --environment-root C:\path\to\environment --apply
 uv run armi bootstrap birth --environment-root C:\path\to\environment
 uv run armi start --environment-root C:\path\to\environment
 uv run armi status --environment-root C:\path\to\environment
@@ -95,7 +94,7 @@ uv run armi stop --environment-root C:\path\to\environment
 
 日常及安装后的 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。Vite 地址仅用于源码前端开发。
 
-`db install` 按 manifest 顺序在同一事务中安装冻结的模块化 v1 基线；任一模块失败都会整体回滚。新环境必须继续执行 `db migrate --apply`，达到当前 catalog 后才能 `bootstrap birth`。安装会拒绝已有用户对象，并核对列、约束、索引、owner/ACL 与扩展身份组成的完整 catalog 指纹。基线建立前的开发数据库应在确认可丢弃后重建，不提供兼容登记入口。此后结构变化只新增编号 migration，迁移前须停止 Runtime 并完成可验证备份与恢复准备。
+数据库结构由 Alembic 的单线 revision 管理。`db install` 拒绝已有用户对象，并在一个事务中执行 `0000` 的有序模块化基线，成功后直接处于唯一 head；模块化 SQL 只是同一 revision 的职责拆分。此后结构变化新增普通 Alembic Python revision，停止 Runtime并完成可验证备份后使用 `armi db migrate --environment-root C:\path\to\environment --apply` 显式升级。Runtime 只核对 PostgreSQL/扩展身份、角色安全策略和当前 revision，不自动迁移，也不以完整 catalog 指纹阻止启动。
 
 离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。备份同时保存 custom-format 数据库 dump、全部 retained+verified artifact、schema 历史、catalog 指纹和逐表行数；它与 Creator JSONL 数据导出是不同协议。
 

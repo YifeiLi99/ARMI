@@ -1,32 +1,27 @@
-"""Install, baseline, inspect, and migrate the authoritative PostgreSQL schema."""
+"""Install, inspect, and migrate the authoritative PostgreSQL schema."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-import re
 from dataclasses import dataclass
-from importlib.resources import files
-from importlib.resources.abc import Traversable
-from typing import Any, Final, LiteralString, cast
+from pathlib import Path
+from typing import Any, Final
 from uuid import UUID
 
 import psycopg
-from armi_postgresql_contract.catalog_fingerprint import (
-    database_catalog_digest,
-    legacy_database_catalog_digest,
-)
-from psycopg import sql
+from alembic import command
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from alembic.script.revision import ResolutionError
+from alembic.util.exc import CommandError
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.pool import NullPool
 
 from armi_runtime.adapters.database_errors import DatabaseViolation
 
 from .role_policy import PostgreSQLRolePolicyGateway
 
-_RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
-_SCHEMA_RESOURCE = "schema"
-_BASELINE_MANIFEST = "baseline/manifest.json"
-_MIGRATIONS_MANIFEST = "migrations/manifest.json"
-_HISTORY_TABLE = "schema_migrations"
 _ADVISORY_LOCK: Final = 4_701_932_009
 _EXPECTED_POSTGRESQL: Final = 180004
 _EXPECTED_PGVECTOR: Final = "0.8.6"
@@ -35,311 +30,52 @@ _EXPECTED_PGVECTOR_SCHEMA: Final = "armi_extensions"
 _EXPECTED_ENCODING: Final = "UTF8"
 _EXPECTED_TIMEZONE: Final = "UTC"
 _EXPECTED_LOCALE: Final = "C.UTF-8"
-_IDENTIFIER = re.compile(r"^[0-9]{4}_[a-z0-9_]+$", re.ASCII)
-_BASELINE_ID: Final = "baseline"
-_BASELINE_DOCUMENTS: Final = (
-    "00_namespace.sql",
-    "10_runtime_and_subject.sql",
-    "20_artifacts_parties_interactions.sql",
-    "30_cognition_and_provenance.sql",
-    "40_life_memory_relationships.sql",
-    "50_activities_and_maintenance.sql",
-    "60_actions_work_and_effects.sql",
-    "70_web_codex_audit_data_rights.sql",
-    "80_cross_domain_constraints_and_indexes.sql",
-    "90_static_catalog.sql",
-    "99_privileges.sql",
-)
-_TABLE = re.compile(r"^[a-z][a-z0-9_]*$", re.ASCII)
-_TABLE_PATTERN = re.compile(rb"\bCREATE TABLE armi\.([a-z][a-z0-9_]*)\s*\(")
+_VERSION_TABLE: Final = "alembic_version"
 
 
 @dataclass(frozen=True, slots=True)
 class SchemaStatus:
     status: str
     table_count: int
-    baseline_id: str
-    migration_count: int
-    target_id: str
-    catalog_digest: str
+    current_revision: str
+    head_revision: str
 
     def safe_view(self) -> dict[str, object]:
         return {
             "status": self.status,
             "table_count": self.table_count,
-            "baseline_id": self.baseline_id,
-            "migration_count": self.migration_count,
-            "target_id": self.target_id,
-            "catalog_digest": self.catalog_digest,
+            "current_revision": self.current_revision,
+            "head_revision": self.head_revision,
         }
-
-
-@dataclass(frozen=True, slots=True)
-class _Migration:
-    migration_id: str
-    checksum: str
-    definition: bytes
-    creates_tables: frozenset[str]
-    drops_tables: frozenset[str]
-    target_catalog_digest: str
-
-
-@dataclass(frozen=True, slots=True)
-class _SchemaPlan:
-    baseline_id: str
-    baseline_checksum: str
-    baseline_definitions: tuple[bytes, ...]
-    baseline_tables: frozenset[str]
-    baseline_catalog_digest: str
-    migrations: tuple[_Migration, ...]
-
-    @property
-    def expected_history(self) -> tuple[tuple[str, str, str], ...]:
-        return (
-            (self.baseline_id, "baseline", self.baseline_checksum),
-            *tuple(
-                (migration.migration_id, "migration", migration.checksum)
-                for migration in self.migrations
-            ),
-        )
-
-    @property
-    def target_id(self) -> str:
-        return self.migrations[-1].migration_id if self.migrations else self.baseline_id
-
-    def catalog_after(self, history_count: int) -> str:
-        if history_count <= 1:
-            return self.baseline_catalog_digest
-        return self.migrations[history_count - 2].target_catalog_digest
-
-    def tables_after(self, history_count: int) -> frozenset[str]:
-        tables = set(self.baseline_tables)
-        for migration in self.migrations[: max(0, history_count - 1)]:
-            tables.difference_update(migration.drops_tables)
-            tables.update(migration.creates_tables)
-        return frozenset(tables)
-
-
-def _digest(value: bytes) -> str:
-    return f"sha256:{hashlib.sha256(value).hexdigest()}"
-
-
-def _strict_json(raw: bytes, *, code: str) -> dict[str, object]:
-    def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
-        result: dict[str, object] = {}
-        for key, value in items:
-            if key in result:
-                raise ValueError
-            result[key] = value
-        return result
-
-    try:
-        value = json.loads(raw.decode("utf-8", "strict"), object_pairs_hook=pairs)
-    except UnicodeDecodeError, json.JSONDecodeError, ValueError:
-        raise DatabaseViolation(
-            code, "the packaged schema manifest is invalid"
-        ) from None
-    if type(value) is not dict:
-        raise DatabaseViolation(code, "the packaged schema manifest is invalid")
-    return cast(dict[str, object], value)
-
-
-def _text_list(value: object) -> list[str]:
-    if type(value) is not list:
-        raise ValueError
-    items = cast(list[object], value)
-    if any(type(item) is not str for item in items):
-        raise ValueError
-    return cast(list[str], items)
-
-
-def _load_schema_plan(resource_root: Traversable | None = None) -> _SchemaPlan:
-    root = resource_root or files(_RESOURCE_PACKAGE).joinpath(_SCHEMA_RESOURCE)
-    baseline_root = root.joinpath("baseline")
-    migrations_root = root.joinpath("migrations")
-    try:
-        baseline_raw = root.joinpath(_BASELINE_MANIFEST).read_bytes()
-        migrations_raw = root.joinpath(_MIGRATIONS_MANIFEST).read_bytes()
-    except OSError:
-        raise DatabaseViolation(
-            "DB-SCHEMA-RESOURCE", "the packaged schema manifests are unavailable"
-        ) from None
-    baseline = _strict_json(baseline_raw, code="DB-SCHEMA-RESOURCE")
-    migrations_value = _strict_json(migrations_raw, code="DB-SCHEMA-RESOURCE")
-    try:
-        if set(baseline) != {
-            "schema_version",
-            "baseline_id",
-            "catalog_sha256",
-            "documents",
-            "sha256",
-            "tables",
-        }:
-            raise ValueError
-        baseline_id = baseline["baseline_id"]
-        if (
-            baseline["schema_version"] != "armi.schema-baseline.v1"
-            or type(baseline_id) is not str
-            or baseline_id != _BASELINE_ID
-            or type(baseline["sha256"]) is not str
-            or type(baseline["catalog_sha256"]) is not str
-            or not str(baseline["catalog_sha256"]).startswith("sha256:")
-        ):
-            raise ValueError
-        declared_tables = _text_list(baseline["tables"])
-        if declared_tables != sorted(set(declared_tables)) or any(
-            _TABLE.fullmatch(name) is None for name in declared_tables
-        ):
-            raise ValueError
-        document_values = baseline["documents"]
-        if type(document_values) is not list:
-            raise ValueError
-        documents = cast(list[object], document_values)
-        if len(documents) != len(_BASELINE_DOCUMENTS):
-            raise ValueError
-        baseline_definitions: list[bytes] = []
-        digest_documents: list[dict[str, str]] = []
-        for expected_path, item in zip(_BASELINE_DOCUMENTS, documents, strict=True):
-            if type(item) is not dict:
-                raise ValueError
-            document = cast(dict[str, object], item)
-            if (
-                set(document) != {"path", "sha256"}
-                or document["path"] != expected_path
-                or type(document["sha256"]) is not str
-            ):
-                raise ValueError
-            definition = baseline_root.joinpath(expected_path).read_bytes()
-            if not definition.strip() or _digest(definition) != document["sha256"]:
-                raise ValueError
-            baseline_definitions.append(definition)
-            digest_documents.append(
-                {"path": expected_path, "sha256": document["sha256"]}
-            )
-        combined = json.dumps(
-            digest_documents,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-        if _digest(combined) != baseline["sha256"]:
-            raise ValueError
-        baseline_definition = b"\n".join(baseline_definitions)
-        discovered_tables = {
-            match.group(1).decode("ascii")
-            for match in _TABLE_PATTERN.finditer(baseline_definition)
-        }
-        actual_paths = sorted(
-            entry.name
-            for entry in baseline_root.iterdir()
-            if entry.name.endswith(".sql")
-        )
-        if actual_paths != sorted(_BASELINE_DOCUMENTS):
-            raise ValueError
-        if (
-            discovered_tables != set(declared_tables)
-            or _HISTORY_TABLE not in discovered_tables
-        ):
-            raise ValueError
-
-        if set(migrations_value) != {"schema_version", "baseline_id", "migrations"}:
-            raise ValueError
-        migration_values = migrations_value["migrations"]
-        if (
-            migrations_value["schema_version"] != "armi.schema-migrations.v1"
-            or migrations_value["baseline_id"] != baseline_id
-            or type(migration_values) is not list
-        ):
-            raise ValueError
-        migration_paths: list[str] = []
-        migrations: list[_Migration] = []
-        target_tables = set(declared_tables)
-        previous_id: str | None = None
-        for item in cast(list[object], migration_values):
-            if type(item) is not dict:
-                raise ValueError
-            entry = cast(dict[str, object], item)
-            if set(entry) != {
-                "migration_id",
-                "path",
-                "sha256",
-                "creates_tables",
-                "drops_tables",
-                "target_catalog_sha256",
-            }:
-                raise ValueError
-            migration_id = entry["migration_id"]
-            path = entry["path"]
-            checksum = entry["sha256"]
-            target_catalog_digest = entry["target_catalog_sha256"]
-            creates = _text_list(entry["creates_tables"])
-            drops = _text_list(entry["drops_tables"])
-            if (
-                type(migration_id) is not str
-                or _IDENTIFIER.fullmatch(migration_id) is None
-                or (previous_id is not None and migration_id <= previous_id)
-                or type(path) is not str
-                or path != f"{migration_id}.sql"
-                or type(checksum) is not str
-                or type(target_catalog_digest) is not str
-                or not target_catalog_digest.startswith("sha256:")
-                or creates != sorted(set(creates))
-                or drops != sorted(set(drops))
-                or any(_TABLE.fullmatch(name) is None for name in (*creates, *drops))
-            ):
-                raise ValueError
-            migration_definition = migrations_root.joinpath(path).read_bytes()
-            if (
-                not migration_definition.strip()
-                or _digest(migration_definition) != checksum
-            ):
-                raise ValueError
-            if set(creates).intersection(target_tables) or not set(drops).issubset(
-                target_tables
-            ):
-                raise ValueError
-            target_tables.difference_update(drops)
-            target_tables.update(creates)
-            migrations.append(
-                _Migration(
-                    migration_id,
-                    checksum,
-                    migration_definition,
-                    frozenset(creates),
-                    frozenset(drops),
-                    target_catalog_digest,
-                )
-            )
-            migration_paths.append(path)
-            previous_id = migration_id
-        actual_migration_paths = sorted(
-            entry.name
-            for entry in migrations_root.iterdir()
-            if entry.name.endswith(".sql")
-        )
-        if migration_paths != actual_migration_paths:
-            raise ValueError
-    except OSError, TypeError, ValueError:
-        raise DatabaseViolation(
-            "DB-SCHEMA-RESOURCE", "the packaged schema plan is invalid"
-        ) from None
-    return _SchemaPlan(
-        baseline_id=baseline_id,
-        baseline_checksum=baseline["sha256"],
-        baseline_definitions=tuple(baseline_definitions),
-        baseline_tables=frozenset(declared_tables),
-        baseline_catalog_digest=baseline["catalog_sha256"],
-        migrations=tuple(migrations),
-    )
 
 
 class PostgreSQLSchemaGateway:
-    """Govern one authoritative schema from baseline through ordered migrations."""
+    """Govern one authoritative schema through a linear Alembic history."""
 
-    __slots__ = ("_plan",)
+    __slots__ = ("_config", "_head")
 
-    def __init__(self, *, resource_root: Traversable | None = None) -> None:
-        self._plan = _load_schema_plan(resource_root)
+    def __init__(self, *, resource_root: Path | None = None) -> None:
+        schema_root = resource_root or (
+            Path(__file__).resolve().parents[2]
+            / "composition"
+            / "runtime_resources"
+            / "schema"
+        )
+        config = Config()
+        config.set_main_option("script_location", str(schema_root / "alembic"))
+        config.attributes["schema_root"] = schema_root
+        try:
+            script = ScriptDirectory.from_config(config)
+            heads = script.get_heads()
+            if len(heads) != 1:
+                raise ValueError
+        except CommandError, OSError, ValueError:
+            raise DatabaseViolation(
+                "DB-SCHEMA-RESOURCE",
+                "the packaged Alembic revision history is invalid",
+            ) from None
+        self._config = config
+        self._head = heads[0]
 
     def status(
         self,
@@ -372,31 +108,30 @@ class PostgreSQLSchemaGateway:
             if self._catalog_user_objects(connection):
                 raise DatabaseViolation(
                     "DB-SCHEMA-EXISTS",
-                    "the authoritative database must be empty before baseline install",
+                    "the authoritative database must be empty before install",
                 )
             try:
                 with connection.transaction():
                     connection.execute("SET LOCAL ROLE armi_owner")
-                    for definition in self._plan.baseline_definitions:
-                        self._execute(connection, definition)
-                    self._record(
-                        connection,
-                        self._plan.baseline_id,
-                        "baseline",
-                        self._plan.baseline_checksum,
-                    )
-                    connection.execute("RESET ALL")
-            except psycopg.Error, UnicodeDecodeError:
+                    connection.execute("CREATE SCHEMA armi")
+                self._upgrade(conninfo)
+            except (
+                psycopg.Error,
+                CommandError,
+                OSError,
+                SQLAlchemyError,
+                UnicodeError,
+            ):
                 raise DatabaseViolation(
                     "DB-SCHEMA-INSTALL-FAILED",
-                    "the schema baseline install failed and was rolled back",
+                    "the Alembic schema install failed",
                 ) from None
             role_gateway.verify(
                 connection,
                 environment_id=environment_id,
                 role_class="migrator",
             )
-            return self._inspect_schema(connection, allow_pending=True)
+            return self._inspect_schema(connection)
 
     def migrate(self, conninfo: str, *, environment_id: UUID) -> SchemaStatus:
         with self._connect(conninfo, autocommit=True) as connection:
@@ -412,29 +147,51 @@ class PostgreSQLSchemaGateway:
             if state.status == "current":
                 return state
             self._reject_active_runtime(connection)
-            applied = len(self._history(connection)) - 1
-            for migration in self._plan.migrations[applied:]:
-                try:
-                    with connection.transaction():
-                        connection.execute("SET LOCAL ROLE armi_owner")
-                        self._execute(connection, migration.definition)
-                        self._record(
-                            connection,
-                            migration.migration_id,
-                            "migration",
-                            migration.checksum,
-                        )
-                except psycopg.Error, UnicodeDecodeError:
-                    raise DatabaseViolation(
-                        "DB-SCHEMA-MIGRATION-FAILED",
-                        "a schema migration failed and was rolled back",
-                    ) from None
+            try:
+                self._upgrade(conninfo)
+            except (
+                psycopg.Error,
+                CommandError,
+                OSError,
+                SQLAlchemyError,
+                UnicodeError,
+            ):
+                raise DatabaseViolation(
+                    "DB-SCHEMA-MIGRATION-FAILED",
+                    "an Alembic revision failed",
+                ) from None
             role_gateway.verify(
                 connection,
                 environment_id=environment_id,
                 role_class="migrator",
             )
             return self._inspect_schema(connection)
+
+    def _upgrade(self, conninfo: str) -> None:
+        engine = create_engine(
+            "postgresql+psycopg://",
+            creator=lambda: psycopg.connect(conninfo),
+            poolclass=NullPool,
+        )
+        try:
+            with engine.connect() as connection:
+                self._set_owner_role(connection)
+                self._config.attributes["connection"] = connection
+                try:
+                    command.upgrade(self._config, "head")
+                finally:
+                    self._config.attributes.pop("connection", None)
+                    if connection.in_transaction():
+                        connection.rollback()
+                    connection.exec_driver_sql("RESET ROLE")
+                    connection.commit()
+        finally:
+            engine.dispose()
+
+    @staticmethod
+    def _set_owner_role(connection: Connection) -> None:
+        connection.exec_driver_sql("SET ROLE armi_owner")
+        connection.commit()
 
     @staticmethod
     def _connect(
@@ -482,18 +239,17 @@ class PostgreSQLSchemaGateway:
                 ORDER BY extension.extname
                 """
             ).fetchall()
-            if None in (
-                version_row,
-                encoding_row,
-                timezone_row,
-                locale_row,
-                extension_rows,
+            if (
+                version_row is None
+                or encoding_row is None
+                or timezone_row is None
+                or locale_row is None
             ):
                 raise ValueError
-            version = int(str(cast(tuple[object, ...], version_row)[0]))
-            encoding = str(cast(tuple[object, ...], encoding_row)[0])
-            timezone = str(cast(tuple[object, ...], timezone_row)[0])
-            provider, locale = cast(tuple[object, object], locale_row)
+            version = int(str(version_row[0]))
+            encoding = str(encoding_row[0])
+            timezone = str(timezone_row[0])
+            provider, locale = str(locale_row[0]), str(locale_row[1])
             extensions = [tuple(str(value) for value in row) for row in extension_rows]
         except psycopg.Error, TypeError, ValueError:
             raise DatabaseViolation(
@@ -529,58 +285,43 @@ class PostgreSQLSchemaGateway:
         *,
         allow_pending: bool = False,
     ) -> SchemaStatus:
-        actual = self._catalog_tables(connection)
-        if not actual:
+        tables = self._catalog_tables(connection)
+        if _VERSION_TABLE not in tables:
             raise DatabaseViolation(
-                "DB-SCHEMA-MISSING", "the authoritative schema is not installed"
+                "DB-SCHEMA-MISSING",
+                "the Alembic version table is unavailable",
             )
-        if _HISTORY_TABLE not in actual:
-            if actual == self._plan.baseline_tables - {_HISTORY_TABLE}:
-                raise DatabaseViolation(
-                    "DB-SCHEMA-UNBASELINED",
-                    "the pre-baseline development database must be rebuilt",
-                )
-            raise DatabaseViolation("DB-SCHEMA-DIRTY", "the schema tables have drifted")
-        history = self._history(connection)
-        expected = self._plan.expected_history
-        if (
-            not history
-            or len(history) > len(expected)
-            or history != expected[: len(history)]
-        ):
+        try:
+            rows = connection.execute(
+                "SELECT version_num FROM armi.alembic_version"
+            ).fetchall()
+        except psycopg.Error:
             raise DatabaseViolation(
-                "DB-SCHEMA-HISTORY", "the schema migration history has drifted"
-            )
-        expected_tables = self._plan.tables_after(len(history))
-        if actual != expected_tables:
-            raise DatabaseViolation("DB-SCHEMA-DIRTY", "the schema tables have drifted")
-        catalog_digest = (
-            legacy_database_catalog_digest(connection)
-            if len(history) == 1
-            else database_catalog_digest(connection)
-        )
-        if catalog_digest != self._plan.catalog_after(len(history)):
+                "DB-SCHEMA-HISTORY",
+                "the Alembic revision is unavailable",
+            ) from None
+        if len(rows) != 1:
             raise DatabaseViolation(
-                "DB-SCHEMA-CATALOG-DRIFT",
-                "the schema catalog, indexes, or privileges have drifted",
+                "DB-SCHEMA-HISTORY",
+                "the Alembic revision history is invalid",
             )
-        migration_count = len(history) - 1
-        if len(history) < len(expected):
-            if not allow_pending:
-                raise DatabaseViolation(
-                    "DB-SCHEMA-PENDING", "schema migrations must be applied explicitly"
-                )
-            status = "pending"
-        else:
-            status = "current"
-        return SchemaStatus(
-            status=status,
-            table_count=len(actual),
-            baseline_id=self._plan.baseline_id,
-            migration_count=migration_count,
-            target_id=self._plan.target_id,
-            catalog_digest=catalog_digest,
-        )
+        current = str(rows[0][0])
+        try:
+            revision = ScriptDirectory.from_config(self._config).get_revision(current)
+        except CommandError, ResolutionError:
+            revision = None
+        if revision is None:
+            raise DatabaseViolation(
+                "DB-SCHEMA-HISTORY",
+                "the database revision is not present in this build",
+            )
+        status = "current" if current == self._head else "pending"
+        if status == "pending" and not allow_pending:
+            raise DatabaseViolation(
+                "DB-SCHEMA-PENDING",
+                "Alembic revisions must be applied explicitly",
+            )
+        return SchemaStatus(status, len(tables), current, self._head)
 
     @staticmethod
     def _catalog_user_objects(
@@ -606,7 +347,8 @@ class PostgreSQLSchemaGateway:
             ).fetchall()
         except psycopg.Error:
             raise DatabaseViolation(
-                "DB-SCHEMA-INVARIANT", "the database catalog could not be inspected"
+                "DB-SCHEMA-INVARIANT",
+                "the database catalog could not be inspected",
             ) from None
         return frozenset((str(row[0]), str(row[1])) for row in rows)
 
@@ -628,52 +370,10 @@ class PostgreSQLSchemaGateway:
             ).fetchall()
         except psycopg.Error:
             raise DatabaseViolation(
-                "DB-SCHEMA-INVARIANT", "the schema catalog could not be inspected"
+                "DB-SCHEMA-INVARIANT",
+                "the schema catalog could not be inspected",
             ) from None
         return frozenset(str(row[0]) for row in rows)
-
-    @staticmethod
-    def _history(
-        connection: psycopg.Connection[tuple[Any, ...]],
-    ) -> tuple[tuple[str, str, str], ...]:
-        try:
-            rows = connection.execute(
-                """
-                SELECT migration_id, migration_kind, checksum
-                FROM armi.schema_migrations
-                ORDER BY sequence_no
-                """
-            ).fetchall()
-        except psycopg.Error:
-            raise DatabaseViolation(
-                "DB-SCHEMA-HISTORY", "the schema migration history is unavailable"
-            ) from None
-        return tuple((str(row[0]), str(row[1]), str(row[2])) for row in rows)
-
-    @staticmethod
-    def _record(
-        connection: psycopg.Connection[tuple[Any, ...]],
-        migration_id: str,
-        migration_kind: str,
-        checksum: str,
-    ) -> None:
-        connection.execute(
-            """
-            INSERT INTO armi.schema_migrations (
-                migration_id,
-                migration_kind,
-                checksum
-            )
-            VALUES (%s, %s, %s)
-            """,
-            (migration_id, migration_kind, checksum),
-        )
-
-    @staticmethod
-    def _execute(
-        connection: psycopg.Connection[tuple[Any, ...]], definition: bytes
-    ) -> None:
-        connection.execute(sql.SQL(cast(LiteralString, definition.decode("utf-8"))))
 
     @staticmethod
     def _reject_active_runtime(
@@ -699,7 +399,7 @@ class PostgreSQLSchemaGateway:
         if row != (False,):
             raise DatabaseViolation(
                 "DB-SCHEMA-RUNTIME-ACTIVE",
-                "stop the active Runtime before applying schema migrations",
+                "stop the active Runtime before applying schema revisions",
             )
 
     @staticmethod
@@ -710,7 +410,8 @@ class PostgreSQLSchemaGateway:
             )
         except psycopg.Error:
             raise DatabaseViolation(
-                "DB-SCHEMA-LOCK", "the schema governance lock could not be acquired"
+                "DB-SCHEMA-LOCK",
+                "the schema migration lock could not be acquired",
             ) from None
 
 

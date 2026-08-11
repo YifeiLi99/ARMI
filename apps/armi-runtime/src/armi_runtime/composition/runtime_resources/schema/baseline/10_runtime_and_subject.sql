@@ -1,4 +1,26 @@
--- Frozen ARMI v1 runtime and subject facts.
+--
+-- PostgreSQL database dump
+--
+
+
+-- Dumped from database version 18.4 (Debian 18.4-1.pgdg13+1)
+-- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg13+1)
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.deployment_environments (
     singleton_key boolean DEFAULT true NOT NULL,
@@ -7,26 +29,18 @@ CREATE TABLE armi.deployment_environments (
     incarnation bigint NOT NULL,
     resettable boolean NOT NULL,
     test_controls_enabled boolean NOT NULL,
-    bundle_digest text NOT NULL,
-    config_digest text NOT NULL,
-    template_digest text NOT NULL,
-    data_root_identity_digest text NOT NULL,
-    database_identity_digest text NOT NULL,
     registered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    schema_version smallint DEFAULT 1 NOT NULL,
-    CONSTRAINT deployment_environments_bundle_digest_check CHECK ((bundle_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT deployment_environments_check CHECK (((environment_kind = ANY (ARRAY['development'::text, 'system_test'::text, 'acceptance'::text])) OR ((NOT resettable) AND (NOT test_controls_enabled)))),
     CONSTRAINT deployment_environments_check1 CHECK (((NOT test_controls_enabled) OR (environment_kind = ANY (ARRAY['system_test'::text, 'acceptance'::text])))),
-    CONSTRAINT deployment_environments_config_digest_check CHECK ((config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT deployment_environments_data_root_identity_digest_check CHECK ((data_root_identity_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT deployment_environments_database_identity_digest_check CHECK ((database_identity_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT deployment_environments_environment_id_check CHECK ((uuid_extract_version(environment_id) = 7)),
     CONSTRAINT deployment_environments_environment_kind_check CHECK ((environment_kind = ANY (ARRAY['development'::text, 'system_test'::text, 'acceptance'::text, 'active'::text, 'restore_quarantine'::text]))),
     CONSTRAINT deployment_environments_incarnation_check CHECK ((incarnation > 0)),
-    CONSTRAINT deployment_environments_schema_version_check CHECK ((schema_version = 1)),
-    CONSTRAINT deployment_environments_singleton_key_check CHECK (singleton_key),
-    CONSTRAINT deployment_environments_template_digest_check CHECK ((template_digest ~ '^sha256:[0-9a-f]{64}$'::text))
+    CONSTRAINT deployment_environments_singleton_key_check CHECK (singleton_key)
 );
+
+--
+-- Name: life_generations; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.life_generations (
     life_generation_id uuid NOT NULL,
@@ -45,6 +59,10 @@ CREATE TABLE armi.life_generations (
     CONSTRAINT life_generations_status_check CHECK ((status = ANY (ARRAY['active'::text, 'fenced'::text, 'preparing'::text])))
 );
 
+--
+-- Name: prompt_documents; Type: TABLE; Schema: armi; Owner: -
+--
+
 CREATE TABLE armi.prompt_documents (
     prompt_document_id uuid NOT NULL,
     subject_id uuid NOT NULL,
@@ -61,6 +79,10 @@ CREATE TABLE armi.prompt_documents (
     CONSTRAINT prompt_documents_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text]))),
     CONSTRAINT prompt_documents_write_authority_check CHECK ((write_authority = ANY (ARRAY['fixed'::text, 'creator'::text, 'subject'::text])))
 );
+
+--
+-- Name: prompt_revisions; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.prompt_revisions (
     prompt_revision_id uuid NOT NULL,
@@ -82,6 +104,10 @@ CREATE TABLE armi.prompt_revisions (
     CONSTRAINT prompt_revisions_revision_no_check CHECK ((revision_no >= 1))
 );
 
+--
+-- Name: runtime_bundle_activations; Type: TABLE; Schema: armi; Owner: -
+--
+
 CREATE TABLE armi.runtime_bundle_activations (
     bundle_activation_id uuid NOT NULL,
     subject_id uuid NOT NULL,
@@ -89,8 +115,6 @@ CREATE TABLE armi.runtime_bundle_activations (
     bundle_digest text NOT NULL,
     manifest_artifact_id uuid NOT NULL,
     fixed_policy_digest text NOT NULL,
-    fixed_prompt_set_digest text NOT NULL,
-    creator_asset_digest text NOT NULL,
     model_binding text,
     status text NOT NULL,
     activated_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
@@ -100,12 +124,14 @@ CREATE TABLE armi.runtime_bundle_activations (
     CONSTRAINT runtime_bundle_activations_bundle_digest_check CHECK ((bundle_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT runtime_bundle_activations_bundle_version_check CHECK ((bundle_version = '0.0.0'::text)),
     CONSTRAINT runtime_bundle_activations_check CHECK ((((status = 'current'::text) AND (deactivated_at IS NULL)) OR ((status = 'superseded'::text) AND (deactivated_at IS NOT NULL)))),
-    CONSTRAINT runtime_bundle_activations_creator_asset_digest_check CHECK ((creator_asset_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT runtime_bundle_activations_fixed_policy_digest_check CHECK ((fixed_policy_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT runtime_bundle_activations_fixed_prompt_set_digest_check CHECK ((fixed_prompt_set_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT runtime_bundle_activations_model_binding_check CHECK ((model_binding IS NULL)),
     CONSTRAINT runtime_bundle_activations_status_check CHECK ((status = ANY (ARRAY['current'::text, 'superseded'::text])))
 );
+
+--
+-- Name: runtime_instances; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.runtime_instances (
     runtime_instance_id uuid NOT NULL,
@@ -118,14 +144,28 @@ CREATE TABLE armi.runtime_instances (
     last_heartbeat_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     lease_expires_at timestamp(6) with time zone NOT NULL,
     stopped_at timestamp(6) with time zone,
-    schema_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT runtime_instances_check CHECK ((lease_expires_at > last_heartbeat_at)),
     CONSTRAINT runtime_instances_check1 CHECK ((((status = 'active'::text) AND (stopped_at IS NULL)) OR ((status = ANY (ARRAY['fenced'::text, 'stopped'::text])) AND (stopped_at IS NOT NULL)))),
     CONSTRAINT runtime_instances_fence_token_check CHECK ((fence_token > 0)),
     CONSTRAINT runtime_instances_runtime_instance_id_check CHECK ((uuid_extract_version(runtime_instance_id) = 7)),
-    CONSTRAINT runtime_instances_schema_version_check CHECK ((schema_version = 1)),
     CONSTRAINT runtime_instances_status_check CHECK ((status = ANY (ARRAY['active'::text, 'fenced'::text, 'stopped'::text])))
 );
+
+--
+-- Name: runtime_recovery_metrics; Type: TABLE; Schema: armi; Owner: -
+--
+
+CREATE TABLE armi.runtime_recovery_metrics (
+    recovery_run_id uuid NOT NULL,
+    metric_kind text NOT NULL,
+    metric_value integer NOT NULL,
+    CONSTRAINT runtime_recovery_metrics_kind_check CHECK ((metric_kind = ANY (ARRAY['requeued_work_count'::text, 'terminal_work_count'::text, 'resumable_work_count'::text, 'critical_artifact_count'::text, 'resumable_opportunity_count'::text, 'resumable_cognitive_episode_count'::text, 'resumable_model_attempt_count'::text, 'resumable_candidate_validation_count'::text, 'resumable_subject_commit_count'::text, 'resumable_capability_request_count'::text, 'resumable_response_operation_count'::text, 'resumable_effect_count'::text, 'resumable_effect_outbox_count'::text, 'resumable_effect_attempt_count'::text, 'reliable_effect_observation_count'::text, 'creator_response_delivery_count'::text, 'resumable_web_observation_count'::text, 'unknown_web_observation_attempt_count'::text, 'resumable_web_research_intent_count'::text, 'pending_web_evidence_acceptance_count'::text, 'resumable_web_cognition_count'::text, 'resumable_admin_correction_work_count'::text, 'resumable_codex_task_count'::text, 'resumable_codex_effect_count'::text, 'pending_codex_result_acceptance_count'::text]))),
+    CONSTRAINT runtime_recovery_metrics_value_check CHECK ((metric_value >= 0))
+);
+
+--
+-- Name: runtime_recovery_runs; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.runtime_recovery_runs (
     recovery_run_id uuid NOT NULL,
@@ -137,87 +177,19 @@ CREATE TABLE armi.runtime_recovery_runs (
     status text NOT NULL,
     started_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     completed_at timestamp(6) with time zone,
-    requeued_work_count integer DEFAULT 0 NOT NULL,
-    terminal_work_count integer DEFAULT 0 NOT NULL,
-    requeued_outbox_count integer DEFAULT 0 NOT NULL,
-    dead_outbox_count integer DEFAULT 0 NOT NULL,
-    resumable_work_count integer DEFAULT 0 NOT NULL,
-    resumable_outbox_count integer DEFAULT 0 NOT NULL,
-    critical_artifact_count integer DEFAULT 0 NOT NULL,
     blocker_count integer DEFAULT 0 NOT NULL,
-    summary_digest text,
-    schema_version smallint DEFAULT 1 NOT NULL,
-    resumable_opportunity_count integer DEFAULT 0 NOT NULL,
-    resumable_cognitive_episode_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_resumable_cognitive_episode_coun_not_null NOT NULL,
-    resumable_model_attempt_count integer DEFAULT 0 NOT NULL,
-    resumable_candidate_validation_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_resumable_candidate_validation_c_not_null NOT NULL,
-    resumable_subject_commit_count integer DEFAULT 0 NOT NULL,
-    resumable_capability_request_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_resumable_capability_request_cou_not_null NOT NULL,
-    resumable_response_operation_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_resumable_response_operation_cou_not_null NOT NULL,
-    resumable_effect_count integer DEFAULT 0 NOT NULL,
-    resumable_effect_outbox_count integer DEFAULT 0 NOT NULL,
-    resumable_effect_attempt_count integer DEFAULT 0 NOT NULL,
-    reliable_effect_observation_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_reliable_effect_observation_coun_not_null NOT NULL,
-    creator_response_delivery_count integer DEFAULT 0 NOT NULL,
-    resumable_web_observation_count integer DEFAULT 0 NOT NULL,
-    unknown_web_observation_attempt_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_unknown_web_observation_attempt__not_null NOT NULL,
-    resumable_web_research_intent_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_resumable_web_research_intent_co_not_null NOT NULL,
-    pending_web_evidence_acceptance_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_pending_web_evidence_acceptance__not_null NOT NULL,
-    resumable_web_cognition_count integer DEFAULT 0 NOT NULL,
-    resumable_admin_correction_work_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_resumable_admin_correction_work__not_null NOT NULL,
-    resumable_codex_task_count integer DEFAULT 0 NOT NULL,
-    resumable_codex_effect_count integer DEFAULT 0 NOT NULL,
-    pending_codex_result_acceptance_count integer DEFAULT 0 CONSTRAINT runtime_recovery_runs_pending_codex_result_acceptance__not_null NOT NULL,
     CONSTRAINT runtime_recovery_runs_blocker_count_check CHECK ((blocker_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_check CHECK ((((status = 'running'::text) AND (completed_at IS NULL) AND (summary_digest IS NULL)) OR ((status = ANY (ARRAY['safe'::text, 'blocked'::text, 'abandoned'::text])) AND (completed_at IS NOT NULL) AND (summary_digest IS NOT NULL)))),
+    CONSTRAINT runtime_recovery_runs_check CHECK ((((status = 'running'::text) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['safe'::text, 'blocked'::text, 'abandoned'::text])) AND (completed_at IS NOT NULL)))),
     CONSTRAINT runtime_recovery_runs_check1 CHECK (((status <> 'safe'::text) OR (blocker_count = 0))),
     CONSTRAINT runtime_recovery_runs_check2 CHECK (((status <> 'blocked'::text) OR (blocker_count > 0))),
-    CONSTRAINT runtime_recovery_runs_creator_response_delivery_count_check CHECK ((creator_response_delivery_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_critical_artifact_count_check CHECK ((critical_artifact_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_dead_outbox_count_check CHECK ((dead_outbox_count >= 0)),
     CONSTRAINT runtime_recovery_runs_fence_token_check CHECK ((fence_token > 0)),
-    CONSTRAINT runtime_recovery_runs_pending_codex_result_acceptance_cou_check CHECK ((pending_codex_result_acceptance_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_pending_web_evidence_acceptance_cou_check CHECK ((pending_web_evidence_acceptance_count >= 0)),
     CONSTRAINT runtime_recovery_runs_recovery_run_id_check CHECK ((uuid_extract_version(recovery_run_id) = 7)),
-    CONSTRAINT runtime_recovery_runs_reliable_effect_observation_count_check CHECK ((reliable_effect_observation_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_requeued_outbox_count_check CHECK ((requeued_outbox_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_requeued_work_count_check CHECK ((requeued_work_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_admin_correction_work_cou_check CHECK ((resumable_admin_correction_work_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_candidate_validation_coun_check CHECK ((resumable_candidate_validation_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_capability_request_count_check CHECK ((resumable_capability_request_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_codex_effect_count_check CHECK ((resumable_codex_effect_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_codex_task_count_check CHECK ((resumable_codex_task_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_cognitive_episode_count_check CHECK ((resumable_cognitive_episode_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_effect_attempt_count_check CHECK ((resumable_effect_attempt_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_effect_count_check CHECK ((resumable_effect_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_effect_outbox_count_check CHECK ((resumable_effect_outbox_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_model_attempt_count_check CHECK ((resumable_model_attempt_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_opportunity_count_check CHECK ((resumable_opportunity_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_outbox_count_check CHECK ((resumable_outbox_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_response_operation_count_check CHECK ((resumable_response_operation_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_subject_commit_count_check CHECK ((resumable_subject_commit_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_web_cognition_count_check CHECK ((resumable_web_cognition_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_web_observation_count_check CHECK ((resumable_web_observation_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_web_research_intent_count_check CHECK ((resumable_web_research_intent_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_resumable_work_count_check CHECK ((resumable_work_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_schema_version_check CHECK ((schema_version = 1)),
-    CONSTRAINT runtime_recovery_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'safe'::text, 'blocked'::text, 'abandoned'::text]))),
-    CONSTRAINT runtime_recovery_runs_summary_digest_check CHECK (((summary_digest IS NULL) OR (summary_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
-    CONSTRAINT runtime_recovery_runs_terminal_work_count_check CHECK ((terminal_work_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_unknown_web_observation_attempt_cou_check CHECK ((unknown_web_observation_attempt_count >= 0))
+    CONSTRAINT runtime_recovery_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'safe'::text, 'blocked'::text, 'abandoned'::text])))
 );
 
-CREATE TABLE armi.schema_migrations (
-    sequence_no bigint NOT NULL,
-    migration_id text NOT NULL,
-    migration_kind text NOT NULL,
-    checksum text NOT NULL,
-    applied_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
-    CONSTRAINT schema_migrations_check CHECK ((((migration_kind = 'baseline'::text) AND (migration_id = 'baseline'::text)) OR ((migration_kind = 'migration'::text) AND (migration_id ~ '^[0-9]{4}_[a-z0-9_]+$'::text)))),
-    CONSTRAINT schema_migrations_checksum_check CHECK ((checksum ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT schema_migrations_migration_id_check CHECK (((migration_id = 'baseline'::text) OR (migration_id ~ '^[0-9]{4}_[a-z0-9_]+$'::text))),
-    CONSTRAINT schema_migrations_migration_kind_check CHECK ((migration_kind = ANY (ARRAY['baseline'::text, 'migration'::text])))
-);
+--
+-- Name: subject_commits; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.subject_commits (
     subject_commit_id uuid NOT NULL,
@@ -229,23 +201,21 @@ CREATE TABLE armi.subject_commits (
     base_subject_version bigint NOT NULL,
     new_subject_version bigint NOT NULL,
     base_state_epoch bigint NOT NULL,
-    change_set_digest text NOT NULL,
-    commit_digest text NOT NULL,
     runtime_instance_id uuid NOT NULL,
     fence_token bigint NOT NULL,
     trace_id text NOT NULL,
     committed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    schema_version smallint DEFAULT 1 NOT NULL,
     CONSTRAINT subject_commits_base_state_epoch_check CHECK ((base_state_epoch >= 0)),
     CONSTRAINT subject_commits_base_subject_version_check CHECK ((base_subject_version >= 0)),
-    CONSTRAINT subject_commits_change_set_digest_check CHECK ((change_set_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT subject_commits_check CHECK ((new_subject_version = (base_subject_version + 1))),
-    CONSTRAINT subject_commits_commit_digest_check CHECK ((commit_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT subject_commits_fence_token_check CHECK ((fence_token > 0)),
-    CONSTRAINT subject_commits_schema_version_check CHECK ((schema_version = 1)),
     CONSTRAINT subject_commits_subject_commit_id_check CHECK ((uuid_extract_version(subject_commit_id) = 7)),
     CONSTRAINT subject_commits_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
 );
+
+--
+-- Name: subject_component_heads; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.subject_component_heads (
     subject_id uuid NOT NULL,
@@ -255,6 +225,10 @@ CREATE TABLE armi.subject_component_heads (
     CONSTRAINT subject_component_heads_component_kind_check CHECK ((component_kind = ANY (ARRAY['self'::text, 'mind'::text, 'life_mode'::text]))),
     CONSTRAINT subject_component_heads_component_version_check CHECK ((component_version > 0))
 );
+
+--
+-- Name: subject_component_revisions; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.subject_component_revisions (
     component_revision_id uuid NOT NULL,
@@ -269,18 +243,20 @@ CREATE TABLE armi.subject_component_revisions (
     privacy_scope text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     proposal_ref text,
-    semantic_digest text,
     CONSTRAINT subject_component_revisions_component_kind_check CHECK ((component_kind = ANY (ARRAY['self'::text, 'mind'::text, 'life_mode'::text]))),
     CONSTRAINT subject_component_revisions_component_revision_id_check CHECK ((uuid_extract_version(component_revision_id) = 7)),
     CONSTRAINT subject_component_revisions_component_version_check CHECK ((component_version > 0)),
-    CONSTRAINT subject_component_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (component_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL) AND (semantic_digest IS NOT NULL)) OR ((origin_kind = 'admin_correction'::text) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL) AND (semantic_digest IS NOT NULL)))),
+    CONSTRAINT subject_component_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (component_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = 'admin_correction'::text) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
     CONSTRAINT subject_component_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text]))),
     CONSTRAINT subject_component_revisions_origin_ref_check CHECK ((uuid_extract_version(origin_ref) = 7)),
     CONSTRAINT subject_component_revisions_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
     CONSTRAINT subject_component_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),
-    CONSTRAINT subject_component_revisions_semantic_digest_check CHECK (((semantic_digest IS NULL) OR (semantic_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
     CONSTRAINT subject_component_revisions_semantic_payload_check CHECK ((jsonb_typeof(semantic_payload) = 'object'::text))
 );
+
+--
+-- Name: subjects; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.subjects (
     subject_id uuid NOT NULL,

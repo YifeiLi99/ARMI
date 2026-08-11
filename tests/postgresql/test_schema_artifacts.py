@@ -1,22 +1,20 @@
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from armi_runtime.adapters.database_errors import DatabaseViolation
 from armi_runtime.adapters.persistence.schema_gateway import (
     PostgreSQLSchemaGateway,
 )
 
-from tools.generate_schema_manifests import main as generate_schema_manifests
-
 RESOURCE = Path(
     "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
 )
 BASELINE_DOCUMENTS = [
-    "00_namespace.sql",
     "10_runtime_and_subject.sql",
     "20_artifacts_parties_interactions.sql",
     "30_cognition_and_provenance.sql",
@@ -30,73 +28,29 @@ BASELINE_DOCUMENTS = [
 ]
 
 
-def test_frozen_baseline_and_migration_plan_are_the_only_schema_sources() -> None:
-    baseline = RESOURCE / "baseline"
-    migrations = RESOURCE / "migrations"
-    definitions = sorted(baseline.glob("*.sql"))
-    assert [path.name for path in definitions] == BASELINE_DOCUMENTS
-    assert not (baseline / "baseline.sql").exists()
-    assert not (RESOURCE / "current").exists()
-    assert (baseline / "manifest.json").is_file()
-    assert (migrations / "manifest.json").is_file()
-    assert not any((RESOURCE / "checks").glob("*.sql"))
+def _script(root: Path = RESOURCE) -> ScriptDirectory:
+    config = Config()
+    config.set_main_option("script_location", str(root / "alembic"))
+    return ScriptDirectory.from_config(config)
 
 
-def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
-    baseline_manifest = RESOURCE / "baseline/manifest.json"
-    migration_manifest = RESOURCE / "migrations/manifest.json"
-    before = (baseline_manifest.read_bytes(), migration_manifest.read_bytes())
-
-    assert generate_schema_manifests() == 0
-
-    after = (baseline_manifest.read_bytes(), migration_manifest.read_bytes())
-    assert after == before
-    baseline = json.loads(after[0])
-    migrations = json.loads(after[1])
-    assert baseline["schema_version"] == "armi.schema-baseline.v1"
-    assert baseline["baseline_id"] == "baseline"
-    assert [item["path"] for item in baseline["documents"]] == BASELINE_DOCUMENTS
-    assert baseline["catalog_sha256"].startswith("sha256:")
-    assert "schema_migrations" in baseline["tables"]
-    assert migrations["baseline_id"] == "baseline"
-    assert migrations["schema_version"] == "armi.schema-migrations.v1"
-    assert [item["migration_id"] for item in migrations["migrations"]] == [
-        "0001_harden_authoritative_schema",
-        "0002_external_group_channels",
-        "0003_remove_redundant_digests",
-        "0004_remove_remaining_redundant_digests",
-        "0005_remove_redundant_retry_paths",
-        "0006_external_conversations",
-        "0007_share_external_evidence_artifacts",
-        "0008_correct_external_creator_artifacts",
-    ]
-    assert migrations["migrations"][0]["creates_tables"] == ["runtime_recovery_metrics"]
-    assert migrations["migrations"][1]["creates_tables"] == [
-        "external_channel_bindings",
-        "scene_participants",
-    ]
-    assert [item["drops_tables"] for item in migrations["migrations"]] == [
-        [],
-        [],
-        [],
-        [],
-        ["outbox_items"],
-        [],
-        [],
-        [],
-    ]
-    for migration in migrations["migrations"]:
-        assert migration["sha256"].startswith("sha256:")
-        assert migration["target_catalog_sha256"].startswith("sha256:")
+def test_schema_resources_use_one_linear_alembic_history() -> None:
+    assert sorted(path.name for path in (RESOURCE / "baseline").glob("*.sql")) == (
+        BASELINE_DOCUMENTS
+    )
+    assert not (RESOURCE / "migrations").exists()
+    assert not list(RESOURCE.glob("**/manifest.json"))
+    script = _script()
+    assert script.get_heads() == ["0000"]
+    revisions = list(script.walk_revisions(base="base", head="heads"))
+    assert [revision.revision for revision in reversed(revisions)] == ["0000"]
 
 
-def test_baseline_contains_authoritative_schema_and_migration_ledger() -> None:
+def test_baseline_contains_authoritative_schema() -> None:
     sql = "\n".join(
         (RESOURCE / "baseline" / name).read_text(encoding="utf-8")
         for name in BASELINE_DOCUMENTS
     )
-    assert "CREATE SCHEMA armi" in sql
-    assert "CREATE TABLE armi.schema_migrations" in sql
     assert "CREATE TABLE armi.subjects" in sql
     assert "CREATE TABLE armi.activities" in sql
     assert "CREATE TABLE armi.maintenance_sessions" in sql
@@ -106,44 +60,31 @@ def test_baseline_contains_authoritative_schema_and_migration_ledger() -> None:
     assert "CREATE TABLE armi.dialogue_decisions" in sql
     assert "CREATE TABLE armi.creator_exports" in sql
     assert "CREATE TABLE armi.deletion_orders" in sql
-    assert "INSERT INTO armi.capabilities VALUES" in sql
-    assert "'creator.scene.reply'" in sql
-    assert "'codex.delegated-work'" in sql
-    assert "'local.other-human-inbox.deliver'" in sql
-    for retired in (
-        "creator_input_interactions",
-        "other_human_input_interactions",
-        "other_human_action_intents",
-        "formal_no_action_decisions",
-        "other_human_dialogue_decisions",
-        "creator_response_operations",
-        "other_human_effects",
-        "creator_response_deliveries",
-        "other_human_local_inbox_deliveries",
-        "activity_attention_decisions",
-        "activity_internal_work_decisions",
-    ):
-        assert retired not in sql
+    assert "CREATE TABLE armi.schema_migrations" not in sql
+    assert "external.private.message.send" in sql
 
 
-def test_gateway_exposes_baseline_install_and_explicit_migration() -> None:
+def test_gateway_exposes_install_status_and_explicit_migration() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
+    assert callable(PostgreSQLSchemaGateway.status)
     assert callable(PostgreSQLSchemaGateway.migrate)
 
 
-def test_gateway_rejects_baseline_digest_drift(tmp_path: Path) -> None:
+def test_gateway_rejects_multiple_alembic_heads(tmp_path: Path) -> None:
     schema = tmp_path / "schema"
     shutil.copytree(RESOURCE, schema)
-    baseline = schema / "baseline/30_cognition_and_provenance.sql"
-    baseline.write_text(
-        baseline.read_text(encoding="utf-8") + "\n",
+    (schema / "alembic/versions/0001_parallel_probe.py").write_text(
+        "revision = 'parallel'\n"
+        "down_revision = None\n"
+        "branch_labels = None\n"
+        "depends_on = None\n"
+        "def upgrade(): pass\n"
+        "def downgrade(): pass\n",
         encoding="utf-8",
         newline="\n",
     )
-
     with pytest.raises(DatabaseViolation) as raised:
         PostgreSQLSchemaGateway(resource_root=schema)
-
     assert raised.value.code == "DB-SCHEMA-RESOURCE"
 
 

@@ -179,10 +179,7 @@ def _database_evidence(
     history = [
         [str(value) for value in row]
         for row in connection.execute(
-            """
-            SELECT migration_id, migration_kind, checksum
-            FROM armi.schema_migrations ORDER BY sequence_no
-            """
+            "SELECT version_num FROM armi.alembic_version"
         ).fetchall()
     ]
     subjects = [

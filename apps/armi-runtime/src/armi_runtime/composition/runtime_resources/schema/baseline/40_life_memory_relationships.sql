@@ -1,4 +1,6 @@
--- Frozen ARMI v1 life, memory, and relationships.
+--
+-- Name: life_material_revisions; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.life_material_revisions (
     life_material_revision_id uuid NOT NULL,
@@ -9,16 +11,13 @@ CREATE TABLE armi.life_material_revisions (
     candidate_validation_id uuid NOT NULL,
     proposal_ref text NOT NULL,
     artifact_id uuid NOT NULL,
-    body_digest text NOT NULL,
     title text NOT NULL,
     metadata jsonb NOT NULL,
     revision_kind text NOT NULL,
     privacy_status text NOT NULL,
     material_status text NOT NULL,
     source_kind text NOT NULL,
-    semantic_digest text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT life_material_revisions_body_digest_check CHECK ((body_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT life_material_revisions_check CHECK ((((revision_no = 1) AND (previous_revision_id IS NULL) AND (revision_kind = 'created'::text)) OR ((revision_no > 1) AND (previous_revision_id IS NOT NULL) AND (revision_kind = ANY (ARRAY['updated'::text, 'privacy_changed'::text, 'deleted'::text]))))),
     CONSTRAINT life_material_revisions_check1 CHECK ((((revision_kind = 'created'::text) AND (privacy_status = 'creator_visible'::text)) OR ((revision_kind = 'updated'::text) AND (privacy_status = ANY (ARRAY['creator_visible'::text, 'private'::text]))) OR ((revision_kind = 'privacy_changed'::text) AND (privacy_status = ANY (ARRAY['creator_visible'::text, 'private'::text]))) OR ((revision_kind = 'deleted'::text) AND (privacy_status = 'restricted'::text)))),
     CONSTRAINT life_material_revisions_life_material_revision_id_check CHECK ((uuid_extract_version(life_material_revision_id) = 7)),
@@ -28,10 +27,13 @@ CREATE TABLE armi.life_material_revisions (
     CONSTRAINT life_material_revisions_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
     CONSTRAINT life_material_revisions_revision_kind_check CHECK ((revision_kind = ANY (ARRAY['created'::text, 'updated'::text, 'privacy_changed'::text, 'deleted'::text]))),
     CONSTRAINT life_material_revisions_revision_no_check CHECK ((revision_no > 0)),
-    CONSTRAINT life_material_revisions_semantic_digest_check CHECK ((semantic_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT life_material_revisions_source_kind_check CHECK ((source_kind = 'subject_cognition'::text)),
     CONSTRAINT life_material_revisions_title_check CHECK (((length(title) >= 1) AND (length(title) <= 256)))
 );
+
+--
+-- Name: life_materials; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.life_materials (
     life_material_id uuid NOT NULL,
@@ -44,13 +46,15 @@ CREATE TABLE armi.life_materials (
     deleted_at timestamp(6) with time zone,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    schema_version smallint DEFAULT 1 NOT NULL,
     CONSTRAINT life_materials_current_revision_id_check CHECK ((uuid_extract_version(current_revision_id) = 7)),
     CONSTRAINT life_materials_head_version_check CHECK ((head_version > 0)),
     CONSTRAINT life_materials_life_material_id_check CHECK ((uuid_extract_version(life_material_id) = 7)),
-    CONSTRAINT life_materials_material_kind_check CHECK ((material_kind = ANY (ARRAY['diary'::text, 'work'::text, 'collection'::text, 'draft'::text]))),
-    CONSTRAINT life_materials_schema_version_check CHECK ((schema_version = 1))
+    CONSTRAINT life_materials_material_kind_check CHECK ((material_kind = ANY (ARRAY['diary'::text, 'work'::text, 'collection'::text, 'draft'::text])))
 );
+
+--
+-- Name: memory_relations; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.memory_relations (
     memory_relation_id uuid NOT NULL,
@@ -68,6 +72,10 @@ CREATE TABLE armi.memory_relations (
     CONSTRAINT memory_relations_relation_kind_check CHECK ((relation_kind = ANY (ARRAY['supports'::text, 'contradicts'::text, 'reinterprets'::text])))
 );
 
+--
+-- Name: relationship_experience_links; Type: TABLE; Schema: armi; Owner: -
+--
+
 CREATE TABLE armi.relationship_experience_links (
     relationship_revision_id uuid NOT NULL,
     experience_id uuid NOT NULL,
@@ -76,6 +84,10 @@ CREATE TABLE armi.relationship_experience_links (
     CONSTRAINT relationship_experience_links_link_kind_check CHECK ((link_kind = ANY (ARRAY['supports_relationship_change'::text, 'supports_commitment_event'::text]))),
     CONSTRAINT relationship_experience_links_ordinal_check CHECK ((ordinal > 0))
 );
+
+--
+-- Name: relationship_revisions; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.relationship_revisions (
     relationship_revision_id uuid NOT NULL,
@@ -92,7 +104,6 @@ CREATE TABLE armi.relationship_revisions (
     open_issues jsonb NOT NULL,
     commitment_event jsonb,
     relationship_status text NOT NULL,
-    semantic_digest text NOT NULL,
     mechanism_identity text NOT NULL,
     privacy_scope text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
@@ -108,9 +119,12 @@ CREATE TABLE armi.relationship_revisions (
     CONSTRAINT relationship_revisions_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
     CONSTRAINT relationship_revisions_relationship_revision_id_check CHECK ((uuid_extract_version(relationship_revision_id) = 7)),
     CONSTRAINT relationship_revisions_relationship_status_check CHECK ((relationship_status = ANY (ARRAY['active'::text, 'ended'::text]))),
-    CONSTRAINT relationship_revisions_revision_no_check CHECK ((revision_no > 0)),
-    CONSTRAINT relationship_revisions_semantic_digest_check CHECK ((semantic_digest ~ '^sha256:[0-9a-f]{64}$'::text))
+    CONSTRAINT relationship_revisions_revision_no_check CHECK ((revision_no > 0))
 );
+
+--
+-- Name: relationships; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.relationships (
     relationship_id uuid NOT NULL,
@@ -129,6 +143,10 @@ CREATE TABLE armi.relationships (
     CONSTRAINT relationships_scope_check CHECK ((scope = ANY (ARRAY['creator_social'::text, 'other_human_social'::text])))
 );
 
+--
+-- Name: subjective_memories; Type: TABLE; Schema: armi; Owner: -
+--
+
 CREATE TABLE armi.subjective_memories (
     memory_id uuid NOT NULL,
     subject_id uuid NOT NULL,
@@ -140,6 +158,10 @@ CREATE TABLE armi.subjective_memories (
     CONSTRAINT subjective_memories_head_version_check CHECK ((head_version > 0)),
     CONSTRAINT subjective_memories_memory_id_check CHECK ((uuid_extract_version(memory_id) = 7))
 );
+
+--
+-- Name: subjective_memory_revisions; Type: TABLE; Schema: armi; Owner: -
+--
 
 CREATE TABLE armi.subjective_memory_revisions (
     memory_revision_id uuid NOT NULL,
