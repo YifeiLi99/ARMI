@@ -51,7 +51,7 @@ class ExternalRecognitionBindings:
 
     def target_for(self, kind: ExternalMessagePartKind) -> tuple[str, str]:
         if kind is ExternalMessagePartKind.AUDIO:
-            return "volcengine_doubao_speech", self.speech.model_id
+            return "volcengine_doubao_speech", self.speech.model_identity
         return "volcengine_ark", self.ark.model_for(kind)
 
 
@@ -161,10 +161,13 @@ def load_external_recognition_binding(path: Path) -> ExternalRecognitionBindings
             timeout_seconds=value["timeout_seconds"],
         )
         speech = DoubaoSpeechRecognitionBinding(
-            api_url=value["speech_api_url"],
+            submit_url=value["speech_submit_url"],
+            query_url=value["speech_query_url"],
             resource_id=value["speech_resource_id"],
-            model_id=value["speech_model_id"],
+            model_name=value["speech_model_name"],
+            model_version=value["speech_model_version"],
             timeout_seconds=value["speech_timeout_seconds"],
+            poll_interval_seconds=value["speech_poll_interval_seconds"],
         )
     except OSError, KeyError, TypeError, json.JSONDecodeError:
         raise ValueError("external recognition binding is invalid") from None
@@ -174,11 +177,15 @@ def load_external_recognition_binding(path: Path) -> ExternalRecognitionBindings
         or not ark.video_model_id
         or not 1 <= ark.output_token_limit <= 4096
         or not 1 <= ark.timeout_seconds <= 300
-        or speech.api_url
-        != "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
-        or speech.resource_id != "volc.bigasr.auc_turbo"
-        or speech.model_id != "bigmodel"
+        or speech.submit_url
+        != "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit"
+        or speech.query_url
+        != "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
+        or speech.resource_id != "volc.bigasr.auc"
+        or speech.model_name != "bigmodel"
+        or speech.model_version != "400"
         or not 1 <= speech.timeout_seconds <= 300
+        or not 0.1 <= speech.poll_interval_seconds <= 10
     ):
         raise ValueError("external recognition binding is invalid")
     return ExternalRecognitionBindings(ark=ark, speech=speech)

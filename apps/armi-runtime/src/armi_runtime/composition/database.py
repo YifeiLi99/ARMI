@@ -143,7 +143,7 @@ from .work_wakeup import WorkWakeupBus
 RUNTIME_LOCATOR_NAME: Final = "database.runtime"
 MIGRATOR_LOCATOR_NAME: Final = "database.migrator"
 MODEL_LOCATOR_NAME: Final = "model.ark_api_key"
-SPEECH_LOCATOR_NAME: Final = "speech.volc_api_key"
+SPEECH_LOCATOR_NAME: Final = "speech.volc_credentials"
 CODEX_LOCATOR_NAME: Final = "codex.auth_json"
 
 _REASON_BY_CODE: Final = {

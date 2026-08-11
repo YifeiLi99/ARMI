@@ -246,7 +246,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             CREATOR_VERIFY_PURPOSE: CREATOR_BEARER_LOCATOR,
             CREATOR_CURSOR_PURPOSE: CREATOR_BEARER_LOCATOR,
             "model.request": "model.ark_api_key",
-            "speech.recognition": "speech.volc_api_key",
+            "speech.recognition": "speech.volc_credentials",
             "web.search": "model.ark_api_key",
             "codex.runner.auth": "codex.auth_json",
             QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
