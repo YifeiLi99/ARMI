@@ -62,6 +62,113 @@ class PostgreSQLResponseAdmissionRepository:
 
     __slots__ = ()
 
+    async def settle_current_work(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        lease: WorkLease,
+    ) -> None:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                    SELECT operation.operation_id, operation.phase,
+                           operation.outcome
+                    FROM armi.durable_work AS work
+                    JOIN armi.action_operations AS operation
+                      ON operation.admission_work_id = work.work_id
+                    WHERE work.work_id = %s
+                      AND work.status = 'leased'
+                      AND work.current_attempt_id = %s
+                      AND work.lease_owner = %s
+                      AND work.lease_token = %s
+                      AND work.lease_expires_at > statement_timestamp()
+                    FOR UPDATE OF work, operation
+                """,
+                (
+                    lease.work_id.value,
+                    lease.attempt_id.value,
+                    lease.owner,
+                    lease.token,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            return
+        if str(row[1]) != "admission_pending" or row[2] is not None:
+            await unit_of_work.work.complete(
+                lease,
+                WorkResultRef("creator_response_operation", row[0]),
+            )
+            return
+        await self._fail_locked(
+            unit_of_work,
+            lease,
+            row[0],
+            "RESPONSE-ADMISSION-STATE",
+        )
+
+    async def fail_current_work(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        lease: WorkLease,
+        *,
+        code: str,
+    ) -> None:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        row = await (
+            await connection.execute(
+                """
+                    SELECT operation.operation_id, operation.phase,
+                           operation.outcome
+                    FROM armi.durable_work AS work
+                    JOIN armi.action_operations AS operation
+                      ON operation.admission_work_id = work.work_id
+                    WHERE work.work_id = %s
+                      AND work.status = 'leased'
+                      AND work.current_attempt_id = %s
+                      AND work.lease_owner = %s
+                      AND work.lease_token = %s
+                      AND work.lease_expires_at > statement_timestamp()
+                    FOR UPDATE OF work, operation
+                """,
+                (
+                    lease.work_id.value,
+                    lease.attempt_id.value,
+                    lease.owner,
+                    lease.token,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            return
+        if str(row[1]) != "admission_pending" or row[2] is not None:
+            await unit_of_work.work.complete(
+                lease,
+                WorkResultRef("creator_response_operation", row[0]),
+            )
+            return
+        await self._fail_locked(unit_of_work, lease, row[0], code)
+
+    async def _fail_locked(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        lease: WorkLease,
+        operation_id: UUID,
+        code: str,
+    ) -> None:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        await connection.execute(
+            """
+            UPDATE armi.action_operations
+            SET phase = 'terminal', outcome = 'failed', reason_code = %s,
+                completed_at = statement_timestamp()
+            WHERE operation_id = %s
+              AND phase = 'admission_pending' AND outcome IS NULL
+            """,
+            (code, operation_id),
+        )
+        await unit_of_work.work.fail(lease, error_code=code)
+
     async def snapshot(
         self,
         unit_of_work: PostgreSQLUnitOfWork,

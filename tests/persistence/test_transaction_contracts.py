@@ -59,12 +59,17 @@ class DatabaseErrorMappingTests(unittest.TestCase):
         *,
         retryable: bool = False,
         during_commit: bool = False,
+        rolled_back: bool = False,
         commit_state: CommitState = CommitState.NOT_STARTED,
     ) -> None:
-        mapped = map_database_error(error, during_commit=during_commit)
+        mapped = map_database_error(
+            error,
+            during_commit=during_commit,
+            rolled_back=rolled_back,
+        )
         self.assertEqual(mapped.code, code)
         self.assertIs(mapped.kind, kind)
-        self.assertEqual(mapped.retryable_reassessment, retryable)
+        self.assertEqual(mapped.retryable_work, retryable)
         self.assertIs(mapped.commit_state, commit_state)
         rendered = repr(mapped) + str(mapped)
         self.assertNotIn(str(error), rendered)
@@ -140,6 +145,12 @@ class DatabaseErrorMappingTests(unittest.TestCase):
                     code,
                     kind,
                     retryable=retryable,
+                    rolled_back=retryable,
+                    commit_state=(
+                        CommitState.ROLLED_BACK
+                        if retryable
+                        else CommitState.NOT_STARTED
+                    ),
                 )
 
     def test_pool_connection_and_commit_unknown_are_distinct(self) -> None:
@@ -178,6 +189,10 @@ class DatabaseErrorMappingTests(unittest.TestCase):
             rolled_back=True,
         )
         self.assertIs(mapped.commit_state, CommitState.ROLLED_BACK)
+        not_rolled_back = map_database_error(
+            psycopg.errors.SerializationFailure("private detail")
+        )
+        self.assertFalse(not_rolled_back.retryable_work)
 
 
 if __name__ == "__main__":

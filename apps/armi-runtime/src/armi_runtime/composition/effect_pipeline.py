@@ -155,12 +155,32 @@ class EffectRegistrationPipeline:
             await self._notify_registration(snapshot, result)
             return True
         except EffectViolation as error:
-            if error.code != "EFFECT-WORK-STALE":
-                self._diagnostic("effect.registration.failed")
+            if error.code == "EFFECT-WORK-STALE":
+                await self._settle_registration_work(lease)
+            else:
+                await self._fail_registration_work(lease, error.code)
             return True
         except DatabaseTransactionError, WorkViolation:
             self._diagnostic("effect.registration.transient_failure")
             return True
+
+    async def _settle_registration_work(self, lease: WorkLease) -> None:
+        try:
+            async with self._factory.unit_of_work() as unit_of_work:
+                await self._repository.settle_current_work(unit_of_work, lease)
+        except DatabaseTransactionError, EffectViolation, WorkViolation:
+            self._diagnostic("effect.registration.settlement_deferred")
+
+    async def _fail_registration_work(self, lease: WorkLease, code: str) -> None:
+        try:
+            async with self._factory.unit_of_work() as unit_of_work:
+                await self._repository.fail_current_work(
+                    unit_of_work,
+                    lease,
+                    code=code,
+                )
+        except DatabaseTransactionError, EffectViolation, WorkViolation:
+            self._diagnostic("effect.registration.settlement_deferred")
 
     async def get_effect(
         self, effect_id: EffectId, *, creator_party_id: UUID

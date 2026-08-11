@@ -76,11 +76,9 @@ class ModelBinding:
     input_token_limit: int
     output_token_limit: int
     timeout_seconds: int
-    max_attempts: int
     input_microyuan_per_million: int
     output_microyuan_per_million: int
     attempt_cost_limit_microyuan: int
-    episode_cost_limit_microyuan: int
 
     def __post_init__(self) -> None:
         for value in (
@@ -105,18 +103,13 @@ class ModelBinding:
             self.input_token_limit,
             self.output_token_limit,
             self.timeout_seconds,
-            self.max_attempts,
             self.input_microyuan_per_million,
             self.output_microyuan_per_million,
             self.attempt_cost_limit_microyuan,
-            self.episode_cost_limit_microyuan,
         ):
             if type(value) is not int or value <= 0:
                 raise ModelViolation("MODEL-BINDING-BUDGET")
-        if (
-            self.output_token_limit > self.input_token_limit
-            or self.attempt_cost_limit_microyuan > self.episode_cost_limit_microyuan
-        ):
+        if self.output_token_limit > self.input_token_limit:
             raise ModelViolation("MODEL-BINDING-BUDGET")
 
     def estimate_cost_microyuan(

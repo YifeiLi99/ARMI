@@ -105,6 +105,35 @@ class PostgreSQLSubjectCommitRepository:
 
     __slots__ = ()
 
+    async def settle_stale(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        lease: WorkLease,
+        snapshot: SubjectCommitSnapshot,
+    ) -> SubjectCommitResult:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        await _assert_lease(connection, lease, snapshot.episode_id)
+        row = await (
+            await connection.execute(
+                """
+                SELECT subject_version
+                FROM armi.subjects
+                WHERE singleton_key = 1 AND subject_id = %s
+                FOR UPDATE
+                """,
+                (snapshot.subject_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise SubjectCommitViolation("SUBJECT-IDENTITY")
+        return await self._settle_stale(
+            unit_of_work,
+            lease=lease,
+            snapshot=snapshot,
+            observed_version=int(row[0]),
+        )
+
     async def fail(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
@@ -3085,9 +3114,9 @@ async def _insert_other_human_action(
             effect_outbox_item_id, effect_id, message_kind,
             status, dispatch_deadline, max_attempts) VALUES (
             %s, %s, 'effect.dispatch', 'ready',
-            statement_timestamp() + interval '1 hour', 2)
+            statement_timestamp() + interval '1 hour', %s)
         """,
-        (uuid7(), effect_id),
+        (uuid7(), effect_id, 1 if group_route else 2),
     )
     await connection.execute(
         """

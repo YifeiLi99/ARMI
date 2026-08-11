@@ -65,10 +65,6 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
         ("model", "attempt_timeout_seconds"),
         "integer",
     ),
-    "ARMI_MODEL_MAX_ATTEMPTS": (
-        ("model", "episode_max_attempts"),
-        "integer",
-    ),
     "ARMI_WEB_CONCURRENCY": (("web", "concurrency"), "integer"),
     "ARMI_WEB_STEP_TIMEOUT_SECONDS": (
         ("web", "step_timeout_seconds"),

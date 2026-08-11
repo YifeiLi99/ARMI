@@ -146,9 +146,71 @@ class PostgreSQLCognitiveModelRepository:
         snapshot: ModelEpisodeSnapshot,
         binding: ModelBinding,
         request_artifact: ArtifactRef,
-    ) -> ModelAttemptId:
+    ) -> ModelAttemptId | None:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await self._assert_lease(connection, lease, snapshot.episode_id)
+        previous = await (
+            await connection.execute(
+                """
+                SELECT model_attempt_id, dispatch_status
+                FROM armi.cognitive_attempts
+                WHERE cognitive_episode_id = %s
+                  AND dispatch_status IN ('prepared', 'dispatched')
+                ORDER BY attempt_no DESC
+                LIMIT 1
+                FOR UPDATE
+                """,
+                (snapshot.episode_id,),
+            )
+        ).fetchone()
+        if previous is not None:
+            previous_id = ModelAttemptId(previous[0])
+            if str(previous[1]) == "dispatched":
+                await connection.execute(
+                    """
+                    UPDATE armi.cognitive_attempts
+                    SET dispatch_status = 'settled',
+                        result_status = 'outcome_unknown',
+                        error_code = 'MODEL-OUTCOME-UNKNOWN',
+                        settled_at = statement_timestamp()
+                    WHERE model_attempt_id = %s
+                    """,
+                    (previous_id.value,),
+                )
+                await connection.execute(
+                    """
+                    UPDATE armi.cognitive_episodes
+                    SET status = 'failed',
+                        failure_code = 'MODEL-OUTCOME-UNKNOWN'
+                    WHERE cognitive_episode_id = %s
+                      AND status = 'calling_model'
+                    """,
+                    (snapshot.episode_id,),
+                )
+                await _resolve_selected_opportunity(connection, snapshot.episode_id)
+                await unit_of_work.work.fail(
+                    lease,
+                    error_code="MODEL-OUTCOME-UNKNOWN",
+                )
+                await unit_of_work.audit.append(
+                    _settlement_audit(
+                        unit_of_work,
+                        snapshot,
+                        previous_id,
+                        AuditResultStatus.FAILED,
+                    )
+                )
+                return None
+            await connection.execute(
+                """
+                UPDATE armi.cognitive_attempts
+                SET dispatch_status = 'settled', result_status = 'cancelled',
+                    error_code = 'MODEL-RECOVERY-PRE-DISPATCH',
+                    settled_at = statement_timestamp()
+                WHERE model_attempt_id = %s
+                """,
+                (previous_id.value,),
+            )
         count_row = await (
             await connection.execute(
                 """
@@ -162,8 +224,6 @@ class PostgreSQLCognitiveModelRepository:
         if count_row is None:
             raise ModelViolation("MODEL-DATABASE")
         attempt_no = int(count_row[0]) + 1
-        if attempt_no > binding.max_attempts:
-            raise ModelViolation("MODEL-ATTEMPTS-EXHAUSTED")
         attempt_id = ModelAttemptId(uuid7())
         await connection.execute(
             """
@@ -356,7 +416,6 @@ class PostgreSQLCognitiveModelRepository:
         snapshot: ModelEpisodeSnapshot,
         attempt_id: ModelAttemptId,
         result: ModelInvocationResult,
-        retryable: bool,
     ) -> None:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await self._assert_lease(connection, lease, snapshot.episode_id)
@@ -367,55 +426,28 @@ class PostgreSQLCognitiveModelRepository:
             response_artifact_id=None,
         )
         code = result.error_code or "MODEL-PROVIDER-FAILED"
-        retry_row = await (
+        updated = await (
             await connection.execute(
                 """
-                SELECT
-                    work.attempt_count < work.max_attempts
-                    AND work.deadline_at > statement_timestamp()
-                FROM armi.durable_work AS work
-                WHERE work.work_id = %s
-                """,
-                (lease.work_id.value,),
+            UPDATE armi.cognitive_episodes
+            SET status = 'failed', failure_code = %s
+            WHERE cognitive_episode_id = %s
+              AND status = 'calling_model'
+            RETURNING cognitive_episode_id
+            """,
+                (code, snapshot.episode_id),
             )
         ).fetchone()
-        may_retry = bool(retry_row and retry_row[0])
-        if retryable and may_retry:
-            now_row = await (
-                await connection.execute("SELECT statement_timestamp()")
-            ).fetchone()
-            if now_row is None:
-                raise ModelViolation("MODEL-DATABASE")
-            await unit_of_work.work.release(
-                lease,
-                not_before=Instant(now_row[0] + timedelta(seconds=1)),
-                error_code=code,
-            )
-            audit_status = AuditResultStatus.WAITING
-        else:
-            updated = await (
-                await connection.execute(
-                    """
-                UPDATE armi.cognitive_episodes
-                SET status = 'failed', failure_code = %s
-                WHERE cognitive_episode_id = %s
-                  AND status = 'calling_model'
-                RETURNING cognitive_episode_id
-                """,
-                    (code, snapshot.episode_id),
-                )
-            ).fetchone()
-            if updated is None:
-                raise ModelViolation("MODEL-EPISODE-STATE")
-            await _resolve_selected_opportunity(connection, snapshot.episode_id)
-            await unit_of_work.work.fail(lease, error_code=code)
-            audit_status = AuditResultStatus.FAILED
+        if updated is None:
+            raise ModelViolation("MODEL-EPISODE-STATE")
+        await _resolve_selected_opportunity(connection, snapshot.episode_id)
+        await unit_of_work.work.fail(lease, error_code=code)
         await unit_of_work.audit.append(
             _settlement_audit(
                 unit_of_work,
                 snapshot,
                 attempt_id,
-                audit_status,
+                AuditResultStatus.FAILED,
             )
         )
 

@@ -106,12 +106,31 @@ class ResponseAdmissionPipeline:
             return True
         except ResponseViolation as error:
             if error.code == "RESPONSE-WORK-STALE":
+                await self._settle_current_work(lease)
                 return True
-            self._diagnostic("response.admission.failed")
+            await self._fail_current_work(lease, error.code)
             return True
         except DatabaseTransactionError, WorkViolation:
             self._diagnostic("response.admission.transient_failure")
             return True
+
+    async def _settle_current_work(self, lease: WorkLease) -> None:
+        try:
+            async with self._factory.unit_of_work() as unit_of_work:
+                await self._repository.settle_current_work(unit_of_work, lease)
+        except DatabaseTransactionError, ResponseViolation, WorkViolation:
+            self._diagnostic("response.admission.settlement_deferred")
+
+    async def _fail_current_work(self, lease: WorkLease, code: str) -> None:
+        try:
+            async with self._factory.unit_of_work() as unit_of_work:
+                await self._repository.fail_current_work(
+                    unit_of_work,
+                    lease,
+                    code=code,
+                )
+        except DatabaseTransactionError, ResponseViolation, WorkViolation:
+            self._diagnostic("response.admission.settlement_deferred")
 
     async def _verify(self, snapshot: ResponseAdmissionSnapshot) -> bool:
         value = b""

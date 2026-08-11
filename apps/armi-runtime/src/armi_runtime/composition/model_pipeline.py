@@ -484,6 +484,9 @@ class ModelPipeline:
                     binding=adapter.binding,
                     request_artifact=request_registration.ref,
                 )
+                if attempt_id is None:
+                    self._diagnostic("model.outcome_unknown")
+                    return True
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.mark_dispatched(
                     unit_of_work,
@@ -527,7 +530,6 @@ class ModelPipeline:
                     snapshot=snapshot,
                     attempt_id=attempt_id,
                     result=result,
-                    retryable=None,
                 )
             return True
         except ModelViolation as error:
@@ -544,13 +546,12 @@ class ModelPipeline:
                     snapshot=current_snapshot,
                     attempt_id=attempt,
                     result=_error_result(error),
-                    retryable=error.retryable,
                 )
                 return True
             await self._settle_before_attempt(lease, locals().get("snapshot"), error)
             return True
         except ArtifactViolation:
-            error = ModelViolation("MODEL-ARTIFACT", retryable=True)
+            error = ModelViolation("MODEL-ARTIFACT")
             attempt = locals().get("attempt_id")
             current_snapshot = locals().get("snapshot")
             if isinstance(attempt, ModelAttemptId) and isinstance(
@@ -561,7 +562,6 @@ class ModelPipeline:
                     snapshot=current_snapshot,
                     attempt_id=attempt,
                     result=_error_result(error),
-                    retryable=True,
                 )
             else:
                 await self._settle_before_attempt(
@@ -688,14 +688,7 @@ class ModelPipeline:
         snapshot: ModelEpisodeSnapshot,
         attempt_id: ModelAttemptId,
         result: ModelInvocationResult,
-        retryable: bool | None,
     ) -> None:
-        if retryable is None:
-            retryable = result.status in {
-                ModelResultStatus.TIMED_OUT,
-                ModelResultStatus.OUTCOME_UNKNOWN,
-                ModelResultStatus.REJECTED,
-            }
         async with self._factory.unit_of_work() as unit_of_work:
             await self._repository.settle_failure(
                 unit_of_work,
@@ -703,7 +696,6 @@ class ModelPipeline:
                 snapshot=snapshot,
                 attempt_id=attempt_id,
                 result=result,
-                retryable=retryable,
             )
 
     async def _settle_before_attempt(

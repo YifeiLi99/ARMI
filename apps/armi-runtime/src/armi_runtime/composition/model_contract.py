@@ -1272,11 +1272,9 @@ def _binding_from_manifest(binding: dict[str, Any]) -> ModelBinding:
         input_token_limit=binding["input_token_limit"],
         output_token_limit=binding["output_token_limit"],
         timeout_seconds=binding["timeout_seconds"],
-        max_attempts=binding["max_attempts"],
         input_microyuan_per_million=binding["input_microyuan_per_million"],
         output_microyuan_per_million=binding["output_microyuan_per_million"],
         attempt_cost_limit_microyuan=binding["attempt_cost_limit_microyuan"],
-        episode_cost_limit_microyuan=binding["episode_cost_limit_microyuan"],
     )
 
 

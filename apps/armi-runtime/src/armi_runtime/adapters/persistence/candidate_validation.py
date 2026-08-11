@@ -582,23 +582,20 @@ class PostgreSQLCandidateValidationRepository:
             None if row[15] is None else str(row[15]),
         )
 
-    async def release_or_fail(
+    async def fail(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
         *,
         lease: WorkLease,
-        not_before: Instant,
         error_code: str,
-    ) -> bool:
-        """Release retryable validation work or terminally fail its episode."""
+    ) -> None:
+        """Terminally fail deterministic validation work and its episode."""
 
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         row = await (
             await connection.execute(
                 """
-                SELECT work.owner_ref,
-                       work.attempt_count >= work.max_attempts
-                           OR work.deadline_at <= statement_timestamp()
+                SELECT work.owner_ref
                 FROM armi.durable_work AS work
                 WHERE work.work_id = %s
                   AND work.work_kind = 'cognition.candidate.validate'
@@ -620,14 +617,7 @@ class PostgreSQLCandidateValidationRepository:
         ).fetchone()
         if row is None:
             raise CandidateViolation("CANDIDATE-WORK-STALE")
-        episode_id, exhausted = row
-        if not bool(exhausted):
-            await unit_of_work.work.release(
-                lease,
-                not_before=not_before,
-                error_code=error_code,
-            )
-            return False
+        episode_id = row[0]
         await unit_of_work.work.fail(lease, error_code=error_code)
         updated = await (
             await connection.execute(
@@ -643,7 +633,6 @@ class PostgreSQLCandidateValidationRepository:
         ).fetchone()
         if updated is None:
             raise CandidateViolation("CANDIDATE-EPISODE-STATE")
-        return True
 
     async def settle(
         self,

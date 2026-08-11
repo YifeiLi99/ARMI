@@ -22,7 +22,6 @@ max_deadline_seconds = 3600
 [model]
 concurrency = 2
 attempt_timeout_seconds = 180
-episode_max_attempts = 2
 
 [web]
 concurrency = 1

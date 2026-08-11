@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
-from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -55,7 +54,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
-from armi_kernel.contracts import Instant, Purpose, SubjectId
+from armi_kernel.contracts import Purpose, SubjectId
 
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
@@ -320,10 +319,10 @@ class CandidateValidationPipeline:
             if error.code == "CANDIDATE-WORK-STALE":
                 self._diagnostic("candidate.work.stale")
                 return True
-            await self._release(lease, error.code)
+            await self._fail(lease, error.code)
             return True
         except ArtifactViolation:
-            await self._release(lease, "CANDIDATE-ARTIFACT")
+            await self._fail(lease, "CANDIDATE-ARTIFACT")
             return True
         except DatabaseTransactionError, WorkViolation:
             self._diagnostic("candidate.worker.transient_failure")
@@ -434,24 +433,14 @@ class CandidateValidationPipeline:
         )
         return await self._storage.publish(staged)
 
-    async def _release(self, lease: WorkLease, code: str) -> None:
+    async def _fail(self, lease: WorkLease, code: str) -> None:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                now = await (
-                    await unit_of_work._connection_for_repository().execute(  # pyright: ignore[reportPrivateUsage]
-                        "SELECT statement_timestamp()"
-                    )
-                ).fetchone()
-                if now is None:
-                    raise CandidateViolation("CANDIDATE-DATABASE")
-                terminal = await self._repository.release_or_fail(
+                await self._repository.fail(
                     unit_of_work,
                     lease=lease,
-                    not_before=Instant(now[0] + timedelta(seconds=1)),
                     error_code=code,
                 )
-                if terminal:
-                    self._diagnostic("candidate.worker.terminal_failure")
         except CandidateViolation, DatabaseTransactionError, WorkViolation:
             self._diagnostic("candidate.settlement.deferred")
 

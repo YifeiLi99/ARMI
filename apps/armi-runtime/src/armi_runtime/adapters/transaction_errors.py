@@ -28,19 +28,19 @@ class CommitState(StrEnum):
 class _FailureDefinition:
     code: str
     kind: DatabaseFailureKind
-    retryable_reassessment: bool = False
+    retryable_work: bool = False
 
 
 _BY_SQLSTATE = {
     "40001": _FailureDefinition(
         "DB-TX-SERIALIZATION",
         DatabaseFailureKind.CONFLICT,
-        retryable_reassessment=True,
+        retryable_work=True,
     ),
     "40P01": _FailureDefinition(
         "DB-TX-DEADLOCK",
         DatabaseFailureKind.CONFLICT,
-        retryable_reassessment=True,
+        retryable_work=True,
     ),
     "55P03": _FailureDefinition("DB-TX-LOCK-UNAVAILABLE", DatabaseFailureKind.CONFLICT),
     "57014": _FailureDefinition(
@@ -60,7 +60,7 @@ _COMMIT_UNKNOWN_SQLSTATES = frozenset({"08007", "40003"})
 class DatabaseTransactionError(RuntimeError):
     code: str
     kind: DatabaseFailureKind
-    retryable_reassessment: bool
+    retryable_work: bool
     commit_state: CommitState
 
     def __str__(self) -> str:
@@ -112,7 +112,7 @@ def map_database_error(
     return DatabaseTransactionError(
         definition.code,
         definition.kind,
-        definition.retryable_reassessment,
+        definition.retryable_work and rolled_back,
         CommitState.ROLLED_BACK if rolled_back else CommitState.NOT_STARTED,
     )
 

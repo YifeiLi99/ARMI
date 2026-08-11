@@ -117,27 +117,24 @@ def test_terminal_validation_failure_also_fails_owning_episode() -> None:
             )
         )
     )
-    work = SimpleNamespace(fail=AsyncMock(), release=AsyncMock())
+    work = SimpleNamespace(fail=AsyncMock())
     unit_of_work = SimpleNamespace(
         _connection_for_repository=lambda: connection,
         work=work,
     )
 
-    terminal = asyncio.run(
-        PostgreSQLCandidateValidationRepository().release_or_fail(
+    asyncio.run(
+        PostgreSQLCandidateValidationRepository().fail(
             cast(Any, unit_of_work),
             lease=cast(Any, lease),
-            not_before=cast(Any, None),
             error_code="CON-CANDIDATE-RELATIONSHIP-CONTEXT",
         )
     )
 
-    assert terminal is True
     work.fail.assert_awaited_once_with(
         lease,
         error_code="CON-CANDIDATE-RELATIONSHIP-CONTEXT",
     )
-    work.release.assert_not_awaited()
     assert (
         "UPDATE armi.cognitive_episodes"
         in connection.execute.await_args_list[1].args[0]
