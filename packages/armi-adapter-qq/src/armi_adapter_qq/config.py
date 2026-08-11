@@ -44,9 +44,9 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
         "api_base_url",
         "event_port",
         "request_body_max_bytes",
-        "reply_to_other_users",
+        "reply_to_other_private_users",
         "reply_in_groups",
-        "reply_user_allowlist",
+        "reply_private_user_allowlist",
         "reply_group_allowlist",
         "allowed_groups",
     }
@@ -85,9 +85,9 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
     api_base_url = document["api_base_url"]
     event_port = document["event_port"]
     request_body_max_bytes = document["request_body_max_bytes"]
-    reply_to_other_users = document["reply_to_other_users"]
+    reply_to_other_private_users = document["reply_to_other_private_users"]
     reply_in_groups = document["reply_in_groups"]
-    reply_user_allowlist = document["reply_user_allowlist"]
+    reply_private_user_allowlist = document["reply_private_user_allowlist"]
     reply_group_allowlist = document["reply_group_allowlist"]
     if (
         type(account_id) is not int
@@ -95,13 +95,13 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
         or type(api_base_url) is not str
         or type(event_port) is not int
         or type(request_body_max_bytes) is not int
-        or type(reply_to_other_users) is not bool
+        or type(reply_to_other_private_users) is not bool
         or type(reply_in_groups) is not bool
-        or type(reply_user_allowlist) is not list
+        or type(reply_private_user_allowlist) is not list
         or type(reply_group_allowlist) is not list
     ):
         raise ValueError("QQ channel configuration values are invalid")
-    if any(type(item) is not int for item in reply_user_allowlist) or any(
+    if any(type(item) is not int for item in reply_private_user_allowlist) or any(
         type(item) is not int for item in reply_group_allowlist
     ):
         raise ValueError("QQ reply allowlist is invalid")
@@ -110,9 +110,9 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
             account_id,
             creator_user_id,
             allowed_groups,
-            reply_to_other_users,
+            reply_to_other_private_users,
             reply_in_groups,
-            frozenset(cast(list[int], reply_user_allowlist)),
+            frozenset(cast(list[int], reply_private_user_allowlist)),
             frozenset(cast(list[int], reply_group_allowlist)),
         ),
         api_base_url,

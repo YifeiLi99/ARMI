@@ -188,7 +188,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             await adapter.accept_event(event)
         self.assertEqual(
             [item.message_key.value for item in port.accepted],
-            ["4", "5", "6"],
+            ["3", "4", "5", "6"],
         )
 
     async def test_egress_routes_group_and_private(self) -> None:
@@ -269,9 +269,9 @@ creator_user_id = 90009
 api_base_url = "http://127.0.0.1:3000"
 event_port = 6199
 request_body_max_bytes = 262144
-reply_to_other_users = false
+reply_to_other_private_users = false
 reply_in_groups = false
-reply_user_allowlist = [30003]
+reply_private_user_allowlist = [30003]
 reply_group_allowlist = [20002]
 
 [allowed_groups]
@@ -283,8 +283,10 @@ reply_group_allowlist = [20002]
             binding = load_qq_napcat_config(path)
         assert binding is not None
         self.assertEqual(binding.adapter.creator_user_id, 90009)
-        self.assertFalse(binding.adapter.reply_to_other_users)
-        self.assertEqual(binding.adapter.reply_user_allowlist, frozenset({30003}))
+        self.assertFalse(binding.adapter.reply_to_other_private_users)
+        self.assertEqual(
+            binding.adapter.reply_private_user_allowlist, frozenset({30003})
+        )
 
 
 if __name__ == "__main__":
