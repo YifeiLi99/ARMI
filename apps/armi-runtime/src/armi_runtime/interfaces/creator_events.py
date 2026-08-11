@@ -21,7 +21,6 @@ REPLAY_CAPACITY = 256
 SUBSCRIBER_CAPACITY = 64
 MAX_EVENT_BYTES = 4096
 KEEPALIVE_SECONDS = 15
-RETRY_MILLISECONDS = 1000
 EVENT_KINDS = {
     "activity": "activity.invalidated",
     "memory": "memory.invalidated",
@@ -294,7 +293,6 @@ async def stream_creator_events(
     diagnostic: DiagnosticEvent,
 ) -> AsyncIterator[bytes]:
     try:
-        yield f"retry: {RETRY_MILLISECONDS}\n\n".encode("ascii")
         for replayed in subscription.replay:
             yield replayed.frame
         while True:
@@ -323,7 +321,6 @@ __all__ = (
     "KEEPALIVE_SECONDS",
     "MAX_EVENT_BYTES",
     "REPLAY_CAPACITY",
-    "RETRY_MILLISECONDS",
     "SUBSCRIBER_CAPACITY",
     "CreatorEventBroker",
     "CreatorEventBrokerViolation",

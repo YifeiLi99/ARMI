@@ -34,7 +34,7 @@ const variantFields: Record<(typeof statuses)[number], readonly string[]> = {
   waiting: ["result_ref", "resume_condition", "waiting_for"],
   rejected: ["error"],
   unavailable: ["error", "recovery_hint"],
-  failed: ["error", "retryable"],
+  failed: ["error"],
   unknown: ["custodian", "result_ref", "verification_action"],
   completed: ["result_ref"],
 };

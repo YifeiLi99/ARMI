@@ -60,7 +60,6 @@ function outcome(status: string): object {
         code: "INTERNAL_FAILED",
         error_instance_id: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
       },
-      retryable: false,
     };
   if (status === "unknown")
     return {

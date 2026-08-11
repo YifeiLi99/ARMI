@@ -730,7 +730,6 @@ class CompletedOutcomeResponse(_CommonOutcomeResponse):
 class FailedOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["failed"]
     error: ErrorDescriptorResponse
-    retryable: bool
 
 
 class RejectedOutcomeResponse(_CommonOutcomeResponse):

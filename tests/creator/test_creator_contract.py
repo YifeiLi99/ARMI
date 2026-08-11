@@ -443,10 +443,9 @@ class CreatorContractTests(unittest.TestCase):
                     "category": "internal",
                     "code": "INTERNAL_CONTEXT_PREPARATION_FAILED",
                 },
-                "retryable": False,
             }
         )
-        self.assertFalse(failed.retryable)
+        self.assertEqual(failed.status, "failed")
 
     def test_session_responses_require_the_authoritative_default_scene(self) -> None:
         metadata = {

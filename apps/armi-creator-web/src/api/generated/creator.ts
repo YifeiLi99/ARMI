@@ -2218,8 +2218,6 @@ export interface components {
       message: string;
       /** Occurred At */
       occurred_at: string;
-      /** Retryable */
-      retryable: boolean;
       /**
        * @description discriminator enum property added by openapi-typescript
        * @enum {string}

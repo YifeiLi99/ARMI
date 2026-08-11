@@ -367,12 +367,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 },
                 separators=(",", ":"),
             )
-            content = (
-                "retry: 1000\n\n"
-                f"id: {event_id}\n"
-                "event: scene.timeline.invalidated\n"
-                f"data: {data}\n\n"
-            ).encode()
+            content = f"id: {event_id}\nevent: scene.timeline.invalidated\ndata: {data}\n\n".encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-store")

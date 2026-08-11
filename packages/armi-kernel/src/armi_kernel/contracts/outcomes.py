@@ -318,39 +318,22 @@ class UnavailableOutcome(_OutcomeBase):
 class FailedOutcome(_OutcomeBase):
     status: ClassVar[str] = "failed"
     error: ErrorDescriptor
-    retryable: bool
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        if type(self.retryable) is not bool:
-            raise ContractViolation("CON-OUTCOME", "retryable must be a boolean")
 
     @classmethod
     def from_wire(cls, value: object, *, path: str = "$") -> Self:
         wire, common = _decode_common(
             value,
             status=cls.status,
-            variant_required=frozenset({"error", "retryable"}),
+            variant_required=frozenset({"error"}),
             path=path,
         )
-        retryable = wire["retryable"]
-        if not isinstance(retryable, bool):
-            raise ContractViolation(
-                "CON-OUTCOME",
-                "retryable must be a boolean",
-                path=f"{path}.retryable",
-            )
         return cls(
             **_common_arguments(common),
             error=ErrorDescriptor.from_wire(wire["error"], path=f"{path}.error"),
-            retryable=retryable,
         )
 
     def to_wire(self) -> dict[str, object]:
-        return _common_wire(self) | {
-            "error": self.error.to_wire(),
-            "retryable": self.retryable,
-        }
+        return _common_wire(self) | {"error": self.error.to_wire()}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -1036,7 +1036,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
                 ErrorCategory.DEPENDENCY,
                 "DEPENDENCY_EFFECT_DELIVERY_FAILED",
             ),
-            retryable=False,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_UNKNOWN:
         return UnknownOutcome(
@@ -1107,7 +1106,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
                 ErrorCategory.DEPENDENCY,
                 "DEPENDENCY_CODEX_DELEGATION_FAILED",
             ),
-            retryable=False,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.CODEX_UNKNOWN:
         return UnknownOutcome(
@@ -1161,7 +1159,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
                 ErrorCategory.INTEGRITY,
                 "INTEGRITY_RESPONSE_ADMISSION_FAILED",
             ),
-            retryable=False,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.APPLIED:
         return AppliedOutcome(
@@ -1218,7 +1215,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
                 ErrorCategory.INTERNAL,
                 "INTERNAL_COGNITION_PREPARATION_FAILED",
             ),
-            retryable=False,
         ).to_wire()
     return assert_never(operation.phase)
 

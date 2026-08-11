@@ -17,7 +17,7 @@ const DATA = JSON.stringify({
   projection_version: "scene-timeline.v5",
   occurred_at: "2026-07-30T10:00:00.000000Z",
 });
-const FRAME = `retry: 1000\n\n: keepalive\n\nid: ${EVENT_ID}\nevent: scene.timeline.invalidated\ndata: ${DATA}\n\n`;
+const FRAME = `: keepalive\n\nid: ${EVENT_ID}\nevent: scene.timeline.invalidated\ndata: ${DATA}\n\n`;
 
 async function* chunks(values: Uint8Array[]): AsyncGenerator<Uint8Array> {
   for (const value of values) {
@@ -125,7 +125,7 @@ describe("authenticated Creator event stream parser", () => {
     }
   });
 
-  it("accepts CRLF, keepalive comments, and the frozen retry prelude", async () => {
+  it("accepts CRLF and keepalive comments", async () => {
     const crlf = FRAME.replaceAll("\n", "\r\n");
     await expect(read([new TextEncoder().encode(crlf)])).resolves.toEqual([
       EVENT_ID,

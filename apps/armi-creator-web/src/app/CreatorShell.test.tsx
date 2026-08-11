@@ -20,9 +20,7 @@ function jsonResponse(value: object, status = 200): Response {
 
 function streamResponse(): Response {
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(new TextEncoder().encode("retry: 1000\n\n"));
-    },
+    start() {},
   });
   return new Response(stream, {
     headers: { "Content-Type": "text/event-stream; charset=utf-8" },
@@ -536,7 +534,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(
         finiteStreamResponse(
-          `retry: 1000\n\nid: ${eventId}\nevent: scene.timeline.invalidated\ndata: ${event}\n\n`,
+          `id: ${eventId}\nevent: scene.timeline.invalidated\ndata: ${event}\n\n`,
         ),
       )
       .mockResolvedValueOnce(
@@ -624,7 +622,7 @@ describe("Creator local connection shell", () => {
             start(controller) {
               controller.enqueue(
                 new TextEncoder().encode(
-                  `retry: 1000\n\nid: ${eventId}\nevent: activity.invalidated\ndata: ${event}\n\n`,
+                  `id: ${eventId}\nevent: activity.invalidated\ndata: ${event}\n\n`,
                 ),
               );
             },
@@ -732,7 +730,7 @@ describe("Creator local connection shell", () => {
             start(controller) {
               controller.enqueue(
                 new TextEncoder().encode(
-                  `retry: 1000\n\nid: ${eventId}\nevent: maintenance.invalidated\ndata: ${event}\n\n`,
+                  `id: ${eventId}\nevent: maintenance.invalidated\ndata: ${event}\n\n`,
                 ),
               );
             },

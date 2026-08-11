@@ -56,7 +56,6 @@ type PendingEvent = {
   id?: string;
   event?: string;
   data?: string;
-  retry?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -130,7 +129,7 @@ function acceptField(pending: PendingEvent, line: string): void {
   if (value.startsWith(" ")) {
     value = value.slice(1);
   }
-  if (!["id", "event", "data", "retry"].includes(field)) {
+  if (!["id", "event", "data"].includes(field)) {
     throw new EventStreamFailure("syntax");
   }
   const key = field as keyof PendingEvent;
@@ -148,16 +147,12 @@ function finishEvent(
     pending.event === undefined &&
     pending.data === undefined
   ) {
-    if (pending.retry !== undefined && pending.retry !== "1000") {
-      throw new EventStreamFailure("syntax");
-    }
     return undefined;
   }
   if (
     pending.id === undefined ||
     pending.event === undefined ||
-    pending.data === undefined ||
-    pending.retry !== undefined
+    pending.data === undefined
   ) {
     throw new EventStreamFailure("syntax");
   }

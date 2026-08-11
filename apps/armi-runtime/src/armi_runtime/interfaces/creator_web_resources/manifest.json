@@ -4,7 +4,7 @@
       "cache_class": "metadata-no-store",
       "media_type": "application/json",
       "path": "static/.vite/manifest.json",
-      "sha256": "94de4140312682680eecadda7c56a733f8d1a02d6f0d2911bf070bd431ab2e95",
+      "sha256": "5921c423b70faf566287a9ac158875548f6f3a51ca257026b6186ee563476626",
       "size": 185
     },
     {
@@ -17,15 +17,15 @@
     {
       "cache_class": "immutable",
       "media_type": "text/javascript",
-      "path": "static/assets/index-CyxhIYWT.js",
-      "sha256": "01a040eeb4434a3263323bcc438d0639b48aba425425ee5d4891a3eb79bff417",
-      "size": 328048
+      "path": "static/assets/index-BlVLZsHE.js",
+      "sha256": "4b2592dadd9d273409319cc0b166f402747722e41f83ca42521f649392a5bf35",
+      "size": 328007
     },
     {
       "cache_class": "entrypoint-no-store",
       "media_type": "text/html",
       "path": "static/index.html",
-      "sha256": "ce0c701188932e77f2f35ebe5820a80450eec2647926e21a0b3584376b96b194",
+      "sha256": "fc57b6e8a2b418652a59f84bc480c6e68b1cc0b15cf71b80e5af11e148dc3877",
       "size": 455
     }
   ],

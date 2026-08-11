@@ -206,7 +206,6 @@ export function useSceneEventStream({
                   return;
                 }
                 if (order === "inconsistent") {
-                  await fullRefetch();
                   throw new EventStreamFailure("event");
                 }
               }
@@ -223,14 +222,17 @@ export function useSceneEventStream({
             onUnauthorized();
             return;
           }
-          if (
+          if (error instanceof EventStreamFailure && error.status === 409) {
+            await fullRefetch();
+          } else if (
             error instanceof EventStreamFailure &&
-            (error.status === 409 ||
-              error.kind === "decode" ||
-              error.kind === "syntax" ||
-              error.kind === "event")
+            (error.kind !== "http" ||
+              error.status === undefined ||
+              error.status < 500)
           ) {
             await fullRefetch();
+            setState("disconnected");
+            return;
           }
         }
         if (controller.signal.aborted) {
