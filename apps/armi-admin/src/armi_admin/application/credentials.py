@@ -99,7 +99,7 @@ class AdminCredentialPort(CredentialPort):
             return resolved.read_bytes()
         except AdminSecretError:
             raise
-        except Exception as exc:
+        except OSError as exc:
             raise AdminSecretError("ADMIN-SECRET-FILE") from exc
 
 

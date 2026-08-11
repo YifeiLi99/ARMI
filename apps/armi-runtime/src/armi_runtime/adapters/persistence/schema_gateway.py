@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from contextlib import suppress
 from dataclasses import dataclass
 from importlib.resources import files
 from importlib.resources.abc import Traversable
@@ -370,37 +369,34 @@ class PostgreSQLSchemaGateway:
                 require_objects=False,
             )
             self._acquire_lock(connection)
-            try:
-                if self._catalog_user_objects(connection):
-                    raise DatabaseViolation(
-                        "DB-SCHEMA-EXISTS",
-                        "the authoritative database must be empty before baseline install",
-                    )
-                try:
-                    with connection.transaction():
-                        connection.execute("SET LOCAL ROLE armi_owner")
-                        for definition in self._plan.baseline_definitions:
-                            self._execute(connection, definition)
-                        self._record(
-                            connection,
-                            self._plan.baseline_id,
-                            "baseline",
-                            self._plan.baseline_checksum,
-                        )
-                        connection.execute("RESET ALL")
-                except psycopg.Error, UnicodeDecodeError:
-                    raise DatabaseViolation(
-                        "DB-SCHEMA-INSTALL-FAILED",
-                        "the schema baseline install failed and was rolled back",
-                    ) from None
-                role_gateway.verify(
-                    connection,
-                    environment_id=environment_id,
-                    role_class="migrator",
+            if self._catalog_user_objects(connection):
+                raise DatabaseViolation(
+                    "DB-SCHEMA-EXISTS",
+                    "the authoritative database must be empty before baseline install",
                 )
-                return self._inspect_schema(connection, allow_pending=True)
-            finally:
-                self._release_lock(connection)
+            try:
+                with connection.transaction():
+                    connection.execute("SET LOCAL ROLE armi_owner")
+                    for definition in self._plan.baseline_definitions:
+                        self._execute(connection, definition)
+                    self._record(
+                        connection,
+                        self._plan.baseline_id,
+                        "baseline",
+                        self._plan.baseline_checksum,
+                    )
+                    connection.execute("RESET ALL")
+            except psycopg.Error, UnicodeDecodeError:
+                raise DatabaseViolation(
+                    "DB-SCHEMA-INSTALL-FAILED",
+                    "the schema baseline install failed and was rolled back",
+                ) from None
+            role_gateway.verify(
+                connection,
+                environment_id=environment_id,
+                role_class="migrator",
+            )
+            return self._inspect_schema(connection, allow_pending=True)
 
     def migrate(self, conninfo: str, *, environment_id: UUID) -> SchemaStatus:
         with self._connect(conninfo, autocommit=True) as connection:
@@ -412,36 +408,33 @@ class PostgreSQLSchemaGateway:
                 role_class="migrator",
             )
             self._acquire_lock(connection)
-            try:
-                state = self._inspect_schema(connection, allow_pending=True)
-                if state.status == "current":
-                    return state
-                self._reject_active_runtime(connection)
-                applied = len(self._history(connection)) - 1
-                for migration in self._plan.migrations[applied:]:
-                    try:
-                        with connection.transaction():
-                            connection.execute("SET LOCAL ROLE armi_owner")
-                            self._execute(connection, migration.definition)
-                            self._record(
-                                connection,
-                                migration.migration_id,
-                                "migration",
-                                migration.checksum,
-                            )
-                    except psycopg.Error, UnicodeDecodeError:
-                        raise DatabaseViolation(
-                            "DB-SCHEMA-MIGRATION-FAILED",
-                            "a schema migration failed and was rolled back",
-                        ) from None
-                role_gateway.verify(
-                    connection,
-                    environment_id=environment_id,
-                    role_class="migrator",
-                )
-                return self._inspect_schema(connection)
-            finally:
-                self._release_lock(connection)
+            state = self._inspect_schema(connection, allow_pending=True)
+            if state.status == "current":
+                return state
+            self._reject_active_runtime(connection)
+            applied = len(self._history(connection)) - 1
+            for migration in self._plan.migrations[applied:]:
+                try:
+                    with connection.transaction():
+                        connection.execute("SET LOCAL ROLE armi_owner")
+                        self._execute(connection, migration.definition)
+                        self._record(
+                            connection,
+                            migration.migration_id,
+                            "migration",
+                            migration.checksum,
+                        )
+                except psycopg.Error, UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-SCHEMA-MIGRATION-FAILED",
+                        "a schema migration failed and was rolled back",
+                    ) from None
+            role_gateway.verify(
+                connection,
+                environment_id=environment_id,
+                role_class="migrator",
+            )
+            return self._inspect_schema(connection)
 
     @staticmethod
     def _connect(
@@ -719,13 +712,6 @@ class PostgreSQLSchemaGateway:
             raise DatabaseViolation(
                 "DB-SCHEMA-LOCK", "the schema governance lock could not be acquired"
             ) from None
-
-    @staticmethod
-    def _release_lock(connection: psycopg.Connection[tuple[Any, ...]]) -> None:
-        with suppress(psycopg.Error):
-            connection.execute(
-                "SELECT pg_catalog.pg_advisory_unlock(%s)", (_ADVISORY_LOCK,)
-            )
 
 
 __all__ = ("DatabaseViolation", "PostgreSQLSchemaGateway", "SchemaStatus")

@@ -105,7 +105,10 @@ async def apply_subject_prompts(
         ).fetchone()
         if accepted is None:
             raise SubjectCommitViolation("SUBJECT-PROMPT-CANDIDATE")
-        if artifact.media_type != "application/json" or artifact.privacy_scope.value != "private":
+        if (
+            artifact.media_type != "application/json"
+            or artifact.privacy_scope.value != "private"
+        ):
             raise SubjectCommitViolation("SUBJECT-PROMPT-ARTIFACT")
         revision_id = uuid7()
         revision_ids.append(revision_id)

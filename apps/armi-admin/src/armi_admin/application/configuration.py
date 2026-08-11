@@ -19,6 +19,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
+    ValidationError,
     WithJsonSchema,
     field_validator,
     model_validator,
@@ -246,7 +247,12 @@ def load_admin_config(
         return AdminConfig.model_validate(value), resolved
     except AdminConfigError:
         raise
-    except Exception as exc:
+    except (
+        OSError,
+        UnicodeDecodeError,
+        tomllib.TOMLDecodeError,
+        ValidationError,
+    ) as exc:
         raise AdminConfigError("ADMIN-CONFIG-INVALID") from exc
 
 

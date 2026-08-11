@@ -8,6 +8,7 @@ import json
 import os
 import struct
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -180,25 +181,35 @@ class RuntimeAdminControlServer:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         try:
-            size = struct.unpack(">I", await reader.readexactly(4))[0]
-            if size < 2 or size > _MAX_REQUEST:
-                raise RuntimeAdminControlError("ADMIN-CONTROL-REQUEST-SIZE")
-            request = _strict_json(await reader.readexactly(size))
-            response = await self._dispatch(request)
-        except Exception:
-            response = {
-                "request_id": None,
-                "status": "rejected",
-                "error_code": "ADMIN-CONTROL-PROTOCOL",
-            }
-        encoded = json.dumps(
-            response, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-        ).encode("utf-8")
-        if len(encoded) <= _MAX_RESPONSE:
-            writer.write(struct.pack(">I", len(encoded)) + encoded)
-            await writer.drain()
-        writer.close()
-        await writer.wait_closed()
+            try:
+                size = struct.unpack(">I", await reader.readexactly(4))[0]
+                if size < 2 or size > _MAX_REQUEST:
+                    raise RuntimeAdminControlError("ADMIN-CONTROL-REQUEST-SIZE")
+                request = _strict_json(await reader.readexactly(size))
+                response = await self._dispatch(request)
+            except (
+                RuntimeAdminControlError,
+                asyncio.IncompleteReadError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                struct.error,
+                RecursionError,
+            ):
+                response = {
+                    "request_id": None,
+                    "status": "rejected",
+                    "error_code": "ADMIN-CONTROL-PROTOCOL",
+                }
+            encoded = json.dumps(
+                response, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")
+            if len(encoded) <= _MAX_RESPONSE:
+                writer.write(struct.pack(">I", len(encoded)) + encoded)
+                await writer.drain()
+        finally:
+            writer.close()
+            with suppress(ConnectionError):
+                await writer.wait_closed()
 
     async def _dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         allowed = {

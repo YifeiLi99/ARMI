@@ -181,9 +181,7 @@ def parse_request_bytes(raw: bytes) -> dict[str, object]:
 
 def normalize_full_response(
     raw: Mapping[str, object],
-) -> tuple[
-    bytes, tuple[WebObservationToolAction, ...], WebObservationUsage, str
-]:
+) -> tuple[bytes, tuple[WebObservationToolAction, ...], WebObservationUsage, str]:
     encoded = json.dumps(raw, ensure_ascii=False, separators=(",", ":")).encode()
     if len(encoded) > MAX_RESULT_BYTES:
         raise WebObservationViolation("WEB-RESULT-SIZE")

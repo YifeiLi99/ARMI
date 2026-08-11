@@ -7,7 +7,6 @@ import json
 import os
 import shutil
 from collections.abc import Callable
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -421,17 +420,16 @@ class CreatorExportService(CreatorExportPort):
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
     async def _settle_failed(self, export_id: UUID, trace_id: TraceId) -> None:
-        with suppress(CreatorExportViolation):
-            await self._settle(
-                export_id=export_id,
-                trace_id=trace_id,
-                status=CreatorExportStatus.FAILED,
-                table_count=0,
-                row_count=0,
-                artifact_count=0,
-                missing=(),
-                error_code="CREATOR-EXPORT-FAILED",
-            )
+        await self._settle(
+            export_id=export_id,
+            trace_id=trace_id,
+            status=CreatorExportStatus.FAILED,
+            table_count=0,
+            row_count=0,
+            artifact_count=0,
+            missing=(),
+            error_code="CREATOR-EXPORT-FAILED",
+        )
 
     def _manifest(
         self,

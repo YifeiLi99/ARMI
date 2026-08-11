@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -22,7 +23,7 @@ from armi_admin.persistence import (
 
 from .configuration import AdminConfig
 from .control_plane import AdminControlPlane
-from .credentials import AdminCredentialPort
+from .credentials import AdminCredentialPort, AdminSecretError
 
 _TOKEN_FIELDS = {
     "schema_version",
@@ -210,6 +211,9 @@ class AdminCorrectionCoordinator:
             signature = base64.urlsafe_b64decode(
                 signature_text + "=" * (-len(signature_text) % 4)
             )
+        except (ValueError, UnicodeEncodeError, binascii.Error) as exc:
+            raise AdminCorrectionError("ADMIN-CORRECTION-PREVIEW-INVALID") from exc
+        try:
             with self._credentials.resolve(
                 self._config.preview_locator,
                 CredentialPurpose("admin.correction.preview"),
@@ -217,6 +221,9 @@ class AdminCorrectionCoordinator:
                 expected = handle.consume(
                     lambda key: hmac.new(bytes(key), encoded, hashlib.sha256).digest()
                 )
+        except AdminSecretError as exc:
+            raise AdminCorrectionError("ADMIN-CORRECTION-PREVIEW-UNAVAILABLE") from exc
+        try:
             if not hmac.compare_digest(signature, expected):
                 raise ValueError("signature")
             payload = _decode_object(
@@ -235,7 +242,14 @@ class AdminCorrectionCoordinator:
             return payload
         except AdminCorrectionError:
             raise
-        except Exception as exc:
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            binascii.Error,
+        ) as exc:
             raise AdminCorrectionError("ADMIN-CORRECTION-PREVIEW-INVALID") from exc
 
     def _validate_scope(self, payload: dict[str, Any]) -> None:
@@ -257,11 +271,15 @@ class AdminCorrectionCoordinator:
     def _settle_artifact_file(self, work: dict[str, Any]) -> str:
         artifact_root = self._config.environment_root / "data" / "artifacts"
         try:
-            return ContentAddressedArtifactStore(
-                artifact_root,
-                max_object_bytes=104_857_600,
-            ).settle_unregistered(Digest(str(work["content_digest"]))).value
-        except (ArtifactViolation, ValueError):
+            return (
+                ContentAddressedArtifactStore(
+                    artifact_root,
+                    max_object_bytes=104_857_600,
+                )
+                .settle_unregistered(Digest(str(work["content_digest"])))
+                .value
+            )
+        except ArtifactViolation, ValueError:
             raise AdminCorrectionError("ADMIN-CORRECTION-ARTIFACT-FILE") from None
 
 

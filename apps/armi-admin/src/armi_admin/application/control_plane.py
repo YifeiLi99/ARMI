@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -27,7 +28,7 @@ from armi_admin.persistence import (
 )
 
 from .configuration import AdminConfig
-from .credentials import AdminCredentialPort
+from .credentials import AdminCredentialPort, AdminSecretError
 
 _MAX_REQUEST = 64 * 1024
 _MAX_RESPONSE = 1024 * 1024
@@ -108,18 +109,37 @@ class AdminControlPlane:
             signature = base64.urlsafe_b64decode(
                 signature_text + "=" * (-len(signature_text) % 4)
             )
+        except (ValueError, UnicodeEncodeError, binascii.Error) as exc:
+            raise AdminControlError("ADMIN-RESET-PREVIEW-INVALID") from exc
+        try:
             with self._credentials.resolve(
                 self._config.preview_locator, CredentialPurpose("admin.preview")
             ) as handle:
                 expected = handle.consume(
                     lambda key: hmac.new(bytes(key), encoded, hashlib.sha256).digest()
                 )
+        except AdminSecretError as exc:
+            raise AdminControlError("ADMIN-RESET-PREVIEW-UNAVAILABLE") from exc
+        try:
             if not hmac.compare_digest(signature, expected):
                 raise ValueError
-            payload = json.loads(
+            decoded = json.loads(
                 base64.urlsafe_b64decode(encoded_text + "=" * (-len(encoded_text) % 4))
             )
-        except Exception as exc:
+            if not isinstance(decoded, dict):
+                raise ValueError
+            payload = cast(dict[str, Any], decoded)
+            expires_at = datetime.fromisoformat(
+                str(payload["expires_at"]).replace("Z", "+00:00")
+            )
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            binascii.Error,
+        ) as exc:
             raise AdminControlError("ADMIN-RESET-PREVIEW-INVALID") from exc
         if (
             payload.get("management_session_id") != self._management_session_id
@@ -127,9 +147,6 @@ class AdminControlPlane:
             or payload.get("incarnation") != self._config.environment_incarnation
         ):
             raise AdminControlError("ADMIN-RESET-PREVIEW-SCOPE")
-        expires_at = datetime.fromisoformat(
-            str(payload["expires_at"]).replace("Z", "+00:00")
-        )
         if datetime.now(UTC) >= expires_at:
             raise AdminControlError("ADMIN-RESET-PREVIEW-EXPIRED")
         current = {
@@ -258,7 +275,14 @@ class AdminControlPlane:
                 )
         except AdminControlError:
             raise
-        except Exception as exc:
+        except (
+            OSError,
+            TimeoutError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            struct.error,
+            ValueError,
+        ) as exc:
             raise AdminControlError("ADMIN-CONTROL-UNAVAILABLE") from exc
         if not isinstance(response, dict):
             raise AdminControlError("ADMIN-CONTROL-PROTOCOL")
@@ -527,7 +551,7 @@ class AdminControlPlane:
             if not isinstance(value, dict):
                 raise ValueError
             return cast(dict[str, Any], value)
-        except Exception as exc:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise AdminControlError(code) from exc
 
     @staticmethod

@@ -362,7 +362,12 @@ class AdminToolService:
         except AdminCorrectionError as exc:
             outcome = self._correction_failure(started, str(exc))
         except AdminControlError as exc:
-            outcome = self._tool_failure(started, "rejected", str(exc))
+            code = str(exc)
+            outcome = self._tool_failure(
+                started,
+                "failed" if code.endswith("-UNAVAILABLE") else "rejected",
+                code,
+            )
         except Exception:
             outcome = self._tool_failure(started, "failed", "ADMIN-CONTROL-FAILED")
         self._mutation_cache[cache_key] = (request_digest, outcome)

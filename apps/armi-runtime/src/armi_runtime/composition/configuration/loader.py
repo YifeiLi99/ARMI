@@ -231,8 +231,8 @@ def load_effective_config(
 ) -> EffectiveConfig:
     """Apply defaults, environment TOML, then the explicit environment allowlist."""
 
-    defaults = _read_toml(defaults_path, required=True)
-    environment_values = _read_toml(environment_path, required=True)
+    defaults = _read_toml(defaults_path)
+    environment_values = _read_toml(environment_path)
     _reject_plaintext_secrets(defaults)
     _reject_plaintext_secrets(environment_values)
     merged = _merge(defaults, environment_values)
@@ -327,15 +327,13 @@ def sha256_hex(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _read_toml(path: Path, *, required: bool) -> dict[str, Any]:
+def _read_toml(path: Path) -> dict[str, Any]:
     try:
         content = path.read_bytes()
     except OSError:
-        if required:
-            raise ConfigurationViolation(
-                "CFG-FILE", "required configuration file is unavailable"
-            ) from None
-        return {}
+        raise ConfigurationViolation(
+            "CFG-FILE", "required configuration file is unavailable"
+        ) from None
     try:
         parsed = tomllib.loads(content.decode("utf-8"))
     except UnicodeDecodeError, tomllib.TOMLDecodeError:

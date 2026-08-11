@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 from datetime import UTC, datetime
@@ -73,6 +74,29 @@ def _artifact(content: bytes) -> _ArtifactSnapshot:
 
 
 class CreatorExportContractTests(unittest.TestCase):
+    def test_failed_export_settlement_failure_is_not_suppressed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service = CreatorExportService(
+                creator_party_id=uuid7(),
+                data_root=Path(directory).resolve(),
+                storage=_Storage({}),  # type: ignore[arg-type]
+                unit_of_work_factory=object(),  # type: ignore[arg-type]
+            )
+            with (
+                patch.object(
+                    CreatorExportService,
+                    "_settle",
+                    side_effect=CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE"),
+                ),
+                self.assertRaises(CreatorExportViolation) as raised,
+            ):
+                asyncio.run(
+                    service._settle_failed(  # pyright: ignore[reportPrivateUsage]
+                        uuid7(), TraceId("1" * 32)
+                    )
+                )
+            self.assertEqual(raised.exception.code, "CREATOR-EXPORT-UNAVAILABLE")
+
     def test_command_restricts_export_to_one_directory_name(self) -> None:
         with self.assertRaises(CreatorExportViolation):
             CreatorExportCommand(

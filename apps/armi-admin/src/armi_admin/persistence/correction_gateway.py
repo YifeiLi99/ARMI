@@ -15,8 +15,9 @@ from uuid import UUID
 import psycopg
 import rfc8785
 from psycopg.types.json import Jsonb
+from psycopg_pool import PoolTimeout
 
-from .role_session import AdminRoleBoundPool
+from .role_session import AdminRoleBoundPool, AdminRoleSessionError
 
 _AUTHORITY_KEY_PREFIX = "armi.runtime-authority:"
 CorrectionKind = Literal[
@@ -79,7 +80,7 @@ class AdminCorrectionGateway:
                 return snapshot
         except AdminCorrectionGatewayError:
             raise
-        except Exception as exc:
+        except (psycopg.Error, PoolTimeout, AdminRoleSessionError) as exc:
             raise AdminCorrectionGatewayError(
                 "ADMIN-CORRECTION-PREVIEW-FAILED"
             ) from exc
@@ -102,68 +103,52 @@ class AdminCorrectionGateway:
                     (_AUTHORITY_KEY_PREFIX + self._environment_id,),
                 )
                 connection.commit()
+                connection.execute("BEGIN ISOLATION LEVEL SERIALIZABLE")
+                self._fence_expired_authority(connection)
+                snapshot = self._snapshot(
+                    connection,
+                    spec,
+                    result_id=str(token["result_id"]),
+                    side_work_id=str(token["side_work_id"]),
+                    for_update=True,
+                )
+                if (
+                    snapshot["scope_digest"] != token.get("scope_digest")
+                    or snapshot["impact_digest"] != token.get("impact_digest")
+                    or snapshot["before_digest"] != token.get("before_digest")
+                    or snapshot["after_digest"] != token.get("after_digest")
+                    or snapshot["subject_version"] != token.get("subject_version")
+                    or snapshot["state_epoch"] != token.get("state_epoch")
+                ):
+                    raise AdminCorrectionGatewayError("ADMIN-CORRECTION-PREVIEW-STALE")
+                handler_result = self._apply_handler(connection, spec, snapshot)
+                updated = connection.execute(
+                    "UPDATE armi.subjects SET state_epoch = state_epoch + 1 "
+                    "WHERE subject_id = %s AND state_epoch = %s RETURNING state_epoch",
+                    (snapshot["subject_id"], snapshot["state_epoch"]),
+                ).fetchone()
+                if updated is None:
+                    raise AdminCorrectionGatewayError("ADMIN-CORRECTION-STATE-EPOCH")
                 try:
-                    connection.execute("BEGIN ISOLATION LEVEL SERIALIZABLE")
-                    self._fence_expired_authority(connection)
-                    snapshot = self._snapshot(
-                        connection,
-                        spec,
-                        result_id=str(token["result_id"]),
-                        side_work_id=str(token["side_work_id"]),
-                        for_update=True,
-                    )
-                    if (
-                        snapshot["scope_digest"] != token.get("scope_digest")
-                        or snapshot["impact_digest"] != token.get("impact_digest")
-                        or snapshot["before_digest"] != token.get("before_digest")
-                        or snapshot["after_digest"] != token.get("after_digest")
-                        or snapshot["subject_version"] != token.get("subject_version")
-                        or snapshot["state_epoch"] != token.get("state_epoch")
-                    ):
-                        raise AdminCorrectionGatewayError(
-                            "ADMIN-CORRECTION-PREVIEW-STALE"
-                        )
-                    handler_result = self._apply_handler(connection, spec, snapshot)
-                    updated = connection.execute(
-                        "UPDATE armi.subjects SET state_epoch = state_epoch + 1 "
-                        "WHERE subject_id = %s AND state_epoch = %s RETURNING state_epoch",
-                        (snapshot["subject_id"], snapshot["state_epoch"]),
-                    ).fetchone()
-                    if updated is None:
-                        raise AdminCorrectionGatewayError(
-                            "ADMIN-CORRECTION-STATE-EPOCH"
-                        )
-                    try:
-                        connection.commit()
-                    except psycopg.OperationalError as exc:
-                        raise AdminCorrectionGatewayError(
-                            "ADMIN-CORRECTION-COMMIT-UNKNOWN"
-                        ) from exc
-                    return {
-                        "result_id": token["result_id"],
-                        "correction_kind": spec["correction_kind"],
-                        "previous_subject_version": snapshot["subject_version"],
-                        "subject_version": snapshot["subject_version"],
-                        "previous_state_epoch": snapshot["state_epoch"],
-                        "state_epoch": int(updated[0]),
-                        "side_work_id": handler_result.get("side_work_id"),
-                        "safe_to_restart": True,
-                        "status": "applied",
-                    }
-                finally:
-                    try:
-                        connection.rollback()
-                        connection.execute(
-                            "SELECT pg_catalog.pg_advisory_unlock("
-                            "pg_catalog.hashtextextended(%s, 0))",
-                            (_AUTHORITY_KEY_PREFIX + self._environment_id,),
-                        )
-                        connection.commit()
-                    except Exception:
-                        pass
+                    connection.commit()
+                except psycopg.OperationalError as exc:
+                    raise AdminCorrectionGatewayError(
+                        "ADMIN-CORRECTION-COMMIT-UNKNOWN"
+                    ) from exc
+                return {
+                    "result_id": token["result_id"],
+                    "correction_kind": spec["correction_kind"],
+                    "previous_subject_version": snapshot["subject_version"],
+                    "subject_version": snapshot["subject_version"],
+                    "previous_state_epoch": snapshot["state_epoch"],
+                    "state_epoch": int(updated[0]),
+                    "side_work_id": handler_result.get("side_work_id"),
+                    "safe_to_restart": True,
+                    "status": "applied",
+                }
         except AdminCorrectionGatewayError:
             raise
-        except Exception as exc:
+        except (psycopg.Error, PoolTimeout, AdminRoleSessionError) as exc:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-APPLY-FAILED") from exc
         finally:
             pool.close()
@@ -205,7 +190,7 @@ class AdminCorrectionGateway:
                 }
         except AdminCorrectionGatewayError:
             raise
-        except Exception as exc:
+        except (psycopg.Error, PoolTimeout, AdminRoleSessionError) as exc:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-STATUS-FAILED") from exc
         finally:
             pool.close()
@@ -294,7 +279,7 @@ class AdminCorrectionGateway:
                 return {"side_work_id": side_work_id, "status": "completed"}
         except AdminCorrectionGatewayError:
             raise
-        except Exception as exc:
+        except (psycopg.Error, PoolTimeout, AdminRoleSessionError) as exc:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-WORK-FAILED") from exc
         finally:
             pool.close()

@@ -96,6 +96,71 @@ class AdminResetPreviewTests(unittest.TestCase):
 
 
 class RuntimeControlProtocolTests(unittest.TestCase):
+    def test_internal_dispatch_error_is_not_reported_as_protocol_rejection(
+        self,
+    ) -> None:
+        async def exercise(root: Path) -> None:
+            run_root = root / "run" / "admin-control"
+            run_root.mkdir(parents=True)
+            token = "a" * 43
+            digest = f"sha256:{hashlib.sha256(token.encode()).hexdigest()}"
+            (run_root / "runtime-control.token").write_text(token, encoding="utf-8")
+            (run_root / "runtime-control.manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "armi.runtime-admin-control.v1",
+                        "environment_id": ENVIRONMENT_ID,
+                        "incarnation": 3,
+                        "descriptor": "runtime-control.json",
+                        "token": "runtime-control.token",
+                        "token_digest": digest,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fail_status() -> dict[str, object]:
+                raise RuntimeError("internal status defect")
+
+            server = RuntimeAdminControlServer(
+                run_root=run_root,
+                environment_id=ENVIRONMENT_ID,
+                incarnation=3,
+                instance_id="0198f3f4-7b8c-7def-8abc-1234567890ab",
+                on_status=fail_status,
+                on_drain=lambda: None,
+                on_stop=lambda: None,
+                on_input=None,
+            )
+            await server.start()
+            descriptor = json.loads((run_root / "runtime-control.json").read_bytes())
+            reader, writer = await asyncio.open_connection(
+                "127.0.0.1", descriptor["port"]
+            )
+            request = json.dumps(
+                {
+                    "schema_version": "armi.runtime-admin-control.v1",
+                    "request_id": "0198f3f4-7b8c-7def-9abc-1234567890ab",
+                    "environment_id": ENVIRONMENT_ID,
+                    "incarnation": 3,
+                    "instance_id": "0198f3f4-7b8c-7def-8abc-1234567890ab",
+                    "token": token,
+                    "command": "status",
+                    "arguments": {},
+                },
+                separators=(",", ":"),
+            ).encode()
+            writer.write(struct.pack(">I", len(request)) + request)
+            await writer.drain()
+            with self.assertRaises(asyncio.IncompleteReadError):
+                await reader.readexactly(4)
+            writer.close()
+            await writer.wait_closed()
+            await server.close()
+
+        with tempfile.TemporaryDirectory() as directory:
+            asyncio.run(exercise(Path(directory)))
+
     def test_framed_status_and_stop_are_strict(self) -> None:
         async def exercise(root: Path) -> tuple[dict[str, object], bool]:
             run_root = root / "run" / "admin-control"
