@@ -711,8 +711,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
             shared_artifact = connection.execute(
                 """
-                SELECT count(DISTINCT evidence.artifact_id), count(*)
+                SELECT count(DISTINCT evidence.artifact_id), count(*),
+                       min(artifact.logical_kind), min(artifact.privacy_scope)
                 FROM armi.external_evidence AS evidence
+                JOIN armi.artifacts AS artifact
+                  ON artifact.artifact_id = evidence.artifact_id
                 WHERE evidence.interaction_id IN (%s, %s)
                 """,
                 (
@@ -732,7 +735,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 3,
             ),
         )
-        self.assertEqual(shared_artifact, (1, 2))
+        self.assertEqual(
+            shared_artifact,
+            (1, 2, "creator.input.text", "creator_visible"),
+        )
 
     def test_baseline_module_failure_rolls_back_every_module(self) -> None:
         fixture = self.create_database()

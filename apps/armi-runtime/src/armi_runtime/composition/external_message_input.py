@@ -148,7 +148,11 @@ class ExternalMessageInputService(ExternalMessageInputPort):
                     ),
                     "external.channel",
                     command.trace_id,
-                    ArtifactPrivacyScope.PRIVATE,
+                    (
+                        ArtifactPrivacyScope.CREATOR_VISIBLE
+                        if context.sender_party_kind == "creator"
+                        else ArtifactPrivacyScope.PRIVATE
+                    ),
                 ),
             )
         except ArtifactViolation, OSError:
