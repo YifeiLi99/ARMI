@@ -308,8 +308,10 @@ class CreatorPromptService(CreatorPromptPort):
     ) -> CreatorPromptSnapshot | None:
         try:
             current = await self._read_snapshot(PromptKind.CREATOR_GUIDANCE)
-        except CreatorPromptViolation:
-            return None
+        except CreatorPromptViolation as error:
+            if error.code == "DB-PROMPT-UNAVAILABLE":
+                return None
+            raise
         if (
             current.previous_revision_id == expected_revision_id
             and current.content_digest == content_digest

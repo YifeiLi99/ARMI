@@ -51,6 +51,7 @@ from armi_kernel.contracts import (
     TraceId,
 )
 
+from ..transaction_errors import DatabaseTransactionError
 from .unit_of_work import PostgreSQLUnitOfWorkFactory
 
 
@@ -584,10 +585,8 @@ class PostgreSQLCreatorGrantPolicy:
                 )
         except CapabilityViolation:
             raise
-        except Exception as error:
-            if error.__class__.__module__.startswith(("psycopg", "psycopg_pool")):
-                raise CapabilityViolation("POLICY-DATABASE") from None
-            raise
+        except DatabaseTransactionError:
+            raise CapabilityViolation("POLICY-DATABASE") from None
 
     async def expire_once(self, *, limit: int = 100) -> int:
         expired_request_ids: list[UUID] = []

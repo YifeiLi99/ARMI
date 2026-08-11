@@ -133,6 +133,9 @@ class EvidenceAcceptanceTransaction(
         request_digest = self._request_digest(context, content_digest)
         try:
             existing = await self._read_existing(command, context, request_digest)
+        except DatabaseTransactionError:
+            await self._storage.discard(staged)
+            raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
         except Exception:
             await self._storage.discard(staged)
             raise
@@ -153,11 +156,19 @@ class EvidenceAcceptanceTransaction(
             )
         except DatabaseTransactionError as error:
             if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
-                recovered = await self._read_existing(
-                    command,
-                    context,
-                    request_digest,
-                )
+                try:
+                    recovered = await self._read_existing(
+                        command,
+                        context,
+                        request_digest,
+                    )
+                except DatabaseTransactionError:
+                    code = (
+                        "DB-INPUT-COMMIT-UNKNOWN"
+                        if error.code == "DB-TX-COMMIT-UNKNOWN"
+                        else "DB-INPUT-UNAVAILABLE"
+                    )
+                    raise CreatorInputViolation(code) from None
                 if recovered is not None:
                     return recovered
                 code = (
@@ -311,20 +322,15 @@ class EvidenceAcceptanceTransaction(
         context: CreatorInputContext,
         request_digest: Digest,
     ) -> CreatorInputAcceptance | None:
-        try:
-            async with self._uow_factory.unit_of_work(
-                read_only=True,
-            ) as unit_of_work:
-                return await self._repository.existing(
-                    unit_of_work,
-                    context=context,
-                    idempotency_key=command.idempotency_key.value,
-                    request_digest=request_digest,
-                )
-        except CreatorInputViolation:
-            raise
-        except DatabaseTransactionError:
-            return None
+        async with self._uow_factory.unit_of_work(
+            read_only=True,
+        ) as unit_of_work:
+            return await self._repository.existing(
+                unit_of_work,
+                context=context,
+                idempotency_key=command.idempotency_key.value,
+                request_digest=request_digest,
+            )
 
     def _request_digest(
         self,

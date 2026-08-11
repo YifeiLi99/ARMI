@@ -11,7 +11,14 @@ from uuid import UUID
 import rfc8785
 from armi_kernel.application import ModelBinding, ModelRequest, ModelViolation
 from armi_kernel.contracts import Digest
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    TypeAdapter,
+    ValidationError,
+)
 
 from .activity_attention_candidate_contract import (
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
@@ -905,7 +912,13 @@ def parse_candidate(
             candidate = adapter.validate_python(
                 strict_model_value(cast(object, raw)), strict=True
             )
-    except Exception:
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValidationError,
+        ModelViolation,
+        ValueError,
+    ):
         raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
     if isinstance(
         candidate,

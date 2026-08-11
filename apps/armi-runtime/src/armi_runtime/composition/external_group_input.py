@@ -173,6 +173,9 @@ class ExternalGroupInputService(ExternalGroupInputPort):
         idempotency_key = _idempotency_key(command)
         try:
             existing = await self._existing(context, idempotency_key, request_digest)
+        except DatabaseTransactionError:
+            await self._storage.discard(staged)
+            raise ExternalGroupViolation("DB-EXTERNAL-GROUP-UNAVAILABLE") from None
         except Exception:
             await self._storage.discard(staged)
             raise
@@ -193,9 +196,14 @@ class ExternalGroupInputService(ExternalGroupInputPort):
             )
         except DatabaseTransactionError as error:
             if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
-                recovered = await self._existing(
-                    context, idempotency_key, request_digest
-                )
+                try:
+                    recovered = await self._existing(
+                        context, idempotency_key, request_digest
+                    )
+                except DatabaseTransactionError:
+                    raise ExternalGroupViolation(
+                        "DB-EXTERNAL-GROUP-UNAVAILABLE"
+                    ) from None
                 if recovered is not None:
                     return recovered
             raise ExternalGroupViolation("DB-EXTERNAL-GROUP-UNAVAILABLE") from None
@@ -235,16 +243,13 @@ class ExternalGroupInputService(ExternalGroupInputPort):
         idempotency_key: IdempotencyKey,
         request_digest: Digest,
     ) -> ExternalGroupInputAcceptance | None:
-        try:
-            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
-                existing = await self._inputs.existing(
-                    unit_of_work,
-                    context=context.input,
-                    idempotency_key=idempotency_key.value,
-                    request_digest=request_digest,
-                )
-        except DatabaseTransactionError:
-            return None
+        async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+            existing = await self._inputs.existing(
+                unit_of_work,
+                context=context.input,
+                idempotency_key=idempotency_key.value,
+                request_digest=request_digest,
+            )
         return None if existing is None else _acceptance(context.binding_id, existing)
 
     async def _commit(

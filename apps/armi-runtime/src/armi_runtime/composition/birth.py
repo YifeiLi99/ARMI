@@ -104,7 +104,12 @@ class BirthTransaction:
             )
         except ArtifactViolation, OSError:
             raise BirthViolation("BIRTH-ARTIFACT") from None
-        existing = await self._recover_existing(manifest)
+        try:
+            existing = await self._recover_existing(manifest)
+        except DatabaseTransactionError:
+            await self._storage.discard(staged_anchor)
+            await self._storage.discard(staged_activation)
+            raise BirthViolation("BIRTH-DATABASE") from None
         if existing is not None:
             await self._storage.discard(staged_anchor)
             await self._storage.discard(staged_activation)
@@ -126,13 +131,19 @@ class BirthTransaction:
                 )
             except DatabaseTransactionError as error:
                 if error.code == "DB-TX-COMMIT-UNKNOWN":
-                    recovered = await self._recover_existing(manifest)
+                    try:
+                        recovered = await self._recover_existing(manifest)
+                    except DatabaseTransactionError:
+                        raise BirthViolation("BIRTH-COMMIT-UNKNOWN") from None
                     if recovered is not None:
                         return recovered
                     raise BirthViolation("BIRTH-COMMIT-UNKNOWN") from None
                 if error.code != "DB-TX-SERIALIZATION" or attempt == 2:
                     raise BirthViolation("BIRTH-DATABASE") from None
-                recovered = await self._recover_existing(manifest)
+                try:
+                    recovered = await self._recover_existing(manifest)
+                except DatabaseTransactionError:
+                    raise BirthViolation("BIRTH-DATABASE") from None
                 if recovered is not None:
                     return recovered
             except AuditViolation:
@@ -236,13 +247,10 @@ class BirthTransaction:
         self,
         manifest: BirthManifest,
     ) -> BirthResult | None:
-        try:
-            async with self._uow_factory.unit_of_work(
-                read_only=True,
-            ) as unit_of_work:
-                return await self._repository.existing(unit_of_work, manifest)
-        except DatabaseTransactionError:
-            return None
+        async with self._uow_factory.unit_of_work(
+            read_only=True,
+        ) as unit_of_work:
+            return await self._repository.existing(unit_of_work, manifest)
 
 
 async def run_birth_transaction(

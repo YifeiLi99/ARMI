@@ -10,11 +10,13 @@ from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
+    ArtifactViolation,
     ResponseViolation,
     RuntimeFence,
     WorkLease,
     WorkViolation,
 )
+from armi_kernel.contracts import ContractViolation
 
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.response_admission import (
@@ -117,9 +119,7 @@ class ResponseAdmissionPipeline:
             stream = await self._storage.open_verified(snapshot.artifact)
             async with stream:
                 value = await stream.read()
-        except Exception as error:
-            if isinstance(error, asyncio.CancelledError):
-                raise
+        except ArtifactViolation, ContractViolation, OSError:
             return False
         return len(value) == snapshot.content_bytes
 

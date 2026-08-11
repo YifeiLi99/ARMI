@@ -12,6 +12,7 @@ from pydantic import (
     Field,
     StringConstraints,
     TypeAdapter,
+    ValidationError,
     model_validator,
 )
 
@@ -206,7 +207,7 @@ def parse_other_human_dialogue_candidate(
 ) -> OtherHumanDialogueCandidate:
     try:
         raw = json.loads(value)
-    except Exception:
+    except UnicodeDecodeError, json.JSONDecodeError:
         raise ModelViolation("MODEL-RESPONSE-CONTRACT") from None
     return parse_other_human_dialogue_candidate_value(
         raw,
@@ -235,7 +236,7 @@ def parse_other_human_dialogue_candidate_value(
             candidate = _ADAPTER.validate_python(raw, strict=True)
         else:
             raise ValueError("unsupported other-human candidate version")
-    except Exception:
+    except ValidationError, ValueError:
         raise ModelViolation("MODEL-RESPONSE-CONTRACT") from None
     if isinstance(candidate, OtherHumanReplyDecision) and (
         not candidate.content.strip() or "\x00" in candidate.content

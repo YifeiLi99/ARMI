@@ -39,7 +39,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
-from armi_kernel.contracts import Instant, Purpose, SubjectId
+from armi_kernel.contracts import ContractViolation, Instant, Purpose, SubjectId
 
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
@@ -353,9 +353,7 @@ class SubjectCommitPipeline:
             stream = await self._storage.open_verified(snapshot.change_set_artifact)
             async with stream:
                 value = await stream.read()
-        except Exception as error:
-            if isinstance(error, asyncio.CancelledError):
-                raise
+        except ArtifactViolation, ContractViolation, OSError:
             raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT") from None
         if not value:
             raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT")

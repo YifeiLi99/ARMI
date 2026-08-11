@@ -15,6 +15,7 @@ from uuid import UUID, uuid7
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     ActionAdapterPort,
+    ArtifactViolation,
     CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
@@ -30,6 +31,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
+from armi_kernel.contracts import ContractViolation
 
 from armi_runtime.adapters.creator_response_inbox import (
     PostgreSQLLocalInbox,
@@ -469,7 +471,7 @@ class EffectRegistrationPipeline:
             if len(value) != size:
                 return None
             return value
-        except Exception:
+        except ArtifactViolation, ContractViolation, OSError:
             return None
 
     async def run(self) -> None:

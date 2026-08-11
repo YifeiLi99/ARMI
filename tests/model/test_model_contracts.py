@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from uuid import UUID, uuid7
 
+import armi_runtime.composition.model_contract as model_contract_module
+import armi_runtime.composition.other_human_dialogue_candidate_contract as other_human_contract_module
 import pytest
 from armi_kernel.application import (
     CredentialLocator,
@@ -49,6 +51,30 @@ from armi_runtime.composition.other_human_dialogue_candidate_contract import (
 )
 
 _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
+
+
+def test_internal_candidate_parser_error_is_not_reported_as_model_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(_value: object) -> object:
+        raise RuntimeError("internal parser defect")
+
+    monkeypatch.setattr(model_contract_module, "strict_model_value", fail)
+    with pytest.raises(RuntimeError, match="internal parser defect"):
+        parse_candidate(b"{}", allowed_context_refs=frozenset())
+
+
+def test_internal_other_human_parser_error_is_not_reported_as_model_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(_value: object) -> object:
+        raise RuntimeError("internal other-human parser defect")
+
+    monkeypatch.setattr(other_human_contract_module, "strict_model_value", fail)
+    with pytest.raises(RuntimeError, match="internal other-human parser defect"):
+        other_human_contract_module.parse_other_human_dialogue_candidate_value(
+            {}, allowed_context_refs=frozenset()
+        )
 
 
 def test_other_human_instructions_require_first_relationship_interpretation() -> None:

@@ -79,6 +79,7 @@ from armi_kernel.application import (
     WebResearchRequestDraft,
 )
 from armi_kernel.contracts import Digest
+from pydantic import ValidationError
 
 from .activity_attention_candidate_contract import (
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
@@ -2552,7 +2553,7 @@ def _expand_dialogue_candidate(
                 DialogueBoundChanges(exact_life_query=exact_query),
                 None,
             )
-        except Exception:
+        except ValidationError:
             return None, None, "CANDIDATE-CONTRACT"
     elif isinstance(
         decision,
@@ -2637,7 +2638,7 @@ def _expand_dialogue_candidate(
                 DialogueBoundChanges(),
                 None,
             )
-        except Exception:
+        except ValidationError:
             return None, None, "CANDIDATE-CONTRACT"
     try:
         return (
@@ -2671,7 +2672,7 @@ def _expand_dialogue_candidate(
             DialogueBoundChanges(memory_revision, relationship, material, prompt),
             None,
         )
-    except Exception:
+    except ValidationError:
         return None, None, "CANDIDATE-CONTRACT"
 
 
@@ -2741,7 +2742,7 @@ def _bind_dialogue_component_change(
         validated = state_type.model_validate_json(
             rfc8785.dumps(cast(Any, next_state)), strict=True
         )
-    except Exception:
+    except ValidationError, rfc8785.CanonicalizationError:
         return None, "CANDIDATE-COMPONENT-STATE"
     return (
         {
@@ -2826,7 +2827,7 @@ def _bind_dialogue_subject_prompt(
             for value in _nested_text_values(self_document.get(field_name))
             if value.strip()
         }
-    except Exception:
+    except ValidationError:
         return None, "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
     if any(
         self_value in method.strip().casefold()

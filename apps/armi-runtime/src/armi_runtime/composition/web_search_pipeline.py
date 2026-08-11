@@ -162,6 +162,9 @@ class WebSearchPipeline:
         request_digest = staged.content_digest
         try:
             existing = await self._existing(draft, request_digest)
+        except DatabaseTransactionError:
+            await self._storage.discard(staged)
+            raise WebObservationViolation("WEB-DATABASE") from None
         except Exception:
             await self._storage.discard(staged)
             raise
@@ -225,7 +228,10 @@ class WebSearchPipeline:
         except WebObservationViolation:
             raise
         except ArtifactViolation, DatabaseTransactionError, WorkViolation:
-            recovered = await self._existing(draft, request_digest)
+            try:
+                recovered = await self._existing(draft, request_digest)
+            except DatabaseTransactionError:
+                raise WebObservationViolation("WEB-DATABASE") from None
             if recovered is not None:
                 return recovered
             raise WebObservationViolation("WEB-DATABASE") from None
@@ -307,18 +313,13 @@ class WebSearchPipeline:
         draft: WebObservationDraft,
         request_digest: Digest,
     ) -> WebObservationRecord | None:
-        try:
-            async with self._factory.unit_of_work(read_only=True) as unit:
-                return await self._repository.existing(
-                    unit,
-                    subject_id=draft.subject_id,
-                    idempotency_key=draft.idempotency_key.value,
-                    request_digest=request_digest,
-                )
-        except WebObservationViolation:
-            raise
-        except DatabaseTransactionError:
-            return None
+        async with self._factory.unit_of_work(read_only=True) as unit:
+            return await self._repository.existing(
+                unit,
+                subject_id=draft.subject_id,
+                idempotency_key=draft.idempotency_key.value,
+                request_digest=request_digest,
+            )
 
     async def _snapshot(self, lease: WorkLease) -> WebObservationSnapshot:
         try:

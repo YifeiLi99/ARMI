@@ -180,6 +180,9 @@ class OtherHumanInputService(OtherHumanInputPort):
         )
         try:
             existing = await self._existing(command, context, request_digest)
+        except DatabaseTransactionError:
+            await self._storage.discard(staged)
+            raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
         except Exception:
             await self._storage.discard(staged)
             raise
@@ -194,7 +197,12 @@ class OtherHumanInputService(OtherHumanInputPort):
             acceptance = await self._commit(command, context, request_digest, published)
         except DatabaseTransactionError as error:
             if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
-                recovered = await self._existing(command, context, request_digest)
+                try:
+                    recovered = await self._existing(command, context, request_digest)
+                except DatabaseTransactionError:
+                    raise OtherHumanInputViolation(
+                        "DB-OTHER-HUMAN-UNAVAILABLE"
+                    ) from None
                 if recovered is not None:
                     return recovered
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
@@ -242,18 +250,13 @@ class OtherHumanInputService(OtherHumanInputPort):
         context: OtherHumanInputContext,
         request_digest: Digest,
     ) -> OtherHumanInputAcceptance | None:
-        try:
-            async with self._uow_factory.unit_of_work(read_only=True) as unit_of_work:
-                return await self._repository.existing(
-                    unit_of_work,
-                    context=context,
-                    idempotency_key=command.idempotency_key.value,
-                    request_digest=request_digest,
-                )
-        except OtherHumanInputViolation:
-            raise
-        except DatabaseTransactionError:
-            return None
+        async with self._uow_factory.unit_of_work(read_only=True) as unit_of_work:
+            return await self._repository.existing(
+                unit_of_work,
+                context=context,
+                idempotency_key=command.idempotency_key.value,
+                request_digest=request_digest,
+            )
 
     async def _commit(
         self,

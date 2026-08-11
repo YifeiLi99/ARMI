@@ -24,7 +24,13 @@ from armi_kernel.application import (
     OpportunityAdmissionStatus,
     PostgreSqlFairLifeScheduler,
 )
-from armi_kernel.contracts import ActivityId, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import (
+    ActivityId,
+    ContractViolation,
+    Purpose,
+    SubjectId,
+    TraceId,
+)
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -458,7 +464,7 @@ class PostgreSQLLifeOpportunityRepository:
             raise LifeViolation("LIFE-SCHEDULER-FOCUS")
         try:
             active_ids = tuple(ActivityId.from_wire(value) for value in active_list)
-        except Exception:
+        except ContractViolation:
             raise LifeViolation("LIFE-SCHEDULER-FOCUS") from None
         rows = await (
             await connection.execute(
@@ -802,7 +808,7 @@ class PostgreSQLLifeOpportunityRepository:
             )
         try:
             activity_id = ActivityId.from_wire(active_list[0])
-        except Exception:
+        except ContractViolation:
             raise LifeViolation("LIFE-SCHEDULER-FOCUS") from None
         row = await (
             await connection.execute(
