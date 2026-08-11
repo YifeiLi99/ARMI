@@ -1,8 +1,9 @@
 """Run the single explicit S026 model-to-T-03 live gate.
 
 The invoked PostgreSQL test owns an isolated database and data root. This wrapper
-never reads or prints the credential; it only passes the ignored env-file path to
-the child process that performs one Seed Evolving Responses invocation.
+never reads or prints the credential; it only passes the configured ARMI
+environment root to the child process that performs one Seed Evolving Responses
+invocation.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
@@ -21,7 +24,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--root", type=Path, default=Path(__file__).resolve().parents[1]
     )
     parser.add_argument("--tool-root", type=Path, default=Path(".armi-tools"))
-    parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument(
+        "--environment-root", type=Path, default=DEFAULT_ENVIRONMENT_ROOT
+    )
     args = parser.parse_args(argv)
     root = args.root.resolve()
     environment = dict(os.environ)
@@ -43,8 +48,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             str(root),
             "--postgresql-client-root",
             str(args.tool_root / "installs/postgresql/18.4/pgsql"),
-            "--s026-live-env-file",
-            str(args.env_file.resolve()),
+            "--s026-live-environment-root",
+            str(args.environment_root.resolve()),
         ],
         cwd=root,
         check=False,

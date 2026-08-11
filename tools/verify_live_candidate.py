@@ -14,7 +14,6 @@ from uuid import uuid7
 import rfc8785
 from armi_kernel.application import (
     CandidateBasis,
-    CredentialLocator,
     ModelResultStatus,
 )
 from armi_kernel.contracts import Digest
@@ -23,7 +22,6 @@ from armi_runtime.composition.candidate_validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
-from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.model_contract import (
     build_request_bytes,
     candidate_schema,
@@ -31,33 +29,11 @@ from armi_runtime.composition.model_contract import (
     load_active_binding,
     parse_candidate,
 )
-
-_KEY_NAME = "ARMI_SECRET_ARK_API_KEY"
-
-
-def _read_key(path: Path) -> str:
-    try:
-        raw = path.read_bytes()
-        text = raw.decode("utf-8")
-    except OSError, UnicodeDecodeError:
-        raise RuntimeError("MODEL-LIVE-CREDENTIAL") from None
-    prefix = f"{_KEY_NAME}="
-    lines = text.splitlines()
-    if (
-        raw.startswith(b"\xef\xbb\xbf")
-        or "\r" in text
-        or len(lines) != 1
-        or not lines[0].startswith(prefix)
-    ):
-        raise RuntimeError("MODEL-LIVE-CREDENTIAL")
-    value = lines[0][len(prefix) :]
-    if not value or value != value.strip():
-        raise RuntimeError("MODEL-LIVE-CREDENTIAL")
-    return value
+from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
 
 
-async def _verify(env_file: Path) -> dict[str, object]:
-    secret = _read_key(env_file)
+async def _verify(environment_root: Path) -> dict[str, object]:
+    credential = load_live_ark_credential(environment_root)
     binding = load_active_binding()
     subject_id = uuid7()
     generation_id = uuid7()
@@ -112,11 +88,8 @@ async def _verify(env_file: Path) -> dict[str, object]:
     )
     adapter = VolcengineArkModelAdapter(
         binding=binding,
-        credential_port=EnvironmentFileCredentialPort(
-            environment={_KEY_NAME: secret},
-            secret_roots=(env_file.parent,),
-        ),
-        locator=CredentialLocator.parse(f"env:{_KEY_NAME}"),
+        credential_port=credential.port,
+        locator=credential.locator,
         candidate_schema=candidate_schema(),
         candidate_parser=parse_candidate,
     )
@@ -192,10 +165,12 @@ async def _verify(env_file: Path) -> dict[str, object]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument(
+        "--environment-root", type=Path, default=DEFAULT_ENVIRONMENT_ROOT
+    )
     args = parser.parse_args(argv)
     try:
-        evidence = asyncio.run(_verify(args.env_file.resolve()))
+        evidence = asyncio.run(_verify(args.environment_root.resolve()))
     except Exception as error:
         code = str(error)
         if not code.startswith(("MODEL-", "CANDIDATE-")):

@@ -19,31 +19,10 @@ from armi_runtime.adapters.model.web_search import (
     WebSearchViolation,
     normalize_provider_response,
 )
+from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
 from openai import AsyncOpenAI
 
-_KEY = "ARMI_SECRET_ARK_API_KEY"
 _BUDGET_MICROYUAN = 2_000_000
-
-
-def _read_key(path: Path) -> str:
-    try:
-        raw = path.read_bytes()
-        value = raw.decode("utf-8", errors="strict")
-    except OSError, UnicodeDecodeError:
-        raise WebSearchViolation("WEB-SEARCH-LIVE-CREDENTIAL") from None
-    prefix = f"{_KEY}="
-    lines = value.splitlines()
-    if (
-        raw.startswith(b"\xef\xbb\xbf")
-        or "\r" in value
-        or len(lines) != 1
-        or not lines[0].startswith(prefix)
-    ):
-        raise WebSearchViolation("WEB-SEARCH-LIVE-CREDENTIAL")
-    secret = lines[0][len(prefix) :]
-    if not secret or secret != secret.strip():
-        raise WebSearchViolation("WEB-SEARCH-LIVE-CREDENTIAL")
-    return secret
 
 
 def _rates(root: Path) -> tuple[int, int]:
@@ -78,10 +57,14 @@ def _cost(evidence: Mapping[str, int], rates: tuple[int, int]) -> int:
     return value
 
 
-async def _run(root: Path, env_file: Path) -> dict[str, object]:
+async def _run(root: Path, environment_root: Path) -> dict[str, object]:
+    try:
+        api_key = load_live_ark_credential(environment_root).read_text()
+    except Exception:
+        raise WebSearchViolation("WEB-SEARCH-LIVE-CREDENTIAL") from None
     http_client = httpx.AsyncClient(trust_env=False)
     client = AsyncOpenAI(
-        api_key=_read_key(env_file),
+        api_key=api_key,
         base_url=API_BASE,
         max_retries=0,
         timeout=180,
@@ -124,10 +107,14 @@ async def _run(root: Path, env_file: Path) -> dict[str, object]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path.cwd())
-    parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument(
+        "--environment-root", type=Path, default=DEFAULT_ENVIRONMENT_ROOT
+    )
     args = parser.parse_args(argv)
     try:
-        evidence = asyncio.run(_run(args.root.resolve(), args.env_file.resolve()))
+        evidence = asyncio.run(
+            _run(args.root.resolve(), args.environment_root.resolve())
+        )
     except WebSearchViolation as exc:
         print(
             json.dumps(
