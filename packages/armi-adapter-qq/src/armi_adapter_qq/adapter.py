@@ -45,6 +45,10 @@ class QQAdapterConfig:
     account_id: int
     creator_user_id: int
     allowed_groups: Mapping[int, str]
+    reply_to_other_users: bool
+    reply_in_groups: bool
+    reply_user_allowlist: frozenset[int]
+    reply_group_allowlist: frozenset[int]
 
     def __post_init__(self) -> None:
         if (
@@ -74,6 +78,22 @@ class QQAdapterConfig:
             ):
                 raise ValueError("QQ allowed group is invalid")
         object.__setattr__(self, "allowed_groups", MappingProxyType(groups))
+        if (
+            type(self.reply_to_other_users) is not bool
+            or type(self.reply_in_groups) is not bool
+            or type(self.reply_user_allowlist) is not frozenset
+            or type(self.reply_group_allowlist) is not frozenset
+            or any(
+                type(user_id) is not int or user_id <= 0
+                for user_id in self.reply_user_allowlist
+            )
+            or any(
+                type(group_id) is not int or group_id <= 0
+                for group_id in self.reply_group_allowlist
+            )
+            or not self.reply_group_allowlist.issubset(groups)
+        ):
+            raise ValueError("QQ reply policy is invalid")
 
 
 class QQIngressAdapter:
@@ -101,6 +121,11 @@ class QQIngressAdapter:
             group_label = self._config.allowed_groups.get(event.group_id)
             if group_label is None:
                 return None
+            if (
+                not self._config.reply_in_groups
+                and event.group_id not in self._config.reply_group_allowlist
+            ):
+                return None
             kind = ExternalConversationKind.GROUP
             conversation_key = str(event.group_id)
             conversation_label = group_label
@@ -110,6 +135,12 @@ class QQIngressAdapter:
             conversation_key = str(event.user_id)
             conversation_label = event.sender_label
             addressed = True
+        if (
+            event.user_id != self._config.creator_user_id
+            and not self._config.reply_to_other_users
+            and event.user_id not in self._config.reply_user_allowlist
+        ):
+            return None
         return await self._input.accept(
             ObservedExternalMessage(
                 ExternalChannel("qq"),

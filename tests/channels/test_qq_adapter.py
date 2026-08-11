@@ -76,7 +76,15 @@ class _Gateway:
 
 
 def _config() -> QQAdapterConfig:
-    return QQAdapterConfig(10001, 90009, {20002: "朋友群"})
+    return QQAdapterConfig(
+        10001,
+        90009,
+        {20002: "朋友群"},
+        True,
+        True,
+        frozenset(),
+        frozenset(),
+    )
 
 
 class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
@@ -126,6 +134,62 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
         for event in events:
             self.assertIsNone(await adapter.accept_event(event))
         self.assertEqual(port.accepted, [])
+
+    async def test_reply_switches_require_allowlist_exceptions(self) -> None:
+        port = _InputPort()
+        config = QQAdapterConfig(
+            10001,
+            90009,
+            {20002: "朋友群", 20003: "安静群"},
+            False,
+            False,
+            frozenset({30003}),
+            frozenset({20002}),
+        )
+        adapter = QQIngressAdapter(config=config, input_port=port)
+        events = (
+            NapCatPrivateMessageEvent(
+                1, 10001, "1", 40004, "路人", (("text", {"text": "x"}),)
+            ),
+            NapCatGroupMessageEvent(
+                1,
+                10001,
+                "2",
+                20003,
+                30003,
+                "白名单好友",
+                (("text", {"text": "x"}),),
+            ),
+            NapCatGroupMessageEvent(
+                1, 10001, "3", 20002, 40004, "路人", (("text", {"text": "x"}),)
+            ),
+            NapCatPrivateMessageEvent(
+                1, 10001, "4", 90009, "主人", (("text", {"text": "x"}),)
+            ),
+            NapCatPrivateMessageEvent(
+                1,
+                10001,
+                "5",
+                30003,
+                "白名单好友",
+                (("text", {"text": "x"}),),
+            ),
+            NapCatGroupMessageEvent(
+                1,
+                10001,
+                "6",
+                20002,
+                30003,
+                "白名单好友",
+                (("text", {"text": "x"}),),
+            ),
+        )
+        for event in events:
+            await adapter.accept_event(event)
+        self.assertEqual(
+            [item.message_key.value for item in port.accepted],
+            ["4", "5", "6"],
+        )
 
     async def test_egress_routes_group_and_private(self) -> None:
         gateway = _Gateway()
@@ -194,17 +258,21 @@ class QQConfigTests(unittest.TestCase):
         with TemporaryDirectory() as root:
             self.assertIsNone(load_qq_napcat_config(Path(root) / "missing.toml"))
 
-    def test_v2_requires_creator_identity(self) -> None:
+    def test_v3_loads_reply_policy(self) -> None:
         with TemporaryDirectory() as root:
             path = Path(root) / "qq-napcat.toml"
             path.write_text(
-                """schema_version = "armi.qq-napcat-channel.v2"
+                """schema_version = "armi.qq-napcat-channel.v3"
 enabled = true
 account_id = 10001
 creator_user_id = 90009
 api_base_url = "http://127.0.0.1:3000"
 event_port = 6199
 request_body_max_bytes = 262144
+reply_to_other_users = false
+reply_in_groups = false
+reply_user_allowlist = [30003]
+reply_group_allowlist = [20002]
 
 [allowed_groups]
 "20002" = "朋友群"
@@ -215,6 +283,8 @@ request_body_max_bytes = 262144
             binding = load_qq_napcat_config(path)
         assert binding is not None
         self.assertEqual(binding.adapter.creator_user_id, 90009)
+        self.assertFalse(binding.adapter.reply_to_other_users)
+        self.assertEqual(binding.adapter.reply_user_allowlist, frozenset({30003}))
 
 
 if __name__ == "__main__":

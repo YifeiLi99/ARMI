@@ -45,7 +45,15 @@ class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
     async def test_accepts_friend_and_acknowledges_temporary_private(self) -> None:
         secret = b"local-test-secret"
         port = _InputPort()
-        config = QQAdapterConfig(10001, 90009, {20002: "朋友群"})
+        config = QQAdapterConfig(
+            10001,
+            90009,
+            {20002: "朋友群"},
+            True,
+            True,
+            frozenset(),
+            frozenset(),
+        )
         app = create_qq_event_app(
             config=config,
             ingress=QQIngressAdapter(config=config, input_port=port),
@@ -89,7 +97,15 @@ class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejects_bad_signature_and_wrong_account_header(self) -> None:
         secret = b"local-test-secret"
         port = _InputPort()
-        config = QQAdapterConfig(10001, 90009, {20002: "朋友群"})
+        config = QQAdapterConfig(
+            10001,
+            90009,
+            {20002: "朋友群"},
+            True,
+            True,
+            frozenset(),
+            frozenset(),
+        )
         app = create_qq_event_app(
             config=config,
             ingress=QQIngressAdapter(config=config, input_port=port),
