@@ -53,18 +53,20 @@ class NapCatGroupMessageEvent:
         return frozenset(values)
 
     def render_text(self) -> str | None:
-        parts: list[str] = []
-        for kind, data in self.segments:
-            if kind == "text":
-                parts.append(data.get("text", ""))
-            elif kind == "at":
-                value = data.get("qq", "")
-                parts.append("@全体成员" if value == "all" else f"@QQ({value})")
-            elif kind == "reply":
-                value = data.get("id", "")
-                parts.append(f"[回复消息 {value}]")
-        text = "".join(parts).strip()
-        return text if text else None
+        return _render_text(self.segments)
+
+
+@dataclass(frozen=True, slots=True)
+class NapCatPrivateMessageEvent:
+    time: int
+    self_id: int
+    message_id: str
+    user_id: int
+    sender_label: str
+    segments: tuple[tuple[str, dict[str, str]], ...]
+
+    def render_text(self) -> str | None:
+        return _render_text(self.segments)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +83,7 @@ class NapCatActionResponse:
 
 def parse_onebot_message(
     value: str | bytes,
-) -> NapCatGroupMessageEvent | NapCatActionResponse | None:
+) -> NapCatGroupMessageEvent | NapCatPrivateMessageEvent | NapCatActionResponse | None:
     if type(value) not in {str, bytes}:
         raise NapCatViolation("NAPCAT-FRAME-INVALID")
     try:
@@ -93,18 +95,22 @@ def parse_onebot_message(
 
 def parse_onebot_document(
     document: object,
-) -> NapCatGroupMessageEvent | NapCatActionResponse | None:
+) -> NapCatGroupMessageEvent | NapCatPrivateMessageEvent | NapCatActionResponse | None:
     if type(document) is not dict:
         raise NapCatViolation("NAPCAT-FRAME-INVALID")
     document = cast(dict[str, Any], document)
     if "echo" in document:
         return _parse_action_response(document)
-    if (
-        document.get("post_type") != "message"
-        or document.get("message_type") != "group"
-    ):
+    if document.get("post_type") != "message":
         return None
-    return _parse_group_message(document)
+    message_type = document.get("message_type")
+    if message_type == "group":
+        return _parse_group_message(document)
+    if message_type == "private":
+        if document.get("sub_type") != "friend":
+            return None
+        return _parse_private_message(document)
+    return None
 
 
 def _parse_group_message(document: dict[str, Any]) -> NapCatGroupMessageEvent:
@@ -122,23 +128,7 @@ def _parse_group_message(document: dict[str, Any]) -> NapCatGroupMessageEvent:
         raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID")
     raw_segments = cast(list[object], raw_segments)
     sender = cast(dict[str, object], sender)
-    segments: list[tuple[str, dict[str, str]]] = []
-    for raw in raw_segments:
-        if type(raw) is not dict:
-            raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID")
-        raw = cast(dict[str, object], raw)
-        if type(raw.get("type")) is not str:
-            raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID")
-        data = raw.get("data")
-        if type(data) is not dict:
-            raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID")
-        data = cast(dict[object, object], data)
-        normalized: dict[str, str] = {}
-        for key, item in data.items():
-            if type(key) is not str or type(item) not in {str, int}:
-                continue
-            normalized[key] = str(item)
-        segments.append((cast(str, raw["type"]), normalized))
+    segments = _segments(raw_segments, "NAPCAT-GROUP-EVENT-INVALID")
     sender_label = sender.get("card") or sender.get("nickname") or str(user_id)
     if (
         type(sender_label) is not str
@@ -155,6 +145,74 @@ def _parse_group_message(document: dict[str, Any]) -> NapCatGroupMessageEvent:
         sender_label.strip(),
         tuple(segments),
     )
+
+
+def _parse_private_message(document: dict[str, Any]) -> NapCatPrivateMessageEvent:
+    try:
+        time = _positive_int(document["time"])
+        self_id = _positive_int(document["self_id"])
+        message_id = _external_ref(document["message_id"])
+        user_id = _positive_int(document["user_id"])
+        raw_segments = document["message"]
+        sender = document["sender"]
+    except KeyError, TypeError, ValueError:
+        raise NapCatViolation("NAPCAT-PRIVATE-EVENT-INVALID") from None
+    if type(raw_segments) is not list or type(sender) is not dict:
+        raise NapCatViolation("NAPCAT-PRIVATE-EVENT-INVALID")
+    segments = _segments(
+        cast(list[object], raw_segments), "NAPCAT-PRIVATE-EVENT-INVALID"
+    )
+    typed_sender = cast(dict[str, object], sender)
+    sender_label = typed_sender.get("nickname") or str(user_id)
+    if (
+        type(sender_label) is not str
+        or not sender_label.strip()
+        or "\x00" in sender_label
+    ):
+        raise NapCatViolation("NAPCAT-PRIVATE-EVENT-INVALID")
+    return NapCatPrivateMessageEvent(
+        time,
+        self_id,
+        message_id,
+        user_id,
+        sender_label.strip(),
+        tuple(segments),
+    )
+
+
+def _segments(
+    raw_segments: list[object], violation_code: str
+) -> list[tuple[str, dict[str, str]]]:
+    segments: list[tuple[str, dict[str, str]]] = []
+    for raw in raw_segments:
+        if type(raw) is not dict:
+            raise NapCatViolation(violation_code)
+        typed = cast(dict[str, object], raw)
+        kind = typed.get("type")
+        data = typed.get("data")
+        if type(kind) is not str or type(data) is not dict:
+            raise NapCatViolation(violation_code)
+        normalized: dict[str, str] = {}
+        for key, item in cast(dict[object, object], data).items():
+            if type(key) is str and type(item) in {str, int}:
+                normalized[key] = str(item)
+        segments.append((kind, normalized))
+    return segments
+
+
+def _render_text(segments: tuple[tuple[str, dict[str, str]], ...]) -> str | None:
+    parts: list[str] = []
+    for kind, data in segments:
+        if kind == "text":
+            parts.append(data.get("text", ""))
+        elif kind == "at":
+            value = data.get("qq", "")
+            parts.append("@全体成员" if value == "all" else f"@QQ({value})")
+        elif kind == "reply":
+            value = data.get("id", "")
+            parts.append(f"[回复消息 {value}]")
+    text = "".join(parts).strip()
+    return text if text else None
 
 
 def _parse_action_response(document: dict[str, Any]) -> NapCatActionResponse:

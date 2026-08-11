@@ -9,7 +9,7 @@ from typing import cast
 
 from .adapter import QQAdapterConfig
 
-QQ_NAPCAT_CONFIG_SCHEMA = "armi.qq-napcat-channel.v1"
+QQ_NAPCAT_CONFIG_SCHEMA = "armi.qq-napcat-channel.v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +40,7 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
         "schema_version",
         "enabled",
         "account_id",
+        "creator_user_id",
         "api_base_url",
         "event_port",
         "request_body_max_bytes",
@@ -76,18 +77,20 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
     if len(allowed_groups) != len(groups):
         raise ValueError("QQ group allowlist is invalid")
     account_id = document["account_id"]
+    creator_user_id = document["creator_user_id"]
     api_base_url = document["api_base_url"]
     event_port = document["event_port"]
     request_body_max_bytes = document["request_body_max_bytes"]
     if (
         type(account_id) is not int
+        or type(creator_user_id) is not int
         or type(api_base_url) is not str
         or type(event_port) is not int
         or type(request_body_max_bytes) is not int
     ):
         raise ValueError("QQ channel configuration values are invalid")
     return QQNapCatBindingConfig(
-        QQAdapterConfig(account_id, allowed_groups),
+        QQAdapterConfig(account_id, creator_user_id, allowed_groups),
         api_base_url,
         event_port,
         request_body_max_bytes,

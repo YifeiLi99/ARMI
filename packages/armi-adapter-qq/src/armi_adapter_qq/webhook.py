@@ -7,19 +7,20 @@ import hmac
 
 from armi_channel_napcat import (
     NapCatGroupMessageEvent,
+    NapCatPrivateMessageEvent,
     NapCatViolation,
     parse_onebot_message,
 )
-from armi_kernel.application import ExternalGroupViolation
+from armi_kernel.application import ExternalMessageViolation
 from fastapi import FastAPI, Request, Response
 
-from .adapter import QQAdapterConfig, QQGroupIngressAdapter
+from .adapter import QQAdapterConfig, QQIngressAdapter
 
 
 def create_qq_event_app(
     *,
     config: QQAdapterConfig,
-    ingress: QQGroupIngressAdapter,
+    ingress: QQIngressAdapter,
     signing_secret: bytes,
     request_body_max_bytes: int,
 ) -> FastAPI:
@@ -57,9 +58,9 @@ def create_qq_event_app(
         except NapCatViolation:
             return Response(status_code=400)
         try:
-            if isinstance(event, NapCatGroupMessageEvent):
+            if isinstance(event, (NapCatGroupMessageEvent, NapCatPrivateMessageEvent)):
                 await ingress.accept_event(event)
-        except ExternalGroupViolation as error:
+        except ExternalMessageViolation as error:
             if error.code.startswith("CON-"):
                 return Response(status_code=400)
             if error.code.startswith("SCOPE-"):

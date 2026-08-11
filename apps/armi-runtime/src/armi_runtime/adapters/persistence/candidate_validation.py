@@ -143,6 +143,7 @@ class CandidateEpisodeSnapshot:
     current_maintenance_head_version: int | None = None
     current_maintenance_phase: str | None = None
     scene_kind: str | None = None
+    sender_party_kind: str | None = None
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -175,7 +176,8 @@ class PostgreSQLCandidateValidationRepository:
                     episode.trace_id,
                     episode.purpose,
                     episode.opportunity_id,
-                    scene.scene_kind
+                    scene.scene_kind,
+                    context_party.party_kind
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -186,6 +188,8 @@ class PostgreSQLCandidateValidationRepository:
                   ON subject.subject_id = episode.subject_id
                 LEFT JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = episode.scene_id
+                LEFT JOIN armi.parties AS context_party
+                  ON context_party.party_id = episode.context_party_id
                 WHERE work.work_id = %s
                   AND work.work_kind = 'cognition.candidate.validate'
                   AND work.owner_kind = 'cognitive_episode'
@@ -580,6 +584,7 @@ class PostgreSQLCandidateValidationRepository:
             None if maintenance_row is None else int(maintenance_row[2]),
             None if maintenance_row is None else str(maintenance_row[3]),
             None if row[15] is None else str(row[15]),
+            None if row[16] is None else str(row[16]),
         )
 
     async def fail(

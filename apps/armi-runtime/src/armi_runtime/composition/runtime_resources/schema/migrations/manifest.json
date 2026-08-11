@@ -47,6 +47,14 @@
       "path": "0005_remove_redundant_retry_paths.sql",
       "sha256": "sha256:e8664396234347604c477aec42f8a28fb968cebad949266f6bd65a96bf0254c5",
       "target_catalog_sha256": "sha256:844822c76fbeeee5acc1045afd36eddfee037a7a4a23135eeaea5448bff6d419"
+    },
+    {
+      "creates_tables": [],
+      "drops_tables": [],
+      "migration_id": "0006_external_conversations",
+      "path": "0006_external_conversations.sql",
+      "sha256": "sha256:795955354e71a1db198edc8d637b6ba5aa9b9a10cb00a133f6588bafd9caab66",
+      "target_catalog_sha256": "sha256:b174eff7dc2f3bb0478a306ab2ee1c4766cb5a4f61a485e920a7cef3ebae117c"
     }
   ],
   "schema_version": "armi.schema-migrations.v1"

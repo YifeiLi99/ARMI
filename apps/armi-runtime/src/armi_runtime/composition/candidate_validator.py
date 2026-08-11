@@ -428,6 +428,7 @@ class CandidateValidationContext:
     current_maintenance_phase: MaintenancePhase | None = None
     other_party_id: UUID | None = None
     scene_kind: str | None = None
+    sender_party_kind: str | None = None
 
     def __post_init__(self) -> None:
         if any(
@@ -467,6 +468,8 @@ class CandidateValidationContext:
             "other_human_dialogue",
             "group_dialogue",
         }:
+            raise CandidateViolation("CON-CANDIDATE-CONTEXT")
+        if self.sender_party_kind not in {None, "creator", "other_human"}:
             raise CandidateViolation("CON-CANDIDATE-CONTEXT")
         activity_values = (
             self.current_activity_id,
@@ -3321,6 +3324,10 @@ def _bind_dialogue_relationship(
     scope = (
         "creator_social"
         if context.purpose == "consider_creator_input"
+        or (
+            context.purpose == "consider_other_human_input"
+            and context.sender_party_kind == "creator"
+        )
         else "other_human_social"
     )
     if (

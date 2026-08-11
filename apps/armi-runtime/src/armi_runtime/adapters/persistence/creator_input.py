@@ -145,6 +145,9 @@ class CreatorInputRepository:
         content_digest: Digest,
         artifact_id: UUID,
         trace_id: str,
+        external_binding_id: UUID | None = None,
+        external_message_key: str | None = None,
+        addressed_to_subject: bool | None = None,
     ) -> CreatorInputAcceptance:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         interaction_id = uuid7()
@@ -162,8 +165,10 @@ class CreatorInputRepository:
                 idempotency_key,
                 request_digest,
                 content_digest,
-                trace_id)
-            VALUES (%s, %s, %s, %s, 'creator_message', %s, %s, %s, %s)
+                trace_id, external_binding_id, external_message_key,
+                addressed_to_subject)
+            VALUES (%s, %s, %s, %s, 'creator_message', %s, %s, %s, %s,
+                    %s, %s, %s)
             """,
             (
                 interaction_id,
@@ -174,6 +179,9 @@ class CreatorInputRepository:
                 request_digest.value,
                 content_digest.value,
                 trace_id,
+                external_binding_id,
+                external_message_key,
+                addressed_to_subject,
             ),
         )
         await connection.execute(

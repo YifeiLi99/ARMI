@@ -66,6 +66,7 @@ def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
         "0003_remove_redundant_digests",
         "0004_remove_remaining_redundant_digests",
         "0005_remove_redundant_retry_paths",
+        "0006_external_conversations",
     ]
     assert migrations["migrations"][0]["creates_tables"] == ["runtime_recovery_metrics"]
     assert migrations["migrations"][1]["creates_tables"] == [
@@ -78,6 +79,7 @@ def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
         [],
         [],
         ["outbox_items"],
+        [],
     ]
     for migration in migrations["migrations"]:
         assert migration["sha256"].startswith("sha256:")

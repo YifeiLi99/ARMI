@@ -100,9 +100,9 @@ from .exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
     build_exact_life_query_pipeline,
 )
-from .external_group_input import (
-    ExternalGroupInputService,
-    build_external_group_input_service,
+from .external_message_input import (
+    ExternalMessageInputService,
+    build_external_message_input_service,
 )
 from .life_opportunity import (
     LifeOpportunityPipeline,
@@ -875,14 +875,14 @@ def compose_other_human_input(
         ) from None
 
 
-def compose_external_group_input(
+def compose_external_message_input(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
     wakeups: WorkWakeupBus | None = None,
     notifier: CreatorProjectionNotifier | None = None,
-) -> ExternalGroupInputService:
-    """Resolve Runtime-owned persistence for channel-neutral group observations."""
+) -> ExternalMessageInputService:
+    """Resolve Runtime-owned persistence for external conversations."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
@@ -897,7 +897,7 @@ def compose_external_group_input(
             locator, CredentialPurpose("database.runtime")
         ) as handle:
 
-            def create(value: memoryview) -> ExternalGroupInputService:
+            def create(value: memoryview) -> ExternalMessageInputService:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
@@ -908,7 +908,7 @@ def compose_external_group_input(
                         exit_code=3,
                     ) from None
                 config = prepared.effective.config
-                return build_external_group_input_service(
+                return build_external_message_input_service(
                     conninfo,
                     environment_id=config.environment.environment_id,
                     data_root=prepared.data_root,
@@ -1575,7 +1575,7 @@ def compose_effect_registration_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
-    external_group_adapter: ActionAdapterPort | None = None,
+    external_message_adapter: ActionAdapterPort | None = None,
 ) -> EffectRegistrationPipeline:
     """Resolve the Runtime credential for the S029 T-05 worker."""
 
@@ -1609,7 +1609,7 @@ def compose_effect_registration_pipeline(
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                     fault_injector=fault_injector,
-                    external_group_adapter=external_group_adapter,
+                    external_message_adapter=external_message_adapter,
                 )
 
             return handle.consume(create)
@@ -1695,7 +1695,7 @@ __all__ = (
     "compose_data_rights_order_service",
     "compose_effect_registration_pipeline",
     "compose_exact_life_query_pipeline",
-    "compose_external_group_input",
+    "compose_external_message_input",
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",
     "compose_model_pipeline",

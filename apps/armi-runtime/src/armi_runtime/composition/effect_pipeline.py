@@ -82,7 +82,7 @@ class EffectRegistrationPipeline:
         storage: ContentAddressedArtifactStore,
         notifier: CreatorProjectionNotifier | None = None,
         adapter: ActionAdapterPort | None = None,
-        external_group_adapter: ActionAdapterPort | None = None,
+        external_message_adapter: ActionAdapterPort | None = None,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
@@ -91,8 +91,8 @@ class EffectRegistrationPipeline:
         self._storage = storage
         self._repository = PostgreSQLEffectLedgerRepository()
         self._dispatcher = PostgreSQLEffectDispatchRepository()
-        if adapter is not None and external_group_adapter is not None:
-            raise ValueError("whole-effect and external-group adapters are exclusive")
+        if adapter is not None and external_message_adapter is not None:
+            raise ValueError("whole-effect and external-message adapters are exclusive")
         if adapter is not None:
             self._adapter = adapter
         else:
@@ -101,8 +101,9 @@ class EffectRegistrationPipeline:
                 "creator_inbox": local_inbox,
                 "other_human_inbox": local_inbox,
             }
-            if external_group_adapter is not None:
-                routes["external_group"] = external_group_adapter
+            if external_message_adapter is not None:
+                routes["external_group"] = external_message_adapter
+                routes["external_private"] = external_message_adapter
             self._adapter = RoutedActionAdapter(routes)
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
@@ -533,7 +534,7 @@ def build_effect_registration_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
-    external_group_adapter: ActionAdapterPort | None = None,
+    external_message_adapter: ActionAdapterPort | None = None,
 ) -> EffectRegistrationPipeline:
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
@@ -553,7 +554,7 @@ def build_effect_registration_pipeline(
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,
-        external_group_adapter=external_group_adapter,
+        external_message_adapter=external_message_adapter,
     )
 
 

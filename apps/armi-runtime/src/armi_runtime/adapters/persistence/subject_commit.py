@@ -2853,29 +2853,47 @@ async def _insert_other_human_action(
         await connection.execute(
             """
             SELECT scene.scene_kind, scene.primary_party_id,
-                   binding.external_binding_id
+                   group_binding.external_binding_id,
+                   person_binding.external_binding_id,
+                   context_party.party_kind
             FROM armi.interaction_scenes AS scene
-            LEFT JOIN armi.external_channel_bindings AS binding
-              ON binding.scene_id = scene.scene_id
-             AND binding.party_id = scene.primary_party_id
-             AND binding.external_kind = 'group' AND binding.status = 'active'
+            JOIN armi.parties AS context_party ON context_party.party_id = %s
+            LEFT JOIN armi.external_channel_bindings AS group_binding
+              ON group_binding.scene_id = scene.scene_id
+             AND group_binding.party_id = scene.primary_party_id
+             AND group_binding.external_kind = 'group'
+             AND group_binding.status = 'active'
+            LEFT JOIN armi.external_channel_bindings AS person_binding
+              ON person_binding.scene_id = scene.scene_id
+             AND person_binding.party_id = %s
+             AND person_binding.external_kind = 'person'
+             AND person_binding.status = 'active'
             WHERE scene.scene_id = %s AND scene.subject_id = %s
               AND scene.current_status = 'open'
               AND scene.scene_kind IN ('other_human_dialogue', 'group_dialogue')
             """,
-            (snapshot.scene_id, snapshot.subject_id),
+            (
+                snapshot.other_party_id,
+                snapshot.other_party_id,
+                snapshot.scene_id,
+                snapshot.subject_id,
+            ),
         )
     ).fetchone()
     if route is None:
         raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
     group_route = str(route[0]) == "group_dialogue"
+    private_route = str(route[0]) == "other_human_dialogue" and route[3] is not None
+    relationship_scope = (
+        "creator_social" if route[4] == "creator" else "other_human_social"
+    )
     if group_route:
         if route[2] is None:
             raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
     elif route[1] != snapshot.other_party_id or route[2] is not None:
         raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
     destination_party_id = route[1] if group_route else snapshot.other_party_id
-    destination_binding_id = route[2] if group_route else None
+    destination_binding_id = route[2] if group_route else route[3]
     action = replies[0] if replies else endings[0]
     if (
         action.subject_id != snapshot.subject_id
@@ -2939,7 +2957,7 @@ async def _insert_other_human_action(
             WHERE relationship.subject_id = %s
               AND relationship.life_generation_id = %s
               AND relationship.other_party_id = %s
-              AND relationship.scope = 'other_human_social'
+              AND relationship.scope = %s
               AND (
                   revision.relationship_status = 'ended'
                   OR EXISTS (
@@ -2953,6 +2971,7 @@ async def _insert_other_human_action(
                 snapshot.subject_id,
                 snapshot.generation_id,
                 snapshot.other_party_id,
+                relationship_scope,
             ),
         )
     ).fetchone()
@@ -2965,12 +2984,28 @@ async def _insert_other_human_action(
     capability_kind = (
         "external.group.message.send"
         if group_route
+        else "external.private.message.send"
+        if private_route
         else "local.other-human-inbox.deliver"
     )
     audience_scope = "social_group" if group_route else "other_human"
-    effect_kind = "external_group_delivery" if group_route else "local_inbox_delivery"
-    authorization_basis = "runtime_configuration" if group_route else "runtime_builtin"
-    destination_kind = "external_group" if group_route else "other_human_inbox"
+    effect_kind = (
+        "external_group_delivery"
+        if group_route
+        else "external_private_delivery"
+        if private_route
+        else "local_inbox_delivery"
+    )
+    authorization_basis = (
+        "runtime_configuration" if group_route or private_route else "runtime_builtin"
+    )
+    destination_kind = (
+        "external_group"
+        if group_route
+        else "external_private"
+        if private_route
+        else "other_human_inbox"
+    )
     await connection.execute(
         """
         INSERT INTO armi.action_intents (
@@ -3116,7 +3151,7 @@ async def _insert_other_human_action(
             %s, %s, 'effect.dispatch', 'ready',
             statement_timestamp() + interval '1 hour', %s)
         """,
-        (uuid7(), effect_id, 1 if group_route else 2),
+        (uuid7(), effect_id, 1 if group_route or private_route else 2),
     )
     await connection.execute(
         """

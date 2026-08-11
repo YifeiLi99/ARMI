@@ -7,45 +7,32 @@ import unittest
 from uuid import uuid7
 
 import httpx
-from armi_adapter_qq import (
-    QQAdapterConfig,
-    QQGroupIngressAdapter,
-    QQNapCatBindingConfig,
-    create_qq_event_app,
-    create_qq_napcat_binding,
-)
+from armi_adapter_qq import QQAdapterConfig, QQIngressAdapter, create_qq_event_app
 from armi_kernel.application import (
-    EnsureExternalGroupCommand,
     EvidenceId,
-    ExternalGroupInputAcceptance,
-    ExternalGroupView,
-    ObservedExternalGroupMessage,
+    ExternalMessageInputAcceptance,
+    ExternalMessageInteractionId,
+    ObservedExternalMessage,
     OpportunityId,
-    OtherHumanInteractionId,
-    SceneKey,
 )
 from armi_kernel.contracts import Digest
 
 
 class _InputPort:
     def __init__(self) -> None:
-        self.accepted: list[ObservedExternalGroupMessage] = []
+        self.accepted: list[ObservedExternalMessage] = []
 
-    async def ensure_group(
-        self, command: EnsureExternalGroupCommand
-    ) -> ExternalGroupView:
-        del command
-        return ExternalGroupView(uuid7(), uuid7(), uuid7(), SceneKey("qq-group"))
+    async def configure_creator(self, command):
+        raise AssertionError(command)
 
-    async def accept(
-        self, command: ObservedExternalGroupMessage
-    ) -> ExternalGroupInputAcceptance:
+    async def accept(self, command: ObservedExternalMessage):
         self.accepted.append(command)
-        return ExternalGroupInputAcceptance(
+        return ExternalMessageInputAcceptance(
             uuid7(),
             uuid7(),
+            "other_human",
             uuid7(),
-            OtherHumanInteractionId(uuid7()),
+            ExternalMessageInteractionId(uuid7()),
             EvidenceId(uuid7()),
             OpportunityId(uuid7()),
             Digest.from_bytes(b"request"),
@@ -55,56 +42,38 @@ class _InputPort:
 
 
 class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
-    async def test_binding_keeps_api_token_and_event_secret_separate(self) -> None:
-        api_token = b"api-token"
-        event_secret = b"event-secret"
+    async def test_accepts_friend_and_acknowledges_temporary_private(self) -> None:
+        secret = b"local-test-secret"
         port = _InputPort()
-        adapter_config = QQAdapterConfig(10001, {20002: "朋友群"})
-        binding = create_qq_napcat_binding(
-            config=QQNapCatBindingConfig(
-                adapter_config,
-                "http://127.0.0.1:3000",
-                6199,
-                4096,
-            ),
-            input_port=port,
-            access_token=api_token,
-            event_signing_secret=event_secret,
+        config = QQAdapterConfig(10001, 90009, {20002: "朋友群"})
+        app = create_qq_event_app(
+            config=config,
+            ingress=QQIngressAdapter(config=config, input_port=port),
+            signing_secret=secret,
+            request_body_max_bytes=4096,
         )
-        body = json.dumps(
-            {
-                "time": 1_800_000_000,
-                "self_id": 10001,
-                "post_type": "message",
-                "message_type": "group",
-                "message_id": 345,
-                "group_id": 20002,
-                "user_id": 30003,
-                "message": [{"type": "text", "data": {"text": "你好"}}],
-                "sender": {"nickname": "小明"},
-            },
-            separators=(",", ":"),
-        ).encode()
-        transport = httpx.ASGITransport(app=binding.event_app)
-        try:
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://127.0.0.1"
-            ) as client:
-                wrong_signature = (
-                    "sha1=" + hmac.new(api_token, body, hashlib.sha1).hexdigest()
-                )
-                rejected = await client.post(
-                    "/",
-                    content=body,
-                    headers={
-                        "content-type": "application/json",
-                        "x-signature": wrong_signature,
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://127.0.0.1"
+        ) as client:
+            statuses = []
+            for subtype in ("friend", "group"):
+                body = json.dumps(
+                    {
+                        "time": 1_800_000_000,
+                        "self_id": 10001,
+                        "post_type": "message",
+                        "message_type": "private",
+                        "sub_type": subtype,
+                        "message_id": 345,
+                        "user_id": 30003,
+                        "message": [{"type": "text", "data": {"text": "你好"}}],
+                        "sender": {"nickname": "小明"},
                     },
-                )
-                signature = (
-                    "sha1=" + hmac.new(event_secret, body, hashlib.sha1).hexdigest()
-                )
-                accepted = await client.post(
+                    separators=(",", ":"),
+                ).encode()
+                signature = "sha1=" + hmac.new(secret, body, hashlib.sha1).hexdigest()
+                response = await client.post(
                     "/",
                     content=body,
                     headers={
@@ -112,56 +81,40 @@ class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
                         "x-signature": signature,
                     },
                 )
-        finally:
-            await binding.close()
-        self.assertEqual(rejected.status_code, 401)
-        self.assertEqual(accepted.status_code, 204)
+                statuses.append(response.status_code)
+        self.assertEqual(statuses, [204, 204])
         self.assertEqual(len(port.accepted), 1)
+        self.assertEqual(port.accepted[0].conversation_kind.value, "direct")
 
-    async def test_requires_signature_and_accepts_onebot_group_event(self) -> None:
+    async def test_rejects_bad_signature_and_wrong_account_header(self) -> None:
         secret = b"local-test-secret"
         port = _InputPort()
-        config = QQAdapterConfig(10001, {20002: "朋友群"})
+        config = QQAdapterConfig(10001, 90009, {20002: "朋友群"})
         app = create_qq_event_app(
             config=config,
-            ingress=QQGroupIngressAdapter(config=config, input_port=port),
+            ingress=QQIngressAdapter(config=config, input_port=port),
             signing_secret=secret,
             request_body_max_bytes=4096,
         )
-        body = json.dumps(
-            {
-                "time": 1_800_000_000,
-                "self_id": 10001,
-                "post_type": "message",
-                "message_type": "group",
-                "message_id": 345,
-                "group_id": 20002,
-                "user_id": 30003,
-                "message": [{"type": "text", "data": {"text": "你好"}}],
-                "sender": {"nickname": "小明"},
-            },
-            separators=(",", ":"),
-        ).encode()
+        body = b"{}"
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
             transport=transport, base_url="http://127.0.0.1"
         ) as client:
-            rejected = await client.post(
+            bad = await client.post(
                 "/", content=body, headers={"content-type": "application/json"}
             )
             signature = "sha1=" + hmac.new(secret, body, hashlib.sha1).hexdigest()
-            accepted = await client.post(
+            wrong = await client.post(
                 "/",
                 content=body,
                 headers={
                     "content-type": "application/json",
-                    "x-self-id": "10001",
                     "x-signature": signature,
+                    "x-self-id": "2",
                 },
             )
-        self.assertEqual(rejected.status_code, 401)
-        self.assertEqual(accepted.status_code, 204)
-        self.assertEqual(len(port.accepted), 1)
+        self.assertEqual((bad.status_code, wrong.status_code), (401, 403))
 
 
 if __name__ == "__main__":

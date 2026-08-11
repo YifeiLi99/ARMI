@@ -152,7 +152,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
 
     def test_napcat_channel_cannot_import_armi(self) -> None:
         violations = self.analyze(
-            "from armi_kernel.application import ExternalGroupInputPort\n",
+            "from armi_kernel.application import ExternalMessageInputPort\n",
             module="armi_channel_napcat.example",
             distribution="armi-channel-napcat",
         )

@@ -29,7 +29,7 @@ from armi_kernel.application import (
     CreatorRelationshipViolation,
     DataRightsViolation,
     EffectViolation,
-    ExternalGroupViolation,
+    ExternalMessageViolation,
     LifeRecordQueryViolation,
     LifeViolation,
     ModelViolation,
@@ -84,7 +84,7 @@ from .database import (
     compose_data_rights_order_service,
     compose_effect_registration_pipeline,
     compose_exact_life_query_pipeline,
-    compose_external_group_input,
+    compose_external_message_input,
     compose_life_opportunity_pipeline,
     compose_life_record_query,
     compose_model_pipeline,
@@ -190,7 +190,7 @@ async def _serve(
     creator_events: CreatorEventBroker | None = None
     creator_input = None
     other_human_input = None
-    external_group_input = None
+    external_message_input = None
     qq_channel: QQChannelBinding | None = None
     qq_server: _RuntimeServer | None = None
     other_human_record_query = None
@@ -397,16 +397,16 @@ async def _serve(
                 notifier=creator_events,
             )
             await other_human_input.open()
-            external_group_input = compose_external_group_input(
+            external_message_input = compose_external_message_input(
                 prepared,
                 authority_admission=authority.require_writable,
                 wakeups=work_wakeups,
                 notifier=creator_events,
             )
-            await external_group_input.open()
-            qq_channel = compose_qq_channel(
+            await external_message_input.open()
+            qq_channel = await compose_qq_channel(
                 prepared,
-                input_port=external_group_input,
+                input_port=external_message_input,
             )
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
@@ -466,7 +466,7 @@ async def _serve(
                     event, result_code="EFFECT_REGISTRATION"
                 ),
                 fault_injector=inject_admin_fault,
-                external_group_adapter=(
+                external_message_adapter=(
                     None if qq_channel is None else qq_channel.effect_adapter
                 ),
             )
@@ -586,7 +586,7 @@ async def _serve(
             SubjectCommitViolation,
             ResponseViolation,
             EffectViolation,
-            ExternalGroupViolation,
+            ExternalMessageViolation,
             LifeViolation,
         ) as error:
             diagnostic.emit(
@@ -624,8 +624,8 @@ async def _serve(
                 await creator_input.close()
             if other_human_input is not None:
                 await other_human_input.close()
-            if external_group_input is not None:
-                await external_group_input.close()
+            if external_message_input is not None:
+                await external_message_input.close()
             if qq_channel is not None:
                 await qq_channel.close()
             if context_pipeline is not None:
@@ -853,8 +853,8 @@ async def _serve(
             await creator_input.close()
         if other_human_input is not None:
             await other_human_input.close()
-        if external_group_input is not None:
-            await external_group_input.close()
+        if external_message_input is not None:
+            await external_message_input.close()
         if context_pipeline is not None:
             context_pipeline.stop()
         if life_opportunity_pipeline is not None:
@@ -1148,8 +1148,8 @@ async def _serve(
             await creator_input.close()
         if other_human_input is not None:
             await other_human_input.close()
-        if external_group_input is not None:
-            await external_group_input.close()
+        if external_message_input is not None:
+            await external_message_input.close()
         if context_pipeline is not None:
             await context_pipeline.close()
         if life_opportunity_pipeline is not None:

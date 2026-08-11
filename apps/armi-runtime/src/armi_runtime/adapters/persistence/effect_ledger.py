@@ -48,6 +48,7 @@ class EffectRegistrationSnapshot:
     operation_class: str
     purpose: str
     action_intent_id: UUID
+    destination_binding_id: UUID | None
 
 
 class PostgreSQLEffectLedgerRepository:
@@ -191,7 +192,9 @@ class PostgreSQLEffectLedgerRepository:
                    artifact.byte_size, work.trace_id,
                    operation.operation_kind, revision.capability_kind,
                    revision.operation_class, revision.purpose,
-                   operation.action_intent_id
+                   operation.action_intent_id,
+                   CASE WHEN operation.operation_kind = 'creator_response'
+                        THEN binding.external_binding_id END
             FROM armi.durable_work AS work
             JOIN armi.action_operations AS operation
               ON operation.registration_work_id = work.work_id
@@ -201,6 +204,11 @@ class PostgreSQLEffectLedgerRepository:
               ON revision.action_intent_revision_id = intent.current_revision_id
             LEFT JOIN armi.codex_task_sources AS source
               ON source.codex_task_source_id = revision.codex_task_source_id
+            LEFT JOIN armi.external_channel_bindings AS binding
+              ON binding.scene_id = operation.scene_id
+             AND binding.party_id = operation.context_party_id
+             AND binding.external_kind = 'person'
+             AND binding.status = 'active'
             JOIN armi.artifacts AS artifact
               ON artifact.artifact_id = COALESCE(
                     revision.response_artifact_id, source.task_manifest_artifact_id
@@ -233,6 +241,7 @@ class PostgreSQLEffectLedgerRepository:
             str(row[12]),
             str(row[13]),
             row[14],
+            row[15],
         )
 
     async def settle(
@@ -362,8 +371,9 @@ class PostgreSQLEffectLedgerRepository:
                     payload_artifact_id, payload_digest, payload_bytes, effect_kind,
                     capability_kind, operation_class, audience_scope, data_scope, purpose,
                     authorization_basis, destination_kind, destination_party_id,
+                    destination_binding_id,
                     registration_digest, trace_id, status, verification_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,'creator_grant',%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,'creator_grant',%s,%s,%s,%s,%s,
                     'registered','not_started')
                 RETURNING registered_at
                 """,
@@ -391,8 +401,12 @@ class PostgreSQLEffectLedgerRepository:
                         snapshot.purpose,
                         "creator_inbox"
                         if snapshot.effect_kind == "creator_response"
+                        and snapshot.destination_binding_id is None
+                        else "external_private"
+                        if snapshot.effect_kind == "creator_response"
                         else "codex_workspace",
                         snapshot.creator_party_id,
+                        snapshot.destination_binding_id,
                         registration_digest.value,
                         snapshot.trace_id.value,
                     ),
@@ -417,7 +431,10 @@ class PostgreSQLEffectLedgerRepository:
                     outbox_id,
                     effect_id,
                     valid_until,
-                    1 if snapshot.effect_kind == "codex_delegation" else 2,
+                    1
+                    if snapshot.effect_kind == "codex_delegation"
+                    or snapshot.destination_binding_id is not None
+                    else 2,
                 ),
             )
             await connection.execute(

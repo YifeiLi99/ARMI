@@ -22,6 +22,10 @@ class NapCatGateway(Protocol):
         self, *, group_id: int, text: str, echo: str
     ) -> NapCatActionResponse: ...
 
+    async def send_private_text(
+        self, *, user_id: int, text: str, echo: str
+    ) -> NapCatActionResponse: ...
+
 
 class NapCatHttpClient(NapCatGateway):
     """Use NapCat's HTTP action endpoint; incoming events use a separate webhook."""
@@ -58,11 +62,22 @@ class NapCatHttpClient(NapCatGateway):
     async def send_group_text(
         self, *, group_id: int, text: str, echo: str
     ) -> NapCatActionResponse:
+        return await self._send(
+            "/send_group_msg", {"group_id": group_id, "message": text}, echo
+        )
+
+    async def send_private_text(
+        self, *, user_id: int, text: str, echo: str
+    ) -> NapCatActionResponse:
+        return await self._send(
+            "/send_private_msg", {"user_id": user_id, "message": text}, echo
+        )
+
+    async def _send(
+        self, path: str, payload: dict[str, int | str], echo: str
+    ) -> NapCatActionResponse:
         try:
-            response = await self._client.post(
-                "/send_group_msg",
-                json={"group_id": group_id, "message": text},
-            )
+            response = await self._client.post(path, json=payload)
         except httpx.TimeoutException, httpx.NetworkError:
             raise NapCatAmbiguousDelivery("NAPCAT-DELIVERY-AMBIGUOUS") from None
         if response.status_code < 200 or response.status_code >= 300:

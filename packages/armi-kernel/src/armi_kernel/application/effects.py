@@ -129,7 +129,9 @@ class FrozenEffectRequest:
     subject_id: UUID
     scene_id: UUID
     destination_party_id: UUID
-    destination_kind: Literal["creator_inbox", "other_human_inbox", "external_group"]
+    destination_kind: Literal[
+        "creator_inbox", "other_human_inbox", "external_group", "external_private"
+    ]
     external_channel: str | None
     external_account_key: str | None
     external_conversation_key: str | None
@@ -151,6 +153,7 @@ class FrozenEffectRequest:
             "creator_inbox",
             "other_human_inbox",
             "external_group",
+            "external_private",
         }:
             raise EffectViolation("CON-EFFECT-DESTINATION")
         route = (
@@ -158,7 +161,7 @@ class FrozenEffectRequest:
             self.external_account_key,
             self.external_conversation_key,
         )
-        if self.destination_kind == "external_group":
+        if self.destination_kind in {"external_group", "external_private"}:
             if any(
                 type(value) is not str
                 or re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", value) is None

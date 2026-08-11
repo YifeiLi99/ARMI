@@ -436,7 +436,8 @@ class PostgreSQLContextRepository:
                     episode.context_party_id,
                     context_party.display_label,
                     current_interaction.addressed_to_subject,
-                    scene.primary_party_id
+                    scene.primary_party_id,
+                    context_party.party_kind
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -609,7 +610,9 @@ class PostgreSQLContextRepository:
             row[36] if row[20] == "consider_other_human_input" else row[4]
         )
         relationship_scope = (
-            "other_human_social"
+            "creator_social"
+            if row[20] == "consider_other_human_input" and row[40] == "creator"
+            else "other_human_social"
             if row[20] == "consider_other_human_input"
             else "creator_social"
         )
@@ -808,6 +811,7 @@ class PostgreSQLContextRepository:
                     "primary_party_id": str(row[39] if row[39] is not None else row[4]),
                     "context_party_id": str(row[4]),
                     "context_party_display_label": row[37],
+                    "sender_party_kind": row[40],
                     "addressed_to_subject": row[38],
                 }
             )
@@ -823,7 +827,8 @@ class PostgreSQLContextRepository:
                                 prior_evidence.artifact_id,
                                 response_revision.response_artifact_id
                             ) AS artifact_id,
-                            prior_party.display_label
+                            prior_party.display_label,
+                            prior_party.party_kind
                     FROM armi.scene_timeline_items AS item
                     JOIN armi.scene_timeline_items AS current_item
                       ON current_item.scene_id = item.scene_id
@@ -872,7 +877,8 @@ class PostgreSQLContextRepository:
                                 prior_evidence.artifact_id,
                                 response_revision.response_artifact_id
                             ) AS artifact_id,
-                            prior_party.display_label
+                            prior_party.display_label,
+                            prior_party.party_kind
                     FROM armi.scene_timeline_items AS item
                     JOIN armi.scene_timeline_items AS current_item
                       ON current_item.scene_id = item.scene_id
@@ -926,7 +932,8 @@ class PostgreSQLContextRepository:
                                 prior_evidence.artifact_id,
                                 response_revision.response_artifact_id
                             ) AS artifact_id,
-                            prior_party.display_label
+                            prior_party.display_label,
+                            prior_party.party_kind
                     FROM armi.scene_timeline_items AS item
                     LEFT JOIN armi.party_input_interactions AS prior_input
                       ON item.source_kind = 'creator_input'
@@ -972,7 +979,10 @@ class PostgreSQLContextRepository:
                         timeline_item_id=item[0],
                         source_version=int(item[1]),
                         speaker=(
-                            "other_human"
+                            "creator"
+                            if str(item[2]) == "other_human_input"
+                            and item[6] == "creator"
+                            else "other_human"
                             if str(item[2]) == "other_human_input"
                             else "creator"
                             if str(item[2]) == "creator_input"

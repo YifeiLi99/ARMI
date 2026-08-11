@@ -280,6 +280,7 @@ class CandidateValidationPipeline:
                     ),
                     other_party_id=snapshot.other_party_id,
                     scene_kind=snapshot.scene_kind,
+                    sender_party_kind=snapshot.sender_party_kind,
                 )
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)

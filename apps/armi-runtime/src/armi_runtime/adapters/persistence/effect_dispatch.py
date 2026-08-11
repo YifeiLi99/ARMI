@@ -29,7 +29,7 @@ from .effect_grant_coordination import (
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _LOCAL_ADAPTER_BINDING = "armi.local-inbox-adapter.postgresql-v1"
-_EXTERNAL_GROUP_ADAPTER_BINDING = "armi.external-group-adapter.v1"
+_EXTERNAL_MESSAGE_ADAPTER_BINDING = "armi.external-message-adapter.v1"
 
 
 class _AbsentDisposition(StrEnum):
@@ -82,7 +82,8 @@ class PostgreSQLEffectDispatchRepository:
                   AND outbox.attempt_count < outbox.max_attempts
                   AND effect.status = 'registered'
                   AND effect.destination_kind IN (
-                      'creator_inbox', 'other_human_inbox', 'external_group'
+                      'creator_inbox', 'other_human_inbox', 'external_group',
+                      'external_private'
                   )
                 ORDER BY outbox.available_at, outbox.effect_outbox_item_id
                 FOR UPDATE OF outbox, effect SKIP LOCKED
@@ -149,7 +150,12 @@ class PostgreSQLEffectDispatchRepository:
             row[3],
             row[4],
             cast(
-                Literal["creator_inbox", "other_human_inbox", "external_group"],
+                Literal[
+                    "creator_inbox",
+                    "other_human_inbox",
+                    "external_group",
+                    "external_private",
+                ],
                 str(row[12]),
             ),
             None if row[13] is None else str(row[13]),
@@ -189,7 +195,8 @@ class PostgreSQLEffectDispatchRepository:
                   AND outbox.claim_expires_at <= statement_timestamp()
                   AND effect.status = 'dispatching'
                   AND effect.destination_kind IN (
-                      'creator_inbox', 'other_human_inbox', 'external_group'
+                      'creator_inbox', 'other_human_inbox', 'external_group',
+                      'external_private'
                   )
                   AND attempt.dispatch_state IN ('prepared', 'dispatching')
                 ORDER BY outbox.claim_expires_at, outbox.effect_outbox_item_id
@@ -214,7 +221,12 @@ class PostgreSQLEffectDispatchRepository:
                 row[9],
                 row[10],
                 cast(
-                    Literal["creator_inbox", "other_human_inbox", "external_group"],
+                    Literal[
+                        "creator_inbox",
+                        "other_human_inbox",
+                        "external_group",
+                        "external_private",
+                    ],
                     str(row[14]),
                 ),
                 None if row[15] is None else str(row[15]),
@@ -251,7 +263,8 @@ class PostgreSQLEffectDispatchRepository:
                 WHERE outbox.status = 'unknown'
                   AND effect.status = 'unknown'
                   AND effect.destination_kind IN (
-                      'creator_inbox', 'other_human_inbox', 'external_group'
+                      'creator_inbox', 'other_human_inbox', 'external_group',
+                      'external_private'
                   )
                   AND attempt.dispatch_state = 'settled'
                   AND attempt.result_status = 'unknown'
@@ -277,7 +290,12 @@ class PostgreSQLEffectDispatchRepository:
                 row[8],
                 row[9],
                 cast(
-                    Literal["creator_inbox", "other_human_inbox", "external_group"],
+                    Literal[
+                        "creator_inbox",
+                        "other_human_inbox",
+                        "external_group",
+                        "external_private",
+                    ],
                     str(row[13]),
                 ),
                 None if row[14] is None else str(row[14]),
@@ -334,7 +352,7 @@ class PostgreSQLEffectDispatchRepository:
             (basis == "runtime_builtin" and destination_kind == "other_human_inbox")
             or (
                 basis == "runtime_configuration"
-                and destination_kind == "external_group"
+                and destination_kind in {"external_group", "external_private"}
                 and authorization[2] == "active"
             )
         ):
@@ -1137,8 +1155,8 @@ class PostgreSQLEffectDispatchRepository:
 def _adapter_binding(destination_kind: str) -> str:
     if destination_kind in {"creator_inbox", "other_human_inbox"}:
         return _LOCAL_ADAPTER_BINDING
-    if destination_kind == "external_group":
-        return _EXTERNAL_GROUP_ADAPTER_BINDING
+    if destination_kind in {"external_group", "external_private"}:
+        return _EXTERNAL_MESSAGE_ADAPTER_BINDING
     raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
 
 

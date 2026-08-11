@@ -1,10 +1,10 @@
-"""QQ mapping adapter between ARMI's external-group ports and NapCat."""
+"""QQ mapping adapter between ARMI's external-message ports and NapCat."""
 
 from .adapter import (
     QQAdapterConfig,
-    QQGroupEffectAdapter,
-    QQGroupEgressAdapter,
-    QQGroupIngressAdapter,
+    QQEffectAdapter,
+    QQEgressAdapter,
+    QQIngressAdapter,
 )
 from .binding import (
     QQNapCatBinding,
@@ -21,9 +21,9 @@ from .webhook import create_qq_event_app
 __all__ = (
     "QQ_NAPCAT_CONFIG_SCHEMA",
     "QQAdapterConfig",
-    "QQGroupEffectAdapter",
-    "QQGroupEgressAdapter",
-    "QQGroupIngressAdapter",
+    "QQEffectAdapter",
+    "QQEgressAdapter",
+    "QQIngressAdapter",
     "QQNapCatBinding",
     "QQNapCatBindingConfig",
     "QQNapCatBindingViolation",

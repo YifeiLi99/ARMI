@@ -63,6 +63,7 @@ from armi_kernel.application import (
     CapabilityViolation,
     CasStatus,
     CodexDelegatedWorkScope,
+    ConfigureExternalCreatorCommand,
     CreatorActivityViolation,
     CreatorCodexTaskCommand,
     CreatorGrantCommand,
@@ -73,10 +74,10 @@ from armi_kernel.application import (
     CreatorSceneReplyScope,
     CredentialLocator,
     EffectStatus,
-    EnsureExternalGroupCommand,
     ExternalAccountKey,
     ExternalChannel,
     ExternalConversationKey,
+    ExternalConversationKind,
     ExternalMessageKey,
     ExternalPartyKey,
     LifeRecordActor,
@@ -84,7 +85,7 @@ from armi_kernel.application import (
     LifeRecordQuery,
     LifeRecordRetrievalKind,
     ModelResultStatus,
-    ObservedExternalGroupMessage,
+    ObservedExternalMessage,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
     PersonalityAnchor,
@@ -140,6 +141,7 @@ from armi_runtime.adapters.persistence.capability_policy import (
 from armi_runtime.adapters.persistence.creator_activities import (
     PostgreSQLCreatorActivityQuery,
 )
+from armi_runtime.adapters.persistence.creator_input import CreatorInputRepository
 from armi_runtime.adapters.persistence.creator_maintenance import (
     PostgreSQLCreatorMaintenanceQuery,
 )
@@ -152,8 +154,8 @@ from armi_runtime.adapters.persistence.effect_dispatch import (
 from armi_runtime.adapters.persistence.effect_ledger import (
     PostgreSQLEffectLedgerRepository,
 )
-from armi_runtime.adapters.persistence.external_group_input import (
-    ExternalGroupInputRepository,
+from armi_runtime.adapters.persistence.external_message_input import (
+    ExternalMessageInputRepository,
 )
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.other_human_input import (
@@ -199,7 +201,7 @@ from armi_runtime.composition.candidate_validator import (
 )
 from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
-from armi_runtime.composition.external_group_input import ExternalGroupInputService
+from armi_runtime.composition.external_message_input import ExternalMessageInputService
 from armi_runtime.composition.life_opportunity import LifeOpportunityPipeline
 from armi_runtime.composition.model_contract import (
     build_request_bytes,
@@ -498,7 +500,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
 
-    def test_external_group_input_is_bound_and_idempotent_as_runtime_role(
+    def test_external_messages_share_people_but_separate_conversations(
         self,
     ) -> None:
         fixture = self.create_database()
@@ -524,7 +526,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"qq-group-input-birth"),
         )
 
-        async def exercise(root: Path) -> tuple[Any, Any, Any]:
+        async def exercise(root: Path) -> tuple[Any, Any, Any, Any, Any]:
             storage = ContentAddressedArtifactStore(
                 root / "artifacts", max_object_bytes=1024 * 1024
             )
@@ -556,28 +558,31 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=5,
                 require_runtime_fence=False,
             )
-            service = ExternalGroupInputService(
+            service = ExternalMessageInputService(
                 storage=storage,
                 catalog=ArtifactCatalogRepository(),
-                groups=ExternalGroupInputRepository(),
-                inputs=OtherHumanInputRepository(),
+                messages=ExternalMessageInputRepository(),
+                creator_inputs=CreatorInputRepository(),
+                other_inputs=OtherHumanInputRepository(),
                 unit_of_work_factory=input_factory,
             )
             await service.open()
             try:
-                group = await service.ensure_group(
-                    EnsureExternalGroupCommand(
+                creator = await service.configure_creator(
+                    ConfigureExternalCreatorCommand(
                         ExternalChannel("qq"),
                         ExternalAccountKey("10001"),
-                        ExternalConversationKey("20002"),
-                        "开发群",
+                        ExternalPartyKey("90009"),
+                        "主人",
                         TraceId("1" * 32),
                     )
                 )
-                message = ObservedExternalGroupMessage(
+                group_message = ObservedExternalMessage(
                     ExternalChannel("qq"),
                     ExternalAccountKey("10001"),
+                    ExternalConversationKind.GROUP,
                     ExternalConversationKey("20002"),
+                    "开发群",
                     ExternalMessageKey("30003"),
                     ExternalPartyKey("40004"),
                     "小明",
@@ -586,16 +591,42 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     TraceId("2" * 32),
                     addressed_to_subject=True,
                 )
-                first = await service.accept(message)
+                first = await service.accept(group_message)
                 repeated = await service.accept(
-                    replace(message, trace_id=TraceId("3" * 32))
+                    replace(group_message, trace_id=TraceId("3" * 32))
                 )
-                return group, first, repeated
+                private = await service.accept(
+                    ObservedExternalMessage(
+                        ExternalChannel("qq"),
+                        ExternalAccountKey("10001"),
+                        ExternalConversationKind.DIRECT,
+                        ExternalConversationKey("40004"),
+                        "小明",
+                        ExternalMessageKey("30003"),
+                        ExternalPartyKey("40004"),
+                        "小明",
+                        "私聊你好",
+                        Instant(datetime(2026, 8, 10, 13, tzinfo=UTC)),
+                        TraceId("4" * 32),
+                        addressed_to_subject=True,
+                    )
+                )
+                creator_group = await service.accept(
+                    replace(
+                        group_message,
+                        message_key=ExternalMessageKey("30004"),
+                        sender_key=ExternalPartyKey("90009"),
+                        sender_display_label="主人",
+                        message="群里你好",
+                        trace_id=TraceId("5" * 32),
+                    )
+                )
+                return creator, first, repeated, private, creator_group
             finally:
                 await service.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            group, first, repeated = asyncio.run(
+            creator, first, repeated, private, creator_group = asyncio.run(
                 exercise(Path(temporary).resolve()),
                 loop_factory=lambda: asyncio.SelectorEventLoop(
                     selectors.SelectSelector()
@@ -604,7 +635,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertTrue(first.newly_accepted)
         self.assertFalse(repeated.newly_accepted)
         self.assertEqual(first.interaction_id, repeated.interaction_id)
-        self.assertEqual(first.binding_id, group.binding_id)
+        self.assertEqual(first.sender_party_id, private.sender_party_id)
+        self.assertNotEqual(
+            first.conversation_binding_id, private.conversation_binding_id
+        )
+        self.assertEqual(creator_group.sender_party_id, creator.creator_party_id)
+        self.assertEqual(creator_group.sender_party_kind, "creator")
+        self.assertNotEqual(creator.scene_id, creator_group.scene_id)
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -630,11 +667,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             (
                 "group_dialogue",
                 "social_group",
-                group.binding_id,
+                first.conversation_binding_id,
                 "30003",
                 True,
-                2,
-                2,
+                3,
+                3,
             ),
         )
 
@@ -706,10 +743,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(migrated.status, "current")
         self.assertEqual(migrated.table_count, installed.table_count + 2)
-        self.assertEqual(migrated.migration_count, 5)
+        self.assertEqual(migrated.migration_count, 6)
         self.assertEqual(
             migrated.target_id,
-            "0005_remove_redundant_retry_paths",
+            "0006_external_conversations",
         )
         self.assertEqual(
             gateway.migrate(
@@ -6011,6 +6048,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ("0003_remove_redundant_digests",),
                     ("0004_remove_remaining_redundant_digests",),
                     ("0005_remove_redundant_retry_paths",),
+                    ("0006_external_conversations",),
                 ],
             )
 

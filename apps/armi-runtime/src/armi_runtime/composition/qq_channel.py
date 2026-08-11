@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import uuid7
+
 from armi_adapter_qq import (
     QQNapCatBinding,
     QQNapCatBindingViolation,
@@ -9,10 +11,15 @@ from armi_adapter_qq import (
     load_qq_napcat_config,
 )
 from armi_kernel.application import (
+    ConfigureExternalCreatorCommand,
     CredentialPurpose,
     EffectViolation,
-    ExternalGroupInputPort,
+    ExternalAccountKey,
+    ExternalChannel,
+    ExternalMessageInputPort,
+    ExternalPartyKey,
 )
+from armi_kernel.contracts import TraceId
 
 from .configuration import ConfigurationViolation
 from .configuration.paths import has_reparse_point, require_within_roots
@@ -27,10 +34,10 @@ QQ_NAPCAT_EVENT_SECRET_PURPOSE = "channel.qq.napcat.events"
 QQChannelBinding = QQNapCatBinding
 
 
-def compose_qq_channel(
+async def compose_qq_channel(
     prepared: PreparedEnvironment,
     *,
-    input_port: ExternalGroupInputPort,
+    input_port: ExternalMessageInputPort,
 ) -> QQChannelBinding | None:
     path = prepared.root / "channels" / "qq-napcat.toml"
     if not path.exists():
@@ -53,6 +60,15 @@ def compose_qq_channel(
         return None
     if binding.event_port == prepared.effective.config.creator.port:
         raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
+    await input_port.configure_creator(
+        ConfigureExternalCreatorCommand(
+            ExternalChannel("qq"),
+            ExternalAccountKey(str(binding.adapter.account_id)),
+            ExternalPartyKey(str(binding.adapter.creator_user_id)),
+            "Creator",
+            TraceId(uuid7().hex),
+        )
+    )
     access_token_locator = prepared.effective.config.secret_locators.get(
         QQ_NAPCAT_ACCESS_TOKEN_LOCATOR
     )

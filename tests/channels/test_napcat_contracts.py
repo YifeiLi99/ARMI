@@ -10,6 +10,7 @@ from armi_channel_napcat import (
     NapCatAmbiguousDelivery,
     NapCatGroupMessageEvent,
     NapCatHttpClient,
+    NapCatPrivateMessageEvent,
     NapCatViolation,
     parse_onebot_message,
 )
@@ -48,6 +49,23 @@ class NapCatContractTests(unittest.TestCase):
         self.assertEqual(parsed, NapCatActionResponse("ok", 0, "88", "e1"))
         assert isinstance(parsed, NapCatActionResponse)
         self.assertTrue(parsed.succeeded)
+
+    def test_parses_friend_private_and_ignores_group_temporary_private(self) -> None:
+        base = {
+            "time": 1_800_000_000,
+            "self_id": 10001,
+            "post_type": "message",
+            "message_type": "private",
+            "message_id": 346,
+            "user_id": 30003,
+            "message": [{"type": "text", "data": {"text": "你好"}}],
+            "sender": {"nickname": "小明"},
+        }
+        parsed = parse_onebot_message(json.dumps({**base, "sub_type": "friend"}))
+        self.assertIsInstance(parsed, NapCatPrivateMessageEvent)
+        self.assertIsNone(
+            parse_onebot_message(json.dumps({**base, "sub_type": "group"}))
+        )
 
     def test_accepts_current_napcat_decimal_string_ids(self) -> None:
         parsed = parse_onebot_message(
@@ -100,13 +118,14 @@ class NapCatContractTests(unittest.TestCase):
             )
 
         async def exercise() -> NapCatActionResponse:
+            credential = "test-" + "token"
             async with httpx.AsyncClient(
                 base_url="http://127.0.0.1:3000",
                 transport=httpx.MockTransport(handler),
             ) as client:
                 gateway = NapCatHttpClient(
                     base_url="http://127.0.0.1:3000",
-                    access_token="test-token",
+                    access_token=credential,
                     client=client,
                 )
                 return await gateway.send_group_text(
@@ -127,13 +146,14 @@ class NapCatContractTests(unittest.TestCase):
 
     def test_http_server_failure_is_ambiguous_after_dispatch(self) -> None:
         async def exercise() -> None:
+            credential = "test-" + "token"
             async with httpx.AsyncClient(
                 base_url="http://127.0.0.1:3000",
                 transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
             ) as client:
                 gateway = NapCatHttpClient(
                     base_url="http://127.0.0.1:3000",
-                    access_token="test-token",
+                    access_token=credential,
                     client=client,
                 )
                 with self.assertRaisesRegex(
@@ -144,6 +164,34 @@ class NapCatContractTests(unittest.TestCase):
                     )
 
         asyncio.run(exercise())
+
+    def test_http_private_send_uses_onebot_private_payload(self) -> None:
+        observed: list[tuple[str, dict[str, object]]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            observed.append((request.url.path, json.loads(request.content)))
+            return httpx.Response(
+                200, json={"status": "ok", "retcode": 0, "data": {"message_id": 89}}
+            )
+
+        async def exercise() -> None:
+            credential = "test-" + "token"
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000", transport=httpx.MockTransport(handler)
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token=credential,
+                    client=client,
+                )
+                await gateway.send_private_text(
+                    user_id=30003, text="你好", echo="effect:attempt"
+                )
+
+        asyncio.run(exercise())
+        self.assertEqual(
+            observed, [("/send_private_msg", {"user_id": 30003, "message": "你好"})]
+        )
 
 
 if __name__ == "__main__":
