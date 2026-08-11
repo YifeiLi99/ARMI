@@ -55,6 +55,14 @@
       "path": "0006_external_conversations.sql",
       "sha256": "sha256:795955354e71a1db198edc8d637b6ba5aa9b9a10cb00a133f6588bafd9caab66",
       "target_catalog_sha256": "sha256:b174eff7dc2f3bb0478a306ab2ee1c4766cb5a4f61a485e920a7cef3ebae117c"
+    },
+    {
+      "creates_tables": [],
+      "drops_tables": [],
+      "migration_id": "0007_share_external_evidence_artifacts",
+      "path": "0007_share_external_evidence_artifacts.sql",
+      "sha256": "sha256:cc703fc6f6cd4b8bc37faa5ff02647b9cda4218091c39273014081a7c48e8b8b",
+      "target_catalog_sha256": "sha256:350d8293b90826b6905f336400b6c4e13d0597b433f4ba29479adc2f172d823f"
     }
   ],
   "schema_version": "armi.schema-migrations.v1"

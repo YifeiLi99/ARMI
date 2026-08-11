@@ -526,7 +526,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             request_digest=Digest.from_bytes(b"qq-group-input-birth"),
         )
 
-        async def exercise(root: Path) -> tuple[Any, Any, Any, Any, Any]:
+        async def exercise(root: Path) -> tuple[Any, ...]:
             storage = ContentAddressedArtifactStore(
                 root / "artifacts", max_object_bytes=1024 * 1024
             )
@@ -621,12 +621,53 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         trace_id=TraceId("5" * 32),
                     )
                 )
-                return creator, first, repeated, private, creator_group
+                creator_private = ObservedExternalMessage(
+                    ExternalChannel("qq"),
+                    ExternalAccountKey("10001"),
+                    ExternalConversationKind.DIRECT,
+                    ExternalConversationKey("90009"),
+                    "主人",
+                    ExternalMessageKey("30005"),
+                    ExternalPartyKey("90009"),
+                    "主人",
+                    "重复内容",
+                    Instant(datetime(2026, 8, 10, 14, tzinfo=UTC)),
+                    TraceId("6" * 32),
+                    addressed_to_subject=True,
+                )
+                creator_private_first = await service.accept(creator_private)
+                creator_private_second = await service.accept(
+                    replace(
+                        creator_private,
+                        message_key=ExternalMessageKey("30006"),
+                        observed_at=Instant(
+                            datetime(2026, 8, 10, 14, 1, tzinfo=UTC)
+                        ),
+                        trace_id=TraceId("7" * 32),
+                    )
+                )
+                return (
+                    creator,
+                    first,
+                    repeated,
+                    private,
+                    creator_group,
+                    creator_private_first,
+                    creator_private_second,
+                )
             finally:
                 await service.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            creator, first, repeated, private, creator_group = asyncio.run(
+            (
+                creator,
+                first,
+                repeated,
+                private,
+                creator_group,
+                creator_private_first,
+                creator_private_second,
+            ) = asyncio.run(
                 exercise(Path(temporary).resolve()),
                 loop_factory=lambda: asyncio.SelectorEventLoop(
                     selectors.SelectSelector()
@@ -642,6 +683,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(creator_group.sender_party_id, creator.creator_party_id)
         self.assertEqual(creator_group.sender_party_kind, "creator")
         self.assertNotEqual(creator.scene_id, creator_group.scene_id)
+        self.assertTrue(creator_private_first.newly_accepted)
+        self.assertTrue(creator_private_second.newly_accepted)
+        self.assertNotEqual(
+            creator_private_first.interaction_id,
+            creator_private_second.interaction_id,
+        )
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -662,6 +709,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """,
                 (first.interaction_id.value,),
             ).fetchone()
+            shared_artifact = connection.execute(
+                """
+                SELECT count(DISTINCT evidence.artifact_id), count(*)
+                FROM armi.external_evidence AS evidence
+                WHERE evidence.interaction_id IN (%s, %s)
+                """,
+                (
+                    creator_private_first.interaction_id.value,
+                    creator_private_second.interaction_id.value,
+                ),
+            ).fetchone()
         self.assertEqual(
             shape,
             (
@@ -674,6 +732,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 3,
             ),
         )
+        self.assertEqual(shared_artifact, (1, 2))
 
     def test_baseline_module_failure_rolls_back_every_module(self) -> None:
         fixture = self.create_database()
