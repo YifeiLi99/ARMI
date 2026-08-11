@@ -16,7 +16,10 @@ from armi_kernel.application import (
     ExternalMessageViolation,
 )
 from armi_kernel.contracts import TraceId
-from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
+from armi_runtime.adapters.model.doubao_speech import (
+    DoubaoSpeechRecognizer,
+    _audio_format,
+)
 from armi_runtime.adapters.model.external_content import (
     _input_message,
     load_external_recognition_binding,
@@ -228,6 +231,24 @@ class DoubaoSpeechRecognizerTests(unittest.TestCase):
         self.assertEqual(document["request"]["model_version"], "400")
         self.assertTrue(document["request"]["enable_itn"])
         self.assertTrue(document["request"]["enable_punc"])
+
+    def test_maps_supported_audio_media_types_to_provider_formats(self) -> None:
+        expected = {
+            "audio/mpeg": "mp3",
+            "audio/wav": "wav",
+            "audio/ogg": "ogg",
+            "audio/opus": "ogg",
+        }
+        for media_type, provider_format in expected.items():
+            with self.subTest(media_type=media_type):
+                request = ExternalContentRecognitionRequest(
+                    ExternalMessagePartKind.AUDIO,
+                    b"audio",
+                    "sample",
+                    media_type,
+                    TraceId("1" * 32),
+                )
+                self.assertEqual(_audio_format(request), provider_format)
 
     def test_maps_provider_rejection_and_timeout_without_retry(self) -> None:
         calls = 0

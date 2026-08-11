@@ -101,7 +101,7 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
                                 "data": base64.b64encode(request.content).decode(
                                     "ascii"
                                 ),
-                                "format": "mp3",
+                                "format": _audio_format(request),
                             },
                             "request": {
                                 "model_name": self._binding.model_name,
@@ -242,6 +242,23 @@ def _decode_credentials(secret: bytearray) -> _Credentials:
     ):
         raise _CredentialFormatError("speech credentials are invalid")
     return _Credentials(app_id, access_token)
+
+
+def _audio_format(request: ExternalContentRecognitionRequest) -> str:
+    formats = {
+        "audio/mpeg": "mp3",
+        "audio/mp3": "mp3",
+        "audio/wav": "wav",
+        "audio/x-wav": "wav",
+        "audio/ogg": "ogg",
+        "audio/opus": "ogg",
+    }
+    try:
+        return formats[request.media_type.lower()]
+    except KeyError:
+        raise ExternalMessageViolation(
+            "EXTERNAL-MESSAGE-RECOGNITION-MEDIA-TYPE"
+        ) from None
 
 
 def _failure(
