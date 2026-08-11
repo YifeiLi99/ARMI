@@ -121,6 +121,30 @@ def test_optional_items_are_trimmed_but_required_items_fail_closed() -> None:
         )
 
 
+def test_optional_items_cannot_consume_slots_reserved_for_required_items() -> None:
+    optional = tuple(
+        _candidate(ContextSection.SCENE, f"scene_{index}", str(index))
+        for index in range(32)
+    )
+    required = _candidate(
+        ContextSection.EVIDENCE,
+        "current_evidence",
+        "the current message",
+        required=True,
+    )
+
+    result = DeterministicContextCompiler().compile(
+        _request((*optional, required), max_items=32)
+    )
+
+    evidence = next(item for item in result.items if item.candidate is required)
+    assert evidence.disposition is ContextItemDisposition.INCLUDED
+    assert sum(
+        item.disposition is ContextItemDisposition.EXCLUDED_BUDGET
+        for item in result.items
+    ) == 1
+
+
 def test_identity_changes_change_context_digest() -> None:
     item = _candidate(ContextSection.SELF, "self", "stable", required=True)
     first = _request((item,))

@@ -33,8 +33,21 @@ class DeterministicContextCompiler(ContextCompiler):
             raise ContextViolation("CTX-MECHANISM")
 
         ordered = sorted(request.items, key=_sort_key)
+        required_items = tuple(
+            candidate
+            for candidate in ordered
+            if candidate.content is not None and candidate.required
+        )
+        if len(required_items) > request.max_items:
+            raise ContextViolation("CTX-BUDGET-REQUIRED")
+        for candidate in required_items:
+            assert candidate.content is not None
+            if len(candidate.content.encode("utf-8")) > request.max_item_bytes:
+                raise ContextViolation("CTX-BUDGET-REQUIRED")
+
         results: list[ContextItemResult] = []
-        included: list[ContextItemCandidate] = []
+        optional_slots = request.max_items - len(required_items)
+        included_optional = 0
         for candidate in ordered:
             ordinal = len(results) + 1
             if candidate.content is None:
@@ -62,9 +75,7 @@ class DeterministicContextCompiler(ContextCompiler):
                     )
                 )
                 continue
-            if len(included) >= request.max_items:
-                if candidate.required:
-                    raise ContextViolation("CTX-BUDGET-REQUIRED")
+            if not candidate.required and included_optional >= optional_slots:
                 results.append(
                     ContextItemResult(
                         candidate,
@@ -75,7 +86,8 @@ class DeterministicContextCompiler(ContextCompiler):
                     )
                 )
                 continue
-            included.append(candidate)
+            if not candidate.required:
+                included_optional += 1
             results.append(
                 ContextItemResult(
                     candidate,
