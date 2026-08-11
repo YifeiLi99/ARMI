@@ -31,17 +31,18 @@ _PURPOSE = CredentialPurpose("model.request")
 @dataclass(frozen=True, slots=True)
 class ArkExternalRecognitionBinding:
     api_base: str
-    visual_document_model_id: str
+    image_model_id: str
+    document_model_id: str
     video_model_id: str
     output_token_limit: int
     timeout_seconds: int
 
     def model_for(self, kind: ExternalMessagePartKind) -> str:
-        return (
-            self.video_model_id
-            if kind is ExternalMessagePartKind.VIDEO
-            else self.visual_document_model_id
-        )
+        if kind is ExternalMessagePartKind.IMAGE:
+            return self.image_model_id
+        if kind is ExternalMessagePartKind.VIDEO:
+            return self.video_model_id
+        return self.document_model_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +156,8 @@ def load_external_recognition_binding(path: Path) -> ExternalRecognitionBindings
         ]
         ark = ArkExternalRecognitionBinding(
             api_base=value["api_base"],
-            visual_document_model_id=value["visual_document_model_id"],
+            image_model_id=value["image_model_id"],
+            document_model_id=value["document_model_id"],
             video_model_id=value["video_model_id"],
             output_token_limit=value["output_token_limit"],
             timeout_seconds=value["timeout_seconds"],
@@ -173,7 +175,8 @@ def load_external_recognition_binding(path: Path) -> ExternalRecognitionBindings
         raise ValueError("external recognition binding is invalid") from None
     if (
         ark.api_base != "https://ark.cn-beijing.volces.com/api/v3"
-        or not ark.visual_document_model_id
+        or not ark.image_model_id
+        or not ark.document_model_id
         or not ark.video_model_id
         or not 1 <= ark.output_token_limit <= 4096
         or not 1 <= ark.timeout_seconds <= 300

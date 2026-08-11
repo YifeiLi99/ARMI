@@ -120,7 +120,7 @@ class ExternalContentModelRequestTests(unittest.TestCase):
         )
         self.assertEqual(
             binding.target_for(ExternalMessagePartKind.IMAGE),
-            ("volcengine_ark", "doubao-seed-evolving"),
+            ("volcengine_ark", "doubao-seed-2-0-lite-260428"),
         )
         self.assertEqual(
             binding.target_for(ExternalMessagePartKind.AUDIO),
@@ -129,6 +129,10 @@ class ExternalContentModelRequestTests(unittest.TestCase):
         self.assertEqual(
             binding.target_for(ExternalMessagePartKind.VIDEO),
             ("volcengine_ark", "doubao-seed-2-0-lite-260428"),
+        )
+        self.assertEqual(
+            binding.target_for(ExternalMessagePartKind.FILE),
+            ("volcengine_ark", "doubao-seed-evolving"),
         )
 
     def test_builds_base64_requests_for_each_provider_media_kind(self) -> None:

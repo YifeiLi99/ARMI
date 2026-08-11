@@ -145,6 +145,10 @@ class OpenAIArkTransport:
                     provider_input, ensure_ascii=False, separators=(",", ":")
                 )
             )
+            provider_schema = _strict_provider_schema(
+                self._candidate_schema,
+                available_refs=_available_refs(request_bytes),
+            )
             result_value = await client.post(
                 "/tokenization",
                 cast_to=cast(Any, dict[str, Any]),
@@ -155,7 +159,7 @@ class OpenAIArkTransport:
                             self._instructions,
                             rendered_input,
                             json.dumps(
-                                self._candidate_schema,
+                                provider_schema,
                                 ensure_ascii=False,
                                 separators=(",", ":"),
                             ),
@@ -204,6 +208,10 @@ class OpenAIArkTransport:
     ) -> dict[str, Any]:
         client = _client(api_key, binding)
         try:
+            provider_schema = _strict_provider_schema(
+                self._candidate_schema,
+                available_refs=_available_refs(request.canonical_bytes),
+            )
             response = await client.responses.create(
                 model=binding.model_id,
                 instructions=self._instructions,
@@ -216,7 +224,7 @@ class OpenAIArkTransport:
                         "type": "json_schema",
                         "name": self._schema_name,
                         "strict": True,
-                        "schema": self._candidate_schema,
+                        "schema": provider_schema,
                     }
                 },
                 extra_body={"thinking": {"type": "disabled"}},
@@ -450,10 +458,15 @@ class VolcengineArkModelAdapter(ModelPort):
                 provider_model_id=model_id,
                 usage=usage,
             )
-        except ModelViolation:
+        except ModelViolation as error:
             return _failure(
                 ModelResultStatus.REJECTED,
-                "MODEL-RESPONSE-SCHEMA",
+                (
+                    error.code
+                    if error.code
+                    in {"MODEL-RESPONSE-LIMIT", "MODEL-RESPONSE-REFERENCE"}
+                    else "MODEL-RESPONSE-SCHEMA"
+                ),
                 provider_request_id=provider_request_id,
                 provider_model_id=model_id,
                 usage=usage,
@@ -503,6 +516,51 @@ def _client(api_key: memoryview, binding: ModelBinding) -> AsyncOpenAI:
         timeout=binding.timeout_seconds,
         http_client=httpx.AsyncClient(trust_env=False),
     )
+
+
+def _available_refs(request_bytes: bytes) -> tuple[str, ...]:
+    try:
+        value = json.loads(request_bytes)
+    except UnicodeDecodeError, json.JSONDecodeError:
+        raise ModelViolation("MODEL-REQUEST") from None
+    refs = value.get("available_refs") if isinstance(value, dict) else None
+    if not isinstance(refs, list) or any(type(item) is not str for item in refs):
+        return ()
+    return tuple(sorted(set(cast(list[str], refs))))
+
+
+def _strict_provider_schema(
+    value: Any,
+    *,
+    available_refs: tuple[str, ...],
+) -> Any:
+    if isinstance(value, list):
+        return [
+            _strict_provider_schema(item, available_refs=available_refs)
+            for item in value
+        ]
+    if not isinstance(value, dict):
+        return value
+    result = {
+        key: _strict_provider_schema(item, available_refs=available_refs)
+        for key, item in value.items()
+        if key not in {"default", "discriminator"}
+        and not (key == "title" and isinstance(item, str))
+    }
+    properties = result.get("properties")
+    if isinstance(properties, dict):
+        result["required"] = list(properties)
+        result["additionalProperties"] = False
+    elif result.get("type") == "object" and "additionalProperties" not in result:
+        result["additionalProperties"] = False
+    if (
+        available_refs
+        and result.get("type") == "string"
+        and result.get("pattern") == r"^ctx:[1-9][0-9]{0,2}$"
+    ):
+        result.pop("pattern", None)
+        result["enum"] = list(available_refs)
+    return result
 
 
 def _cached_tokens(usage: object) -> int:

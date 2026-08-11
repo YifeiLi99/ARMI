@@ -20,6 +20,7 @@ from armi_runtime.adapters.model.volcengine_ark import (
     ArkTransport,
     VolcengineArkModelAdapter,
     _provider_input,
+    _strict_provider_schema,
 )
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.dialogue_candidate_contract import (
@@ -371,6 +372,33 @@ def test_only_evolving_binding_is_active_and_request_is_stable() -> None:
     assert first.output_microyuan_per_million == 30_000_000
     assert first == second
     assert _request(first).canonical_bytes == _request(second).canonical_bytes
+
+
+def test_provider_dialogue_schema_is_strict_and_binds_runtime_refs() -> None:
+    schema = _strict_provider_schema(
+        dialogue_model_output_schema(web_search=False),
+        available_refs=("ctx:1", "ctx:7"),
+    )
+    assert isinstance(schema, dict)
+
+    def assert_strict(value: object) -> None:
+        if isinstance(value, list):
+            for item in value:
+                assert_strict(item)
+            return
+        if not isinstance(value, dict):
+            return
+        properties = value.get("properties")
+        if isinstance(properties, dict):
+            assert value.get("additionalProperties") is False
+            assert value.get("required") == list(properties)
+        for item in value.values():
+            assert_strict(item)
+
+    assert_strict(schema)
+    encoded = json.dumps(schema, separators=(",", ":"))
+    assert '"enum":["ctx:1","ctx:7"]' in encoded
+    assert '"pattern":"^ctx:' not in encoded
 
 
 def test_creator_dialogue_uses_compact_purpose_contract() -> None:
@@ -1337,6 +1365,34 @@ async def test_dialogue_artifact_keeps_call_metadata_outside_minimal_candidate()
         "output_tokens": 64,
         "cached_input_tokens": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_adapter_preserves_invalid_runtime_reference_failure() -> None:
+    binding = load_purpose_binding("consider_creator_input")
+    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
+    adapter = VolcengineArkModelAdapter(
+        binding=binding,
+        credential_port=EnvironmentFileCredentialPort(
+            environment={"ARMI_SECRET_MODEL_TEST": "test-credential"},
+            secret_roots=(Path.cwd(),),
+        ),
+        locator=locator,
+        candidate_schema=dialogue_model_output_schema(web_search=False),
+        candidate_parser=parse_candidate,
+        transport=_Transport(
+            provider_model_id="doubao-seed-evolving-20260731",
+            candidate={
+                **_dialogue_candidate(),
+                "memory_change": {"action": "recall", "memory_ref": "ctx:7"},
+            },
+        ),
+    )
+
+    result = await adapter.invoke(_request(binding))
+
+    assert result.status is ModelResultStatus.REJECTED
+    assert result.error_code == "MODEL-RESPONSE-REFERENCE"
 
 
 @pytest.mark.asyncio

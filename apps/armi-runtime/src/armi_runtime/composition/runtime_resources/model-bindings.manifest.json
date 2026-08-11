@@ -85,8 +85,9 @@
     "speech_submit_url": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit",
     "speech_timeout_seconds": 180,
     "timeout_seconds": 180,
-    "video_model_id": "doubao-seed-2-0-lite-260428",
-    "visual_document_model_id": "doubao-seed-evolving"
+    "document_model_id": "doubao-seed-evolving",
+    "image_model_id": "doubao-seed-2-0-lite-260428",
+    "video_model_id": "doubao-seed-2-0-lite-260428"
   },
   "schema_version": "armi.model-bindings.v1"
 }
