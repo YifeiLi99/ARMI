@@ -52,6 +52,42 @@ class PostgreSQLWebEvidenceRepository:
 
     __slots__ = ()
 
+    async def fail_admission(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        lease: WorkLease,
+        code: str,
+    ) -> None:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        updated = await (
+            await connection.execute(
+                """
+                UPDATE armi.web_research_intents AS intent
+                SET status = 'failed', completed_at = statement_timestamp()
+                FROM armi.durable_work AS work
+                WHERE work.work_id = %s
+                  AND intent.admission_work_id = work.work_id
+                  AND work.status = 'leased'
+                  AND work.current_attempt_id = %s
+                  AND work.lease_owner = %s
+                  AND work.lease_token = %s
+                  AND work.lease_expires_at > statement_timestamp()
+                  AND intent.status = 'pending'
+                RETURNING intent.web_research_intent_id
+                """,
+                (
+                    lease.work_id.value,
+                    lease.attempt_id.value,
+                    lease.owner,
+                    lease.token,
+                ),
+            )
+        ).fetchone()
+        if updated is None:
+            raise WebResearchViolation("WEB-RESEARCH-WORK-STALE")
+        await unit_of_work.work.fail(lease, error_code=code)
+
     async def intent_snapshot(
         self,
         unit_of_work: PostgreSQLUnitOfWork,

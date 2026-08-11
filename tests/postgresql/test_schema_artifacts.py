@@ -65,14 +65,21 @@ def test_baseline_manifest_is_reproducible_and_declares_history() -> None:
         "0002_external_group_channels",
         "0003_remove_redundant_digests",
         "0004_remove_remaining_redundant_digests",
+        "0005_remove_redundant_retry_paths",
     ]
     assert migrations["migrations"][0]["creates_tables"] == ["runtime_recovery_metrics"]
     assert migrations["migrations"][1]["creates_tables"] == [
         "external_channel_bindings",
         "scene_participants",
     ]
+    assert [item["drops_tables"] for item in migrations["migrations"]] == [
+        [],
+        [],
+        [],
+        [],
+        ["outbox_items"],
+    ]
     for migration in migrations["migrations"]:
-        assert migration["drops_tables"] == []
         assert migration["sha256"].startswith("sha256:")
         assert migration["target_catalog_sha256"].startswith("sha256:")
 

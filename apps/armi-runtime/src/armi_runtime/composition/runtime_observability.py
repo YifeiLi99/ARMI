@@ -119,10 +119,6 @@ class RuntimeObservationDriver:
                         database.work_counts,
                         database.work_oldest_open_seconds,
                     ),
-                    "outbox": _backlog(
-                        database.outbox_counts,
-                        database.outbox_oldest_open_seconds,
-                    ),
                     "effects": _backlog(
                         database.effect_counts,
                         database.effect_oldest_open_seconds,

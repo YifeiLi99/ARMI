@@ -37,6 +37,16 @@
       "path": "0004_remove_remaining_redundant_digests.sql",
       "sha256": "sha256:c3e6abbe657c0dae669c503ce90b472dd9f64e1c85838b0a183572ebac3f8ec4",
       "target_catalog_sha256": "sha256:a1f7b21fb2837c17c699ab3de6d9602954cde06d50c2d1f19799535134ff7ef2"
+    },
+    {
+      "creates_tables": [],
+      "drops_tables": [
+        "outbox_items"
+      ],
+      "migration_id": "0005_remove_redundant_retry_paths",
+      "path": "0005_remove_redundant_retry_paths.sql",
+      "sha256": "sha256:e8664396234347604c477aec42f8a28fb968cebad949266f6bd65a96bf0254c5",
+      "target_catalog_sha256": "sha256:844822c76fbeeee5acc1045afd36eddfee037a7a4a23135eeaea5448bff6d419"
     }
   ],
   "schema_version": "armi.schema-migrations.v1"

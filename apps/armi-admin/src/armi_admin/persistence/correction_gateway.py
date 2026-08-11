@@ -258,23 +258,6 @@ class AdminCorrectionGateway:
                 ).rowcount
                 if updated != 1:
                     raise AdminCorrectionGatewayError("ADMIN-CORRECTION-WORK-STALE")
-                connection.execute(
-                    "UPDATE armi.outbox_items SET status = 'delivered', "
-                    "claimed_by = NULL, claim_expires_at = NULL, "
-                    "last_error_code = NULL, delivered_at = statement_timestamp(), "
-                    "updated_at = statement_timestamp() "
-                    "WHERE work_id = %s AND message_kind = 'admin.correction.available' "
-                    "AND status = 'ready'",
-                    (side_work_id,),
-                )
-                outbox_count = connection.execute(
-                    "SELECT count(*) FROM armi.outbox_items WHERE work_id = %s "
-                    "AND message_kind = 'admin.correction.available' "
-                    "AND status = 'delivered'",
-                    (side_work_id,),
-                ).fetchone()
-                if outbox_count is None or int(outbox_count[0]) != 1:
-                    raise AdminCorrectionGatewayError("ADMIN-CORRECTION-WORK-OUTBOX")
                 connection.commit()
                 return {"side_work_id": side_work_id, "status": "completed"}
         except AdminCorrectionGatewayError:
@@ -845,7 +828,6 @@ class AdminCorrectionGateway:
                     "ADMIN-CORRECTION-ARTIFACT-REFERENCED"
                 )
             work_id = handler["side_work_id"]
-            outbox_id = snapshot["result_id"]
             trace_id = UUID(str(work_id)).hex
             connection.execute(
                 "INSERT INTO armi.durable_work (work_id, work_kind, owner_kind, owner_ref, "
@@ -854,7 +836,7 @@ class AdminCorrectionGateway:
                 "lease_token, trace_id) VALUES ("
                 "%s, 'admin.correction.artifact-cleanup', 'admin_correction', %s, %s, %s, "
                 "'artifact', %s, %s, 100, statement_timestamp(), "
-                "statement_timestamp() + interval '24 hours', 'ready', 10, 0, 0, %s)",
+                "statement_timestamp() + interval '24 hours', 'ready', 1, 0, 0, %s)",
                 (
                     work_id,
                     snapshot["result_id"],
@@ -864,14 +846,6 @@ class AdminCorrectionGateway:
                     handler["content_digest"],
                     trace_id,
                 ),
-            )
-            connection.execute(
-                "INSERT INTO armi.outbox_items (outbox_item_id, work_id, message_kind, "
-                "status, available_at, claim_token, attempt_count, "
-                "max_attempts, trace_id) VALUES ("
-                "%s, %s, 'admin.correction.available', 'ready', "
-                "statement_timestamp(), 0, 0, 10, %s)",
-                (outbox_id, work_id, trace_id),
             )
 
     @staticmethod

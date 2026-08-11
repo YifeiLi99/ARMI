@@ -49,21 +49,19 @@ class WebObservationToolAction(StrEnum):
 class WebObservationViolation(RuntimeError):
     """Expose one stable failure code without query, URL or provider content."""
 
-    __slots__ = ("code", "outcome_unknown", "retryable")
+    __slots__ = ("code", "outcome_unknown")
 
     def __init__(
         self,
         code: str,
         *,
-        retryable: bool = False,
         outcome_unknown: bool = False,
     ) -> None:
         if type(code) is not str or _CODE.fullmatch(code) is None:
             raise ValueError("web observation violation code is invalid")
-        if type(retryable) is not bool or type(outcome_unknown) is not bool:
-            raise ValueError("web observation violation flags are invalid")
+        if type(outcome_unknown) is not bool:
+            raise ValueError("web observation violation flag is invalid")
         self.code = code
-        self.retryable = retryable
         self.outcome_unknown = outcome_unknown
         super().__init__("web observation operation failed")
 

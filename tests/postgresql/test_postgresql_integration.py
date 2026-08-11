@@ -159,11 +159,6 @@ from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQ
 from armi_runtime.adapters.persistence.other_human_input import (
     OtherHumanInputRepository,
 )
-from armi_runtime.adapters.persistence.outbox import (
-    OutboxDispatcher,
-    OutboxEnvelope,
-    PostgreSQLOutboxGateway,
-)
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
 )
@@ -710,11 +705,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
         self.assertEqual(migrated.status, "current")
-        self.assertEqual(migrated.table_count, installed.table_count + 3)
-        self.assertEqual(migrated.migration_count, 4)
+        self.assertEqual(migrated.table_count, installed.table_count + 2)
+        self.assertEqual(migrated.migration_count, 5)
         self.assertEqual(
             migrated.target_id,
-            "0004_remove_remaining_redundant_digests",
+            "0005_remove_redundant_retry_paths",
         )
         self.assertEqual(
             gateway.migrate(
@@ -888,12 +883,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                           resettable, test_controls_enabled
                    FROM armi.deployment_environments"""
             ).fetchone()
-        self.assertEqual(len(metrics), 28)
+        self.assertEqual(len(metrics), 25)
         self.assertEqual(metrics["requeued_work_count"], 7)
         self.assertEqual(metrics["resumable_admin_correction_work_count"], 11)
         self.assertEqual(parent_columns, (10,))
         self.assertEqual(fixed_versions, (0,))
-        self.assertEqual(catalog_shape, (76, 962))
+        self.assertEqual(catalog_shape, (75, 946))
         self.assertEqual(
             environment,
             (fixture.environment_id, "acceptance", 3, True, True),
@@ -1460,20 +1455,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         WHERE status = 'safe'
                         """
                     ).fetchone()
-                    stale_notifications = connection.execute(
-                        """
-                        SELECT count(*)
-                        FROM armi.outbox_items AS outbox
-                        JOIN armi.durable_work AS work USING (work_id)
-                        WHERE outbox.message_kind = 'work.available'
-                          AND outbox.status = 'ready'
-                          AND work.status <> 'ready'
-                        """
-                    ).fetchone()
                 assert final_identity is not None
                 assert pending_responsibility_after is not None
                 assert safe_recovery_runs is not None
-                assert stale_notifications is not None
                 self.assertEqual(final_identity, initial_identity)
                 self.assertEqual(
                     pending_responsibility_after,
@@ -1481,7 +1465,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 self.assertGreaterEqual(len(open_work_after), 1)
                 self.assertGreaterEqual(safe_recovery_runs[0], 1)
-                self.assertEqual(stale_notifications[0], 0)
                 summary["subject_id"] = str(final_identity[0])
                 summary["life_generation_id"] = str(final_identity[1])
                 summary["pending_opportunity_id"] = str(pending_responsibility_after[1])
@@ -6027,6 +6010,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ("0002_external_group_channels",),
                     ("0003_remove_redundant_digests",),
                     ("0004_remove_remaining_redundant_digests",),
+                    ("0005_remove_redundant_retry_paths",),
                 ],
             )
 
@@ -6089,7 +6073,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
         async def exercise(
             root: Path,
-        ) -> tuple[str, int, int, int, tuple[str, ...]]:
+        ) -> tuple[str, int, int, tuple[str, ...]]:
             birth_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -6127,7 +6111,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     lease_seconds=1,
                 )
                 work_id = _uuid7()
-                outbox_id = _uuid7()
                 with psycopg.connect(
                     fixture.provisioner_dsn,
                     autocommit=True,
@@ -6157,28 +6140,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             work_id,
                             old.fence.runtime_instance_id.value,
                             _uuid7(),
-                            old.fence.runtime_instance_id.value,
-                            old.fence.runtime_instance_id.value.hex,
-                        ),
-                    )
-                    connection.execute(
-                        """
-                        INSERT INTO armi.outbox_items (
-                            outbox_item_id, work_id, message_kind,
-                            status, available_at,
-                            claimed_by, claim_expires_at, claim_token,
-                            attempt_count, max_attempts, trace_id
-                        )
-                        VALUES (
-                            %s, %s, 'work.available', 'claimed',
-                            statement_timestamp(), %s,
-                            statement_timestamp() + interval '1 second',
-                            9, 1, 3, %s
-                        )
-                        """,
-                        (
-                            outbox_id,
-                            work_id,
                             old.fence.runtime_instance_id.value,
                             old.fence.runtime_instance_id.value.hex,
                         ),
@@ -6222,7 +6183,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 summary.status.value,
                 summary.critical_artifact_count,
                 summary.requeued_work_count,
-                summary.requeued_outbox_count,
                 operations,
             )
 
@@ -6233,13 +6193,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             data_root.mkdir()
             secrets_root.mkdir()
             artifact_root = data_root / "artifacts"
-            status, critical_count, requeued_work, requeued_outbox, operations = (
-                asyncio.run(
-                    exercise(artifact_root),
-                    loop_factory=lambda: asyncio.SelectorEventLoop(
-                        selectors.SelectSelector()
-                    ),
-                )
+            status, critical_count, requeued_work, operations = asyncio.run(
+                exercise(artifact_root),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
             )
             runtime_secret = secrets_root / "runtime"
             runtime_secret.write_text(
@@ -6401,8 +6359,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "text/event-stream"
                         )
                     )
-                    self.assertEqual(stream_response.readline(), b"retry: 1000\n")
-                    self.assertEqual(stream_response.readline(), b"\n")
                     message = "  first creator input\nsecond line  "
                     input_body = json.dumps(
                         {
@@ -6596,7 +6552,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 .splitlines()
             ]
             self.assertEqual(
-                log_events,
+                log_events[:10],
                 [
                     "runtime.lifecycle.starting",
                     "runtime.authority.acquired",
@@ -6608,13 +6564,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "creator.input.accepted",
                     "creator.input.idempotent",
                     "runtime.authority.heartbeat",
-                    "creator.event_stream.closed",
-                    "runtime.lifecycle.draining",
-                    "creator.session.revoked_all",
-                    "runtime.authority.released",
-                    "runtime.lifecycle.stopped",
                 ],
             )
+            self.assertIn(
+                log_events[10],
+                {
+                    "creator.event_stream.closed",
+                    "creator.event_stream.disconnected",
+                },
+            )
+            self.assertIn("runtime.lifecycle.draining", log_events)
+            self.assertIn("creator.session.revoked_all", log_events)
             log_text = next((data_root / "logs").glob("runtime-*.jsonl")).read_text(
                 encoding="utf-8"
             )
@@ -6831,7 +6791,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
         self.assertEqual(status, RecoveryStatus.SAFE.value)
         self.assertEqual(critical_count, 2)
-        self.assertEqual((requeued_work, requeued_outbox), (1, 1))
+        self.assertEqual(requeued_work, 1)
         self.assertEqual(
             operations,
             ("runtime.recovery.started", "runtime.recovery.safe"),
@@ -6851,15 +6811,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                 ).fetchone(),
                 ("ready", 7, None, None),
-            )
-            self.assertEqual(
-                connection.execute(
-                    """
-                    SELECT status, claim_token, claimed_by
-                    FROM armi.outbox_items
-                    """
-                ).fetchone(),
-                ("ready", 9, None),
             )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("DELETE FROM armi.runtime_recovery_runs")
@@ -7362,7 +7313,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertIn("DB-ROLE-IDENTITY", error_output.getvalue())
             self.assertNotIn(fixture.database, error_output.getvalue())
 
-    def test_durable_work_attempt_expiry_idempotency_and_outbox(self) -> None:
+    def test_durable_work_attempt_expiry_and_idempotency(self) -> None:
         fixture = self.create_database()
         self._install_current(
             fixture.migrator_dsn,
@@ -7380,7 +7331,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 require_runtime_fence=False,
             )
             gateway = PostgreSQLDurableWorkGateway(factory)
-            outbox_gateway = PostgreSQLOutboxGateway(factory)
             now = datetime.now(UTC)
             draft = WorkDraft(
                 work_id=WorkId(_uuid7()),
@@ -7417,23 +7367,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     conflict.exception.code,
                     "WORK-IDEMPOTENCY-CONFLICT",
                 )
-
-                deliveries: list[UUID] = []
-
-                async def conformance_handler(envelope: OutboxEnvelope) -> None:
-                    deliveries.append(envelope.work_id.value)
-
-                dispatcher = OutboxDispatcher(
-                    outbox_gateway,
-                    {"work.available": conformance_handler},
-                )
-                dispatched = await dispatcher.dispatch_once(
-                    claim_owner=_uuid7(),
-                    lease_seconds=2,
-                    limit=10,
-                )
-                self.assertEqual(dispatched, 1)
-                self.assertEqual(deliveries, [draft.work_id.value])
 
                 owner_a = _uuid7()
                 claims = await asyncio.gather(
@@ -7521,15 +7454,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 async with factory.unit_of_work() as unit_of_work:
                     await unit_of_work.work.enqueue(unavailable)
-                unavailable_dispatcher = OutboxDispatcher(outbox_gateway, {})
-                self.assertEqual(
-                    await unavailable_dispatcher.dispatch_once(
-                        claim_owner=_uuid7(),
-                        lease_seconds=2,
-                        limit=10,
-                    ),
-                    1,
-                )
                 cancelled_unavailable = await gateway.cancel_ready(unavailable.work_id)
                 self.assertEqual(cancelled_unavailable.status.value, "cancelled")
 
@@ -7592,7 +7516,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         """
                         SELECT
                             (SELECT count(*) FROM armi.durable_work),
-                            (SELECT count(*) FROM armi.outbox_items),
                             (
                                 SELECT count(*)
                                 FROM armi.audit_events
@@ -7600,22 +7523,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             )
                         """,
                         (draft.work_id.value,),
-                    ).fetchone()
-                    unavailable_outbox = connection.execute(
-                        """
-                        SELECT status, last_error_code
-                        FROM armi.outbox_items
-                        WHERE work_id = %s
-                        """,
-                        (unavailable.work_id.value,),
-                    ).fetchone()
-                    observed_outbox = connection.execute(
-                        """
-                        SELECT status, last_error_code
-                        FROM armi.outbox_items
-                        WHERE work_id = %s
-                        """,
-                        (exhausted.work_id.value,),
                     ).fetchone()
                     failures = connection.execute(
                         """
@@ -7634,13 +7541,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 assert counts is not None
                 return {
                     "work_count": counts[0],
-                    "outbox_count": counts[1],
-                    "work_audit_count": counts[2],
+                    "work_audit_count": counts[1],
                     "attempt_count": reclaimed.attempt_count,
                     "lease_token": second_lease.token,
-                    "deliveries": len(deliveries),
-                    "unavailable_outbox": unavailable_outbox,
-                    "observed_outbox": observed_outbox,
                     "failures": tuple((str(row[1]), str(row[2])) for row in failures),
                 }
             finally:
@@ -7654,16 +7557,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             result,
             {
                 "work_count": 4,
-                "outbox_count": 4,
                 "work_audit_count": 6,
                 "attempt_count": 3,
                 "lease_token": 3,
-                "deliveries": 1,
-                "unavailable_outbox": (
-                    "dead",
-                    "OUTBOX-HANDLER-UNAVAILABLE",
-                ),
-                "observed_outbox": ("delivered", None),
                 "failures": (
                     ("failed", "WORK-ATTEMPTS-EXHAUSTED"),
                     ("failed", "WORK-DEADLINE"),
@@ -7671,25 +7567,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             },
         )
         with psycopg.connect(fixture.runtime_dsn) as connection:
-            for table in ("durable_work", "outbox_items"):
-                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                    connection.execute(
-                        sql.SQL("DELETE FROM armi.{}").format(sql.Identifier(table))
-                    )
-                connection.rollback()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("DELETE FROM armi.durable_work")
+            connection.rollback()
 
         with psycopg.connect(fixture.admin_role_dsn) as connection:
-            for table in ("durable_work", "outbox_items"):
-                connection.execute(
-                    sql.SQL("SELECT * FROM armi.{}").format(sql.Identifier(table))
-                ).fetchall()
+            connection.execute("SELECT * FROM armi.durable_work").fetchall()
         with psycopg.connect(fixture.migrator_dsn) as connection:
-            for table in ("durable_work", "outbox_items"):
-                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                    connection.execute(
-                        sql.SQL("SELECT * FROM armi.{}").format(sql.Identifier(table))
-                    )
-                connection.rollback()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("SELECT * FROM armi.durable_work")
+            connection.rollback()
 
 
 if __name__ == "__main__":

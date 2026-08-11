@@ -120,13 +120,28 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
                     request_id=record.request_id,
                 )
             return True
-        except WebResearchViolation:
-            raise
+        except WebResearchViolation as error:
+            if error.code == "WEB-RESEARCH-WORK-STALE":
+                return True
+            await self._fail(lease, error.code)
+            return True
         except ArtifactViolation:
-            raise WebResearchViolation("WEB-RESEARCH-ARTIFACT") from None
+            await self._fail(lease, "WEB-RESEARCH-ARTIFACT")
+            return True
         except DatabaseTransactionError, WorkViolation:
             self._diagnostic("web.research.admission.transient_failure")
             return True
+
+    async def _fail(self, lease: WorkLease, code: str) -> None:
+        try:
+            async with self._factory.unit_of_work() as unit:
+                await self._repository.fail_admission(
+                    unit,
+                    lease=lease,
+                    code=code,
+                )
+        except DatabaseTransactionError, WebResearchViolation, WorkViolation:
+            self._diagnostic("web.research.admission.settlement_deferred")
 
     async def _read_query(self, snapshot: WebResearchIntentSnapshot) -> bytes:
         value = b""

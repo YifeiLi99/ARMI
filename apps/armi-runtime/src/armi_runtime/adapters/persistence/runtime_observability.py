@@ -17,9 +17,6 @@ _COUNT_QUERIES: dict[str, LiteralString] = {
     "armi.durable_work": (
         "SELECT status, count(*) FROM armi.durable_work GROUP BY status ORDER BY status"
     ),
-    "armi.outbox_items": (
-        "SELECT status, count(*) FROM armi.outbox_items GROUP BY status ORDER BY status"
-    ),
     "armi.effects": (
         "SELECT status, count(*) FROM armi.effects GROUP BY status ORDER BY status"
     ),
@@ -32,14 +29,6 @@ _AGE_QUERIES: dict[tuple[str, str, str], LiteralString] = {
     ): (
         "SELECT EXTRACT(EPOCH FROM (clock_timestamp() - min(created_at))) "
         "FROM armi.durable_work WHERE status IN ('ready', 'leased')"
-    ),
-    (
-        "armi.outbox_items",
-        "status IN ('ready', 'claimed')",
-        "created_at",
-    ): (
-        "SELECT EXTRACT(EPOCH FROM (clock_timestamp() - min(created_at))) "
-        "FROM armi.outbox_items WHERE status IN ('ready', 'claimed')"
     ),
     (
         "armi.effects",
@@ -61,8 +50,6 @@ class RuntimeObservationError(RuntimeError):
 class DatabaseObservation:
     work_counts: tuple[tuple[str, int], ...]
     work_oldest_open_seconds: int | None
-    outbox_counts: tuple[tuple[str, int], ...]
-    outbox_oldest_open_seconds: int | None
     effect_counts: tuple[tuple[str, int], ...]
     effect_oldest_open_seconds: int | None
     active_runtime_count: int
@@ -145,13 +132,6 @@ class PostgreSQLRuntimeObservation:
                     "status IN ('ready', 'leased')",
                     "created_at",
                 )
-                outbox_counts = await _counts(connection, "armi.outbox_items")
-                outbox_age = await _oldest_age(
-                    connection,
-                    "armi.outbox_items",
-                    "status IN ('ready', 'claimed')",
-                    "created_at",
-                )
                 effect_counts = await _counts(connection, "armi.effects")
                 effect_age = await _oldest_age(
                     connection,
@@ -196,8 +176,6 @@ class PostgreSQLRuntimeObservation:
         return DatabaseObservation(
             work_counts=work_counts,
             work_oldest_open_seconds=work_age,
-            outbox_counts=outbox_counts,
-            outbox_oldest_open_seconds=outbox_age,
             effect_counts=effect_counts,
             effect_oldest_open_seconds=effect_age,
             active_runtime_count=int(runtime_row[0]),

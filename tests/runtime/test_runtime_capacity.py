@@ -49,10 +49,6 @@ def _status(
                             work_age_seconds if work_ready else None
                         ),
                     },
-                    "outbox": {
-                        "counts": {"delivered": 4},
-                        "oldest_open_age_seconds": None,
-                    },
                     "effects": {
                         "counts": {"completed": 3},
                         "oldest_open_age_seconds": None,

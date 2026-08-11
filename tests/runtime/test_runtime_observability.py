@@ -35,8 +35,6 @@ def _database_observation() -> DatabaseObservation:
     return DatabaseObservation(
         work_counts=(("completed", 3), ("ready", 2)),
         work_oldest_open_seconds=7,
-        outbox_counts=(("delivered", 2), ("ready", 1)),
-        outbox_oldest_open_seconds=4,
         effect_counts=(("completed", 1), ("unknown", 1)),
         effect_oldest_open_seconds=9,
         active_runtime_count=1,
@@ -78,6 +76,7 @@ class RuntimeObservabilityTests(unittest.IsolatedAsyncioTestCase):
         diagnostics = cast(dict[str, Any], snapshot["diagnostics"])
         self.assertEqual(authority["active_runtime_count"], 1)
         self.assertEqual(backlog["work"]["counts"]["ready"], 2)
+        self.assertNotIn("outbox", backlog)
         self.assertEqual(backlog["effects"]["oldest_open_age_seconds"], 9)
         self.assertEqual(resources["artifact_bytes"], 4096)
         self.assertEqual(resources["disk_state"], "ok")

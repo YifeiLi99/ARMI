@@ -101,12 +101,11 @@ class PostgreSQLWebObservationRepository:
                     web_observation_request_id, subject_id, runtime_instance_id,
                     fence_token, idempotency_key, purpose, operation_class,
                     request_artifact_id, request_digest, binding_id, work_id,
-                    deadline_at, max_attempts, max_cost_microyuan, status)
+                    deadline_at, max_cost_microyuan, status)
                 VALUES (
                     %s, %s, %s, %s, %s, 'public_web_research',
                     'search_read_public', %s, %s, %s, %s,
-                    statement_timestamp() + interval '90 seconds', 2,
-                    1000000, 'pending')
+                    statement_timestamp() + interval '90 seconds', 1000000, 'pending')
                 RETURNING web_observation_request_id, subject_id, status,
                           request_digest, request_artifact_id, work_id,
                           0, result_artifact_id, last_error_code
@@ -185,12 +184,64 @@ class PostgreSQLWebObservationRepository:
         lease: WorkLease,
         snapshot: WebObservationSnapshot,
         credential_identity: Digest,
-    ) -> WebObservationAttemptId:
+    ) -> WebObservationAttemptId | None:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await self._assert_lease(connection, lease, snapshot.request_id)
+        previous = await (
+            await connection.execute(
+                """
+                SELECT observation_attempt_id, dispatch_state
+                FROM armi.observation_attempts
+                WHERE web_observation_request_id = %s
+                  AND dispatch_state IN ('prepared', 'dispatched')
+                ORDER BY attempt_no DESC
+                LIMIT 1
+                FOR UPDATE
+                """,
+                (snapshot.request_id.value,),
+            )
+        ).fetchone()
+        if previous is not None:
+            previous_id, dispatch_state = previous
+            if str(dispatch_state) == "dispatched":
+                await connection.execute(
+                    """
+                    UPDATE armi.observation_attempts
+                    SET dispatch_state = 'settled',
+                        result_status = 'outcome_unknown',
+                        error_code = 'WEB-RECOVERY-OUTCOME-UNKNOWN',
+                        settled_at = statement_timestamp()
+                    WHERE observation_attempt_id = %s
+                    """,
+                    (previous_id,),
+                )
+                await connection.execute(
+                    """
+                    UPDATE armi.web_observation_requests
+                    SET status = 'unknown',
+                        last_error_code = 'WEB-RECOVERY-OUTCOME-UNKNOWN',
+                        completed_at = statement_timestamp()
+                    WHERE web_observation_request_id = %s
+                      AND status IN ('pending', 'running')
+                    """,
+                    (snapshot.request_id.value,),
+                )
+                await unit_of_work.work.fail(
+                    lease,
+                    error_code="WEB-RECOVERY-OUTCOME-UNKNOWN",
+                )
+                return None
+            await connection.execute(
+                """
+                UPDATE armi.observation_attempts
+                SET dispatch_state = 'settled', result_status = 'cancelled',
+                    error_code = 'WEB-RECOVERY-PRE-DISPATCH',
+                    settled_at = statement_timestamp()
+                WHERE observation_attempt_id = %s
+                """,
+                (previous_id,),
+            )
         attempt_no = snapshot.attempt_count + 1
-        if attempt_no > 2:
-            raise WebObservationViolation("WEB-ATTEMPTS-EXHAUSTED")
         attempt_id = WebObservationAttemptId(uuid7())
         await connection.execute(
             """
@@ -211,6 +262,33 @@ class PostgreSQLWebObservationRepository:
             ),
         )
         return attempt_id
+
+    async def fail_before_attempt(
+        self,
+        unit_of_work: PostgreSQLUnitOfWork,
+        *,
+        lease: WorkLease,
+        snapshot: WebObservationSnapshot,
+        code: str,
+    ) -> None:
+        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        await self._assert_lease(connection, lease, snapshot.request_id)
+        updated = await (
+            await connection.execute(
+                """
+                UPDATE armi.web_observation_requests
+                SET status = 'failed', last_error_code = %s,
+                    completed_at = statement_timestamp()
+                WHERE web_observation_request_id = %s
+                  AND status IN ('pending', 'running')
+                RETURNING web_observation_request_id
+                """,
+                (code, snapshot.request_id.value),
+            )
+        ).fetchone()
+        if updated is None:
+            raise WebObservationViolation("WEB-REQUEST-STATE")
+        await unit_of_work.work.fail(lease, error_code=code)
 
     async def mark_dispatched(
         self,

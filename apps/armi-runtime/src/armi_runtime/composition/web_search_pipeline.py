@@ -265,6 +265,9 @@ class WebSearchPipeline:
                     snapshot=snapshot,
                     credential_identity=credential_identity,
                 )
+                if attempt_id is None:
+                    self._diagnostic("web.observation.outcome_unknown")
+                    return True
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.mark_dispatched(
                     unit_of_work,
@@ -291,9 +294,56 @@ class WebSearchPipeline:
                     _failure(error),
                 )
             else:
-                self._diagnostic("web.observation.preparation_failed")
+                if isinstance(snapshot_value, WebObservationSnapshot):
+                    try:
+                        async with self._factory.unit_of_work() as unit_of_work:
+                            await self._repository.fail_before_attempt(
+                                unit_of_work,
+                                lease=lease,
+                                snapshot=snapshot_value,
+                                code=error.code,
+                            )
+                    except (
+                        DatabaseTransactionError,
+                        WebObservationViolation,
+                        WorkViolation,
+                    ):
+                        self._diagnostic("web.observation.settlement_deferred")
+                else:
+                    self._diagnostic("web.observation.preparation_deferred")
             return True
-        except ArtifactViolation, DatabaseTransactionError, WorkViolation:
+        except ArtifactViolation:
+            error = WebObservationViolation("WEB-ARTIFACT")
+            attempt = locals().get("attempt_id")
+            snapshot_value = locals().get("snapshot")
+            if isinstance(attempt, WebObservationAttemptId) and isinstance(
+                snapshot_value, WebObservationSnapshot
+            ):
+                await self._settle(
+                    lease,
+                    snapshot_value,
+                    attempt,
+                    _failure(error),
+                )
+            elif isinstance(snapshot_value, WebObservationSnapshot):
+                try:
+                    async with self._factory.unit_of_work() as unit_of_work:
+                        await self._repository.fail_before_attempt(
+                            unit_of_work,
+                            lease=lease,
+                            snapshot=snapshot_value,
+                            code=error.code,
+                        )
+                except (
+                    DatabaseTransactionError,
+                    WebObservationViolation,
+                    WorkViolation,
+                ):
+                    self._diagnostic("web.observation.settlement_deferred")
+            else:
+                self._diagnostic("web.observation.preparation_deferred")
+            return True
+        except DatabaseTransactionError, WorkViolation:
             self._diagnostic("web.observation.transient_failure")
             return True
 

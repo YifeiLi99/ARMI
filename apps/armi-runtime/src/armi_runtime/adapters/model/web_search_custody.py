@@ -76,7 +76,6 @@ def load_custody_policy(raw: bytes) -> WebSearchCustodyPolicy:
         "credential_purpose": "web.search",
         "limits": {
             "canonical_request_bytes": MAX_REQUEST_BYTES,
-            "max_attempts": 2,
             "max_citations": MAX_CITATIONS,
             "max_cost_microyuan": MAX_COST_MICROYUAN,
             "max_output_tokens": MAX_OUTPUT_TOKENS,
@@ -93,7 +92,6 @@ def load_custody_policy(raw: bytes) -> WebSearchCustodyPolicy:
         "purpose": "public_web_research",
         "response_api_base": API_BASE,
         "result_contract": RESULT_VERSION,
-        "retry_policy": "only_before_dispatch",
         "schema_version": SCHEMA_VERSION,
         "store": False,
         "tool_actions": ["search", "open_page", "find_in_page"],

@@ -126,30 +126,6 @@ class PostgreSQLDurableWorkWriter:
                 if existing is None or not _same_declaration(existing.draft, draft):
                     raise WorkViolation("WORK-IDEMPOTENCY-CONFLICT")
                 return existing
-            await self._connection.execute(
-                """
-                INSERT INTO armi.outbox_items (
-                    outbox_item_id,
-                    work_id,
-                    message_kind,
-                    status,
-                    available_at,
-                    claim_token,
-                    attempt_count,
-                    max_attempts,
-                    trace_id)
-                VALUES (
-                    %s, %s, 'work.available', 'ready',
-                    %s, 0, 0, %s, %s)
-                """,
-                (
-                    uuid7(),
-                    draft.work_id.value,
-                    draft.not_before.value,
-                    draft.max_attempts,
-                    draft.trace_id.value,
-                ),
-            )
             await self._audit.append(_work_audit(self._actor_ref, draft, "enqueued"))
             return WorkRecord(draft, WorkStatus.READY, 0)
         except WorkViolation:
@@ -395,30 +371,6 @@ class PostgreSQLDurableWorkGateway:
                             "claimed",
                         )
                     )
-                    outbox = await (
-                        await connection.execute(
-                            """
-                            UPDATE armi.outbox_items
-                            SET status = 'delivered',
-                                delivered_at = clock_timestamp(),
-                                last_error_code = NULL,
-                                updated_at = clock_timestamp()
-                            WHERE work_id = %s
-                              AND message_kind = 'work.available'
-                              AND status = 'ready'
-                            RETURNING outbox_item_id
-                            """,
-                            (record.draft.work_id.value,),
-                        )
-                    ).fetchone()
-                    if outbox is not None:
-                        await unit_of_work.audit.append(
-                            _observed_outbox_audit(
-                                self._factory.environment_id,
-                                record,
-                                outbox[0],
-                            )
-                        )
                     records.append(record)
                 return tuple(records)
         except WorkViolation:
@@ -812,25 +764,6 @@ def _record_audit(
         sensitivity=AuditSensitivity.INTERNAL,
         subject_id=record.draft.subject_id,
         request=request,
-    )
-
-
-def _observed_outbox_audit(
-    actor_ref: UUID,
-    record: WorkRecord,
-    outbox_item_id: UUID,
-) -> AuditDraft:
-    return AuditDraft(
-        audit_event_id=AuditEventId(uuid7()),
-        actor=AuditReference("runtime", actor_ref),
-        purpose=Purpose("work.custody"),
-        operation="outbox.delivered",
-        target=AuditReference("outbox_item", outbox_item_id),
-        result_status=AuditResultStatus.COMPLETED,
-        trace_id=record.draft.trace_id,
-        sensitivity=AuditSensitivity.INTERNAL,
-        subject_id=record.draft.subject_id,
-        request=AuditReference("durable_work", record.draft.work_id.value),
     )
 
 

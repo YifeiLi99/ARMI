@@ -40,7 +40,6 @@ from armi_runtime.adapters.persistence.role_policy import physical_role_name
 
 from .audit_events import PostgreSQLAuditWriter
 from .recovery_responsibilities import (
-    repair_outbox,
     repair_terminal_cognitive_responsibilities,
     repair_work,
 )
@@ -49,10 +48,7 @@ _SEARCH_PATH = "pg_catalog, armi"
 _RECOVERY_METRIC_KINDS = (
     "requeued_work_count",
     "terminal_work_count",
-    "requeued_outbox_count",
-    "dead_outbox_count",
     "resumable_work_count",
-    "resumable_outbox_count",
     "critical_artifact_count",
     "resumable_opportunity_count",
     "resumable_cognitive_episode_count",
@@ -85,8 +81,6 @@ class _Scan:
     critical_artifacts: tuple[ArtifactRef, ...]
     requeued_work: int
     terminal_work: int
-    requeued_outbox: int
-    dead_outbox: int
 
 
 async def _configure(
@@ -203,8 +197,6 @@ class PostgreSQLRuntimeRecovery:
             findings.extend(continuity)
             work = await repair_work(connection, writer, fence, _audit)
             findings.extend(work[0])
-            outbox = await repair_outbox(connection, writer, fence, _audit)
-            findings.extend(outbox[0])
             findings.extend(
                 await repair_terminal_cognitive_responsibilities(
                     connection, writer, fence, _audit
@@ -217,8 +209,6 @@ class PostgreSQLRuntimeRecovery:
                 critical_artifacts=artifacts,
                 requeued_work=work[1],
                 terminal_work=work[2],
-                requeued_outbox=outbox[1],
-                dead_outbox=outbox[2],
             )
 
     async def _abandon_old_runs(
@@ -559,20 +549,7 @@ class PostgreSQLRuntimeRecovery:
                     """
                 )
             ).fetchall()
-            for work_id, episode_id, subject_id, trace_id in backfilled:
-                await connection.execute(
-                    """
-                    INSERT INTO armi.outbox_items (
-                        outbox_item_id, work_id, message_kind,
-                        status, available_at,
-                        claim_token, attempt_count, max_attempts,
-                        trace_id)
-                    VALUES (
-                        uuidv7(), %s, 'work.available', 'ready',
-                        statement_timestamp(), 0, 0, 2, %s)
-                    """,
-                    (work_id, trace_id),
-                )
+            for _work_id, episode_id, subject_id, trace_id in backfilled:
                 await PostgreSQLAuditWriter(connection).append(
                     AuditDraft(
                         AuditEventId(uuid7()),
@@ -651,18 +628,6 @@ class PostgreSQLRuntimeRecovery:
                         trace_id,
                     ),
                 )
-                await connection.execute(
-                    """
-                    INSERT INTO armi.outbox_items (
-                        outbox_item_id, work_id, message_kind,
-                        status, available_at,
-                        claim_token, attempt_count, max_attempts,
-                        trace_id) VALUES (
-                        uuidv7(), %s, 'work.available', 'ready',
-                        statement_timestamp(), 0, 0, 2, %s)
-                    """,
-                    (work_id, trace_id),
-                )
                 updated = await (
                     await connection.execute(
                         """
@@ -726,6 +691,54 @@ class PostgreSQLRuntimeRecovery:
             await connection.execute(
                 """
                 UPDATE armi.cognitive_episodes AS episode
+                SET status = 'failed',
+                    failure_code = 'MODEL-OUTCOME-UNKNOWN'
+                FROM armi.durable_work AS work
+                WHERE work.owner_kind = 'cognitive_episode'
+                  AND work.owner_ref = episode.cognitive_episode_id
+                  AND work.work_kind = 'cognition.model.invoke'
+                  AND work.status = 'ready'
+                  AND episode.status = 'calling_model'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM armi.cognitive_attempts AS attempt
+                      WHERE attempt.cognitive_episode_id
+                          = episode.cognitive_episode_id
+                        AND attempt.result_status = 'outcome_unknown'
+                  )
+                """
+            )
+            await connection.execute(
+                """
+                UPDATE armi.opportunities AS opportunity
+                SET current_disposition = 'resolved',
+                    resolved_at = statement_timestamp()
+                FROM armi.cognitive_episodes AS episode
+                WHERE opportunity.opportunity_id = episode.opportunity_id
+                  AND opportunity.current_disposition = 'selected'
+                  AND episode.status = 'failed'
+                  AND episode.failure_code = 'MODEL-OUTCOME-UNKNOWN'
+                """
+            )
+            await connection.execute(
+                """
+                UPDATE armi.durable_work AS work
+                SET status = 'failed', current_attempt_id = NULL,
+                    lease_owner = NULL, lease_expires_at = NULL,
+                    last_error_code = 'MODEL-OUTCOME-UNKNOWN',
+                    updated_at = clock_timestamp()
+                FROM armi.cognitive_episodes AS episode
+                WHERE work.owner_kind = 'cognitive_episode'
+                  AND work.owner_ref = episode.cognitive_episode_id
+                  AND work.work_kind = 'cognition.model.invoke'
+                  AND work.status = 'ready'
+                  AND episode.status = 'failed'
+                  AND episode.failure_code = 'MODEL-OUTCOME-UNKNOWN'
+                """
+            )
+            await connection.execute(
+                """
+                UPDATE armi.cognitive_episodes AS episode
                 SET status = 'prepared'
                 FROM armi.durable_work AS work
                 WHERE work.owner_kind = 'cognitive_episode'
@@ -751,12 +764,7 @@ class PostgreSQLRuntimeRecovery:
                               AND deadline_at > statement_timestamp()
                               AND attempt_count < max_attempts
                         ),
-                        (
-                            SELECT count(*)
-                            FROM armi.outbox_items
-                            WHERE status = 'ready'
-                              AND attempt_count < max_attempts
-                        ),
+                        0::bigint,
                         (
                             SELECT count(*)
                             FROM armi.opportunities AS opportunity
@@ -1543,13 +1551,9 @@ class PostgreSQLRuntimeRecovery:
                     """
                     SELECT count(*)
                     FROM armi.durable_work AS work
-                    JOIN armi.outbox_items AS outbox
-                      ON outbox.work_id = work.work_id
-                     AND outbox.message_kind = 'admin.correction.available'
                     WHERE work.work_kind = 'admin.correction.artifact-cleanup'
                       AND work.owner_kind = 'admin_correction'
                       AND work.status = 'ready'
-                      AND outbox.status = 'ready'
                     """
                 )
             ).fetchone()
@@ -1689,10 +1693,7 @@ class PostgreSQLRuntimeRecovery:
             metrics = {
                 "requeued_work_count": scan.requeued_work,
                 "terminal_work_count": scan.terminal_work,
-                "requeued_outbox_count": scan.requeued_outbox,
-                "dead_outbox_count": scan.dead_outbox,
                 "resumable_work_count": int(counts[0]),
-                "resumable_outbox_count": int(counts[1]),
                 "resumable_opportunity_count": int(counts[2]),
                 "resumable_cognitive_episode_count": int(counts[3]),
                 "resumable_model_attempt_count": int(counts[5]),
@@ -1761,10 +1762,7 @@ class PostgreSQLRuntimeRecovery:
             status=status,
             requeued_work_count=scan.requeued_work,
             terminal_work_count=scan.terminal_work,
-            requeued_outbox_count=scan.requeued_outbox,
-            dead_outbox_count=scan.dead_outbox,
             resumable_work_count=int(counts[0]),
-            resumable_outbox_count=int(counts[1]),
             resumable_opportunity_count=int(counts[2]),
             resumable_cognitive_episode_count=int(counts[3]),
             resumable_model_attempt_count=int(counts[5]),

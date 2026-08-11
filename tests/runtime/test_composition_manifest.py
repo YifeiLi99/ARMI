@@ -120,7 +120,6 @@ class CompositionManifestTests(unittest.TestCase):
         runtime_source = Path(
             "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
         ).read_text(encoding="utf-8")
-        self.assertNotIn("OutboxDispatcher", runtime_source)
         self.assertNotIn("PostgreSQLDurableWorkGateway", runtime_source)
 
 

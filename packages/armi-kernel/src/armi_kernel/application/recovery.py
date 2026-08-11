@@ -85,10 +85,7 @@ class RecoverySummary:
     status: RecoveryStatus
     requeued_work_count: int
     terminal_work_count: int
-    requeued_outbox_count: int
-    dead_outbox_count: int
     resumable_work_count: int
-    resumable_outbox_count: int
     resumable_opportunity_count: int
     resumable_cognitive_episode_count: int
     resumable_model_attempt_count: int
@@ -122,10 +119,7 @@ class RecoverySummary:
         for value in (
             self.requeued_work_count,
             self.terminal_work_count,
-            self.requeued_outbox_count,
-            self.dead_outbox_count,
             self.resumable_work_count,
-            self.resumable_outbox_count,
             self.resumable_opportunity_count,
             self.resumable_cognitive_episode_count,
             self.resumable_model_attempt_count,

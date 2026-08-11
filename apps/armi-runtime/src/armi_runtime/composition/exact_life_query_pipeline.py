@@ -154,12 +154,21 @@ class ExactLifeQueryPipeline:
             if error.code == "LIFE-QUERY-WORK-STALE":
                 self._diagnostic("life.query.work.stale")
                 return True
-            raise
+            await self._fail(lease, error.code)
+            return True
         except ArtifactViolation:
-            raise LifeRecordQueryViolation("LIFE-QUERY-ARTIFACT") from None
+            await self._fail(lease, "LIFE-QUERY-ARTIFACT")
+            return True
         except DatabaseTransactionError, WorkViolation:
             self._diagnostic("life.query.worker.transient_failure")
             return True
+
+    async def _fail(self, lease: WorkLease, code: str) -> None:
+        try:
+            async with self._factory.unit_of_work() as unit:
+                await self._repository.fail(unit, lease=lease, code=code)
+        except DatabaseTransactionError, LifeRecordQueryViolation, WorkViolation:
+            self._diagnostic("life.query.settlement.deferred")
 
     async def run_worker(self) -> None:
         observed = self._wakeups.version(EXACT_LIFE_QUERY)

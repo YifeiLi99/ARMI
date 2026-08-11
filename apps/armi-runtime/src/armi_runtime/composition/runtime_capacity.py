@@ -20,8 +20,6 @@ class RuntimeCapacitySample:
     heartbeat_age_seconds: int | None
     work_open: int
     work_oldest_open_age_seconds: int | None
-    outbox_open: int
-    outbox_oldest_open_age_seconds: int | None
     effects_open: int
     effects_oldest_open_age_seconds: int | None
     process_rss_bytes: int | None
@@ -35,7 +33,7 @@ class RuntimeCapacitySample:
 
     @property
     def open_backlog(self) -> int:
-        return self.work_open + self.outbox_open + self.effects_open
+        return self.work_open + self.effects_open
 
     def safe_view(self) -> dict[str, object]:
         return {
@@ -50,8 +48,6 @@ class RuntimeCapacitySample:
             "backlog": {
                 "work_open": self.work_open,
                 "work_oldest_open_age_seconds": (self.work_oldest_open_age_seconds),
-                "outbox_open": self.outbox_open,
-                "outbox_oldest_open_age_seconds": (self.outbox_oldest_open_age_seconds),
                 "effects_open": self.effects_open,
                 "effects_oldest_open_age_seconds": (
                     self.effects_oldest_open_age_seconds
@@ -130,9 +126,6 @@ class RuntimeCapacityReport:
                 "open_backlog": max(sample.open_backlog for sample in self.samples),
                 "work_oldest_open_age_seconds": _optional_max(
                     sample.work_oldest_open_age_seconds for sample in self.samples
-                ),
-                "outbox_oldest_open_age_seconds": _optional_max(
-                    sample.outbox_oldest_open_age_seconds for sample in self.samples
                 ),
                 "effects_oldest_open_age_seconds": _optional_max(
                     sample.effects_oldest_open_age_seconds for sample in self.samples
@@ -254,7 +247,6 @@ def _sample(status: dict[str, Any], offset_milliseconds: int) -> RuntimeCapacity
     resources = _mapping(observation.get("resources"))
     diagnostics = _mapping(observation.get("diagnostics"))
     work = _mapping(backlog.get("work"))
-    outbox = _mapping(backlog.get("outbox"))
     effects = _mapping(backlog.get("effects"))
     return RuntimeCapacitySample(
         offset_milliseconds=offset_milliseconds,
@@ -266,10 +258,6 @@ def _sample(status: dict[str, Any], offset_milliseconds: int) -> RuntimeCapacity
         work_open=_open_count(work, ("ready", "leased")),
         work_oldest_open_age_seconds=_optional_integer(
             work.get("oldest_open_age_seconds")
-        ),
-        outbox_open=_open_count(outbox, ("ready", "claimed")),
-        outbox_oldest_open_age_seconds=_optional_integer(
-            outbox.get("oldest_open_age_seconds")
         ),
         effects_open=_open_count(
             effects,
@@ -322,7 +310,6 @@ def _issues(
         for sample in samples
         for age in (
             sample.work_oldest_open_age_seconds,
-            sample.outbox_oldest_open_age_seconds,
             sample.effects_oldest_open_age_seconds,
         )
     )

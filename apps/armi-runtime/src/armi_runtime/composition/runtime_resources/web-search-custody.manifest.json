@@ -5,7 +5,6 @@
   "credential_purpose": "web.search",
   "limits": {
     "canonical_request_bytes": 65536,
-    "max_attempts": 2,
     "max_citations": 128,
     "max_cost_microyuan": 1000000,
     "max_output_tokens": 1024,
@@ -22,7 +21,6 @@
   "purpose": "public_web_research",
   "response_api_base": "https://ark.cn-beijing.volces.com/api/v3",
   "result_contract": "armi.web-search-result.v1",
-  "retry_policy": "only_before_dispatch",
   "schema_version": "armi.web-search-custody.v1",
   "store": false,
   "tool_actions": [
