@@ -1298,9 +1298,25 @@ class PostgreSQLRuntimeRecovery:
                                     OR attempt.result_status NOT IN ('succeeded', 'unknown')
                                     OR observation.reliability <> 'reliable'
                                     OR observation.observation_kind <> 'receipt'
-                                    OR delivery.effect_id IS NULL
-                                    OR observation.receiver_ref
-                                       <> delivery.delivery_id
+                                    OR (
+                                        effect.destination_kind = 'creator_inbox'
+                                        AND (
+                                            delivery.effect_id IS NULL
+                                            OR observation.receiver_ref
+                                               <> delivery.delivery_id
+                                            OR observation.receiver_external_ref
+                                               IS NOT NULL
+                                        )
+                                    )
+                                    OR (
+                                        effect.destination_kind = 'external_private'
+                                        AND (
+                                            delivery.effect_id IS NOT NULL
+                                            OR observation.receiver_ref IS NULL
+                                            OR observation.receiver_external_ref
+                                               IS NULL
+                                        )
+                                    )
                                     OR response.phase <> 'terminal'
                                     OR response.outcome <> 'completed'
                                     )
