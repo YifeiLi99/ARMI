@@ -40,7 +40,11 @@ HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.
 HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v16"
 DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v17"
 WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v18"
-DIALOGUE_MODEL_OUTPUT_VERSION = "armi.creator-dialogue-model-output.v1"
+HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION = DIALOGUE_CANDIDATE_VERSION
+HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION = WEB_DIALOGUE_CANDIDATE_VERSION
+DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v19"
+WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v20"
+DIALOGUE_MODEL_OUTPUT_VERSION = "armi.creator-dialogue-model-output.v2"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[
@@ -823,7 +827,7 @@ class DialogueExactLifeQueryDecision(CreatorDialogueCandidate):
 
     @property
     def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION
 
     @model_validator(mode="after")
     def validate_query_text(self) -> DialogueExactLifeQueryDecision:
@@ -837,13 +841,13 @@ class DialogueExactLifeQueryDecision(CreatorDialogueCandidate):
 class DialogueReplyDecision(DialogueReplyDecisionV15):
     @property
     def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION
 
 
 class DialogueTerminalDecision(DialogueTerminalDecisionV15):
     @property
     def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION
 
 
 DialogueDecision = Annotated[
@@ -855,25 +859,25 @@ DialogueDecision = Annotated[
 class DialogueReplyDecisionV18(DialogueReplyDecisionV16):
     @property
     def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION
 
 
 class DialogueTerminalDecisionV18(DialogueTerminalDecisionV16):
     @property
     def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION
 
 
 class DialogueWebResearchDecisionV18(DialogueWebResearchDecisionV16):
     @property
     def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION
 
 
 class DialogueExactLifeQueryDecisionV18(DialogueExactLifeQueryDecision):
     @property
     def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
+        return HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION
 
 
 DialogueDecisionV18 = Annotated[
@@ -883,6 +887,172 @@ DialogueDecisionV18 = Annotated[
     | DialogueExactLifeQueryDecisionV18,
     Field(discriminator="kind"),
 ]
+
+
+CompactChangeOp = Literal[
+    "memory.recall",
+    "memory.fade",
+    "memory.forget",
+    "memory.reinterpret",
+    "relationship.interpret",
+    "relationship.fact",
+    "relationship.boundary",
+    "commitment.establish",
+    "commitment.modify",
+    "commitment.fulfill",
+    "commitment.withdraw",
+    "commitment.forget",
+    "commitment.violate",
+    "commitment.conflict",
+    "material.create",
+    "material.update",
+    "material.visibility",
+    "material.delete",
+    "self.set",
+    "mind.set",
+    "prompt.set",
+    "codex.request",
+]
+
+
+class DialogueCompactChange(_StrictModel):
+    """Stable, shallow model wire; domain-specific shape is checked after parsing."""
+
+    op: CompactChangeOp
+    target_ref: ContextRef | None = None
+    related_ref: ContextRef | None = None
+    field: Summary | None = None
+    party: Literal["armi", "creator"] | None = None
+    text: Annotated[str, StringConstraints(min_length=1, max_length=65536)] | None = (
+        None
+    )
+    items: tuple[Summary, ...] | None = Field(default=None, max_length=16)
+    metadata: dict[
+        Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9._-]{0,63}$")],
+        Annotated[str, StringConstraints(max_length=2048)],
+    ] = Field(default_factory=dict, max_length=32)
+
+
+class _CompactDialogueEnvelope(_StrictModel):
+    kind: Literal[
+        "reply",
+        "decline",
+        "no_action",
+        "no_change",
+        "defer",
+        "need_information",
+        "exact_life_query",
+        "web_research",
+    ]
+    content: (
+        Annotated[str, StringConstraints(min_length=1, max_length=65536)] | None
+    ) = None
+    record_kind: (
+        Literal[
+            "activity",
+            "conversation",
+            "material",
+            "memory",
+            "relationship",
+            "self_change",
+        ]
+        | None
+    ) = None
+    query: Annotated[str, StringConstraints(min_length=1, max_length=16384)] | None = (
+        None
+    )
+    experience: DialogueExperience | None = None
+    changes: tuple[DialogueCompactChange, ...] = Field(default=(), max_length=8)
+
+    @model_validator(mode="after")
+    def validate_envelope(self) -> _CompactDialogueEnvelope:
+        if self.kind == "reply":
+            if (
+                self.content is None
+                or self.record_kind is not None
+                or self.query is not None
+            ):
+                raise ValueError("reply envelope is invalid")
+        elif self.kind == "exact_life_query":
+            if self.record_kind is None or self.content is not None or self.changes:
+                raise ValueError("life query envelope is invalid")
+        elif self.kind == "web_research":
+            if self.query is None or self.content is not None or self.changes:
+                raise ValueError("web query envelope is invalid")
+        elif (
+            any(
+                value is not None
+                for value in (self.content, self.record_kind, self.query)
+            )
+            or self.experience is not None
+            or self.changes
+        ):
+            raise ValueError("terminal envelope is invalid")
+        if self.kind != "reply" and self.experience is not None:
+            raise ValueError("only reply may carry experience")
+        return self
+
+
+class _CompactDialogueEnvelopeNoWeb(_CompactDialogueEnvelope):
+    kind: Literal[
+        "reply",
+        "decline",
+        "no_action",
+        "no_change",
+        "defer",
+        "need_information",
+        "exact_life_query",
+    ]
+
+
+class DialogueReplyDecisionV19(DialogueReplyDecisionV15):
+    @property
+    def schema_version(self) -> str:
+        return DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueTerminalDecisionV19(DialogueTerminalDecisionV15):
+    @property
+    def schema_version(self) -> str:
+        return DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueExactLifeQueryDecisionV19(DialogueExactLifeQueryDecision):
+    @property
+    def schema_version(self) -> str:
+        return DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueReplyDecisionV20(DialogueReplyDecisionV16):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueTerminalDecisionV20(DialogueTerminalDecisionV16):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueWebResearchDecisionV20(DialogueWebResearchDecisionV16):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+class DialogueExactLifeQueryDecisionV20(DialogueExactLifeQueryDecision):
+    @property
+    def schema_version(self) -> str:
+        return WEB_DIALOGUE_CANDIDATE_VERSION
+
+
+_COMPACT_ADAPTER: TypeAdapter[_CompactDialogueEnvelopeNoWeb] = TypeAdapter(
+    _CompactDialogueEnvelopeNoWeb
+)
+_COMPACT_WEB_ADAPTER: TypeAdapter[_CompactDialogueEnvelope] = TypeAdapter(
+    _CompactDialogueEnvelope
+)
 
 _ADAPTER_V5: TypeAdapter[DialogueDecisionV5] = TypeAdapter(DialogueDecisionV5)
 _ADAPTER_V6: TypeAdapter[DialogueDecisionV6] = TypeAdapter(DialogueDecisionV6)
@@ -904,8 +1074,12 @@ def dialogue_candidate_schema(
     version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> dict[str, Any]:
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V17.json_schema()
+        return _COMPACT_ADAPTER.json_schema()
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
+        return _COMPACT_WEB_ADAPTER.json_schema()
+    if version == HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V17.json_schema()
+    if version == HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V18.json_schema()
     if version == HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V15.json_schema()
@@ -967,6 +1141,305 @@ def _strip_provider_schema_annotations(value: Any) -> Any:
     return value
 
 
+def _compact_metadata(
+    change: DialogueCompactChange,
+    *,
+    required: frozenset[str] = frozenset(),
+    optional: frozenset[str] = frozenset(),
+) -> dict[str, str]:
+    keys = frozenset(change.metadata)
+    if not required.issubset(keys) or not keys.issubset(required | optional):
+        raise ValueError("compact change metadata is invalid")
+    return change.metadata
+
+
+def _require_compact_shape(
+    change: DialogueCompactChange,
+    *,
+    target: bool = False,
+    related: bool = False,
+    field: bool = False,
+    party: bool = False,
+    text: bool = False,
+    items: bool = False,
+) -> None:
+    expected = (target, related, field, party, text, items)
+    actual = tuple(
+        value is not None
+        for value in (
+            change.target_ref,
+            change.related_ref,
+            change.field,
+            change.party,
+            change.text,
+            change.items,
+        )
+    )
+    if actual != expected:
+        raise ValueError("compact change shape is invalid")
+
+
+def _translate_compact_change_set(
+    changes: tuple[DialogueCompactChange, ...],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    relationship: dict[str, object] = {}
+    self_change: dict[str, object] = {}
+    mind_change: dict[str, object] = {}
+
+    def set_once(key: str, value: object) -> None:
+        if key in result:
+            raise ValueError("compact change owner is duplicated")
+        result[key] = value
+
+    for change in changes:
+        op = change.op
+        if op.startswith("memory."):
+            if "memory_change" in result:
+                raise ValueError("memory change is duplicated")
+            action = op.removeprefix("memory.")
+            if action == "reinterpret":
+                _require_compact_shape(
+                    change,
+                    target=True,
+                    related=change.related_ref is not None,
+                    text=True,
+                )
+                metadata = _compact_metadata(
+                    change,
+                    optional=frozenset({"uncertainty", "relation_kind"}),
+                )
+                relation_kind = metadata.get("relation_kind")
+                if (change.related_ref is None) != (relation_kind is None):
+                    raise ValueError("memory relation is incomplete")
+                value: dict[str, object] = {
+                    "action": action,
+                    "memory_ref": change.target_ref,
+                    "summary": change.text,
+                }
+                if "uncertainty" in metadata:
+                    value["uncertainty"] = metadata["uncertainty"]
+                if change.related_ref is not None:
+                    value.update(
+                        {
+                            "related_memory_ref": change.related_ref,
+                            "relation_kind": relation_kind,
+                        }
+                    )
+            else:
+                _require_compact_shape(change, target=True)
+                _compact_metadata(change)
+                value = {"action": action, "memory_ref": change.target_ref}
+            set_once("memory_change", DialogueMemoryChange.model_validate(value))
+            continue
+
+        if op == "relationship.interpret":
+            _require_compact_shape(change, text=True)
+            _compact_metadata(change)
+            if "interpretation" in relationship:
+                raise ValueError("relationship interpretation is duplicated")
+            relationship["interpretation"] = change.text
+            continue
+        if op == "relationship.fact":
+            _require_compact_shape(change, text=True)
+            _compact_metadata(change)
+            if "fact" in relationship:
+                raise ValueError("relationship fact is duplicated")
+            relationship["fact"] = {"kind": "party_expression", "summary": change.text}
+            continue
+        if op == "relationship.boundary":
+            _require_compact_shape(change, field=True, party=True, text=True)
+            metadata = _compact_metadata(change, required=frozenset({"action"}))
+            if "boundary" in relationship:
+                raise ValueError("relationship boundary is duplicated")
+            relationship["boundary"] = {
+                "party": change.party,
+                "kind": change.field,
+                "action": metadata["action"],
+                "summary": change.text,
+            }
+            continue
+        if op.startswith("commitment."):
+            if "commitment_change" in relationship:
+                raise ValueError("commitment change is duplicated")
+            action = op.removeprefix("commitment.")
+            action = "note_conflict" if action == "conflict" else action
+            if action == "establish":
+                _require_compact_shape(change, field=True, party=True, text=True)
+                metadata = _compact_metadata(
+                    change, required=frozenset({"event_summary"})
+                )
+                value = {
+                    "action": action,
+                    "party": change.party,
+                    "scope": change.field,
+                    "content": change.text,
+                    "event_summary": metadata["event_summary"],
+                }
+            elif action == "modify":
+                _require_compact_shape(
+                    change,
+                    target=True,
+                    field=change.field is not None,
+                    text=change.text is not None,
+                )
+                if change.field is None and change.text is None:
+                    raise ValueError("commitment modify is empty")
+                metadata = _compact_metadata(
+                    change, required=frozenset({"event_summary"})
+                )
+                value = {
+                    "action": action,
+                    "commitment_ref": change.target_ref,
+                    "scope": change.field,
+                    "content": change.text,
+                    "event_summary": metadata["event_summary"],
+                }
+            elif action == "note_conflict":
+                _require_compact_shape(change, target=True, related=True, text=True)
+                _compact_metadata(change)
+                value = {
+                    "action": action,
+                    "commitment_ref": change.target_ref,
+                    "conflicts_with_ref": change.related_ref,
+                    "event_summary": change.text,
+                }
+            else:
+                _require_compact_shape(change, target=True, text=True)
+                _compact_metadata(change)
+                value = {
+                    "action": action,
+                    "commitment_ref": change.target_ref,
+                    "event_summary": change.text,
+                }
+            relationship["commitment_change"] = value
+            continue
+
+        if op.startswith("material."):
+            action = op.removeprefix("material.")
+            if action in {"visibility", "delete"}:
+                _require_compact_shape(
+                    change, target=True, field=action == "visibility"
+                )
+                _compact_metadata(change)
+                material_action = change.field if action == "visibility" else "delete"
+                value = {"action": material_action, "material_ref": change.target_ref}
+            else:
+                _require_compact_shape(
+                    change,
+                    target=action == "update",
+                    field=action == "create",
+                    text=True,
+                )
+                metadata = change.metadata
+                if "title" not in metadata or any(
+                    key not in {"title", "material_status"}
+                    and not key.startswith("data.")
+                    for key in metadata
+                ):
+                    raise ValueError("material metadata is invalid")
+                value = {
+                    "action": action,
+                    "material_ref": change.target_ref,
+                    "material_kind": change.field,
+                    "title": metadata["title"],
+                    "body": change.text,
+                    "metadata": {
+                        key.removeprefix("data."): item
+                        for key, item in metadata.items()
+                        if key.startswith("data.")
+                    },
+                    "material_status": metadata.get("material_status", "active"),
+                }
+            set_once("material_change", value)
+            continue
+
+        if op in {"self.set", "mind.set"}:
+            _require_compact_shape(
+                change,
+                field=True,
+                text=change.text is not None,
+                items=change.items is not None,
+            )
+            if (change.text is None) == (change.items is None):
+                raise ValueError("component replacement requires one value")
+            _compact_metadata(change)
+            destination = self_change if op == "self.set" else mind_change
+            if change.field in destination:
+                raise ValueError("component field is duplicated")
+            destination[cast(str, change.field)] = (
+                {"value": change.text}
+                if change.text is not None
+                else {"values": change.items}
+            )
+            continue
+
+        if op == "prompt.set":
+            _require_compact_shape(change)
+            metadata = _compact_metadata(
+                change,
+                required=frozenset(
+                    {"cognition_method", "expression_method", "reflection_method"}
+                ),
+            )
+            set_once("subject_prompt_change", metadata)
+            continue
+
+        if op == "codex.request":
+            _require_compact_shape(change, target=True)
+            _compact_metadata(change)
+            set_once("capability_request", {"capability_ref": change.target_ref})
+            continue
+        raise ValueError("unsupported compact change")
+
+    if relationship:
+        result["relationship_change"] = DialogueRelationshipChange.model_validate(
+            relationship
+        )
+    if self_change:
+        result["self_change"] = DialogueSelfChange.model_validate(self_change)
+    if mind_change:
+        result["mind_change"] = DialogueMindChange.model_validate(mind_change)
+    return result
+
+
+def _translate_compact_dialogue(
+    envelope: _CompactDialogueEnvelope,
+    *,
+    web: bool,
+) -> CreatorDialogueCandidate:
+    if envelope.kind == "reply":
+        values: dict[str, object] = {
+            "kind": "reply",
+            "content": envelope.content,
+            "experience": envelope.experience,
+            **_translate_compact_change_set(envelope.changes),
+        }
+        reply_type = DialogueReplyDecisionV20 if web else DialogueReplyDecisionV19
+        return reply_type.model_validate(values)
+    if envelope.kind == "exact_life_query":
+        query_type = (
+            DialogueExactLifeQueryDecisionV20
+            if web
+            else DialogueExactLifeQueryDecisionV19
+        )
+        return query_type.model_validate(
+            {
+                "kind": envelope.kind,
+                "record_kind": envelope.record_kind,
+                "query_text": envelope.query,
+            }
+        )
+    if envelope.kind == "web_research":
+        if not web:
+            raise ValueError("web research is unavailable")
+        return DialogueWebResearchDecisionV20.model_validate(
+            {"kind": envelope.kind, "query": envelope.query}
+        )
+    terminal_type = DialogueTerminalDecisionV20 if web else DialogueTerminalDecisionV19
+    return terminal_type.model_validate({"kind": envelope.kind})
+
+
 def parse_dialogue_candidate(
     value: object,
     *,
@@ -974,8 +1447,16 @@ def parse_dialogue_candidate(
 ) -> CreatorDialogueCandidate:
     value = strict_model_value(value)
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V17.validate_python(value, strict=True)
+        return _translate_compact_dialogue(
+            _COMPACT_ADAPTER.validate_python(value, strict=True), web=False
+        )
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
+        return _translate_compact_dialogue(
+            _COMPACT_WEB_ADAPTER.validate_python(value, strict=True), web=True
+        )
+    if version == HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION:
+        return _ADAPTER_V17.validate_python(value, strict=True)
+    if version == HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V18.validate_python(value, strict=True)
     if version == HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V15.validate_python(value, strict=True)
@@ -1007,6 +1488,8 @@ def parse_dialogue_candidate(
 __all__ = (
     "DIALOGUE_CANDIDATE_VERSION",
     "DIALOGUE_MODEL_OUTPUT_VERSION",
+    "HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION",
+    "HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_DIALOGUE_CANDIDATE_VERSION",
@@ -1025,6 +1508,8 @@ __all__ = (
     "DialogueCommitmentChange",
     "DialogueExactLifeQueryDecision",
     "DialogueExactLifeQueryDecisionV18",
+    "DialogueExactLifeQueryDecisionV19",
+    "DialogueExactLifeQueryDecisionV20",
     "DialogueExperience",
     "DialogueLongTextReplacement",
     "DialogueMaterialChange",
@@ -1051,6 +1536,8 @@ __all__ = (
     "DialogueReplyDecisionV15",
     "DialogueReplyDecisionV16",
     "DialogueReplyDecisionV18",
+    "DialogueReplyDecisionV19",
+    "DialogueReplyDecisionV20",
     "DialogueSelfChange",
     "DialogueSubjectPromptChange",
     "DialogueSummaryListReplacement",
@@ -1068,6 +1555,8 @@ __all__ = (
     "DialogueTerminalDecisionV15",
     "DialogueTerminalDecisionV16",
     "DialogueTerminalDecisionV18",
+    "DialogueTerminalDecisionV19",
+    "DialogueTerminalDecisionV20",
     "DialogueWebResearchDecision",
     "DialogueWebResearchDecisionV8",
     "DialogueWebResearchDecisionV10",
@@ -1075,6 +1564,7 @@ __all__ = (
     "DialogueWebResearchDecisionV14",
     "DialogueWebResearchDecisionV16",
     "DialogueWebResearchDecisionV18",
+    "DialogueWebResearchDecisionV20",
     "dialogue_candidate_schema",
     "dialogue_model_output_schema",
     "parse_dialogue_candidate",

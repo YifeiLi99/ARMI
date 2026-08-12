@@ -451,6 +451,7 @@ class ModelPipeline:
                 base_state_epoch=snapshot.base_state_epoch,
                 bundle_activation_id=snapshot.bundle_activation_id,
                 included_context_refs=snapshot.included_context_refs,
+                budget_exclusions=snapshot.budget_exclusions,
             )
             input_tokens = await adapter.tokenize(request_bytes)
             request = checked_model_request(

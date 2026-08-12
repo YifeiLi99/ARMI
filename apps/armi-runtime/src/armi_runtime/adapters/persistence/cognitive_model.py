@@ -55,6 +55,7 @@ class ModelEpisodeSnapshot:
     context_digest: Digest
     compiled_context: ArtifactRef
     included_context_refs: tuple[dict[str, object], ...]
+    budget_exclusions: tuple[dict[str, object], ...]
     trace_id: TraceId
 
 
@@ -109,10 +110,9 @@ class PostgreSQLCognitiveModelRepository:
         refs = await (
             await connection.execute(
                 """
-                SELECT ordinal, section, item_kind
+                SELECT ordinal, section, item_kind, disposition, reason_code
                 FROM armi.cognitive_context_items
                 WHERE cognitive_episode_id = %s
-                  AND disposition = 'included'
                 ORDER BY ordinal
                 """,
                 (row[0],),
@@ -134,6 +134,17 @@ class PostgreSQLCognitiveModelRepository:
                     "item_kind": str(item[2]),
                 }
                 for item in refs
+                if str(item[3]) == "included"
+            ),
+            tuple(
+                {
+                    "ref": f"ctx:{int(item[0])}",
+                    "section": str(item[1]),
+                    "item_kind": str(item[2]),
+                    "reason_code": str(item[4]),
+                }
+                for item in refs
+                if str(item[3]) == "excluded_budget" and item[4] is not None
             ),
             TraceId(str(row[8])),
         )

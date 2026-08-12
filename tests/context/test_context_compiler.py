@@ -31,6 +31,7 @@ def _candidate(
     *,
     required: bool = False,
     relevance: int = 50,
+    business_time: datetime | None = None,
 ) -> ContextItemCandidate:
     if content is None:
         source = ContextSourceIdentity("not_implemented", None, None)
@@ -49,7 +50,9 @@ def _candidate(
         content,
         required,
         relevance,
-        Instant(datetime(2026, 1, 1, tzinfo=UTC)) if content is not None else None,
+        Instant(business_time or datetime(2026, 1, 1, tzinfo=UTC))
+        if content is not None
+        else None,
         "CTX-SOURCE-NOT-IMPLEMENTED" if content is None else None,
     )
 
@@ -139,10 +142,13 @@ def test_optional_items_cannot_consume_slots_reserved_for_required_items() -> No
 
     evidence = next(item for item in result.items if item.candidate is required)
     assert evidence.disposition is ContextItemDisposition.INCLUDED
-    assert sum(
-        item.disposition is ContextItemDisposition.EXCLUDED_BUDGET
-        for item in result.items
-    ) == 1
+    assert (
+        sum(
+            item.disposition is ContextItemDisposition.EXCLUDED_BUDGET
+            for item in result.items
+        )
+        == 1
+    )
 
 
 def test_identity_changes_change_context_digest() -> None:
@@ -163,4 +169,66 @@ def test_identity_changes_change_context_digest() -> None:
         first.items,
     )
     compiler = DeterministicContextCompiler()
-    assert compiler.compile(first).manifest_bytes != compiler.compile(second).manifest_bytes
+    assert (
+        compiler.compile(first).manifest_bytes
+        != compiler.compile(second).manifest_bytes
+    )
+
+
+def test_compiled_budget_removes_oldest_complete_turn_before_memory_tail() -> None:
+    first_time = datetime(2026, 1, 1, 1, tzinfo=UTC)
+    second_time = datetime(2026, 1, 1, 2, tzinfo=UTC)
+    old_user = _candidate(
+        ContextSection.SCENE,
+        "recent_scene_turn",
+        '{"speaker":"creator","text":"old question"}',
+        business_time=first_time,
+    )
+    old_reply = _candidate(
+        ContextSection.SCENE,
+        "recent_scene_turn",
+        '{"speaker":"armi","text":"old answer"}',
+        business_time=first_time,
+    )
+    new_user = _candidate(
+        ContextSection.SCENE,
+        "recent_scene_turn",
+        '{"speaker":"creator","text":"new question"}',
+        business_time=second_time,
+    )
+    new_reply = _candidate(
+        ContextSection.SCENE,
+        "recent_scene_turn",
+        '{"speaker":"armi","text":"new answer"}',
+        business_time=second_time,
+    )
+    memory = _candidate(
+        ContextSection.MEMORY,
+        "current_memory",
+        '{"summary":"still remembered"}',
+    )
+    current = _candidate(
+        ContextSection.EVIDENCE,
+        "current_evidence",
+        "current input",
+        required=True,
+    )
+    roomy = DeterministicContextCompiler().compile(
+        _request((old_user, old_reply, new_user, new_reply, memory, current))
+    )
+    one_turn_smaller = len(roomy.compiled.canonical_bytes) - 1
+
+    result = DeterministicContextCompiler().compile(
+        _request(
+            (old_user, old_reply, new_user, new_reply, memory, current),
+            max_compiled_bytes=one_turn_smaller,
+        )
+    )
+
+    dispositions = {id(item.candidate): item.disposition for item in result.items}
+    assert dispositions[id(old_user)] is ContextItemDisposition.EXCLUDED_BUDGET
+    assert dispositions[id(old_reply)] is ContextItemDisposition.EXCLUDED_BUDGET
+    assert dispositions[id(new_user)] is ContextItemDisposition.INCLUDED
+    assert dispositions[id(new_reply)] is ContextItemDisposition.INCLUDED
+    assert dispositions[id(memory)] is ContextItemDisposition.INCLUDED
+    assert dispositions[id(current)] is ContextItemDisposition.INCLUDED

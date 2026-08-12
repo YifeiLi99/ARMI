@@ -541,7 +541,13 @@ def _context_request(
                 1,
                 cast(bytes, snapshot.scene_bytes),
                 ContextTrustClass.RUNTIME_AUTHORITY,
-                required=snapshot.purpose == "consider_creator_outreach",
+                required=snapshot.purpose
+                in {
+                    "consider_creator_input",
+                    "consider_life_query_result",
+                    "consider_creator_outreach",
+                    "consider_other_human_input",
+                },
                 relevance=80,
             )
         )
@@ -579,7 +585,12 @@ def _context_request(
         and snapshot.purpose != "consider_other_human_input"
     )
     if accessible_memories:
-        for memory_id, version, payload, accessibility in accessible_memories:
+        for (
+            memory_id,
+            version,
+            payload,
+            accessibility,
+        ) in accessible_memories:
             items.append(
                 ContextItemCandidate(
                     ContextSection.MEMORY,
@@ -649,8 +660,7 @@ def _context_request(
                 ContextTrustClass.RUNTIME_AUTHORITY,
                 "private",
                 payload.decode("utf-8", errors="strict"),
-                snapshot.purpose
-                in {"consider_creator_input", "consider_creator_outreach"},
+                False,
                 100 if authorization_status == "pending" else 96,
             )
         )
@@ -664,7 +674,12 @@ def _context_request(
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
                     payload.decode("utf-8"),
-                    False,
+                    snapshot.purpose
+                    in {
+                        "consider_creator_input",
+                        "consider_life_query_result",
+                        "consider_other_human_input",
+                    },
                     96,
                 )
             )
@@ -934,6 +949,16 @@ def _context_request(
                 source_kind=snapshot.opportunity_source_kind,
             )
         )
+    dialogue_purpose = snapshot.purpose in {
+        "consider_creator_input",
+        "consider_life_query_result",
+        "consider_other_human_input",
+    }
+    required_content_bytes = sum(
+        len(item.content.encode("utf-8"))
+        for item in items
+        if item.required and item.content is not None
+    )
     return ContextRequest(
         Purpose(snapshot.purpose),
         snapshot.subject_id,
@@ -945,7 +970,7 @@ def _context_request(
         snapshot.mechanism_identity,
         32,
         262_144,
-        524_288,
+        max(16_384, required_content_bytes + 8192) if dialogue_purpose else 524_288,
         tuple(items),
     )
 

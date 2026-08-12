@@ -32,7 +32,7 @@ _PURPOSE = CredentialPurpose("model.request")
 _FINGERPRINT_DOMAIN = b"armi.model.credential-fingerprint.v1\0"
 _EVOLVING_MODEL_ID = "doubao-seed-evolving"
 _PROVIDER_MODEL_ID = re.compile(r"^doubao-seed-[a-z0-9-]{1,96}$", re.ASCII)
-_DIALOGUE_INPUT_VERSION = "armi.creator-dialogue-input.v2"
+_DIALOGUE_INPUT_VERSION = "armi.creator-dialogue-input.v3"
 _INSTRUCTIONS = (
     "你是 ARMI 的不可信认知候选生成器。只能返回符合给定 JSON Schema 的候选。"
     "必须逐字段原样回显请求中的 candidate_base 到输出 base,不能推测或改写。"
@@ -553,13 +553,6 @@ def _strict_provider_schema(
         result["additionalProperties"] = False
     elif result.get("type") == "object" and "additionalProperties" not in result:
         result["additionalProperties"] = False
-    if (
-        available_refs
-        and result.get("type") == "string"
-        and result.get("pattern") == r"^ctx:[1-9][0-9]{0,2}$"
-    ):
-        result.pop("pattern", None)
-        result["enum"] = list(available_refs)
     return result
 
 

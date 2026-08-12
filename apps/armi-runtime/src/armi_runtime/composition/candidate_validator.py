@@ -104,6 +104,8 @@ from .autonomous_activity_candidate_contract import (
 )
 from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
@@ -121,6 +123,8 @@ from .dialogue_candidate_contract import (
     DialogueCommitmentChange,
     DialogueExactLifeQueryDecision,
     DialogueExactLifeQueryDecisionV18,
+    DialogueExactLifeQueryDecisionV19,
+    DialogueExactLifeQueryDecisionV20,
     DialogueExperience,
     DialogueMaterialChange,
     DialogueMaterialChangeV7,
@@ -141,6 +145,8 @@ from .dialogue_candidate_contract import (
     DialogueReplyDecisionV15,
     DialogueReplyDecisionV16,
     DialogueReplyDecisionV18,
+    DialogueReplyDecisionV19,
+    DialogueReplyDecisionV20,
     DialogueTerminalDecision,
     DialogueTerminalDecisionV5,
     DialogueTerminalDecisionV6,
@@ -155,6 +161,8 @@ from .dialogue_candidate_contract import (
     DialogueTerminalDecisionV15,
     DialogueTerminalDecisionV16,
     DialogueTerminalDecisionV18,
+    DialogueTerminalDecisionV19,
+    DialogueTerminalDecisionV20,
     DialogueWebResearchDecision,
     DialogueWebResearchDecisionV8,
     DialogueWebResearchDecisionV10,
@@ -162,6 +170,7 @@ from .dialogue_candidate_contract import (
     DialogueWebResearchDecisionV14,
     DialogueWebResearchDecisionV16,
     DialogueWebResearchDecisionV18,
+    DialogueWebResearchDecisionV20,
     parse_dialogue_candidate,
 )
 from .maintenance_work_candidate_contract import (
@@ -681,6 +690,8 @@ class DeterministicCandidateValidator:
                     DialogueReplyDecisionV15,
                     DialogueReplyDecisionV16,
                     DialogueReplyDecisionV18,
+                    DialogueReplyDecisionV19,
+                    DialogueReplyDecisionV20,
                 ),
             ):
                 candidate, dialogue_bound_changes = _recover_dialogue_expression(
@@ -767,8 +778,7 @@ class DeterministicCandidateValidator:
         rejected: dict[str, CandidateRejection] = {}
         if dialogue_bound_changes is not None:
             rejected.update(
-                (item.proposal_ref, item)
-                for item in dialogue_bound_changes.rejections
+                (item.proposal_ref, item) for item in dialogue_bound_changes.rejections
             )
         group_members: dict[str, list[str]] = defaultdict(list)
         group_experiences: set[str] = set()
@@ -1140,6 +1150,7 @@ class DeterministicCandidateValidator:
                 HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
             and web_research_requests
@@ -1159,6 +1170,8 @@ class DeterministicCandidateValidator:
                 HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
                 DIALOGUE_CANDIDATE_VERSION,
                 WEB_DIALOGUE_CANDIDATE_VERSION,
             }
@@ -1247,6 +1260,7 @@ class DeterministicCandidateValidator:
             HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
             HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
+            HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
             WEB_DIALOGUE_CANDIDATE_VERSION,
         }:
             change_set_value["web_research_requests"] = [
@@ -1271,6 +1285,7 @@ class DeterministicCandidateValidator:
                 HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION,
                 HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION,
+                HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
                 "armi.cognition-candidate.v6",
                 "armi.cognition-candidate.v7",
             }
@@ -1283,6 +1298,7 @@ class DeterministicCandidateValidator:
                     HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
                     HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
+                    HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
                     WEB_DIALOGUE_CANDIDATE_VERSION,
                 }
                 and not web_research_requests
@@ -2161,7 +2177,12 @@ def _recover_dialogue_expression(
         (item for item in bases if item.item_kind == "current_evidence"),
         None,
     )
-    if candidate is None or bound is None or expression_error is not None or evidence is None:
+    if (
+        candidate is None
+        or bound is None
+        or expression_error is not None
+        or evidence is None
+    ):
         return None, None
     rejection = CandidateRejection(
         "proposal:3",
@@ -2256,6 +2277,8 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV15,
             DialogueReplyDecisionV16,
             DialogueReplyDecisionV18,
+            DialogueReplyDecisionV19,
+            DialogueReplyDecisionV20,
             DialogueTerminalDecision,
             DialogueTerminalDecisionV5,
             DialogueTerminalDecisionV6,
@@ -2270,8 +2293,12 @@ def _expand_dialogue_candidate(
             DialogueTerminalDecisionV15,
             DialogueTerminalDecisionV16,
             DialogueTerminalDecisionV18,
+            DialogueTerminalDecisionV19,
+            DialogueTerminalDecisionV20,
             DialogueExactLifeQueryDecision,
             DialogueExactLifeQueryDecisionV18,
+            DialogueExactLifeQueryDecisionV19,
+            DialogueExactLifeQueryDecisionV20,
             DialogueWebResearchDecision,
             DialogueWebResearchDecisionV8,
             DialogueWebResearchDecisionV10,
@@ -2279,6 +2306,7 @@ def _expand_dialogue_candidate(
             DialogueWebResearchDecisionV14,
             DialogueWebResearchDecisionV16,
             DialogueWebResearchDecisionV18,
+            DialogueWebResearchDecisionV20,
         ),
     ):
         return None, None, "CANDIDATE-CONTRACT"
@@ -2305,8 +2333,12 @@ def _expand_dialogue_candidate(
         (
             DialogueReplyDecision,
             DialogueReplyDecisionV18,
+            DialogueReplyDecisionV19,
+            DialogueReplyDecisionV20,
             DialogueTerminalDecision,
             DialogueTerminalDecisionV18,
+            DialogueTerminalDecisionV19,
+            DialogueTerminalDecisionV20,
         ),
     ):
         return None, None, "CANDIDATE-LIFE-QUERY-RESULT-SCOPE"
@@ -2314,7 +2346,12 @@ def _expand_dialogue_candidate(
         context.purpose == "consider_life_query_result"
         and isinstance(
             decision,
-            (DialogueReplyDecision, DialogueReplyDecisionV18),
+            (
+                DialogueReplyDecision,
+                DialogueReplyDecisionV18,
+                DialogueReplyDecisionV19,
+                DialogueReplyDecisionV20,
+            ),
         )
         and any(
             value is not None
@@ -2370,6 +2407,8 @@ def _expand_dialogue_candidate(
             DialogueReplyDecisionV15,
             DialogueReplyDecisionV16,
             DialogueReplyDecisionV18,
+            DialogueReplyDecisionV19,
+            DialogueReplyDecisionV20,
         ),
     ):
         catalog = next(
@@ -2602,7 +2641,12 @@ def _expand_dialogue_candidate(
         )
     elif isinstance(
         decision,
-        (DialogueExactLifeQueryDecision, DialogueExactLifeQueryDecisionV18),
+        (
+            DialogueExactLifeQueryDecision,
+            DialogueExactLifeQueryDecisionV18,
+            DialogueExactLifeQueryDecisionV19,
+            DialogueExactLifeQueryDecisionV20,
+        ),
     ):
         purpose = next(
             (

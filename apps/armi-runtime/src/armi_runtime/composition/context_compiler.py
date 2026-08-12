@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, cast
 
 import rfc8785
@@ -99,25 +100,18 @@ class DeterministicContextCompiler(ContextCompiler):
 
         compiled_bytes = _compiled_bytes(request, results)
         while len(compiled_bytes) > request.max_compiled_bytes:
-            removable = next(
-                (
-                    index
-                    for index in range(len(results) - 1, -1, -1)
-                    if results[index].disposition is ContextItemDisposition.INCLUDED
-                    and not results[index].candidate.required
-                ),
-                None,
-            )
-            if removable is None:
+            removable = _budget_removals(results)
+            if not removable:
                 raise ContextViolation("CTX-BUDGET-REQUIRED")
-            previous = results[removable]
-            results[removable] = ContextItemResult(
-                previous.candidate,
-                previous.ordinal,
-                ContextItemDisposition.EXCLUDED_BUDGET,
-                previous.content_bytes,
-                "CTX-BUDGET-COMPILED",
-            )
+            for index in removable:
+                previous = results[index]
+                results[index] = ContextItemResult(
+                    previous.candidate,
+                    previous.ordinal,
+                    ContextItemDisposition.EXCLUDED_BUDGET,
+                    previous.content_bytes,
+                    "CTX-BUDGET-COMPILED",
+                )
             compiled_bytes = _compiled_bytes(request, results)
 
         compiled = CompiledContext(compiled_bytes)
@@ -157,6 +151,8 @@ def _sort_key(candidate: ContextItemCandidate) -> tuple[object, ...]:
         candidate.business_time.to_wire() if candidate.business_time is not None else ""
     )
     source_ref = str(candidate.source.reference) if candidate.source.reference else ""
+    if candidate.item_kind == "current_memory":
+        source_ref = ""
     return (
         _SECTION_RANK[candidate.section],
         -candidate.relevance,
@@ -164,6 +160,64 @@ def _sort_key(candidate: ContextItemCandidate) -> tuple[object, ...]:
         source_ref,
         candidate.item_kind,
     )
+
+
+def _budget_removals(results: list[ContextItemResult]) -> tuple[int, ...]:
+    included = [
+        (index, result)
+        for index, result in enumerate(results)
+        if result.disposition is ContextItemDisposition.INCLUDED
+        and not result.candidate.required
+    ]
+    if not included:
+        return ()
+    recent = [
+        (index, result)
+        for index, result in included
+        if result.candidate.item_kind == "recent_scene_turn"
+    ]
+    if recent:
+        recent.sort(
+            key=lambda pair: (
+                pair[1].candidate.business_time.to_wire()
+                if pair[1].candidate.business_time is not None
+                else "",
+                pair[1].ordinal,
+            )
+        )
+        first_index, first = recent[0]
+        if _scene_speaker(first) in {"creator", "other_human"} and len(recent) > 1:
+            second_index, second = recent[1]
+            if _scene_speaker(second) == "armi":
+                return (first_index, second_index)
+        return (first_index,)
+    memories = [
+        (index, result)
+        for index, result in included
+        if result.candidate.item_kind == "current_memory"
+    ]
+    if memories:
+        index, _ = min(
+            memories,
+            key=lambda pair: (pair[1].candidate.relevance, -pair[1].ordinal),
+        )
+        return (index,)
+    index, _ = min(
+        included,
+        key=lambda pair: (pair[1].candidate.relevance, -pair[1].ordinal),
+    )
+    return (index,)
+
+
+def _scene_speaker(result: ContextItemResult) -> object:
+    content = result.candidate.content
+    if content is None:
+        return None
+    try:
+        value = json.loads(content)
+    except json.JSONDecodeError:
+        return None
+    return value.get("speaker") if isinstance(value, dict) else None
 
 
 def _source(candidate: ContextItemCandidate) -> dict[str, object]:

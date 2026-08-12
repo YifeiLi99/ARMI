@@ -41,22 +41,22 @@
     "consider_creator_input": {
       "output_token_limit": 1024,
       "profile": "creator_dialogue",
-      "response_contract_version": "armi.creator-dialogue-candidate.v17"
+      "response_contract_version": "armi.creator-dialogue-candidate.v19"
     },
     "consider_life_query_result": {
       "output_token_limit": 1024,
       "profile": "creator_dialogue",
-      "response_contract_version": "armi.creator-dialogue-candidate.v17"
+      "response_contract_version": "armi.creator-dialogue-candidate.v19"
     },
     "consider_creator_outreach": {
       "output_token_limit": 512,
       "profile": "creator_outreach",
-      "response_contract_version": "armi.creator-dialogue-candidate.v17"
+      "response_contract_version": "armi.creator-dialogue-candidate.v19"
     },
     "consider_other_human_input": {
       "output_token_limit": 1024,
       "profile": "other_human_dialogue",
-      "response_contract_version": "armi.other-human-dialogue-candidate.v2"
+      "response_contract_version": "armi.other-human-dialogue-candidate.v3"
     },
     "consider_sleep": {
       "output_token_limit": 256,

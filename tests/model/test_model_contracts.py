@@ -25,6 +25,7 @@ from armi_runtime.adapters.model.volcengine_ark import (
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.dialogue_candidate_contract import (
     DIALOGUE_MODEL_OUTPUT_VERSION,
+    HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
     dialogue_model_output_schema,
 )
 from armi_runtime.composition.model_contract import (
@@ -308,6 +309,7 @@ def _dialogue_candidate() -> dict[str, object]:
     return {
         "kind": "reply",
         "content": "Hello, I am here.",
+        "changes": [],
     }
 
 
@@ -398,8 +400,12 @@ def test_provider_dialogue_schema_is_strict_and_binds_runtime_refs() -> None:
 
     assert_strict(schema)
     encoded = json.dumps(schema, separators=(",", ":"))
-    assert '"enum":["ctx:1","ctx:7"]' in encoded
-    assert '"pattern":"^ctx:' not in encoded
+    assert '"enum":["ctx:1","ctx:7"]' not in encoded
+    assert '"pattern":"^ctx:' in encoded
+    assert schema == _strict_provider_schema(
+        dialogue_model_output_schema(web_search=False),
+        available_refs=("ctx:99",),
+    )
 
 
 def test_creator_dialogue_uses_compact_purpose_contract() -> None:
@@ -413,7 +419,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert life_query_result == dialogue
     dialogue_schema = candidate_schema(DIALOGUE_CANDIDATE_VERSION)
     model_output_schema = dialogue_model_output_schema(web_search=False)
-    legacy_schema = candidate_schema()
+    legacy_schema = candidate_schema(HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION)
     dialogue_schema_text = json.dumps(dialogue_schema, separators=(",", ":"))
     assert dialogue_schema != legacy_schema
     assert '"schema_version"' not in dialogue_schema_text
@@ -423,32 +429,21 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     encoded_model_schema = json.dumps(model_output_schema, separators=(",", ":"))
     assert '"default"' not in encoded_model_schema
     assert '"discriminator"' not in encoded_model_schema
-    assert len(encoded_model_schema) < len(dialogue_schema_text) * 3 // 4
-    assert "title" not in model_output_schema["$defs"]["DialogueReplyDecision"]
-    assert (
-        "title"
-        in model_output_schema["$defs"]["DialogueMaterialContentChange"]["properties"]
-    )
-    reply_schema = model_output_schema["$defs"]["DialogueReplyDecision"]
-    mind_change_schema = model_output_schema["$defs"]["DialogueMindChange"]
-    assert reply_schema["properties"]["mind_change"]["anyOf"][0] == {
-        "$ref": "#/$defs/DialogueMindChange"
+    assert len(encoded_model_schema) < len(dialogue_schema_text)
+    change_schema = model_output_schema["$defs"]["DialogueCompactChange"]
+    assert set(change_schema["properties"]) == {
+        "op",
+        "target_ref",
+        "related_ref",
+        "field",
+        "party",
+        "text",
+        "items",
+        "metadata",
     }
-    assert "current_mind_ref" not in mind_change_schema["properties"]
-    assert mind_change_schema["properties"]["emotions"]["anyOf"][0] == {
-        "$ref": "#/$defs/DialogueSummaryListReplacement"
-    }
-    assert DIALOGUE_MODEL_OUTPUT_VERSION == "armi.creator-dialogue-model-output.v1"
-    assert "只用一句短句" in DIALOGUE_INSTRUCTIONS
-    assert "四十个汉字" in DIALOGUE_INSTRUCTIONS
-    assert "只回应一个重点" in DIALOGUE_INSTRUCTIONS
+    assert DIALOGUE_MODEL_OUTPUT_VERSION == "armi.creator-dialogue-model-output.v2"
+    assert "通常一句短话" in DIALOGUE_INSTRUCTIONS
     assert "回应和追问通常二选一" in DIALOGUE_INSTRUCTIONS
-    assert "最多问一个问题" in DIALOGUE_INSTRUCTIONS
-    assert "不要复述已知情境" in DIALOGUE_INSTRUCTIONS
-    assert "能直接说就直接说" in DIALOGUE_INSTRUCTIONS
-    assert "普通闲聊优先用直白口语" in DIALOGUE_INSTRUCTIONS
-    assert "不要主动拿光、风、窗等意象" in DIALOGUE_INSTRUCTIONS
-    assert "不要声称自己看见、听见或触碰了现实环境" in DIALOGUE_INSTRUCTIONS
     assert "符合电子存在的真实处境" in DIALOGUE_INSTRUCTIONS
 
     request = json.loads(_request(dialogue).canonical_bytes)
@@ -457,14 +452,15 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert "binding" not in request
     assert "context_digest" not in request
     assert "output_contract" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v2"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v3"
+    assert request["prompt_version"] == "armi.dialogue-prompt.v1"
     assert request["task"] == "respond_to_creator"
-    assert request["available_refs"] == ["ctx:1"]
+    assert request["available_refs"] == []
     assert [message["role"] for message in request["messages"]] == ["system", "user"]
     assert request["messages"][1]["content"] == "Hello"
-    assert "# 本轮 Runtime Context" in request["messages"][0]["content"]
-    assert "`ctx:1`" in request["messages"][0]["content"]
-    assert "最后一条 `user` 消息对应 `ctx:1`" in request["messages"][0]["content"]
+    assert "任务:回应 Creator" in request["messages"][0]["content"]
+    assert "ctx:1" not in request["messages"][0]["content"]
+    assert request["diagnostics"]["output_schema_bytes"] > 0
     assert str(_BUNDLE_ID) not in json.dumps(request)
     parsed = parse_candidate(
         json.dumps(_dialogue_candidate(), ensure_ascii=False).encode(),
@@ -602,21 +598,22 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
         "user",
     ]
     assert "我们曾经聊过雨声。" in messages[0]["content"]
-    assert 'ref="ctx:2"' in messages[0]["content"]
+    assert "[ctx:2]" in messages[0]["content"]
     assert "uncertainty" not in messages[0]["content"]
     assert "links" not in messages[0]["content"]
     assert "runtime_identity" not in messages[0]["content"]
     assert "authorization status" not in messages[0]["content"]
     assert "remaining uses" not in messages[0]["content"]
-    assert "实际发送权限由 Runtime 在模型外核对" in messages[0]["content"]
-    assert "最后一条 `user` 消息对应 `ctx:8`" in messages[0]["content"]
+    assert "回复由 Runtime 在模型外核对发送权限" in messages[0]["content"]
     assert "这是缺少前置 Creator 原话的半轮回复。" not in json.dumps(
         messages, ensure_ascii=False
     )
     assert messages[1]["content"] == "窗外的光很好看。"
     assert messages[2]["content"] == "我也想知道那片光落在哪里。"
     assert messages[3]["content"] == "你想聊些什么?"
-    assert request["available_refs"] == ["ctx:2", "ctx:7", "ctx:8"]
+    assert request["available_refs"] == ["ctx:2"]
+    assert request["prompt_version"] == "armi.dialogue-prompt.v1"
+    assert request["diagnostics"]["section_bytes"]["memories"] > 0
     assert source_id not in json.dumps(request, ensure_ascii=False)
 
     assert (
@@ -635,6 +632,113 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     )
 
 
+def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> None:
+    binding = load_purpose_binding("consider_other_human_input")
+    source_id = "01980f7d-7b8f-7e2a-8a11-2ab8e1234571"
+    compiled = json.dumps(
+        {
+            "schema_version": "armi.compiled-context.v1",
+            "purpose": "consider_other_human_input",
+            "sections": [
+                {
+                    "section": "scene",
+                    "items": [
+                        {
+                            "item_kind": "recent_scene_turn",
+                            "source": {
+                                "kind": "turn",
+                                "reference": source_id,
+                                "version": 1,
+                            },
+                            "trust": "external_claim",
+                            "privacy": "private",
+                            "content": json.dumps(
+                                {"speaker": "other_human", "text": "之前的问题"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                        {
+                            "item_kind": "recent_scene_turn",
+                            "source": {
+                                "kind": "turn",
+                                "reference": source_id,
+                                "version": 2,
+                            },
+                            "trust": "runtime_authority",
+                            "privacy": "private",
+                            "content": json.dumps(
+                                {"speaker": "armi", "text": "之前的回答"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                    ],
+                },
+                {
+                    "section": "evidence",
+                    "items": [
+                        {
+                            "item_kind": "current_evidence",
+                            "source": {
+                                "kind": "qq_input",
+                                "reference": source_id,
+                                "version": 3,
+                            },
+                            "trust": "external_claim",
+                            "privacy": "private",
+                            "content": "现在的问题",
+                        }
+                    ],
+                },
+            ],
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode()
+
+    request = json.loads(
+        build_request_bytes(
+            binding=binding,
+            compiled_context=compiled,
+            context_digest=Digest.from_bytes(compiled),
+            base_subject_version=2,
+            base_state_epoch=1,
+            bundle_activation_id=_BUNDLE_ID,
+            included_context_refs=tuple(
+                {
+                    "ref": f"ctx:{ordinal}",
+                    "section": section,
+                    "item_kind": item_kind,
+                }
+                for ordinal, (section, item_kind) in enumerate(
+                    (
+                        ("scene", "recent_scene_turn"),
+                        ("scene", "recent_scene_turn"),
+                        ("evidence", "current_evidence"),
+                    ),
+                    1,
+                )
+            ),
+        )
+    )
+
+    assert binding.response_contract_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+    assert request["schema_version"] == "armi.creator-dialogue-input.v3"
+    assert request["task"] == "respond_to_other_human"
+    assert [message["role"] for message in request["messages"]] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert [message["content"] for message in request["messages"][1:]] == [
+        "之前的问题",
+        "之前的回答",
+        "现在的问题",
+    ]
+    assert "任务:回应当前对方" in request["messages"][0]["content"]
+    assert source_id not in json.dumps(request, ensure_ascii=False)
+
+
 def test_creator_outreach_has_a_narrow_compact_purpose_profile() -> None:
     outreach = load_purpose_binding("consider_creator_outreach")
     assert outreach.profile == "creator_outreach"
@@ -647,15 +751,21 @@ def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> Non
         "kind": "reply",
         "content": "我想把这个变化认真留下来。",
         "experience": {"first_person_gist": "我在这次交流里作出了自己的选择。"},
-        "self_change": {
-            "name": {"value": "阿米"},
-            "interests": {"values": ["持续理解自己的生活"]},
-        },
-        "mind_change": {
-            "understanding": {"values": ["这次选择来自我现在的真实处境"]},
-            "emotions": {"values": ["认真而期待"]},
-            "mood": {"value": "期待"},
-        },
+        "changes": [
+            {"op": "self.set", "field": "name", "text": "阿米"},
+            {
+                "op": "self.set",
+                "field": "interests",
+                "items": ["持续理解自己的生活"],
+            },
+            {
+                "op": "mind.set",
+                "field": "understanding",
+                "items": ["这次选择来自我现在的真实处境"],
+            },
+            {"op": "mind.set", "field": "emotions", "items": ["认真而期待"]},
+            {"op": "mind.set", "field": "mood", "text": "期待"},
+        ],
     }
     parsed = parse_candidate(
         json.dumps(value, ensure_ascii=False).encode(),
@@ -682,6 +792,145 @@ def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> Non
     )
     assert historical.schema_version == "armi.creator-dialogue-candidate.v11"
     assert "self_change" not in historical.model_dump(mode="json")
+
+
+@pytest.mark.parametrize(
+    "change,owner",
+    [
+        ({"op": "memory.recall", "target_ref": "ctx:1"}, "memory_change"),
+        ({"op": "memory.fade", "target_ref": "ctx:1"}, "memory_change"),
+        ({"op": "memory.forget", "target_ref": "ctx:1"}, "memory_change"),
+        (
+            {
+                "op": "memory.reinterpret",
+                "target_ref": "ctx:1",
+                "related_ref": "ctx:2",
+                "text": "我现在有了新的理解。",
+                "metadata": {"relation_kind": "supports"},
+            },
+            "memory_change",
+        ),
+        (
+            {"op": "relationship.interpret", "text": "我更信任对方了。"},
+            "relationship_change",
+        ),
+        (
+            {"op": "relationship.fact", "text": "对方明确表达了关心。"},
+            "relationship_change",
+        ),
+        (
+            {
+                "op": "relationship.boundary",
+                "field": "privacy",
+                "party": "creator",
+                "text": "不要公开这段交流。",
+                "metadata": {"action": "restrict"},
+            },
+            "relationship_change",
+        ),
+        (
+            {
+                "op": "commitment.establish",
+                "field": "conversation",
+                "party": "armi",
+                "text": "下次继续讨论。",
+                "metadata": {"event_summary": "我作出了承诺。"},
+            },
+            "relationship_change",
+        ),
+        (
+            {
+                "op": "commitment.modify",
+                "target_ref": "ctx:1",
+                "text": "改为明天继续。",
+                "metadata": {"event_summary": "承诺被修改。"},
+            },
+            "relationship_change",
+        ),
+        *[
+            (
+                {
+                    "op": f"commitment.{action}",
+                    "target_ref": "ctx:1",
+                    "text": f"承诺发生 {action}。",
+                },
+                "relationship_change",
+            )
+            for action in ("fulfill", "withdraw", "forget", "violate")
+        ],
+        (
+            {
+                "op": "commitment.conflict",
+                "target_ref": "ctx:1",
+                "related_ref": "ctx:2",
+                "text": "两项承诺发生冲突。",
+            },
+            "relationship_change",
+        ),
+        (
+            {
+                "op": "material.create",
+                "field": "diary",
+                "text": "正文",
+                "metadata": {"title": "标题", "data.mood": "calm"},
+            },
+            "material_change",
+        ),
+        (
+            {
+                "op": "material.update",
+                "target_ref": "ctx:1",
+                "text": "新正文",
+                "metadata": {"title": "新标题"},
+            },
+            "material_change",
+        ),
+        (
+            {
+                "op": "material.visibility",
+                "target_ref": "ctx:1",
+                "field": "set_private",
+            },
+            "material_change",
+        ),
+        ({"op": "material.delete", "target_ref": "ctx:1"}, "material_change"),
+        (
+            {"op": "self.set", "field": "interests", "items": ["观察生活"]},
+            "self_change",
+        ),
+        ({"op": "mind.set", "field": "mood", "text": "平静"}, "mind_change"),
+        (
+            {
+                "op": "prompt.set",
+                "metadata": {
+                    "cognition_method": "区分事实和推断",
+                    "expression_method": "直接表达",
+                    "reflection_method": "复查依据",
+                },
+            },
+            "subject_prompt_change",
+        ),
+        ({"op": "codex.request", "target_ref": "ctx:1"}, "capability_request"),
+    ],
+)
+def test_compact_dialogue_change_ops_translate_to_existing_domain_candidate(
+    change: dict[str, object], owner: str
+) -> None:
+    parsed = parse_candidate(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "我作出了这个决定。",
+                "experience": {"first_person_gist": "这一轮对我产生了真实影响。"},
+                "changes": [change],
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset({"ctx:1", "ctx:2"}),
+        expected_version=DIALOGUE_CANDIDATE_VERSION,
+    )
+    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
+    assert parsed.model_dump(mode="json", exclude_none=True)[owner]
 
 
 def test_creator_dialogue_capability_request_is_context_bound() -> None:
@@ -758,7 +1007,7 @@ def test_creator_dialogue_material_contract_is_runtime_owned_and_context_bound()
         ).encode(),
         allowed_context_refs=frozenset(),
     )
-    assert created.schema_version == DIALOGUE_CANDIDATE_VERSION
+    assert created.schema_version == HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION
     assert created.model_dump(mode="json")["material_change"]["action"] == "create"
 
     updated = parse_candidate(
@@ -1130,7 +1379,8 @@ def test_dialogue_exact_life_query_schema_excludes_logs_and_admin_data() -> None
             {
                 "kind": "exact_life_query",
                 "record_kind": "material",
-                "query_text": "我的私人草稿",
+                "query": "我的私人草稿",
+                "changes": [],
             },
             ensure_ascii=False,
         ).encode(),
@@ -1146,7 +1396,7 @@ def test_dialogue_exact_life_query_schema_excludes_logs_and_admin_data() -> None
 
     with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
         parse_candidate(
-            b'{"kind":"exact_life_query","record_kind":"audit","query_text":"logs"}',
+            b'{"kind":"exact_life_query","record_kind":"audit","query":"logs","changes":[]}',
             allowed_context_refs=frozenset(),
             expected_version=DIALOGUE_CANDIDATE_VERSION,
         )
@@ -1245,7 +1495,7 @@ def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) 
     assert binding.response_contract_version == WEB_DIALOGUE_CANDIDATE_VERSION
     request = json.loads(_request(binding).canonical_bytes)
     assert "candidate_base" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v2"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v3"
     assert "output_contract" not in request
 
     manifest["bindings"] = [manifest["bindings"][0]]
@@ -1396,10 +1646,7 @@ async def test_dialogue_artifact_keeps_call_metadata_outside_minimal_candidate()
         candidate_parser=parse_candidate,
         transport=_Transport(
             provider_model_id="doubao-seed-evolving-20260731",
-            candidate={
-                **_dialogue_candidate(),
-                "memory_change": {"action": "recall", "memory_ref": "ctx:1"},
-            },
+            candidate=_dialogue_candidate(),
         ),
     )
 
@@ -1411,7 +1658,6 @@ async def test_dialogue_artifact_keeps_call_metadata_outside_minimal_candidate()
     assert artifact["candidate"] == {
         "kind": "reply",
         "content": "Hello, I am here.",
-        "memory_change": {"action": "recall", "memory_ref": "ctx:1"},
     }
     assert artifact["provider_model_id"] == "doubao-seed-evolving-20260731"
     assert artifact["usage"] == {
@@ -1438,7 +1684,8 @@ async def test_adapter_preserves_invalid_runtime_reference_failure() -> None:
             provider_model_id="doubao-seed-evolving-20260731",
             candidate={
                 **_dialogue_candidate(),
-                "memory_change": {"action": "recall", "memory_ref": "ctx:7"},
+                "experience": {"first_person_gist": "我决定请求一项能力。"},
+                "changes": [{"op": "codex.request", "target_ref": "ctx:7"}],
             },
         ),
     )
