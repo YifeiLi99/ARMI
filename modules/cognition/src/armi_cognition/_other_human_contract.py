@@ -16,7 +16,7 @@ from pydantic import (
     model_validator,
 )
 
-from .strict_model_json import strict_model_value
+from ._strict_model_json import strict_model_value
 
 HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
     "armi.other-human-dialogue-candidate.v1"

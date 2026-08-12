@@ -22,14 +22,14 @@ from pydantic import (
     ValidationError,
 )
 
-from .activity_attention_candidate_contract import (
+from ._activity_attention_contract import (
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     ActivityAttentionCandidate,
     AttentionSimpleDecision,
     activity_attention_candidate_schema,
     parse_activity_attention_candidate,
 )
-from .activity_internal_work_candidate_contract import (
+from ._activity_internal_work_contract import (
     ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
     ActivityInternalWorkCandidate,
     InternalWorkAbandonDecision,
@@ -40,7 +40,7 @@ from .activity_internal_work_candidate_contract import (
     activity_internal_work_candidate_schema,
     parse_activity_internal_work_candidate,
 )
-from .autonomous_activity_candidate_contract import (
+from ._autonomous_activity_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AutonomousActivityCandidate,
     AutonomousTerminalDecision,
@@ -48,8 +48,7 @@ from .autonomous_activity_candidate_contract import (
     autonomous_activity_candidate_schema,
     parse_autonomous_activity_candidate,
 )
-from .config_assets import runtime_config_path
-from .dialogue_candidate_contract import (
+from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -98,7 +97,7 @@ from .dialogue_candidate_contract import (
     dialogue_candidate_schema,
     parse_dialogue_candidate,
 )
-from .maintenance_work_candidate_contract import (
+from ._maintenance_contract import (
     MAINTENANCE_WORK_CANDIDATE_VERSION,
     MaintenanceWorkCandidate,
     MemoryMaintenanceChange,
@@ -108,7 +107,7 @@ from .maintenance_work_candidate_contract import (
     maintenance_work_candidate_schema,
     parse_maintenance_work_candidate,
 )
-from .other_human_dialogue_candidate_contract import (
+from ._other_human_contract import (
     HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
@@ -117,16 +116,16 @@ from .other_human_dialogue_candidate_contract import (
     OtherHumanTerminalDecision,
     parse_other_human_dialogue_candidate_value,
 )
-from .other_human_dialogue_candidate_contract import (
+from ._other_human_contract import (
     candidate_schema as other_human_candidate_schema,
 )
-from .sleep_decision_candidate_contract import (
+from ._sleep_contract import (
     SLEEP_DECISION_CANDIDATE_VERSION,
     SleepDecisionCandidate,
     parse_sleep_decision_candidate,
     sleep_decision_candidate_schema,
 )
-from .strict_model_json import strict_model_value
+from ._strict_model_json import strict_model_value
 
 MODEL_BINDING_VERSION = "armi.model-bindings.v1"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
@@ -1224,9 +1223,15 @@ def parse_dialogue_candidate_with_independent_expression(
             raw = json.loads(value)
         except UnicodeDecodeError, json.JSONDecodeError:
             raise error from None
-        if not isinstance(raw, dict) or raw.get("kind") != "reply":
+        if not isinstance(raw, dict):
             raise error from None
-        minimal = {"kind": "reply", "content": raw.get("content")}
+        raw_mapping = cast(dict[str, object], raw)
+        if raw_mapping.get("kind") != "reply":
+            raise error from None
+        minimal: dict[str, object] = {
+            "kind": "reply",
+            "content": raw_mapping.get("content"),
+        }
         return cast(
             CreatorDialogueCandidate,
             parse_candidate(
@@ -1245,7 +1250,7 @@ def load_active_binding(
     *,
     expected_dialogue_version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> ModelBinding:
-    manifest_path = path or runtime_config_path("model-bindings.yaml")
+    manifest_path = path or Path("configs/model-bindings.yaml")
     try:
         value = load_yaml_file(manifest_path)
         binding = value["bindings"][0]
@@ -1340,7 +1345,7 @@ def load_purpose_binding(
 ) -> ModelBinding:
     if type(purpose) is not str or not purpose:
         raise ModelViolation("MODEL-BINDING")
-    manifest_path = path or runtime_config_path("model-bindings.yaml")
+    manifest_path = path or Path("configs/model-bindings.yaml")
     try:
         value = load_yaml_file(manifest_path)
         base = value["bindings"][0]
@@ -1463,13 +1468,14 @@ def _is_private_model_key(key: str) -> bool:
 
 def _semantic_model_value(value: object) -> object:
     if isinstance(value, dict):
+        mapping = cast(dict[object, object], value)
         return {
             str(key): _semantic_model_value(item)
-            for key, item in value.items()
+            for key, item in mapping.items()
             if not _is_private_model_key(str(key))
         }
     if isinstance(value, list):
-        return [_semantic_model_value(item) for item in value]
+        return [_semantic_model_value(item) for item in cast(list[object], value)]
     return value
 
 
@@ -1482,33 +1488,36 @@ def _semantic_item_content(item_kind: str, content: object) -> object:
             return content
     parsed = _semantic_model_value(parsed)
     if item_kind.startswith("capability_state_") and isinstance(parsed, dict):
-        if parsed.get("capability_kind") == "creator.scene.reply":
+        mapping = cast(dict[str, object], parsed)
+        if mapping.get("capability_kind") == "creator.scene.reply":
             return {
-                key: parsed[key]
+                key: mapping[key]
                 for key in (
                     "capability_kind",
                     "operation",
                     "availability_status",
                 )
-                if key in parsed
+                if key in mapping
             } | {
                 "current_turn_delivery": (
                     "可以在本轮独立决定是否回复;实际发送权限由 Runtime 在模型外核对"
                 )
             }
-        grant = parsed.get("effective_grant")
+        grant = mapping.get("effective_grant")
         concise: dict[str, object] = {
-            key: parsed[key]
+            key: mapping[key]
             for key in (
                 "capability_kind",
                 "operation",
                 "availability_status",
                 "authorization_status",
             )
-            if key in parsed
+            if key in mapping
         }
         if isinstance(grant, dict) and "remaining_uses" in grant:
-            concise["remaining_uses"] = grant["remaining_uses"]
+            concise["remaining_uses"] = cast(dict[str, object], grant)[
+                "remaining_uses"
+            ]
         return concise
     return parsed
 
@@ -1571,12 +1580,15 @@ def _compact_value(value: object) -> str:
         return "是" if value else "否"
     if isinstance(value, list):
         return ";".join(
-            _compact_value(item) for item in value if not _is_empty_model_value(item)
+            _compact_value(item)
+            for item in cast(list[object], value)
+            if not _is_empty_model_value(item)
         )
     if isinstance(value, dict):
+        mapping = cast(dict[object, object], value)
         return ";".join(
             f"{str(key).replace('_', ' ')}={_compact_value(item)}"
-            for key, item in value.items()
+            for key, item in mapping.items()
             if not _is_empty_model_value(item)
         )
     return str(value)
@@ -1587,6 +1599,7 @@ def _dialogue_segment_text(item_kind: str, content: object) -> str:
         return content.strip()
     if not isinstance(content, dict):
         return _compact_value(content)
+    mapping = cast(dict[str, object], content)
     if item_kind in {
         "self",
         "mind",
@@ -1597,12 +1610,12 @@ def _dialogue_segment_text(item_kind: str, content: object) -> str:
     }:
         return ";".join(
             f"{str(key).replace('_', ' ')}:{_compact_value(value)}"
-            for key, value in content.items()
+            for key, value in mapping.items()
             if not _is_empty_model_value(value)
         )
     if item_kind == "current_memory":
-        summary = content.get("summary") or content.get("first_person_gist")
-        accessibility = content.get("accessibility")
+        summary = mapping.get("summary") or mapping.get("first_person_gist")
+        accessibility = mapping.get("accessibility")
         return ";".join(
             value
             for value in (
@@ -1616,9 +1629,9 @@ def _dialogue_segment_text(item_kind: str, content: object) -> str:
             if value
         )
     if item_kind.startswith("capability_state_"):
-        kind = content.get("capability_kind")
-        availability = content.get("availability_status")
-        authorization = content.get("authorization_status")
+        kind = mapping.get("capability_kind")
+        availability = mapping.get("availability_status")
+        authorization = mapping.get("authorization_status")
         if kind == "creator.scene.reply":
             return "回复由 Runtime 在模型外核对发送权限"
         if availability != "available" or authorization not in {
@@ -1628,8 +1641,8 @@ def _dialogue_segment_text(item_kind: str, content: object) -> str:
             return ""
         return f"{kind}:{authorization}"
     if item_kind == "web_search_availability":
-        return "可检索公共网页" if content.get("activation_status") == "active" else ""
-    return _compact_value(content)
+        return "可检索公共网页" if mapping.get("activation_status") == "active" else ""
+    return _compact_value(mapping)
 
 
 def _dialogue_context_text(
@@ -1666,7 +1679,7 @@ def _dialogue_context_text(
         ref = f"[{segment.ref}] " if segment.referenceable else ""
         source = "(外部主张)" if segment.perspective == "external_claim" else ""
         sections[heading].append(f"- {ref}{segment.text}{source}")
-    lines = []
+    lines: list[str] = []
     if layer == "stable_prefix":
         lines.extend(
             (
@@ -1682,13 +1695,14 @@ def _dialogue_context_text(
 def _markdown_value(value: object, *, indent: int = 0) -> list[str]:
     prefix = " " * indent
     if isinstance(value, dict):
+        mapping = cast(dict[object, object], value)
         lines: list[str] = []
-        for key, item in value.items():
+        for key, item in mapping.items():
             if _is_empty_model_value(item):
                 continue
             label = str(key).replace("_", " ")
             if isinstance(item, dict | list):
-                nested = _markdown_value(item, indent=indent + 2)
+                nested = _markdown_value(cast(object, item), indent=indent + 2)
                 if nested:
                     lines.append(f"{prefix}- {label}:")
                     lines.extend(nested)
@@ -1697,11 +1711,11 @@ def _markdown_value(value: object, *, indent: int = 0) -> list[str]:
         return lines
     if isinstance(value, list):
         lines = []
-        for item in value:
+        for item in cast(list[object], value):
             if _is_empty_model_value(item):
                 continue
             if isinstance(item, dict | list):
-                nested = _markdown_value(item, indent=indent + 2)
+                nested = _markdown_value(cast(object, item), indent=indent + 2)
                 if nested:
                     lines.append(f"{prefix}-")
                     lines.extend(nested)
@@ -1748,8 +1762,10 @@ def _dialogue_messages(
             current_creator_text = content
             current_input_ref = str(current_item["ref"])
             groups["current_input"] = []
-        elif isinstance(content, dict) and set(content) == {"text"}:
-            text = content.get("text")
+        elif isinstance(content, dict) and set(
+            cast(dict[str, object], content)
+        ) == {"text"}:
+            text = cast(dict[str, object], content).get("text")
             if isinstance(text, str) and text:
                 current_creator_text = text
                 current_input_ref = str(current_item["ref"])
@@ -1781,13 +1797,14 @@ def _dialogue_messages(
         content = item["content"]
         if not isinstance(content, dict):
             raise ModelViolation("MODEL-CONTEXT")
-        speaker = content.get("speaker")
-        text = content.get("text")
+        content_mapping = cast(dict[str, object], content)
+        speaker = content_mapping.get("speaker")
+        text = content_mapping.get("text")
         role = {
             "creator": "user",
             "other_human": "user",
             "armi": "assistant",
-        }.get(speaker)
+        }.get(speaker if isinstance(speaker, str) else "")
         if role is None or not isinstance(text, str) or not text:
             raise ModelViolation("MODEL-CONTEXT")
         messages.append({"role": role, "content": text})
@@ -1805,7 +1822,11 @@ def _dialogue_messages(
 
 def _recent_dialogue_speaker(item: dict[str, object]) -> object:
     content = item.get("content")
-    return content.get("speaker") if isinstance(content, dict) else None
+    return (
+        cast(dict[str, object], content).get("speaker")
+        if isinstance(content, dict)
+        else None
+    )
 
 
 def _dialogue_request_value(
@@ -1817,26 +1838,29 @@ def _dialogue_request_value(
 ) -> dict[str, object]:
     if not isinstance(compiled_value, dict):
         raise ModelViolation("MODEL-CONTEXT")
-    purpose = compiled_value.get("purpose")
-    layers = compiled_value.get("layers", [])
+    compiled_mapping = cast(dict[str, object], compiled_value)
+    purpose = compiled_mapping.get("purpose")
+    layers = compiled_mapping.get("layers", [])
     if not isinstance(purpose, str) or not isinstance(layers, list):
         raise ModelViolation("MODEL-CONTEXT")
 
     compiled_items: list[tuple[str, str, dict[str, object]]] = []
-    for layer_value in layers:
+    for layer_value in cast(list[object], layers):
         if not isinstance(layer_value, dict):
             raise ModelViolation("MODEL-CONTEXT")
-        layer = layer_value.get("layer")
-        items = layer_value.get("items")
+        layer_mapping = cast(dict[str, object], layer_value)
+        layer = layer_mapping.get("layer")
+        items = layer_mapping.get("items")
         if not isinstance(layer, str) or not isinstance(items, list):
             raise ModelViolation("MODEL-CONTEXT")
-        for item_value in items:
+        for item_value in cast(list[object], items):
             if not isinstance(item_value, dict):
                 raise ModelViolation("MODEL-CONTEXT")
-            section = item_value.get("section")
+            item_mapping = cast(dict[str, object], item_value)
+            section = item_mapping.get("section")
             if not isinstance(section, str):
                 raise ModelViolation("MODEL-CONTEXT")
-            compiled_items.append((layer, section, cast(dict[str, object], item_value)))
+            compiled_items.append((layer, section, item_mapping))
     if len(compiled_items) != len(included_context_refs):
         raise ModelViolation("MODEL-CONTEXT")
 
@@ -1880,7 +1904,8 @@ def _dialogue_request_value(
         referenceable = item_kind in _REFERENCEABLE_DIALOGUE_KINDS or (
             item_kind.startswith("capability_state_")
             and isinstance(content, dict)
-            and content.get("capability_kind") == "codex.delegated-work"
+            and cast(dict[str, object], content).get("capability_kind")
+            == "codex.delegated-work"
             and bool(text)
         )
         segments.append(

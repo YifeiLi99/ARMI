@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
+from contextlib import suppress
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import cast
-from uuid import UUID, uuid7
+from uuid import uuid7
 
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
@@ -23,38 +25,24 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CredentialLocator,
-    CredentialPort,
+    DurableWorkPort,
     ModelAttemptId,
     ModelInvocationResult,
     ModelRequest,
     ModelResultStatus,
     ModelViolation,
-    RuntimeFence,
     WorkLease,
     WorkViolation,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 
-from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
-)
-from armi_runtime.adapters.persistence.cognitive_model import (
-    ModelEpisodeSnapshot,
-    PostgreSQLCognitiveModelRepository,
-)
-from armi_runtime.adapters.persistence.durable_work import (
-    PostgreSQLDurableWorkGateway,
-)
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWork,
-    PostgreSQLUnitOfWorkFactory,
-)
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .dialogue_candidate_contract import dialogue_model_output_schema
-from .model_contract import (
+from ._dialogue_contract import dialogue_model_output_schema
+from ._model_contract import (
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     ACTIVITY_ATTENTION_INSTRUCTIONS,
     ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
@@ -79,14 +67,25 @@ from .model_contract import (
     parse_candidate,
     parse_dialogue_candidate_with_independent_expression,
 )
-from .other_human_dialogue_candidate_contract import (
+from ._model_postgresql import (
+    ModelEpisodeSnapshot,
+    PostgreSQLCognitiveModelRepository,
+)
+from ._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
     parse_other_human_dialogue_candidate,
 )
-from .work_wakeup import CANDIDATE_VALIDATE, MODEL_INVOKE, WorkWakeupBus
+from .api import (
+    CognitionArtifactCatalogPort,
+    CognitionModelAdapterFactory,
+    CognitionModelPort,
+    CognitionWakeupPort,
+)
 
 _WORK_KIND = "cognition.model.invoke"
+MODEL_INVOKE = _WORK_KIND
+CANDIDATE_VALIDATE = "cognition.candidate.validate"
 _LEASE_SECONDS = 30
 _RENEW_SECONDS = 20
 Diagnostic = Callable[[str], None]
@@ -98,6 +97,43 @@ async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
 
 def _ignore_diagnostic(_event: str) -> None:
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class _Pulse:
+    version: int
+    event: asyncio.Event
+
+
+class _LocalWakeups:
+    def __init__(self) -> None:
+        self._pulses: dict[str, _Pulse] = {}
+
+    def version(self, channel: str) -> int:
+        return self._pulse(channel).version
+
+    def notify(self, channel: str) -> None:
+        current = self._pulse(channel)
+        current.event.set()
+        self._pulses[channel] = _Pulse(current.version + 1, asyncio.Event())
+
+    async def wait(
+        self,
+        channel: str,
+        after_version: int,
+        *,
+        stop: asyncio.Event,
+        timeout_seconds: float,
+    ) -> int:
+        current = self._pulse(channel)
+        if current.version != after_version or stop.is_set():
+            return current.version
+        with suppress(TimeoutError):
+            await asyncio.wait_for(current.event.wait(), timeout=timeout_seconds)
+        return self._pulse(channel).version
+
+    def _pulse(self, channel: str) -> _Pulse:
+        return self._pulses.setdefault(channel, _Pulse(0, asyncio.Event()))
 
 
 class ModelPipeline:
@@ -120,12 +156,14 @@ class ModelPipeline:
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
-        credential_port: CredentialPort,
-        credential_locator: CredentialLocator,
+        catalog: CognitionArtifactCatalogPort,
+        work: DurableWorkPort,
+        adapter_factory: CognitionModelAdapterFactory,
+        binding_path: Path,
         web_search_active: bool = False,
-        wakeups: WorkWakeupBus | None = None,
+        wakeups: CognitionWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         dialogue_version = (
@@ -133,57 +171,73 @@ class ModelPipeline:
             if web_search_active
             else DIALOGUE_CANDIDATE_VERSION
         )
-        load_active_binding(expected_dialogue_version=dialogue_version)
+        load_active_binding(
+            binding_path,
+            expected_dialogue_version=dialogue_version,
+        )
         dialogue_binding = load_purpose_binding(
             "consider_creator_input",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         life_query_result_binding = load_purpose_binding(
             "consider_life_query_result",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         outreach_binding = load_purpose_binding(
             "consider_creator_outreach",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         other_human_binding = load_purpose_binding(
             "consider_other_human_input",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         autonomous_binding = load_purpose_binding(
             "consider_autonomous_life",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         attention_binding = load_purpose_binding(
             "consider_activity_attention",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         internal_work_binding = load_purpose_binding(
             "consider_activity_internal_work",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         sleep_binding = load_purpose_binding(
             "consider_sleep",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         memory_maintenance_binding = load_purpose_binding(
             "maintain_subjective_memory",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         self_check_binding = load_purpose_binding(
             "perform_subject_self_check",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         web_evidence_binding = load_purpose_binding(
             "consider_web_evidence",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         codex_task_binding = load_purpose_binding(
             "consider_codex_task",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         codex_result_binding = load_purpose_binding(
             "consider_codex_result",
+            binding_path,
             expected_dialogue_version=dialogue_version,
         )
         self._dialogue_version = dialogue_version
@@ -278,37 +332,29 @@ class ModelPipeline:
         self._factory = factory
         self._storage = storage
         self._adapters = {
-            "consider_web_evidence": VolcengineArkModelAdapter(
+            "consider_web_evidence": adapter_factory(
                 binding=web_evidence_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     web_evidence_binding.response_contract_version
                 ),
                 candidate_parser=parse_candidate,
             ),
-            "consider_codex_task": VolcengineArkModelAdapter(
+            "consider_codex_task": adapter_factory(
                 binding=codex_task_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     codex_task_binding.response_contract_version
                 ),
                 candidate_parser=parse_candidate,
             ),
-            "consider_codex_result": VolcengineArkModelAdapter(
+            "consider_codex_result": adapter_factory(
                 binding=codex_result_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     codex_result_binding.response_contract_version
                 ),
                 candidate_parser=parse_candidate,
             ),
-            "consider_creator_input": VolcengineArkModelAdapter(
+            "consider_creator_input": adapter_factory(
                 binding=dialogue_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=dialogue_model_output_schema(
                     web_search=web_search_active
                 ),
@@ -324,10 +370,8 @@ class ModelPipeline:
                     else "armi_creator_dialogue_model_output_v1"
                 ),
             ),
-            "consider_life_query_result": VolcengineArkModelAdapter(
+            "consider_life_query_result": adapter_factory(
                 binding=life_query_result_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=dialogue_model_output_schema(
                     web_search=web_search_active
                 ),
@@ -343,19 +387,15 @@ class ModelPipeline:
                     else "armi_creator_dialogue_model_output_v1"
                 ),
             ),
-            "consider_creator_outreach": VolcengineArkModelAdapter(
+            "consider_creator_outreach": adapter_factory(
                 binding=outreach_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(DIALOGUE_CANDIDATE_VERSION),
                 candidate_parser=parse_outreach,
                 instructions=CREATOR_OUTREACH_INSTRUCTIONS,
                 schema_name="armi_creator_outreach_candidate_v1",
             ),
-            "consider_other_human_input": VolcengineArkModelAdapter(
+            "consider_other_human_input": adapter_factory(
                 binding=other_human_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
                 ),
@@ -363,10 +403,8 @@ class ModelPipeline:
                 instructions=OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
                 schema_name="armi_other_human_dialogue_candidate_v1",
             ),
-            "consider_autonomous_life": VolcengineArkModelAdapter(
+            "consider_autonomous_life": adapter_factory(
                 binding=autonomous_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     autonomous_binding.response_contract_version
                 ),
@@ -374,10 +412,8 @@ class ModelPipeline:
                 instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
                 schema_name="armi_autonomous_activity_candidate_v1",
             ),
-            "consider_activity_attention": VolcengineArkModelAdapter(
+            "consider_activity_attention": adapter_factory(
                 binding=attention_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     attention_binding.response_contract_version
                 ),
@@ -385,10 +421,8 @@ class ModelPipeline:
                 instructions=ACTIVITY_ATTENTION_INSTRUCTIONS,
                 schema_name="armi_activity_attention_candidate_v2",
             ),
-            "consider_activity_internal_work": VolcengineArkModelAdapter(
+            "consider_activity_internal_work": adapter_factory(
                 binding=internal_work_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     internal_work_binding.response_contract_version
                 ),
@@ -396,10 +430,8 @@ class ModelPipeline:
                 instructions=ACTIVITY_INTERNAL_WORK_INSTRUCTIONS,
                 schema_name="armi_activity_internal_work_candidate_v1",
             ),
-            "consider_sleep": VolcengineArkModelAdapter(
+            "consider_sleep": adapter_factory(
                 binding=sleep_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     sleep_binding.response_contract_version
                 ),
@@ -407,10 +439,8 @@ class ModelPipeline:
                 instructions=SLEEP_DECISION_INSTRUCTIONS,
                 schema_name="armi_sleep_decision_candidate_v1",
             ),
-            "maintain_subjective_memory": VolcengineArkModelAdapter(
+            "maintain_subjective_memory": adapter_factory(
                 binding=memory_maintenance_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     memory_maintenance_binding.response_contract_version
                 ),
@@ -418,10 +448,8 @@ class ModelPipeline:
                 instructions=MEMORY_MAINTENANCE_INSTRUCTIONS,
                 schema_name="armi_maintenance_work_candidate_v1",
             ),
-            "perform_subject_self_check": VolcengineArkModelAdapter(
+            "perform_subject_self_check": adapter_factory(
                 binding=self_check_binding,
-                credential_port=credential_port,
-                locator=credential_locator,
                 candidate_schema=candidate_schema(
                     self_check_binding.response_contract_version
                 ),
@@ -430,19 +458,19 @@ class ModelPipeline:
                 schema_name="armi_maintenance_work_candidate_v1",
             ),
         }
-        self._catalog = ArtifactCatalogRepository()
+        self._catalog = catalog
         self._repository = PostgreSQLCognitiveModelRepository()
-        self._work = PostgreSQLDurableWorkGateway(factory)
+        self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
-        self._wakeups = wakeups or WorkWakeupBus()
+        self._wakeups = wakeups or _LocalWakeups()
         self._diagnostic = diagnostic or _ignore_diagnostic
 
     async def open(self) -> None:
         try:
             await self._factory.open()
             await self._storage.prepare()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise ModelViolation("MODEL-DATABASE") from None
         except ArtifactViolation:
             raise ModelViolation("MODEL-ARTIFACT") from None
@@ -600,7 +628,7 @@ class ModelPipeline:
                     error,
                 )
             return True
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("model.worker.transient_failure")
             return True
 
@@ -627,7 +655,7 @@ class ModelPipeline:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 return await self._repository.snapshot(unit_of_work, lease)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise ModelViolation("MODEL-DATABASE") from None
 
     async def _read_context(self, snapshot: ModelEpisodeSnapshot) -> bytes:
@@ -663,7 +691,7 @@ class ModelPipeline:
 
     async def _invoke_with_renewal(
         self,
-        adapter: VolcengineArkModelAdapter,
+        adapter: CognitionModelPort,
         request: ModelRequest,
         lease: WorkLease,
     ) -> tuple[ModelInvocationResult, WorkLease]:
@@ -691,7 +719,7 @@ class ModelPipeline:
             await asyncio.gather(task, return_exceptions=True)
             raise
 
-    def _adapter_for(self, purpose: str) -> VolcengineArkModelAdapter:
+    def _adapter_for(self, purpose: str) -> CognitionModelPort:
         try:
             adapter = self._adapters[purpose]
         except KeyError:
@@ -764,12 +792,12 @@ class ModelPipeline:
                         snapshot=snapshot,
                         code=error.code,
                     )
-        except DatabaseTransactionError, ModelViolation, WorkViolation:
+        except RuntimeTransactionFailure, ModelViolation, WorkViolation:
             self._diagnostic("model.preparation.settlement_deferred")
 
 
 def _artifact_audit(
-    unit_of_work: PostgreSQLUnitOfWork,
+    unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ref: ArtifactRef,
     snapshot: ModelEpisodeSnapshot,
 ) -> AuditDraft:
@@ -805,44 +833,4 @@ def _error_result(error: ModelViolation) -> ModelInvocationResult:
     )
 
 
-def build_model_pipeline(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    credential_port: CredentialPort,
-    credential_locator: CredentialLocator,
-    web_search_active: bool = False,
-    wakeups: WorkWakeupBus | None = None,
-    diagnostic: Diagnostic | None = None,
-) -> ModelPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    return ModelPipeline(
-        factory=factory,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        ),
-        credential_port=credential_port,
-        credential_locator=credential_locator,
-        web_search_active=web_search_active,
-        wakeups=wakeups,
-        diagnostic=diagnostic,
-    )
-
-
-__all__ = ("ModelPipeline", "build_model_pipeline")
+__all__ = ("ModelPipeline",)

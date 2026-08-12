@@ -37,8 +37,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-
-from .unit_of_work import PostgreSQLUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 _WORK_KIND = "cognition.model.invoke"
 _VALIDATION_WORK_KIND = "cognition.candidate.validate"
@@ -66,10 +65,10 @@ class PostgreSQLCognitiveModelRepository:
 
     async def snapshot(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
     ) -> ModelEpisodeSnapshot:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -151,14 +150,14 @@ class PostgreSQLCognitiveModelRepository:
 
     async def prepare_attempt(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
         binding: ModelBinding,
         request_artifact: ArtifactRef,
     ) -> ModelAttemptId | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, snapshot.episode_id)
         previous = await (
             await connection.execute(
@@ -306,13 +305,13 @@ class PostgreSQLCognitiveModelRepository:
 
     async def mark_dispatched(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         attempt_id: ModelAttemptId,
         episode_id: UUID,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, episode_id)
         updated = await (
             await connection.execute(
@@ -340,7 +339,7 @@ class PostgreSQLCognitiveModelRepository:
 
     async def settle_success(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
@@ -348,7 +347,7 @@ class PostgreSQLCognitiveModelRepository:
         response_artifact: ArtifactRef,
         result: ModelInvocationResult,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, snapshot.episode_id)
         await self._settle_attempt(
             connection,
@@ -421,14 +420,14 @@ class PostgreSQLCognitiveModelRepository:
 
     async def settle_failure(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
         attempt_id: ModelAttemptId,
         result: ModelInvocationResult,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, snapshot.episode_id)
         await self._settle_attempt(
             connection,
@@ -464,7 +463,7 @@ class PostgreSQLCognitiveModelRepository:
 
     async def fail_before_attempt(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
@@ -472,7 +471,7 @@ class PostgreSQLCognitiveModelRepository:
     ) -> None:
         if not code.startswith("MODEL-"):
             raise ModelViolation("MODEL-RESULT")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, snapshot.episode_id)
         updated = await (
             await connection.execute(
@@ -616,7 +615,7 @@ class PostgreSQLCognitiveModelRepository:
 
 
 def _settlement_audit(
-    unit_of_work: PostgreSQLUnitOfWork,
+    unit_of_work: PostgreSQLRuntimeUnitOfWork,
     snapshot: ModelEpisodeSnapshot,
     attempt_id: ModelAttemptId,
     status: AuditResultStatus,

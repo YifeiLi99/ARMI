@@ -8,6 +8,7 @@ from uuid import uuid4, uuid7
 
 import pytest
 import rfc8785
+from armi_cognition import parse_subject_change_set
 from armi_kernel.application import (
     CandidateApplicationId,
     CandidateApplicationStatus,
@@ -16,7 +17,6 @@ from armi_kernel.application import (
     SubjectCommitViolation,
 )
 from armi_kernel.contracts import Digest
-from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
 from armi_subject_state.api import (
     SubjectComponentSummary,
     SubjectStateKind,

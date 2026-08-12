@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Final
+from typing import Any, Final, cast
 from uuid import UUID
 
 from armi_activity.api import (
@@ -14,6 +14,15 @@ from armi_activity.api import (
 )
 from armi_activity.bootstrap import ActivityModule, bootstrap_activity
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_cognition.api import (
+    CognitionCandidateParser,
+    CognitionModelPort,
+    CognitionWorkerPort,
+)
+from armi_cognition.bootstrap import (
+    bootstrap_cognition_candidate,
+    bootstrap_cognition_model,
+)
 from armi_context import load_embedding_binding
 from armi_context.api import ContextEmbeddingRuntimePort, ContextRuntimePort
 from armi_context.bootstrap import bootstrap_context, bootstrap_context_embedding
@@ -33,6 +42,7 @@ from armi_kernel.application import (
     DataRightsViolation,
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
+    ModelBinding,
     ModelViolation,
     OtherHumanRecordViolation,
     ResponseViolation,
@@ -105,6 +115,10 @@ from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
 )
+from armi_runtime.adapters.model.volcengine_ark import (
+    CandidateParser,
+    VolcengineArkModelAdapter,
+)
 from armi_runtime.adapters.model.volcengine_embedding import (
     VolcengineArkEmbeddingAdapter,
 )
@@ -140,10 +154,6 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 
 from .birth_manifest import packaged_birth_digests
-from .candidate_pipeline import (
-    CandidateValidationPipeline,
-    build_candidate_validation_pipeline,
-)
 from .codex_pipeline import CodexEffectPipeline
 from .config_assets import runtime_config_path
 from .configuration import ConfigurationViolation
@@ -158,7 +168,6 @@ from .exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
     build_exact_life_query_pipeline,
 )
-from .model_pipeline import ModelPipeline, build_model_pipeline
 from .response_pipeline import (
     ResponseAdmissionPipeline,
     build_response_admission_pipeline,
@@ -1344,7 +1353,7 @@ def compose_model_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
-) -> ModelPipeline:
+) -> CognitionWorkerPort:
     """Resolve the Runtime and model credentials for the active S024 worker."""
 
     database_locator = prepared.effective.config.secret_locators.get(
@@ -1359,17 +1368,15 @@ def compose_model_pipeline(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> ModelPipeline:
+            def create(value: memoryview) -> CognitionWorkerPort:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     raise ModelViolation("MODEL-DATABASE") from None
                 config = prepared.effective.config
-                return build_model_pipeline(
+                factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_min=config.database.pool_min,
                     pool_max=config.database.pool_max,
                     acquire_timeout_seconds=(
@@ -1379,8 +1386,47 @@ def compose_model_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
-                    credential_port=prepared.credential_port,
-                    credential_locator=model_locator,
+                )
+
+                def adapter_factory(
+                    *,
+                    binding: ModelBinding,
+                    candidate_schema: dict[str, Any],
+                    candidate_parser: CognitionCandidateParser,
+                    instructions: str | None = None,
+                    schema_name: str | None = None,
+                ) -> CognitionModelPort:
+                    parser = cast(CandidateParser, candidate_parser)
+                    if instructions is None and schema_name is None:
+                        return VolcengineArkModelAdapter(
+                            binding=binding,
+                            credential_port=prepared.credential_port,
+                            locator=model_locator,
+                            candidate_schema=candidate_schema,
+                            candidate_parser=parser,
+                        )
+                    if instructions is None or schema_name is None:
+                        raise ModelViolation("MODEL-BINDING")
+                    return VolcengineArkModelAdapter(
+                        binding=binding,
+                        credential_port=prepared.credential_port,
+                        locator=model_locator,
+                        candidate_schema=candidate_schema,
+                        candidate_parser=parser,
+                        instructions=instructions,
+                        schema_name=schema_name,
+                    )
+
+                return bootstrap_cognition_model(
+                    factory=factory,
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
+                    ),
+                    catalog=ArtifactCatalogRepository(),
+                    work=PostgreSQLDurableWorkGateway(factory),
+                    adapter_factory=adapter_factory,
+                    binding_path=runtime_config_path("model-bindings.yaml"),
                     web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1521,7 +1567,7 @@ def compose_candidate_validation_pipeline(
     subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
-) -> CandidateValidationPipeline:
+) -> CognitionWorkerPort:
     """Resolve the Runtime credential for the active S025 validator."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
@@ -1533,17 +1579,15 @@ def compose_candidate_validation_pipeline(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> CandidateValidationPipeline:
+            def create(value: memoryview) -> CognitionWorkerPort:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     raise CandidateViolation("CANDIDATE-DATABASE") from None
                 config = prepared.effective.config
-                return build_candidate_validation_pipeline(
+                factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_min=config.database.pool_min,
                     pool_max=config.database.pool_max,
                     acquire_timeout_seconds=(
@@ -1553,6 +1597,15 @@ def compose_candidate_validation_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                )
+                return bootstrap_cognition_candidate(
+                    factory=factory,
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
+                    ),
+                    catalog=ArtifactCatalogRepository(),
+                    work=PostgreSQLDurableWorkGateway(factory),
                     activity_cognition=activity_cognition,
                     activity_read=activity_read,
                     memory_cognition=memory_cognition,

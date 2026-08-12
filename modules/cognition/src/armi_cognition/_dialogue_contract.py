@@ -18,7 +18,7 @@ from pydantic import (
     model_validator,
 )
 
-from .strict_model_json import strict_model_value
+from ._strict_model_json import strict_model_value
 
 HISTORICAL_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v5"
 HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v6"
@@ -38,10 +38,10 @@ HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.
 HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v14"
 HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v15"
 HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v16"
-DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v17"
-WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v18"
-HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION = DIALOGUE_CANDIDATE_VERSION
-HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION = WEB_DIALOGUE_CANDIDATE_VERSION
+HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v17"
+HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION = (
+    "armi.creator-dialogue-candidate.v18"
+)
 HISTORICAL_COMPACT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v19"
 HISTORICAL_COMPACT_WEB_DIALOGUE_CANDIDATE_VERSION = (
     "armi.creator-dialogue-candidate.v20"
@@ -998,7 +998,7 @@ class _CompactDialogueEnvelope(_StrictModel):
 
 
 class _CompactDialogueEnvelopeNoWeb(_CompactDialogueEnvelope):
-    kind: Literal[
+    kind: Literal[  # pyright: ignore[reportIncompatibleVariableOverride]
         "reply",
         "decline",
         "no_action",
@@ -1136,11 +1136,15 @@ def dialogue_model_output_schema(*, web_search: bool) -> dict[str, Any]:
 
 def _strip_provider_schema_annotations(value: Any) -> Any:
     if isinstance(value, list):
-        return [_strip_provider_schema_annotations(item) for item in value]
+        return [
+            _strip_provider_schema_annotations(item)
+            for item in cast(list[Any], value)
+        ]
     if isinstance(value, dict):
+        mapping = cast(dict[str, Any], value)
         return {
             key: _strip_provider_schema_annotations(item)
-            for key, item in value.items()
+            for key, item in mapping.items()
             if not (
                 key in {"default", "discriminator"}
                 or (key == "title" and isinstance(item, str))

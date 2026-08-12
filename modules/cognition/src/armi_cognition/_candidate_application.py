@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
-from pathlib import Path
+from contextlib import suppress
+from dataclasses import dataclass
 from typing import Any, cast
-from uuid import UUID, uuid7
+from uuid import uuid7
 
 import rfc8785
 from armi_activity.api import ActivityCognitionPort, ActivityReadPort, ActivityStatus
@@ -31,7 +32,7 @@ from armi_kernel.application import (
     AuditSensitivity,
     CandidateFactClass,
     CandidateViolation,
-    RuntimeFence,
+    DurableWorkPort,
     WorkLease,
     WorkViolation,
 )
@@ -69,26 +70,19 @@ from armi_relationship.api import (
     RelationshipReadPort,
     RelationshipStatus,
 )
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 from armi_sleep.api import MaintenancePhase, SleepCognitionPort, SleepReadPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
 
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
-)
-from armi_runtime.adapters.persistence.candidate_validation import (
+from ._candidate_postgresql import (
     CandidateEpisodeSnapshot,
     PostgreSQLCandidateValidationRepository,
 )
-from armi_runtime.adapters.persistence.durable_work import (
-    PostgreSQLDurableWorkGateway,
-)
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWork,
-    PostgreSQLUnitOfWorkFactory,
-)
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .candidate_validator import (
+from ._validator import (
     CANDIDATE_VALIDATOR_IDENTITY,
     CandidateMemoryContext,
     CandidateRelationshipCommitmentContext,
@@ -97,9 +91,11 @@ from .candidate_validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
-from .work_wakeup import CANDIDATE_VALIDATE, SUBJECT_COMMIT, WorkWakeupBus
+from .api import CognitionArtifactCatalogPort, CognitionWakeupPort
 
 _WORK_KIND = "cognition.candidate.validate"
+CANDIDATE_VALIDATE = _WORK_KIND
+SUBJECT_COMMIT = "cognition.subject.commit"
 _LEASE_SECONDS = 30
 Diagnostic = Callable[[str], None]
 
@@ -110,6 +106,43 @@ async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
 
 def _ignore_diagnostic(_event: str) -> None:
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class _Pulse:
+    version: int
+    event: asyncio.Event
+
+
+class _LocalWakeups:
+    def __init__(self) -> None:
+        self._pulses: dict[str, _Pulse] = {}
+
+    def version(self, channel: str) -> int:
+        return self._pulse(channel).version
+
+    def notify(self, channel: str) -> None:
+        current = self._pulse(channel)
+        current.event.set()
+        self._pulses[channel] = _Pulse(current.version + 1, asyncio.Event())
+
+    async def wait(
+        self,
+        channel: str,
+        after_version: int,
+        *,
+        stop: asyncio.Event,
+        timeout_seconds: float,
+    ) -> int:
+        current = self._pulse(channel)
+        if current.version != after_version or stop.is_set():
+            return current.version
+        with suppress(TimeoutError):
+            await asyncio.wait_for(current.event.wait(), timeout=timeout_seconds)
+        return self._pulse(channel).version
+
+    def _pulse(self, channel: str) -> _Pulse:
+        return self._pulses.setdefault(channel, _Pulse(0, asyncio.Event()))
 
 
 class CandidateValidationPipeline:
@@ -139,8 +172,10 @@ class CandidateValidationPipeline:
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        catalog: CognitionArtifactCatalogPort,
+        work: DurableWorkPort,
         activity_cognition: ActivityCognitionPort,
         activity_read: ActivityReadPort,
         memory_cognition: MemoryCognitionPort,
@@ -158,7 +193,7 @@ class CandidateValidationPipeline:
         subject_state_cognition: SubjectStateCognitionPort,
         subject_state_read: SubjectStateReadPort,
         web_search_active: bool = False,
-        wakeups: WorkWakeupBus | None = None,
+        wakeups: CognitionWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
@@ -172,7 +207,7 @@ class CandidateValidationPipeline:
         self._sleep_cognition = sleep_cognition
         self._subject_state_cognition = subject_state_cognition
         self._web_search_active = web_search_active
-        self._catalog = ArtifactCatalogRepository()
+        self._catalog = catalog
         self._repository = PostgreSQLCandidateValidationRepository(
             relationship_read,
             sleep_read,
@@ -183,17 +218,17 @@ class CandidateValidationPipeline:
             materials=material_read,
             subject_state=subject_state_read,
         )
-        self._work = PostgreSQLDurableWorkGateway(factory)
+        self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
-        self._wakeups = wakeups or WorkWakeupBus()
+        self._wakeups = wakeups or _LocalWakeups()
         self._diagnostic = diagnostic or _ignore_diagnostic
 
     async def open(self) -> None:
         try:
             await self._factory.open()
             await self._storage.prepare()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CandidateViolation("CANDIDATE-DATABASE") from None
         except ArtifactViolation:
             raise CandidateViolation("CANDIDATE-ARTIFACT") from None
@@ -391,7 +426,7 @@ class CandidateValidationPipeline:
         except ArtifactViolation:
             await self._fail(lease, "CANDIDATE-ARTIFACT")
             return True
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("candidate.worker.transient_failure")
             return True
 
@@ -418,7 +453,7 @@ class CandidateValidationPipeline:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 return await self._repository.snapshot(unit_of_work, lease)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CandidateViolation("CANDIDATE-DATABASE") from None
 
     async def _read_response(self, snapshot: CandidateEpisodeSnapshot) -> bytes:
@@ -494,7 +529,7 @@ class CandidateValidationPipeline:
                     lease=lease,
                     error_code=code,
                 )
-        except CandidateViolation, DatabaseTransactionError, WorkViolation:
+        except CandidateViolation, RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("candidate.settlement.deferred")
 
 
@@ -515,7 +550,7 @@ def _candidate_bytes(response_bytes: bytes) -> bytes:
 
 
 def _artifact_audit(
-    unit_of_work: PostgreSQLUnitOfWork,
+    unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ref: ArtifactRef,
     snapshot: CandidateEpisodeSnapshot,
 ) -> AuditDraft:
@@ -533,75 +568,4 @@ def _artifact_audit(
     )
 
 
-def build_candidate_validation_pipeline(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    activity_cognition: ActivityCognitionPort,
-    activity_read: ActivityReadPort,
-    memory_cognition: MemoryCognitionPort,
-    memory_read: MemoryReadPort,
-    mood_cognition: MoodCognitionPort,
-    mood_read: MoodReadPort,
-    prompt_cognition: PromptCognitionPort,
-    prompt_read: PromptReadPort,
-    material_cognition: MaterialCognitionPort,
-    material_read: MaterialReadPort,
-    relationship_cognition: RelationshipCognitionPort,
-    relationship_read: RelationshipReadPort,
-    sleep_cognition: SleepCognitionPort,
-    sleep_read: SleepReadPort,
-    subject_state_cognition: SubjectStateCognitionPort,
-    subject_state_read: SubjectStateReadPort,
-    web_search_active: bool = False,
-    wakeups: WorkWakeupBus | None = None,
-    diagnostic: Diagnostic | None = None,
-) -> CandidateValidationPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    return CandidateValidationPipeline(
-        factory=factory,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        ),
-        activity_cognition=activity_cognition,
-        activity_read=activity_read,
-        memory_cognition=memory_cognition,
-        memory_read=memory_read,
-        mood_cognition=mood_cognition,
-        mood_read=mood_read,
-        prompt_cognition=prompt_cognition,
-        prompt_read=prompt_read,
-        material_cognition=material_cognition,
-        material_read=material_read,
-        relationship_cognition=relationship_cognition,
-        relationship_read=relationship_read,
-        sleep_cognition=sleep_cognition,
-        sleep_read=sleep_read,
-        subject_state_cognition=subject_state_cognition,
-        subject_state_read=subject_state_read,
-        web_search_active=web_search_active,
-        wakeups=wakeups,
-        diagnostic=diagnostic,
-    )
-
-
-__all__ = (
-    "CandidateValidationPipeline",
-    "build_candidate_validation_pipeline",
-)
+__all__ = ("CandidateValidationPipeline",)

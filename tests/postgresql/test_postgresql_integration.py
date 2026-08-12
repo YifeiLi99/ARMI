@@ -47,6 +47,18 @@ from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_cognition import parse_subject_change_set
+from armi_cognition._model_contract import (
+    build_request_bytes,
+    candidate_schema,
+    checked_model_request,
+    load_active_binding,
+    parse_candidate,
+)
+from armi_cognition._validator import (
+    CandidateValidationContext,
+    DeterministicCandidateValidator,
+)
 from armi_evidence.bootstrap import bootstrap_evidence
 from armi_interaction._creator_postgresql import CreatorInputRepository
 from armi_interaction._external import ExternalMessageInputService
@@ -203,21 +215,9 @@ from armi_runtime.composition.artifacts import (
 from armi_runtime.composition.audit import AuditQueryGateway
 from armi_runtime.composition.birth import BirthTransaction
 from armi_runtime.composition.birth_manifest import packaged_birth_digests
-from armi_runtime.composition.candidate_validator import (
-    CandidateValidationContext,
-    DeterministicCandidateValidator,
-)
 from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
-from armi_runtime.composition.model_contract import (
-    build_request_bytes,
-    candidate_schema,
-    checked_model_request,
-    load_active_binding,
-    parse_candidate,
-)
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
-from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
 from armi_runtime.composition.web_search_pipeline import build_web_search_pipeline
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from armi_sleep.api import CreatorMaintenanceViolation

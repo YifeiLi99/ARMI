@@ -118,12 +118,12 @@ from armi_subject_state.api import (
 )
 from pydantic import ValidationError
 
-from .activity_attention_candidate_contract import (
+from ._activity_attention_contract import (
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     ActivityAttentionCandidate,
     AttentionSimpleDecision,
 )
-from .activity_internal_work_candidate_contract import (
+from ._activity_internal_work_contract import (
     ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
     ActivityInternalWorkCandidate,
     InternalWorkAbandonDecision,
@@ -134,12 +134,12 @@ from .activity_internal_work_candidate_contract import (
     InternalWorkNoResultDecision,
     InternalWorkProgressDecision,
 )
-from .autonomous_activity_candidate_contract import (
+from ._autonomous_activity_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AutonomousTerminalDecision,
     StartActivityDecision,
 )
-from .dialogue_candidate_contract import (
+from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
@@ -210,7 +210,7 @@ from .dialogue_candidate_contract import (
     DialogueWebResearchDecisionV20,
     parse_dialogue_candidate,
 )
-from .maintenance_work_candidate_contract import (
+from ._maintenance_contract import (
     MAINTENANCE_WORK_CANDIDATE_VERSION,
     MaintenanceWorkCandidate,
     MemoryMaintenanceChange,
@@ -218,7 +218,7 @@ from .maintenance_work_candidate_contract import (
     SelfCheckIssueFound,
     SelfCheckNoIssue,
 )
-from .model_contract import (
+from ._model_contract import (
     ActionChoiceProposal,
     CodexDelegationPayload,
     CognitionCandidate,
@@ -238,13 +238,13 @@ from .model_contract import (
     WebResearchRequestProposal,
     parse_candidate,
 )
-from .other_human_dialogue_candidate_contract import (
+from ._other_human_contract import (
     OtherHumanCommitmentChange,
     OtherHumanRelationshipChange,
     OtherHumanReplyDecision,
     OtherHumanTerminalDecision,
 )
-from .sleep_decision_candidate_contract import (
+from ._sleep_contract import (
     SLEEP_DECISION_CANDIDATE_VERSION,
     SleepDecisionCandidate,
 )

@@ -16,6 +16,15 @@ from typing import Any, cast
 from uuid import uuid7
 
 import rfc8785
+from armi_cognition import (
+    CandidateValidationContext,
+    DeterministicCandidateValidator,
+    build_request_bytes,
+    candidate_schema,
+    checked_model_request,
+    load_active_binding,
+    parse_candidate,
+)
 from armi_kernel.application import (
     CandidateBasis,
     FormalNoActionDraft,
@@ -25,17 +34,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
-from armi_runtime.composition.candidate_validator import (
-    CandidateValidationContext,
-    DeterministicCandidateValidator,
-)
-from armi_runtime.composition.model_contract import (
-    build_request_bytes,
-    candidate_schema,
-    checked_model_request,
-    load_active_binding,
-    parse_candidate,
-)
 from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
 
 

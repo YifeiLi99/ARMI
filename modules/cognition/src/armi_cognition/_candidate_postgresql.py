@@ -60,10 +60,9 @@ from armi_memory.api import (
 from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptReadPort, PromptViolation
 from armi_relationship.api import RelationshipReadPort
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
-
-from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.candidate.validate"
 _COMMIT_WORK_KIND = "cognition.subject.commit"
@@ -170,10 +169,10 @@ class PostgreSQLCandidateValidationRepository:
 
     async def snapshot(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
     ) -> CandidateEpisodeSnapshot:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -509,14 +508,14 @@ class PostgreSQLCandidateValidationRepository:
 
     async def fail(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         error_code: str,
     ) -> None:
         """Terminally fail deterministic validation work and its episode."""
 
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -561,7 +560,7 @@ class PostgreSQLCandidateValidationRepository:
 
     async def settle(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: CandidateEpisodeSnapshot,
@@ -569,7 +568,7 @@ class PostgreSQLCandidateValidationRepository:
         validator_identity: str,
         change_set_artifact: ArtifactRef | None,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await _assert_lease(connection, lease, snapshot)
         fence = unit_of_work.runtime_fence
         if fence is None:

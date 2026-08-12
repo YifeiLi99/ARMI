@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from armi_runtime.composition.sleep_decision_candidate_contract import (
+from armi_cognition._sleep_contract import (
     parse_sleep_decision_candidate,
 )
 from armi_sleep.api import (

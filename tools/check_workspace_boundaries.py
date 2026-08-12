@@ -251,6 +251,27 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-cognition",
+        module="armi_cognition",
+        project_dir=Path("modules/cognition"),
+        layers=(),
+        dependencies=(
+            "armi-activity==0.0.0",
+            "armi-artifact-store==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-material==0.0.0",
+            "armi-memory==0.0.0",
+            "armi-mood==0.0.0",
+            "armi-prompt==0.0.0",
+            "armi-relationship==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "armi-sleep==0.0.0",
+            "armi-subject-state==0.0.0",
+            "pydantic==2.13.4",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-perception",
         module="armi_perception",
         project_dir=Path("modules/perception"),
@@ -276,6 +297,7 @@ DISTRIBUTIONS = (
             "alembic==1.18.5",
             "armi-adapter-qq==0.0.0",
             "armi-artifact-store==0.0.0",
+            "armi-cognition==0.0.0",
             "armi-context==0.0.0",
             "armi-evidence==0.0.0",
             "armi-interaction==0.0.0",
@@ -917,6 +939,25 @@ def _check_import(
             }
         )
         or (
+            source_distribution == "armi-cognition"
+            and target_distribution
+            not in {
+                None,
+                "armi-activity",
+                "armi-artifact-store",
+                "armi-cognition",
+                "armi-kernel",
+                "armi-material",
+                "armi-memory",
+                "armi-mood",
+                "armi-prompt",
+                "armi-relationship",
+                "armi-runtime-foundation",
+                "armi-sleep",
+                "armi-subject-state",
+            }
+        )
+        or (
             source_distribution == "armi-perception"
             and target_distribution
             not in {
@@ -1039,6 +1080,9 @@ def _check_import(
         ),
         "armi-context": frozenset(
             {"armi_context", "armi_context.api", "armi_context.bootstrap"}
+        ),
+        "armi-cognition": frozenset(
+            {"armi_cognition", "armi_cognition.api", "armi_cognition.bootstrap"}
         ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
@@ -1201,6 +1245,17 @@ def _check_import(
                     path,
                     line,
                     "Context bootstrap is reserved for Runtime composition",
+                )
+            )
+        if imported_module == "armi_cognition.bootstrap" and not source_module.startswith(
+            "armi_runtime.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "cognition bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1395,6 +1450,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_context.api": root / "modules/context/src/armi_context/api.py",
         "armi_context.bootstrap": root
         / "modules/context/src/armi_context/bootstrap.py",
+        "armi_cognition": root / "modules/cognition/src/armi_cognition/__init__.py",
+        "armi_cognition.api": root / "modules/cognition/src/armi_cognition/api.py",
+        "armi_cognition.bootstrap": root
+        / "modules/cognition/src/armi_cognition/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1626,6 +1685,45 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "Context and embedding projection writes are owned by armi-context",
                     )
                 )
+            if (
+                distribution.name != "armi-cognition"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:cognitive_candidate_validations|"
+                    r"cognitive_candidate_validation_items|"
+                    r"cognitive_candidate_basis_links)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-COGNITION-SQL",
+                        relative,
+                        1,
+                        "candidate validation writes are owned by armi-cognition",
+                    )
+                )
+            if (
+                distribution.name != "armi-cognition"
+                and ".runtime_resources.schema.alembic." not in module
+                and "armi_runtime.adapters.persistence.recovery" not in module
+                and re.search(
+                    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"
+                    r"armi\.cognitive_attempts\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-COGNITION-SQL",
+                        relative,
+                        1,
+                        "model attempt writes are owned by armi-cognition",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1701,6 +1799,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "Context": (
             "context_pipeline = compose_context_pipeline(",
             "context_embedding_pipeline = compose_context_embedding_pipeline(",
+        ),
+        "cognition": (
+            "model_pipeline = compose_model_pipeline(",
+            "candidate_pipeline = compose_candidate_validation_pipeline(",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

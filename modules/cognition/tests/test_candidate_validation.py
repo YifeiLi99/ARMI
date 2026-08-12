@@ -14,6 +14,28 @@ from uuid import UUID, uuid7
 import pytest
 import rfc8785
 from armi_activity.api import ActivityStatus, default_activity_cognition
+from armi_cognition import (
+    parse_subject_change_set as _parse_subject_change_set,
+)
+from armi_cognition._candidate_postgresql import (
+    PostgreSQLCandidateValidationRepository,
+    _relationship_party_ids,
+    _validation_drafts,
+)
+from armi_cognition._other_human_contract import (
+    OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+)
+from armi_cognition._validator import (
+    CandidateLifeMaterialContext,
+    CandidateMemoryContext,
+    CandidateRelationshipCommitmentContext,
+    CandidateRelationshipContext,
+    CandidateSubjectPromptContext,
+    CandidateValidationContext,
+    DeterministicCandidateValidator,
+    _memory_source_kind,
+    _relationship_wire,
+)
 from armi_kernel.application import (
     CandidateBasis,
     CandidateFactClass,
@@ -60,28 +82,6 @@ from armi_relationship.api import (
     RelationshipIssueKind,
     RelationshipPartyRole,
     RelationshipStatus,
-)
-from armi_runtime.adapters.persistence.candidate_validation import (
-    PostgreSQLCandidateValidationRepository,
-    _relationship_party_ids,
-    _validation_drafts,
-)
-from armi_runtime.composition.candidate_validator import (
-    CandidateLifeMaterialContext,
-    CandidateMemoryContext,
-    CandidateRelationshipCommitmentContext,
-    CandidateRelationshipContext,
-    CandidateSubjectPromptContext,
-    CandidateValidationContext,
-    DeterministicCandidateValidator,
-    _memory_source_kind,
-    _relationship_wire,
-)
-from armi_runtime.composition.other_human_dialogue_candidate_contract import (
-    OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
-)
-from armi_runtime.composition.subject_commit_contract import (
-    parse_subject_change_set as _parse_subject_change_set,
 )
 from armi_sleep.api import (
     MaintenancePhase,
@@ -221,7 +221,7 @@ def test_terminal_validation_failure_also_fails_owning_episode() -> None:
     )
     work = SimpleNamespace(fail=AsyncMock())
     unit_of_work = SimpleNamespace(
-        _connection_for_repository=lambda: connection,
+        transaction=connection,
         work=work,
     )
 

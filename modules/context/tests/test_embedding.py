@@ -6,6 +6,7 @@ from typing import Any, Self
 from uuid import uuid7
 
 import pytest
+from armi_cognition._model_contract import load_purpose_binding
 from armi_context._embedding import (
     EMBEDDING_BINDING_ID,
     EMBEDDING_DIMENSIONS,
@@ -33,7 +34,6 @@ from armi_kernel.application import (
 from armi_runtime.adapters.model.volcengine_embedding import (
     VolcengineArkEmbeddingAdapter,
 )
-from armi_runtime.composition.model_contract import load_purpose_binding
 
 ROOT = Path(__file__).resolve().parents[3]
 MODEL_BINDINGS = ROOT / "configs/model-bindings.yaml"
@@ -132,7 +132,9 @@ def test_all_cognitive_purposes_have_explicit_context_profiles() -> None:
         "consider_codex_result",
     }
     assert {context_profile(purpose).purpose for purpose in purposes} == purposes
-    assert {load_purpose_binding(purpose).profile for purpose in purposes} == {
+    assert {
+        load_purpose_binding(purpose, MODEL_BINDINGS).profile for purpose in purposes
+    } == {
         "creator_dialogue",
         "web_evidence_cognition",
         "creator_outreach",

@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import ModelAttemptId
-from armi_kernel.contracts import TraceId
-from armi_runtime.adapters.persistence.cognitive_model import (
+from armi_cognition._model_postgresql import (
     PostgreSQLCognitiveModelRepository,
 )
+from armi_kernel.application import ModelAttemptId
+from armi_kernel.contracts import TraceId
 
 
 class _Cursor:
@@ -57,7 +57,7 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
     connection = SimpleNamespace(execute=AsyncMock(side_effect=execute))
     work = SimpleNamespace(fail=AsyncMock())
     unit_of_work = SimpleNamespace(
-        _connection_for_repository=lambda: connection,
+        transaction=connection,
         work=work,
         audit=SimpleNamespace(append=AsyncMock()),
         environment_id=uuid7(),

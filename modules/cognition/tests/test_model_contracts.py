@@ -6,30 +6,15 @@ import json
 from pathlib import Path
 from uuid import UUID, uuid7
 
-import armi_runtime.composition.model_contract as model_contract_module
-import armi_runtime.composition.other_human_dialogue_candidate_contract as other_human_contract_module
+import armi_cognition._model_contract as model_contract_module
+import armi_cognition._other_human_contract as other_human_contract_module
 import pytest
-from armi_kernel.application import (
-    CredentialLocator,
-    ModelBinding,
-    ModelResultStatus,
-    ModelViolation,
-)
-from armi_kernel.config_yaml import load_yaml_file
-from armi_kernel.contracts import Digest
-from armi_runtime.adapters.model.volcengine_ark import (
-    ArkTransport,
-    VolcengineArkModelAdapter,
-    _provider_input,
-    _strict_provider_schema,
-)
-from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
-from armi_runtime.composition.dialogue_candidate_contract import (
+from armi_cognition._dialogue_contract import (
     DIALOGUE_MODEL_OUTPUT_VERSION,
     HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
     dialogue_model_output_schema,
 )
-from armi_runtime.composition.model_contract import (
+from armi_cognition._model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
@@ -48,11 +33,26 @@ from armi_runtime.composition.model_contract import (
     parse_candidate,
     parse_dialogue_candidate_with_independent_expression,
 )
-from armi_runtime.composition.other_human_dialogue_candidate_contract import (
+from armi_cognition._other_human_contract import (
     HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
 )
+from armi_kernel.application import (
+    CredentialLocator,
+    ModelBinding,
+    ModelResultStatus,
+    ModelViolation,
+)
+from armi_kernel.config_yaml import load_yaml_file
+from armi_kernel.contracts import Digest
+from armi_runtime.adapters.model.volcengine_ark import (
+    ArkTransport,
+    VolcengineArkModelAdapter,
+    _provider_input,
+    _strict_provider_schema,
+)
+from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 
 _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 

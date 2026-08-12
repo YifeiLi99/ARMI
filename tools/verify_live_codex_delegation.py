@@ -13,6 +13,15 @@ from uuid import UUID, uuid7
 
 import rfc8785
 import verify_codex_runner
+from armi_cognition import (
+    CandidateValidationContext,
+    DeterministicCandidateValidator,
+    build_request_bytes,
+    candidate_schema,
+    checked_model_request,
+    load_active_binding,
+    parse_candidate,
+)
 from armi_kernel.application import (
     CandidateBasis,
     CandidateValidationStatus,
@@ -23,17 +32,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
-from armi_runtime.composition.candidate_validator import (
-    CandidateValidationContext,
-    DeterministicCandidateValidator,
-)
-from armi_runtime.composition.model_contract import (
-    build_request_bytes,
-    candidate_schema,
-    checked_model_request,
-    load_active_binding,
-    parse_candidate,
-)
 from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
 
 _ARK_SUCCESS_BUDGET_MICROYUAN = 2_000_000

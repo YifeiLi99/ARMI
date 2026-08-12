@@ -14,6 +14,7 @@ from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
+from armi_cognition import parse_subject_change_set
 from armi_evidence.api import EvidenceWritePort
 from armi_interaction.api import (
     SceneKey,
@@ -72,7 +73,6 @@ from armi_runtime.adapters.transaction_errors import (
     DatabaseTransactionError,
 )
 
-from .subject_commit_contract import parse_subject_change_set
 from .work_wakeup import (
     EFFECT_REGISTER,
     EXACT_LIFE_QUERY,
