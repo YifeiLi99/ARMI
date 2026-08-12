@@ -8,7 +8,7 @@ from armi_kernel import load_yaml_mapping
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_yaml_config_supports_the_project_subset() -> None:
+def test_yaml_config_supports_standard_yaml_features() -> None:
     assert load_yaml_mapping(
         b"""
 schema_version: armi.example.v1
@@ -16,16 +16,30 @@ enabled: true
 limits:
   count: 4
   ratio: 0.5
+defaults: &defaults
+  timeout: 30
 items:
   - name: first
     tags: [\"one\", \"two\"]
+    settings: *defaults
+description: |
+  first line
+  second line
 empty: {}
 """
     ) == {
         "schema_version": "armi.example.v1",
         "enabled": True,
         "limits": {"count": 4, "ratio": 0.5},
-        "items": [{"name": "first", "tags": ["one", "two"]}],
+        "defaults": {"timeout": 30},
+        "items": [
+            {
+                "name": "first",
+                "tags": ["one", "two"],
+                "settings": {"timeout": 30},
+            }
+        ],
+        "description": "first line\nsecond line\n",
         "empty": {},
     }
 
@@ -33,16 +47,12 @@ empty: {}
 @pytest.mark.parametrize(
     "raw",
     [
-        b"key: first\nkey: second\n",
         b"key:\tvalue\n",
-        b"key: &anchor value\n",
-        b"key: *anchor\n",
         b"key: !tag value\n",
-        b" key: odd-indent\n",
-        b"\xef\xbb\xbfkey: value\n",
+        b"key: [unterminated\n",
     ],
 )
-def test_yaml_config_rejects_ambiguous_or_advanced_yaml(raw: bytes) -> None:
+def test_yaml_config_rejects_invalid_or_unsafe_yaml(raw: bytes) -> None:
     with pytest.raises(ValueError):
         load_yaml_mapping(raw)
 

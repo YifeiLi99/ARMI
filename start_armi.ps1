@@ -44,8 +44,37 @@ function Invoke-ArmiJson {
     }
 }
 
+function Remove-StaleLoopbackProxyEnvironment {
+    foreach ($name in @('ALL_PROXY', 'http_proxy', 'https_proxy')) {
+        $raw = [Environment]::GetEnvironmentVariable($name, 'Process')
+        $uri = $null
+        if (
+            [string]::IsNullOrWhiteSpace($raw) -or
+            -not [Uri]::TryCreate($raw, [UriKind]::Absolute, [ref]$uri) -or
+            -not $uri.IsLoopback
+        ) {
+            continue
+        }
+        $client = [Net.Sockets.TcpClient]::new()
+        try {
+            $connected = $client.ConnectAsync($uri.Host, $uri.Port).Wait(500) -and $client.Connected
+        }
+        catch {
+            $connected = $false
+        }
+        finally {
+            $client.Dispose()
+        }
+        if (-not $connected) {
+            Remove-Item -LiteralPath "Env:$name"
+            Write-Warning "Ignoring stale loopback proxy from $name while starting ARMI."
+        }
+    }
+}
+
 Push-Location $workspace
 try {
+    Remove-StaleLoopbackProxyEnvironment
     Write-Host 'Synchronizing locked Python dependencies...'
     & $managedUv sync --frozen --all-packages
     if ($LASTEXITCODE -ne 0) {

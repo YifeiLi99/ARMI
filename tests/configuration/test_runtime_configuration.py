@@ -224,7 +224,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as directory,
             self.assertRaises(ConfigurationViolation) as raised,
         ):
-            self.load(Path(directory), raw="environment:\n   broken: true\n")
+            self.load(Path(directory), raw="environment: [\n")
         self.assertEqual(raised.exception.code, "CFG-YAML")
         self.assertNotIn(str(directory), str(raised.exception))
 

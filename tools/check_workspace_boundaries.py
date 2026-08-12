@@ -41,7 +41,7 @@ DISTRIBUTIONS = (
         module="armi_kernel",
         project_dir=Path("packages/armi-kernel"),
         layers=("domain", "application", "contracts"),
-        dependencies=(),
+        dependencies=("pyyaml==6.0.3",),
     ),
     Distribution(
         name="armi-artifact-store",
