@@ -5,13 +5,15 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 import httpx
-from armi_kernel.application import (
+from armi_context.api import (
     EMBEDDING_DIMENSIONS,
+    EmbeddingBinding,
+    EmbeddingResponse,
+)
+from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     CredentialPurpose,
-    EmbeddingBinding,
-    EmbeddingResponse,
     ModelViolation,
 )
 

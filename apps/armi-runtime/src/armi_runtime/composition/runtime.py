@@ -16,6 +16,7 @@ from uuid import uuid7
 
 import uvicorn
 from armi_activity.api import ActivityViolation
+from armi_context.api import ContextViolation
 from armi_interaction.api import (
     CreatorInputCommand,
     CreatorInputViolation,
@@ -26,7 +27,6 @@ from armi_kernel.application import (
     CandidateViolation,
     CapabilityViolation,
     CodexDelegationViolation,
-    ContextViolation,
     CreatorExportViolation,
     DataRightsViolation,
     EffectViolation,

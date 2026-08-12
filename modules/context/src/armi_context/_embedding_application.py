@@ -3,23 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid7
 
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_artifact_store.life_material_codec import parse_life_material_artifact
+from armi_artifact_store import (
+    ContentAddressedArtifactStore,
+    parse_life_material_artifact,
+)
 from armi_kernel.application import (
     ArtifactIntegrityStatus,
     ArtifactPrivacyScope,
     ArtifactViolation,
-    CredentialLocator,
-    CredentialPort,
+    DurableWorkPort,
     ModelViolation,
-    RuntimeFence,
     WorkLease,
     WorkResultRef,
     WorkViolation,
@@ -27,26 +25,19 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Instant
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort
-
-from armi_runtime.adapters.model.volcengine_embedding import (
-    VolcengineArkEmbeddingAdapter,
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
 )
-from armi_runtime.adapters.persistence.context_embedding import (
+
+from ._embedding import chunk_life_material
+from ._embedding_postgresql import (
     EmbeddingProjectionSource,
     PostgreSQLContextEmbeddingRepository,
 )
-from armi_runtime.adapters.persistence.durable_work import (
-    PostgreSQLDurableWorkGateway,
-)
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWorkFactory,
-)
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .context_embedding import chunk_life_material, load_embedding_binding
+from .api import EmbeddingPort
 
 _WORK_KIND = "context.embedding.project"
-Diagnostic = Callable[[str], None]
 
 
 class ContextEmbeddingPipeline:
@@ -63,9 +54,10 @@ class ContextEmbeddingPipeline:
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
-        adapter: VolcengineArkEmbeddingAdapter,
+        adapter: EmbeddingPort,
+        work: DurableWorkPort,
         memories: MemoryProjectionPort,
         materials: MaterialProjectionPort,
     ) -> None:
@@ -73,7 +65,7 @@ class ContextEmbeddingPipeline:
         self._storage = storage
         self._adapter = adapter
         self._repository = PostgreSQLContextEmbeddingRepository(memories, materials)
-        self._work = PostgreSQLDurableWorkGateway(factory)
+        self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
 
@@ -160,7 +152,7 @@ class ContextEmbeddingPipeline:
             try:
                 repaired = await self.repair_once()
                 projected = await self.project_once()
-            except DatabaseTransactionError, WorkViolation, ArtifactViolation:
+            except RuntimeTransactionFailure, WorkViolation, ArtifactViolation:
                 repaired = projected = False
             if repaired or projected:
                 await asyncio.sleep(0)
@@ -211,43 +203,4 @@ class ContextEmbeddingPipeline:
             await unit_of_work.work.fail(lease, error_code=code)
 
 
-def build_context_embedding_pipeline(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    memories: MemoryProjectionPort,
-    materials: MaterialProjectionPort,
-    credential_port: CredentialPort,
-    credential_locator: CredentialLocator,
-) -> ContextEmbeddingPipeline:
-    return ContextEmbeddingPipeline(
-        factory=PostgreSQLUnitOfWorkFactory(
-            conninfo,
-            environment_id=environment_id,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            acquire_timeout_seconds=acquire_timeout_seconds,
-            statement_timeout_seconds=statement_timeout_seconds,
-            authority_admission=authority_admission,
-        ),
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts", max_object_bytes=max_object_bytes
-        ),
-        adapter=VolcengineArkEmbeddingAdapter(
-            binding=load_embedding_binding(),
-            credential_port=credential_port,
-            locator=credential_locator,
-        ),
-        memories=memories,
-        materials=materials,
-    )
-
-
-__all__ = ("ContextEmbeddingPipeline", "build_context_embedding_pipeline")
+__all__ = ("ContextEmbeddingPipeline",)

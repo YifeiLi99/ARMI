@@ -7,7 +7,12 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_context._compiler import (
+    CONTEXT_MECHANISM,
+    CONTEXT_POLICY_VERSION,
+    DeterministicContextCompiler,
+)
+from armi_context.api import (
     ContextItemCandidate,
     ContextItemDisposition,
     ContextLayer,
@@ -19,11 +24,6 @@ from armi_kernel.application import (
     ContextViolation,
 )
 from armi_kernel.contracts import Instant, Purpose
-from armi_runtime.composition.context_compiler import (
-    CONTEXT_MECHANISM,
-    CONTEXT_POLICY_VERSION,
-    DeterministicContextCompiler,
-)
 
 
 def _candidate(

@@ -14,6 +14,9 @@ from armi_activity.api import (
 )
 from armi_activity.bootstrap import ActivityModule, bootstrap_activity
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_context import load_embedding_binding
+from armi_context.api import ContextEmbeddingRuntimePort, ContextRuntimePort
+from armi_context.bootstrap import bootstrap_context, bootstrap_context_embedding
 from armi_evidence.api import EvidenceWritePort
 from armi_evidence.bootstrap import EvidenceModule, bootstrap_evidence
 from armi_interaction.api import CreatorInputTransactionPort
@@ -102,6 +105,9 @@ from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
 )
+from armi_runtime.adapters.model.volcengine_embedding import (
+    VolcengineArkEmbeddingAdapter,
+)
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
@@ -141,11 +147,6 @@ from .candidate_pipeline import (
 from .codex_pipeline import CodexEffectPipeline
 from .config_assets import runtime_config_path
 from .configuration import ConfigurationViolation
-from .context_embedding_pipeline import (
-    ContextEmbeddingPipeline,
-    build_context_embedding_pipeline,
-)
-from .context_pipeline import ContextPipeline, build_context_pipeline
 from .creator_exports import CreatorExportService, build_creator_export_service
 from .data_rights import DataRightsOrderService, build_data_rights_order_service
 from .effect_pipeline import (
@@ -1190,7 +1191,7 @@ def compose_context_pipeline(
     subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
-) -> ContextPipeline:
+) -> ContextRuntimePort:
     """Resolve the Runtime credential for the active S023 selector and worker."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
@@ -1212,7 +1213,7 @@ def compose_context_pipeline(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> ContextPipeline:
+            def create(value: memoryview) -> ContextRuntimePort:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
@@ -1223,11 +1224,9 @@ def compose_context_pipeline(
                         exit_code=3,
                     ) from None
                 config = prepared.effective.config
-                return build_context_pipeline(
+                factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_min=config.database.pool_min,
                     pool_max=config.database.pool_max,
                     acquire_timeout_seconds=(
@@ -1237,6 +1236,15 @@ def compose_context_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                )
+                return bootstrap_context(
+                    factory=factory,
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
+                    ),
+                    catalog=ArtifactCatalogRepository(),
+                    work=PostgreSQLDurableWorkGateway(factory),
                     activity_read=activity_read,
                     memory_read=memory_read,
                     memory_projection=memory_projection,
@@ -1249,8 +1257,17 @@ def compose_context_pipeline(
                     web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
-                    credential_port=prepared.credential_port,
-                    embedding_credential_locator=embedding_locator,
+                    embedding=(
+                        VolcengineArkEmbeddingAdapter(
+                            binding=load_embedding_binding(
+                                runtime_config_path("model-bindings.yaml")
+                            ),
+                            credential_port=prepared.credential_port,
+                            locator=embedding_locator,
+                        )
+                        if embedding_locator is not None
+                        else None
+                    ),
                 )
 
             return handle.consume(create)
@@ -1269,7 +1286,7 @@ def compose_context_embedding_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     memory_projection: MemoryProjectionPort,
     material_projection: MaterialProjectionPort,
-) -> ContextEmbeddingPipeline:
+) -> ContextEmbeddingRuntimePort:
     database_locator = prepared.effective.config.secret_locators.get(
         RUNTIME_LOCATOR_NAME
     )
@@ -1283,26 +1300,37 @@ def compose_context_embedding_pipeline(
             database_locator, CredentialPurpose("database.runtime")
         ) as handle:
 
-            def create(value: memoryview) -> ContextEmbeddingPipeline:
+            def create(value: memoryview) -> ContextEmbeddingRuntimePort:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     raise ModelViolation("MODEL-DATABASE") from None
                 config = prepared.effective.config
-                return build_context_embedding_pipeline(
+                factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_min=config.database.pool_min,
                     pool_max=config.database.pool_max,
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                )
+                return bootstrap_context_embedding(
+                    factory=factory,
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
+                    ),
+                    adapter=VolcengineArkEmbeddingAdapter(
+                        binding=load_embedding_binding(
+                            runtime_config_path("model-bindings.yaml")
+                        ),
+                        credential_port=prepared.credential_port,
+                        locator=embedding_locator,
+                    ),
+                    work=PostgreSQLDurableWorkGateway(factory),
                     memories=memory_projection,
                     materials=material_projection,
-                    credential_port=prepared.credential_port,
-                    credential_locator=embedding_locator,
                 )
 
             return handle.consume(create)

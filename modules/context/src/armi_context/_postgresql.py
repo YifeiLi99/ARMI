@@ -20,8 +20,6 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     CognitiveEpisodeId,
-    ContextResult,
-    ContextViolation,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -41,12 +39,12 @@ from armi_memory.api import MemoryReadPort
 from armi_mood.api import MoodReadPort, MoodViolation
 from armi_prompt.api import PromptReadPort, PromptViolation
 from armi_relationship.api import RelationshipReadPort
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_sleep.api import MaintenancePhase, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
 
-from .artifact_catalog import ArtifactCatalogRepository
-from .capability_context import CapabilityStatePayload, load_capability_state_payloads
-from .unit_of_work import PostgreSQLUnitOfWork
+from ._capability import CapabilityStatePayload, load_capability_state_payloads
+from .api import ContextResult, ContextViolation
 
 _WORK_KIND = "cognition.context.prepare"
 _MODEL_WORK_KIND = "cognition.model.invoke"
@@ -162,7 +160,6 @@ class PostgreSQLContextRepository:
 
     __slots__ = (
         "_activities",
-        "_catalog",
         "_memories",
         "_mood",
         "_prompts",
@@ -182,7 +179,6 @@ class PostgreSQLContextRepository:
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
-        self._catalog = ArtifactCatalogRepository()
         self._memories = memories
         self._mood = mood
         self._prompts = prompts
@@ -192,9 +188,9 @@ class PostgreSQLContextRepository:
 
     async def select_one(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ) -> CognitiveEpisodeId | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise ContextViolation("CTX-FENCE-REQUIRED")
@@ -411,10 +407,10 @@ class PostgreSQLContextRepository:
 
     async def snapshot(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
     ) -> ContextEpisodeSnapshot:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -904,14 +900,14 @@ class PostgreSQLContextRepository:
 
     async def settle_prepared(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         result: ContextResult,
         manifest_artifact: ArtifactRef,
         compiled_artifact: ArtifactRef,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         episode_id = await self._episode_for_lease(connection, lease)
         for item in result.items:
             source = item.candidate.source
@@ -1024,12 +1020,12 @@ class PostgreSQLContextRepository:
 
     async def fail(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         code: str,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         episode_id = await self._episode_for_lease(connection, lease)
         updated = await (
             await connection.execute(

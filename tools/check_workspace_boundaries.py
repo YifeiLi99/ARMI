@@ -230,6 +230,27 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-context",
+        module="armi_context",
+        project_dir=Path("modules/context"),
+        layers=(),
+        dependencies=(
+            "armi-activity==0.0.0",
+            "armi-artifact-store==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-material==0.0.0",
+            "armi-memory==0.0.0",
+            "armi-mood==0.0.0",
+            "armi-opportunity==0.0.0",
+            "armi-prompt==0.0.0",
+            "armi-relationship==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "armi-sleep==0.0.0",
+            "armi-subject-state==0.0.0",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-perception",
         module="armi_perception",
         project_dir=Path("modules/perception"),
@@ -255,6 +276,7 @@ DISTRIBUTIONS = (
             "alembic==1.18.5",
             "armi-adapter-qq==0.0.0",
             "armi-artifact-store==0.0.0",
+            "armi-context==0.0.0",
             "armi-evidence==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
@@ -875,6 +897,26 @@ def _check_import(
             }
         )
         or (
+            source_distribution == "armi-context"
+            and target_distribution
+            not in {
+                None,
+                "armi-activity",
+                "armi-artifact-store",
+                "armi-context",
+                "armi-kernel",
+                "armi-material",
+                "armi-memory",
+                "armi-mood",
+                "armi-opportunity",
+                "armi-prompt",
+                "armi-relationship",
+                "armi-runtime-foundation",
+                "armi-sleep",
+                "armi-subject-state",
+            }
+        )
+        or (
             source_distribution == "armi-perception"
             and target_distribution
             not in {
@@ -994,6 +1036,9 @@ def _check_import(
                 "armi_opportunity.api",
                 "armi_opportunity.bootstrap",
             }
+        ),
+        "armi-context": frozenset(
+            {"armi_context", "armi_context.api", "armi_context.bootstrap"}
         ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
@@ -1145,6 +1190,17 @@ def _check_import(
                     path,
                     line,
                     "opportunity bootstrap is reserved for Runtime composition",
+                )
+            )
+        if imported_module == "armi_context.bootstrap" and not source_module.startswith(
+            "armi_runtime.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "Context bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1335,6 +1391,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "modules/opportunity/src/armi_opportunity/api.py",
         "armi_opportunity.bootstrap": root
         / "modules/opportunity/src/armi_opportunity/bootstrap.py",
+        "armi_context": root / "modules/context/src/armi_context/__init__.py",
+        "armi_context.api": root / "modules/context/src/armi_context/api.py",
+        "armi_context.bootstrap": root
+        / "modules/context/src/armi_context/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1547,6 +1607,25 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "recognition attempt SQL is owned by armi-perception",
                     )
                 )
+            if (
+                distribution.name != "armi-context"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:cognitive_context_items|context_embedding_attempts)\b"
+                    r"|\bINSERT\s+INTO\s+armi\.context_embedding_projections\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-CONTEXT-SQL",
+                        relative,
+                        1,
+                        "Context and embedding projection writes are owned by armi-context",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1618,6 +1697,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "life_opportunity_pipeline = compose_life_opportunity_pipeline(",
             "sleep_maintenance=sleep_module.maintenance",
             "activity_read=activity_module.read",
+        ),
+        "Context": (
+            "context_pipeline = compose_context_pipeline(",
+            "context_embedding_pipeline = compose_context_embedding_pipeline(",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

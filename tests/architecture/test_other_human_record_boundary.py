@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_other_human_record_projection_is_not_a_context_dependency() -> None:
     context_sources = (
-        ROOT / "apps/armi-runtime/src/armi_runtime/composition/context_compiler.py",
-        ROOT / "apps/armi-runtime/src/armi_runtime/composition/context_pipeline.py",
+        ROOT / "modules/context/src/armi_context/_compiler.py",
+        ROOT / "modules/context/src/armi_context/_application.py",
     )
     for source in context_sources:
         value = source.read_text(encoding="utf-8")

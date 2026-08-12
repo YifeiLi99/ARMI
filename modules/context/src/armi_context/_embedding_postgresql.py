@@ -8,8 +8,6 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
-    EmbeddingResponse,
-    RecallStatus,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -19,9 +17,10 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
-from .context import ContextMaterialSource
-from .unit_of_work import PostgreSQLUnitOfWork
+from ._postgresql import ContextMaterialSource
+from .api import EmbeddingResponse, RecallStatus
 
 _WORK_KIND = "context.embedding.project"
 _EMBEDDING_BINDING_ID = "armi.embedding.volcengine-ark-doubao-vision-250615-v1"
@@ -57,9 +56,9 @@ class PostgreSQLContextEmbeddingRepository:
 
     async def enqueue_one_missing(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ) -> bool:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         material = await self._materials.next_missing_source(
             unit_of_work.transaction,
             model_binding=_EMBEDDING_BINDING_ID,
@@ -122,10 +121,10 @@ class PostgreSQLContextEmbeddingRepository:
 
     async def load_source(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
     ) -> EmbeddingProjectionSource | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         work = await (
             await connection.execute(
                 """
@@ -184,13 +183,13 @@ class PostgreSQLContextEmbeddingRepository:
 
     async def prepare_attempt(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         source: EmbeddingProjectionSource,
         chunk_ordinal: int,
         text: str,
     ) -> UUID:
         attempt_id = uuid7()
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await connection.execute(
             """
             UPDATE armi.context_embedding_attempts
@@ -232,9 +231,9 @@ class PostgreSQLContextEmbeddingRepository:
         return attempt_id
 
     async def mark_dispatched(
-        self, unit_of_work: PostgreSQLUnitOfWork, attempt_id: UUID
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, attempt_id: UUID
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await connection.execute(
             """
             UPDATE armi.context_embedding_attempts
@@ -246,7 +245,7 @@ class PostgreSQLContextEmbeddingRepository:
 
     async def settle_success(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         attempt_id: UUID,
         source: EmbeddingProjectionSource,
@@ -254,7 +253,7 @@ class PostgreSQLContextEmbeddingRepository:
         text: str,
         response: EmbeddingResponse,
     ) -> UUID:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         projection_id = uuid7()
         vector = "[" + ",".join(format(item, ".17g") for item in response.vector) + "]"
         await connection.execute(
@@ -295,11 +294,11 @@ class PostgreSQLContextEmbeddingRepository:
 
     async def settle_failure(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         attempt_id: UUID,
         error_code: str,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await connection.execute(
             """
             UPDATE armi.context_embedding_attempts
@@ -311,7 +310,7 @@ class PostgreSQLContextEmbeddingRepository:
 
     async def recall(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         subject_id: UUID,
         life_generation_id: UUID,

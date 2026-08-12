@@ -5,16 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
-from pathlib import Path
+from dataclasses import dataclass
 from typing import cast
 from uuid import UUID, uuid7
 
 import rfc8785
 from armi_activity.api import ActivityReadPort
-from armi_artifact_store.content_store import (
+from armi_artifact_store import (
     ContentAddressedArtifactStore,
-)
-from armi_artifact_store.life_material_codec import (
     parse_life_material_artifact,
 )
 from armi_kernel.application import (
@@ -30,17 +28,8 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     CognitiveEpisodeId,
-    ContextItemCandidate,
-    ContextRequest,
-    ContextRequirement,
-    ContextSection,
-    ContextSourceIdentity,
-    ContextTrustClass,
-    ContextViolation,
-    CredentialLocator,
-    CredentialPort,
+    DurableWorkPort,
     ModelViolation,
-    RuntimeFence,
     WorkLease,
     WorkViolation,
 )
@@ -51,48 +40,41 @@ from armi_mood.api import MoodReadPort
 from armi_opportunity.api import OpportunitySelector
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
-from armi_runtime.adapters.model.volcengine_embedding import (
-    VolcengineArkEmbeddingAdapter,
-)
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
-)
-from armi_runtime.adapters.persistence.context import (
+from ._compiler import CONTEXT_POLICY_VERSION, DeterministicContextCompiler
+from ._embedding import RecallStatus
+from ._embedding_postgresql import PostgreSQLContextEmbeddingRepository, RecalledContext
+from ._postgresql import (
     ContextArtifactSource,
     ContextEpisodeSnapshot,
     ContextMaterialSource,
     ContextSceneTurnSource,
     PostgreSQLContextRepository,
 )
-from armi_runtime.adapters.persistence.context_embedding import (
-    PostgreSQLContextEmbeddingRepository,
-    RecalledContext,
-)
-from armi_runtime.adapters.persistence.durable_work import (
-    PostgreSQLDurableWorkGateway,
-)
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWork,
-    PostgreSQLUnitOfWorkFactory,
-)
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .context_compiler import (
-    CONTEXT_POLICY_VERSION,
-    DeterministicContextCompiler,
-)
-from .context_embedding import RecallStatus, load_embedding_binding
-from .context_profiles import ContextAssemblyProfile, context_profile
-from .work_wakeup import (
-    CONTEXT_PREPARE,
-    MODEL_INVOKE,
-    OPPORTUNITY_AVAILABLE,
-    WorkWakeupBus,
+from ._profiles import ContextAssemblyProfile, context_profile
+from .api import (
+    ContextArtifactCatalogPort,
+    ContextItemCandidate,
+    ContextRequest,
+    ContextRequirement,
+    ContextSection,
+    ContextSourceIdentity,
+    ContextTrustClass,
+    ContextViolation,
+    ContextWakeupPort,
+    EmbeddingPort,
 )
 
+CONTEXT_PREPARE = "cognition.context.prepare"
+MODEL_INVOKE = "cognition.model.invoke"
+OPPORTUNITY_AVAILABLE = "opportunity.available"
 _WORK_KIND = "cognition.context.prepare"
 Diagnostic = Callable[[str], None]
 
@@ -103,6 +85,58 @@ async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
 
 def _ignore_diagnostic(_event: str) -> None:
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class _Pulse:
+    version: int
+    event: asyncio.Event
+
+
+class _LocalWakeups:
+    def __init__(self) -> None:
+        self._pulses: dict[str, _Pulse] = {}
+
+    def version(self, channel: str) -> int:
+        return self._pulse(channel).version
+
+    def notify(self, channel: str) -> None:
+        current = self._pulse(channel)
+        current.event.set()
+        self._pulses[channel] = _Pulse(current.version + 1, asyncio.Event())
+
+    async def wait(
+        self,
+        channel: str,
+        after_version: int,
+        *,
+        stop: asyncio.Event,
+        timeout_seconds: float,
+    ) -> int:
+        current = self._pulse(channel)
+        if current.version != after_version or stop.is_set():
+            return current.version
+        pulse_wait = asyncio.create_task(current.event.wait())
+        stop_wait = asyncio.create_task(stop.wait())
+        try:
+            await asyncio.wait(
+                (pulse_wait, stop_wait),
+                timeout=timeout_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for task in (pulse_wait, stop_wait):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(pulse_wait, stop_wait, return_exceptions=True)
+        return self.version(channel)
+
+    def _pulse(self, channel: str) -> _Pulse:
+        current = self._pulses.get(channel)
+        if current is None:
+            current = _Pulse(0, asyncio.Event())
+            self._pulses[channel] = current
+        return current
 
 
 class ContextPipeline(OpportunitySelector):
@@ -128,8 +162,10 @@ class ContextPipeline(OpportunitySelector):
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        catalog: ContextArtifactCatalogPort,
+        work: DurableWorkPort,
         activity_read: ActivityReadPort,
         memory_read: MemoryReadPort,
         memory_projection: MemoryProjectionPort,
@@ -141,9 +177,9 @@ class ContextPipeline(OpportunitySelector):
         subject_state_read: SubjectStateReadPort,
         policy_version: str = CONTEXT_POLICY_VERSION,
         web_search_active: bool = False,
-        wakeups: WorkWakeupBus | None = None,
+        wakeups: ContextWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
-        embedding: VolcengineArkEmbeddingAdapter | None = None,
+        embedding: EmbeddingPort | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
@@ -158,12 +194,12 @@ class ContextPipeline(OpportunitySelector):
             prompts=prompt_read,
             subject_state=subject_state_read,
         )
-        self._catalog = ArtifactCatalogRepository()
+        self._catalog = catalog
         self._compiler = DeterministicContextCompiler()
-        self._work = PostgreSQLDurableWorkGateway(factory)
+        self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
-        self._wakeups = wakeups or WorkWakeupBus()
+        self._wakeups = wakeups or _LocalWakeups()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._embedding = embedding
         self._embedding_repository = PostgreSQLContextEmbeddingRepository(
@@ -174,7 +210,7 @@ class ContextPipeline(OpportunitySelector):
         try:
             await self._factory.open()
             await self._storage.prepare()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise ContextViolation("CTX-DATABASE") from None
         except ArtifactViolation:
             raise ContextViolation("CTX-ARTIFACT") from None
@@ -195,7 +231,7 @@ class ContextPipeline(OpportunitySelector):
             return selected
         except ContextViolation:
             raise
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             raise ContextViolation("CTX-DATABASE") from None
 
     async def prepare_once(self) -> bool:
@@ -299,7 +335,7 @@ class ContextPipeline(OpportunitySelector):
         except ArtifactViolation:
             await self._fail_if_current(lease, "CTX-SOURCE-READ-FAILED")
             return True
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("context.prepare.transient_failure")
             return True
 
@@ -347,7 +383,7 @@ class ContextPipeline(OpportunitySelector):
                 read_only=True,
             ) as unit_of_work:
                 return await self._repository.snapshot(unit_of_work, lease)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise ContextViolation("CTX-DATABASE") from None
 
     async def _read_source(
@@ -393,7 +429,7 @@ class ContextPipeline(OpportunitySelector):
                     life_generation_id=snapshot.life_generation_id,
                     query_vector=response.vector,
                 )
-        except UnicodeDecodeError, ModelViolation, DatabaseTransactionError:
+        except UnicodeDecodeError, ModelViolation, RuntimeTransactionFailure:
             return RecalledContext(RecallStatus.UNAVAILABLE, (), ())
 
     async def _read_material_source(
@@ -496,7 +532,7 @@ class ContextPipeline(OpportunitySelector):
                     lease=lease,
                     code=code,
                 )
-        except ContextViolation, DatabaseTransactionError, WorkViolation:
+        except ContextViolation, RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("context.prepare.failure_settlement_deferred")
 
 
@@ -1286,7 +1322,7 @@ def _capability_catalog_bytes(
 
 
 def _artifact_audit(
-    unit_of_work: PostgreSQLUnitOfWork,
+    unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ref: ArtifactRef,
     snapshot: ContextEpisodeSnapshot,
 ) -> AuditDraft:
@@ -1304,69 +1340,4 @@ def _artifact_audit(
     )
 
 
-def build_context_pipeline(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    activity_read: ActivityReadPort,
-    memory_read: MemoryReadPort,
-    memory_projection: MemoryProjectionPort,
-    mood_read: MoodReadPort,
-    prompt_read: PromptReadPort,
-    material_projection: MaterialProjectionPort,
-    relationship_read: RelationshipReadPort,
-    sleep_read: SleepReadPort,
-    subject_state_read: SubjectStateReadPort,
-    web_search_active: bool = False,
-    wakeups: WorkWakeupBus | None = None,
-    diagnostic: Diagnostic | None = None,
-    credential_port: CredentialPort | None = None,
-    embedding_credential_locator: CredentialLocator | None = None,
-) -> ContextPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    return ContextPipeline(
-        factory=factory,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        ),
-        activity_read=activity_read,
-        memory_read=memory_read,
-        memory_projection=memory_projection,
-        mood_read=mood_read,
-        prompt_read=prompt_read,
-        material_projection=material_projection,
-        relationship_read=relationship_read,
-        sleep_read=sleep_read,
-        subject_state_read=subject_state_read,
-        web_search_active=web_search_active,
-        wakeups=wakeups,
-        diagnostic=diagnostic,
-        embedding=(
-            VolcengineArkEmbeddingAdapter(
-                binding=load_embedding_binding(),
-                credential_port=credential_port,
-                locator=embedding_credential_locator,
-            )
-            if credential_port is not None and embedding_credential_locator is not None
-            else None
-        ),
-    )
-
-
-__all__ = ("ContextPipeline", "build_context_pipeline")
+__all__ = ("ContextPipeline",)

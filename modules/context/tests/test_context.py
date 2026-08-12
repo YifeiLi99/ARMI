@@ -8,22 +8,20 @@ from uuid import uuid7
 
 import pytest
 import rfc8785
-from armi_kernel.application import ContextItemDisposition, ContextViolation
-from armi_kernel.contracts import Digest, TraceId
-from armi_runtime.adapters.persistence.capability_context import (
-    _capability_state_payload,
-)
-from armi_runtime.adapters.persistence.context import (
-    ContextEpisodeSnapshot,
-    ContextMaterialSource,
-    ContextSceneTurnSource,
-)
-from armi_runtime.composition.context_compiler import DeterministicContextCompiler
-from armi_runtime.composition.context_pipeline import (
+from armi_context._application import (
     ContextPipeline,
     _context_request,
     _recent_scene_artifact_contract,
 )
+from armi_context._capability import _capability_state_payload
+from armi_context._compiler import DeterministicContextCompiler
+from armi_context._postgresql import (
+    ContextEpisodeSnapshot,
+    ContextMaterialSource,
+    ContextSceneTurnSource,
+)
+from armi_context.api import ContextItemDisposition, ContextViolation
+from armi_kernel.contracts import Digest, TraceId
 
 
 def _snapshot(

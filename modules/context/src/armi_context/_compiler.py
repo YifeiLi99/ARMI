@@ -6,7 +6,8 @@ import json
 from typing import Any, cast
 
 import rfc8785
-from armi_kernel.application import (
+
+from .api import (
     CompiledContext,
     ContextCompiler,
     ContextItemCandidate,
@@ -242,10 +243,10 @@ def _scene_speaker(result: ContextItemResult) -> object:
     if content is None:
         return None
     try:
-        value = json.loads(content)
+        value = cast(object, json.loads(content))
     except json.JSONDecodeError:
         return None
-    return value.get("speaker") if isinstance(value, dict) else None
+    return cast(dict[str, object], value).get("speaker") if isinstance(value, dict) else None
 
 
 def _source(candidate: ContextItemCandidate) -> dict[str, object]:

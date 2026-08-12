@@ -1,26 +1,12 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
+from pathlib import Path
 from typing import Any, Self
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
-    ContextItemCandidate,
-    ContextLayer,
-    ContextRequirement,
-    ContextSection,
-    ContextSourceIdentity,
-    ContextTrustClass,
-    ContextViolation,
-    CredentialLocator,
-    CredentialPurpose,
-    ModelViolation,
-)
-from armi_runtime.adapters.model.volcengine_embedding import (
-    VolcengineArkEmbeddingAdapter,
-)
-from armi_runtime.composition.context_embedding import (
+from armi_context._embedding import (
     EMBEDDING_BINDING_ID,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL_ID,
@@ -29,8 +15,28 @@ from armi_runtime.composition.context_embedding import (
     chunk_life_material,
     load_embedding_binding,
 )
-from armi_runtime.composition.context_profiles import context_profile
+from armi_context._profiles import context_profile
+from armi_context.api import (
+    ContextItemCandidate,
+    ContextLayer,
+    ContextRequirement,
+    ContextSection,
+    ContextSourceIdentity,
+    ContextTrustClass,
+    ContextViolation,
+)
+from armi_kernel.application import (
+    CredentialLocator,
+    CredentialPurpose,
+    ModelViolation,
+)
+from armi_runtime.adapters.model.volcengine_embedding import (
+    VolcengineArkEmbeddingAdapter,
+)
 from armi_runtime.composition.model_contract import load_purpose_binding
+
+ROOT = Path(__file__).resolve().parents[3]
+MODEL_BINDINGS = ROOT / "configs/model-bindings.yaml"
 
 
 class _Handle(AbstractContextManager["_Handle"]):
@@ -67,7 +73,7 @@ class _Transport:
 
 
 def test_embedding_binding_is_fixed_and_uses_independent_purpose() -> None:
-    binding = load_embedding_binding()
+    binding = load_embedding_binding(MODEL_BINDINGS)
     assert binding.model_binding == EMBEDDING_BINDING_ID
     assert binding.model_id == EMBEDDING_MODEL_ID
     assert binding.dimensions == 1024
@@ -88,7 +94,7 @@ def test_life_material_chunking_is_deterministic_with_fixed_overlap() -> None:
 
 @pytest.mark.asyncio
 async def test_embedding_adapter_enforces_1024_dimensions() -> None:
-    binding = load_embedding_binding()
+    binding = load_embedding_binding(MODEL_BINDINGS)
     adapter = VolcengineArkEmbeddingAdapter(
         binding=binding,
         credential_port=_Credentials(),

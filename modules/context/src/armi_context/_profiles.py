@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from armi_kernel.application import (
+from .api import (
     ContextItemCandidate,
     ContextLayer,
     ContextRequirement,

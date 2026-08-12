@@ -26,6 +26,7 @@
     "modules/perception/src",
     "modules/evidence/src",
     "modules/opportunity/src",
+    "modules/context/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -50,6 +51,7 @@
     "modules/perception/src",
     "modules/evidence/src",
     "modules/opportunity/src",
+    "modules/context/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

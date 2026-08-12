@@ -178,6 +178,43 @@ dependencies = [
 requires-dist = [{ name = "httpx", specifier = "==0.28.1" }]
 
 [[package]]
+name = "armi-context"
+version = "0.0.0"
+source = { editable = "modules/context" }
+dependencies = [
+    { name = "armi-activity" },
+    { name = "armi-artifact-store" },
+    { name = "armi-kernel" },
+    { name = "armi-material" },
+    { name = "armi-memory" },
+    { name = "armi-mood" },
+    { name = "armi-opportunity" },
+    { name = "armi-prompt" },
+    { name = "armi-relationship" },
+    { name = "armi-runtime-foundation" },
+    { name = "armi-sleep" },
+    { name = "armi-subject-state" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-activity", editable = "modules/activity" },
+    { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-material", editable = "modules/material" },
+    { name = "armi-memory", editable = "modules/memory" },
+    { name = "armi-mood", editable = "modules/mood" },
+    { name = "armi-opportunity", editable = "modules/opportunity" },
+    { name = "armi-prompt", editable = "modules/prompt" },
+    { name = "armi-relationship", editable = "modules/relationship" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "armi-sleep", editable = "modules/sleep" },
+    { name = "armi-subject-state", editable = "modules/subject-state" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
 name = "armi-evidence"
 version = "0.0.0"
 source = { editable = "modules/evidence" }
@@ -405,6 +442,7 @@ dependencies = [
     { name = "armi-activity" },
     { name = "armi-adapter-qq" },
     { name = "armi-artifact-store" },
+    { name = "armi-context" },
     { name = "armi-evidence" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
@@ -436,6 +474,7 @@ requires-dist = [
     { name = "armi-activity", editable = "modules/activity" },
     { name = "armi-adapter-qq", editable = "packages/armi-adapter-qq" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-context", editable = "modules/context" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },

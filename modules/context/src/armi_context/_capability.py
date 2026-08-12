@@ -7,7 +7,8 @@ from typing import Any, cast
 from uuid import UUID
 
 import rfc8785
-from armi_kernel.application import ContextViolation
+
+from .api import ContextViolation
 
 type CapabilityStatePayload = tuple[UUID, int, bytes, str]
 _MAX_JSON_SAFE_INTEGER = (1 << 53) - 1
