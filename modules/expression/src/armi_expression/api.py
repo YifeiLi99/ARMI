@@ -1,4 +1,4 @@
-"""Technology-neutral Creator response and formal no-action contracts."""
+"""Public contracts for ARMI intention and expression."""
 
 from __future__ import annotations
 
@@ -8,7 +8,13 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-_CODE = re.compile(r"^(?:CON|RESPONSE|ACTION|POLICY|SCOPE)-[A-Z0-9-]+$", re.ASCII)
+from armi_kernel.application import ArtifactRef
+from armi_kernel.contracts import TraceId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+_CODE = re.compile(
+    r"^(?:CON|RESPONSE|ACTION|POLICY|SCOPE|SUBJECT)-[A-Z0-9-]+$", re.ASCII
+)
 _PROPOSAL = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
 
@@ -69,6 +75,43 @@ class CreatorResponseOperationId:
 
     def __post_init__(self) -> None:
         _uuid7(self.value, "CON-RESPONSE-OPERATION-ID")
+
+
+@dataclass(frozen=True, slots=True)
+class ExpressionCommitContext:
+    """Frozen subject-commit identity visible to the expression owner."""
+
+    validation_id: UUID
+    episode_id: UUID
+    opportunity_id: UUID
+    root_opportunity_id: UUID
+    subject_id: UUID
+    generation_id: UUID
+    scene_id: UUID | None
+    creator_party_id: UUID | None
+    other_party_id: UUID | None
+    opportunity_purpose: str
+    trace_id: TraceId
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.validation_id,
+            self.episode_id,
+            self.opportunity_id,
+            self.root_opportunity_id,
+            self.subject_id,
+            self.generation_id,
+        ):
+            _uuid7(value, "CON-RESPONSE-COMMIT-CONTEXT")
+        for value in (self.scene_id, self.creator_party_id, self.other_party_id):
+            if value is not None:
+                _uuid7(value, "CON-RESPONSE-COMMIT-CONTEXT")
+        if (
+            type(self.opportunity_purpose) is not str
+            or not self.opportunity_purpose
+            or type(self.trace_id) is not TraceId
+        ):
+            raise ResponseViolation("CON-RESPONSE-COMMIT-CONTEXT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +279,34 @@ class ResponseAdmissionPort(Protocol):
         ...
 
 
+@runtime_checkable
+class ExpressionCommitPort(Protocol):
+    async def commit(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: ExpressionCommitContext,
+        commit_id: UUID,
+        choices: tuple[ResponseChoiceDraft, ...],
+        response_artifact: ArtifactRef | None,
+    ) -> None:
+        """Commit an accepted expression inside the caller-owned transaction."""
+        ...
+
+    async def record_terminal(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: ExpressionCommitContext,
+        application_id: UUID,
+        application_status: str,
+        choices: tuple[ResponseChoiceDraft, ...],
+        activity_owned: bool,
+    ) -> None:
+        """Record a committed silence, refusal, or deferred social response."""
+        ...
+
+
 def _proposal(proposal_ref: str, group_ref: str, basis: tuple[int, ...]) -> None:
     if (
         type(proposal_ref) is not str
@@ -259,6 +330,8 @@ __all__ = (
     "ActionIntentId",
     "CreatorReplyDraft",
     "CreatorResponseOperationId",
+    "ExpressionCommitContext",
+    "ExpressionCommitPort",
     "FormalNoActionDraft",
     "FormalNoActionId",
     "FormalNoActionKind",

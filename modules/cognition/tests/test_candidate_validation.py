@@ -15,6 +15,7 @@ import pytest
 import rfc8785
 from armi_activity.api import ActivityStatus, default_activity_cognition
 from armi_cognition import (
+    CandidateValidationStatus,
     parse_subject_change_set as _parse_subject_change_set,
 )
 from armi_cognition._candidate_postgresql import (
@@ -36,19 +37,20 @@ from armi_cognition._validator import (
     _memory_source_kind,
     _relationship_wire,
 )
+from armi_expression.api import (
+    CreatorReplyDraft,
+    OtherHumanEndConversationDraft,
+    OtherHumanReplyDraft,
+)
 from armi_kernel.application import (
     CandidateBasis,
     CandidateFactClass,
     CandidateOwner,
     CandidateOwnerDraft,
-    CandidateValidationStatus,
     CodexDelegatedWorkScope,
     CodexDelegationDraft,
-    CreatorReplyDraft,
     CreatorSceneReplyScope,
     LifeRecordKind,
-    OtherHumanEndConversationDraft,
-    OtherHumanReplyDraft,
     SubjectCommitViolation,
 )
 from armi_kernel.contracts import Digest

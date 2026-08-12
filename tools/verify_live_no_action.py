@@ -25,11 +25,13 @@ from armi_cognition import (
     load_active_binding,
     parse_candidate,
 )
-from armi_kernel.application import (
-    CandidateBasis,
+from armi_expression.api import (
     FormalNoActionDraft,
     FormalNoActionKind,
     FormalNoActionReason,
+)
+from armi_kernel.application import (
+    CandidateBasis,
     ModelResultStatus,
 )
 from armi_kernel.contracts import Digest

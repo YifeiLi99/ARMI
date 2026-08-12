@@ -28,6 +28,8 @@ from armi_context.api import ContextEmbeddingRuntimePort, ContextRuntimePort
 from armi_context.bootstrap import bootstrap_context, bootstrap_context_embedding
 from armi_evidence.api import EvidenceWritePort
 from armi_evidence.bootstrap import EvidenceModule, bootstrap_evidence
+from armi_expression.api import ResponseViolation
+from armi_expression.bootstrap import bootstrap_expression
 from armi_interaction.api import CreatorInputTransactionPort
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel.application import (
@@ -45,7 +47,6 @@ from armi_kernel.application import (
     ModelBinding,
     ModelViolation,
     OtherHumanRecordViolation,
-    ResponseViolation,
     RuntimeFence,
     SubjectCommitViolation,
     WebObservationViolation,
@@ -523,6 +524,8 @@ def compose_interaction_module(
             status="unavailable",
             exit_code=3,
         ) from None
+
+
 def compose_activity_module(
     prepared: PreparedEnvironment,
     *,
@@ -1677,6 +1680,10 @@ def compose_subject_commit_pipeline(
                 except UnicodeDecodeError:
                     raise SubjectCommitViolation("SUBJECT-DATABASE") from None
                 config = prepared.effective.config
+                expression = bootstrap_expression(
+                    relationship_read,
+                    relationship_policy,
+                )
                 return build_subject_commit_pipeline(
                     conninfo,
                     environment_id=config.environment.environment_id,
@@ -1690,6 +1697,7 @@ def compose_subject_commit_pipeline(
                     activity_cognition=activity_cognition,
                     activity_commit=activity_commit,
                     evidence=evidence,
+                    expression_commit=expression.commit,
                     memory_commit=memory_commit,
                     memory_cognition=memory_cognition,
                     mood_commit=mood_commit,
@@ -1700,8 +1708,6 @@ def compose_subject_commit_pipeline(
                     material_commit=material_commit,
                     relationship_cognition=relationship_cognition,
                     relationship_commit=relationship_commit,
-                    relationship_read=relationship_read,
-                    relationship_policy=relationship_policy,
                     sleep_cognition=sleep_cognition,
                     sleep_commit=sleep_commit,
                     subject_state_cognition=subject_state_cognition,

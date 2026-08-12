@@ -15,6 +15,7 @@ import rfc8785
 import verify_codex_runner
 from armi_cognition import (
     CandidateValidationContext,
+    CandidateValidationStatus,
     DeterministicCandidateValidator,
     build_request_bytes,
     candidate_schema,
@@ -24,7 +25,6 @@ from armi_cognition import (
 )
 from armi_kernel.application import (
     CandidateBasis,
-    CandidateValidationStatus,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
     CodexDelegationDraft,

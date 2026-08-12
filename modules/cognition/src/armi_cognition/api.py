@@ -15,6 +15,13 @@ from armi_kernel.application import (
 )
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
+from ._contracts import (
+    CandidateValidationResult,
+    CandidateValidationStatus,
+    CandidateValidator,
+    SubjectChangeSet,
+)
+
 
 @runtime_checkable
 class CognitionArtifactRegistration(Protocol):
@@ -106,6 +113,9 @@ class CognitionWorkerPort(Protocol):
 
 
 __all__ = (
+    "CandidateValidationResult",
+    "CandidateValidationStatus",
+    "CandidateValidator",
     "CognitionArtifactCatalogPort",
     "CognitionArtifactRegistration",
     "CognitionCandidateParser",
@@ -114,4 +124,5 @@ __all__ = (
     "CognitionModelPort",
     "CognitionWakeupPort",
     "CognitionWorkerPort",
+    "SubjectChangeSet",
 )

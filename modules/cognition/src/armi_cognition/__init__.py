@@ -10,6 +10,9 @@ from ._model_contract import (
 )
 from ._validator import CandidateValidationContext, DeterministicCandidateValidator
 from .api import (
+    CandidateValidationResult,
+    CandidateValidationStatus,
+    CandidateValidator,
     CognitionArtifactCatalogPort,
     CognitionArtifactRegistration,
     CognitionCandidateParser,
@@ -18,10 +21,14 @@ from .api import (
     CognitionModelPort,
     CognitionWakeupPort,
     CognitionWorkerPort,
+    SubjectChangeSet,
 )
 
 __all__ = (
     "CandidateValidationContext",
+    "CandidateValidationResult",
+    "CandidateValidationStatus",
+    "CandidateValidator",
     "CognitionArtifactCatalogPort",
     "CognitionArtifactRegistration",
     "CognitionCandidateParser",
@@ -31,6 +38,7 @@ __all__ = (
     "CognitionWakeupPort",
     "CognitionWorkerPort",
     "DeterministicCandidateValidator",
+    "SubjectChangeSet",
     "build_request_bytes",
     "candidate_schema",
     "checked_model_request",

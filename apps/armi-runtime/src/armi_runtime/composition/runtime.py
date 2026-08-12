@@ -17,6 +17,7 @@ from uuid import uuid7
 import uvicorn
 from armi_activity.api import ActivityViolation
 from armi_context.api import ContextViolation
+from armi_expression.api import ResponseViolation
 from armi_interaction.api import (
     CreatorInputCommand,
     CreatorInputViolation,
@@ -35,7 +36,6 @@ from armi_kernel.application import (
     OtherHumanRecordViolation,
     RecoveryStatus,
     RecoveryViolation,
-    ResponseViolation,
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
     SubjectCommitViolation,

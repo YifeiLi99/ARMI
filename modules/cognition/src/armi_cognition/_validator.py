@@ -19,6 +19,14 @@ from armi_activity.api import (
     CandidateActivityDraft,
     default_activity_cognition,
 )
+from armi_expression.api import (
+    CreatorReplyDraft,
+    FormalNoActionDraft,
+    FormalNoActionKind,
+    FormalNoActionReason,
+    OtherHumanEndConversationDraft,
+    OtherHumanReplyDraft,
+)
 from armi_kernel.application import (
     CandidateBasis,
     CandidateDisposition,
@@ -29,8 +37,6 @@ from armi_kernel.application import (
     CandidateOwnerDraft,
     CandidateRejection,
     CandidateValidationId,
-    CandidateValidationResult,
-    CandidateValidationStatus,
     CandidateViolation,
     CapabilityKind,
     CapabilityOperation,
@@ -38,16 +44,9 @@ from armi_kernel.application import (
     CodexDelegatedWorkScope,
     CodexDelegationDraft,
     CodexTaskSourceId,
-    CreatorReplyDraft,
     CreatorSceneReplyScope,
-    FormalNoActionDraft,
-    FormalNoActionKind,
-    FormalNoActionReason,
     LifeRecordKind,
     ModelViolation,
-    OtherHumanEndConversationDraft,
-    OtherHumanReplyDraft,
-    SubjectChangeSet,
     WebResearchRequestDraft,
 )
 from armi_kernel.contracts import Digest
@@ -138,6 +137,11 @@ from ._autonomous_activity_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AutonomousTerminalDecision,
     StartActivityDecision,
+)
+from ._contracts import (
+    CandidateValidationResult,
+    CandidateValidationStatus,
+    SubjectChangeSet,
 )
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,

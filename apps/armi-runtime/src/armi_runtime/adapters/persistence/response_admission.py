@@ -8,8 +8,14 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_kernel.application import (
+from armi_expression.api import (
     ActionIntentId,
+    CreatorResponseOperationId,
+    ResponseAdmissionResult,
+    ResponseAdmissionStatus,
+    ResponseViolation,
+)
+from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
     ArtifactPrivacyScope,
@@ -19,10 +25,6 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CreatorResponseOperationId,
-    ResponseAdmissionResult,
-    ResponseAdmissionStatus,
-    ResponseViolation,
     WorkDraft,
     WorkId,
     WorkLease,

@@ -8,6 +8,12 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 from armi_activity.api import ActivityReadPort
+from armi_expression.api import (
+    CreatorReplyDraft,
+    FormalNoActionDraft,
+    OtherHumanEndConversationDraft,
+    OtherHumanReplyDraft,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -25,16 +31,9 @@ from armi_kernel.application import (
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
-    CandidateValidationResult,
-    CandidateValidationStatus,
     CandidateViolation,
     CapabilityRequestDraft,
     CodexDelegationDraft,
-    CreatorReplyDraft,
-    FormalNoActionDraft,
-    OtherHumanEndConversationDraft,
-    OtherHumanReplyDraft,
-    SubjectChangeSet,
     WebResearchRequestDraft,
     WorkDraft,
     WorkId,
@@ -63,6 +62,12 @@ from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
+
+from ._contracts import (
+    CandidateValidationResult,
+    CandidateValidationStatus,
+    SubjectChangeSet,
+)
 
 _WORK_KIND = "cognition.candidate.validate"
 _COMMIT_WORK_KIND = "cognition.subject.commit"

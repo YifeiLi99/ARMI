@@ -18,6 +18,14 @@ from armi_activity.api import (
     CandidateActivityDraft,
     default_activity_cognition,
 )
+from armi_expression.api import (
+    CreatorReplyDraft,
+    FormalNoActionDraft,
+    FormalNoActionKind,
+    FormalNoActionReason,
+    OtherHumanEndConversationDraft,
+    OtherHumanReplyDraft,
+)
 from armi_kernel.application import (
     CandidateDisposition,
     CandidateExactLifeQueryDraft,
@@ -33,15 +41,8 @@ from armi_kernel.application import (
     CodexDelegatedWorkScope,
     CodexDelegationDraft,
     CodexTaskSourceId,
-    CreatorReplyDraft,
     CreatorSceneReplyScope,
-    FormalNoActionDraft,
-    FormalNoActionKind,
-    FormalNoActionReason,
     LifeRecordKind,
-    OtherHumanEndConversationDraft,
-    OtherHumanReplyDraft,
-    SubjectChangeSet,
     SubjectCommitViolation,
     WebResearchRequestDraft,
 )
@@ -110,6 +111,8 @@ from armi_subject_state.api import (
     SubjectStateViolation,
     default_subject_state_cognition,
 )
+
+from ._contracts import SubjectChangeSet
 
 _TOP_KEYS_V1 = {
     "schema_version",

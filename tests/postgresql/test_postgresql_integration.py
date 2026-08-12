@@ -60,6 +60,8 @@ from armi_cognition._validator import (
     DeterministicCandidateValidator,
 )
 from armi_evidence.bootstrap import bootstrap_evidence
+from armi_expression.api import CreatorReplyDraft, ResponseAdmissionStatus
+from armi_expression.bootstrap import bootstrap_expression
 from armi_interaction._creator_postgresql import CreatorInputRepository
 from armi_interaction._external import ExternalMessageInputService
 from armi_interaction._external_postgresql import ExternalMessageInputRepository
@@ -104,7 +106,6 @@ from armi_kernel.application import (
     CreatorCodexTaskCommand,
     CreatorGrantCommand,
     CreatorGrantDecision,
-    CreatorReplyDraft,
     CreatorSceneReplyScope,
     CredentialLocator,
     EffectStatus,
@@ -116,7 +117,6 @@ from armi_kernel.application import (
     PersonalityAnchor,
     PostCommitAction,
     RecoveryStatus,
-    ResponseAdmissionStatus,
     RuntimeAuthorityRecord,
     RuntimeAuthorityViolation,
     RuntimeFence,
@@ -5678,16 +5678,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             subject_state_module = bootstrap_subject_state()
             mood_module = bootstrap_mood()
             prompt_module = bootstrap_prompt()
+            expression_module = bootstrap_expression(
+                relationship_module.read,
+                relationship_module.policy,
+            )
             repository = PostgreSQLSubjectCommitRepository(
                 activity_commit=activity_module.commit,
                 evidence=bootstrap_evidence().write,
+                expression_commit=expression_module.commit,
                 memory_commit=memory_module.commit,
                 mood_commit=mood_module.commit,
                 prompt_commit=prompt_module.commit,
                 material_commit=material_module.commit,
                 relationship_commit=relationship_module.commit,
-                relationship_read=relationship_module.read,
-                relationship_policy=relationship_module.policy,
                 sleep_commit=sleep_module.commit,
                 subject_state_commit=subject_state_module.commit,
             )

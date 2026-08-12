@@ -251,6 +251,18 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-expression",
+        module="armi_expression",
+        project_dir=Path("modules/expression"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-relationship==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-cognition",
         module="armi_cognition",
         project_dir=Path("modules/cognition"),
@@ -258,6 +270,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-activity==0.0.0",
             "armi-artifact-store==0.0.0",
+            "armi-expression==0.0.0",
             "armi-kernel==0.0.0",
             "armi-material==0.0.0",
             "armi-memory==0.0.0",
@@ -300,6 +313,7 @@ DISTRIBUTIONS = (
             "armi-cognition==0.0.0",
             "armi-context==0.0.0",
             "armi-evidence==0.0.0",
+            "armi-expression==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "armi-opportunity==0.0.0",
@@ -939,6 +953,17 @@ def _check_import(
             }
         )
         or (
+            source_distribution == "armi-expression"
+            and target_distribution
+            not in {
+                None,
+                "armi-expression",
+                "armi-kernel",
+                "armi-relationship",
+                "armi-runtime-foundation",
+            }
+        )
+        or (
             source_distribution == "armi-cognition"
             and target_distribution
             not in {
@@ -946,6 +971,7 @@ def _check_import(
                 "armi-activity",
                 "armi-artifact-store",
                 "armi-cognition",
+                "armi-expression",
                 "armi-kernel",
                 "armi-material",
                 "armi-memory",
@@ -1084,6 +1110,9 @@ def _check_import(
         "armi-cognition": frozenset(
             {"armi_cognition", "armi_cognition.api", "armi_cognition.bootstrap"}
         ),
+        "armi-expression": frozenset(
+            {"armi_expression", "armi_expression.api", "armi_expression.bootstrap"}
+        ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
         ),
@@ -1191,8 +1220,9 @@ def _check_import(
                     "Prompt bootstrap is reserved for Runtime/Admin composition",
                 )
             )
-        if imported_module == "armi_interaction.bootstrap" and not source_module.startswith(
-            "armi_runtime.composition"
+        if (
+            imported_module == "armi_interaction.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
         ):
             violations.append(
                 Violation(
@@ -1202,8 +1232,9 @@ def _check_import(
                     "interaction bootstrap is reserved for Runtime composition",
                 )
             )
-        if imported_module == "armi_perception.bootstrap" and not source_module.startswith(
-            "armi_runtime.composition"
+        if (
+            imported_module == "armi_perception.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
         ):
             violations.append(
                 Violation(
@@ -1213,8 +1244,9 @@ def _check_import(
                     "perception bootstrap is reserved for Runtime composition",
                 )
             )
-        if imported_module == "armi_evidence.bootstrap" and not source_module.startswith(
-            "armi_runtime.composition"
+        if (
+            imported_module == "armi_evidence.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
         ):
             violations.append(
                 Violation(
@@ -1247,8 +1279,9 @@ def _check_import(
                     "Context bootstrap is reserved for Runtime composition",
                 )
             )
-        if imported_module == "armi_cognition.bootstrap" and not source_module.startswith(
-            "armi_runtime.composition"
+        if (
+            imported_module == "armi_cognition.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
         ):
             violations.append(
                 Violation(
@@ -1256,6 +1289,18 @@ def _check_import(
                     path,
                     line,
                     "cognition bootstrap is reserved for Runtime composition",
+                )
+            )
+        if (
+            imported_module == "armi_expression.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "expression bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1431,8 +1476,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "modules/interaction/src/armi_interaction/api.py",
         "armi_interaction.bootstrap": root
         / "modules/interaction/src/armi_interaction/bootstrap.py",
-        "armi_perception": root
-        / "modules/perception/src/armi_perception/__init__.py",
+        "armi_perception": root / "modules/perception/src/armi_perception/__init__.py",
         "armi_perception.api": root / "modules/perception/src/armi_perception/api.py",
         "armi_perception.bootstrap": root
         / "modules/perception/src/armi_perception/bootstrap.py",
@@ -1454,6 +1498,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_cognition.api": root / "modules/cognition/src/armi_cognition/api.py",
         "armi_cognition.bootstrap": root
         / "modules/cognition/src/armi_cognition/bootstrap.py",
+        "armi_expression": root / "modules/expression/src/armi_expression/__init__.py",
+        "armi_expression.api": root / "modules/expression/src/armi_expression/api.py",
+        "armi_expression.bootstrap": root
+        / "modules/expression/src/armi_expression/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1724,6 +1772,26 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "model attempt writes are owned by armi-cognition",
                     )
                 )
+            if (
+                distribution.name != "armi-expression"
+                and ".runtime_resources.schema.alembic." not in module
+                and "armi_runtime.adapters.persistence.subject_commit" not in module
+                and re.search(
+                    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:action_intents|action_intent_revisions)\b"
+                    r"|\bINSERT\s+INTO\s+armi\.dialogue_decisions\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-EXPRESSION-SQL",
+                        relative,
+                        1,
+                        "expression intent writes are owned by armi-expression",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1814,6 +1882,17 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                     f"default Runtime composition must bind the {module_name} module",
                 )
             )
+    database_path = root / "apps/armi-runtime/src/armi_runtime/composition/database.py"
+    database_source = database_path.read_text(encoding="utf-8")
+    if "expression = bootstrap_expression(" not in database_source:
+        violations.append(
+            Violation(
+                "ARC-ACTIVE-MODULE",
+                _relative(database_path, root),
+                1,
+                "default Runtime composition must bind the expression module",
+            )
+        )
     return violations
 
 

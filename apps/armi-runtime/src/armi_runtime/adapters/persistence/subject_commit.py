@@ -13,7 +13,13 @@ from armi_activity.api import (
     ActivityCommitPort,
     ActivityViolation,
 )
+from armi_cognition import SubjectChangeSet
 from armi_evidence.api import EvidenceId, EvidenceWritePort, ExperienceEvidenceLink
+from armi_expression.api import (
+    ExpressionCommitContext,
+    ExpressionCommitPort,
+    ResponseViolation,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -30,14 +36,9 @@ from armi_kernel.application import (
     CandidateExactLifeQueryDraft,
     CapabilityRequestDraft,
     CodexDelegationDraft,
-    CreatorReplyDraft,
     CreatorSceneReplyScope,
     ExperienceId,
-    FormalNoActionDraft,
-    OtherHumanEndConversationDraft,
-    OtherHumanReplyDraft,
     RuntimeFence,
-    SubjectChangeSet,
     SubjectCommitId,
     SubjectCommitResult,
     SubjectCommitViolation,
@@ -64,12 +65,7 @@ from armi_memory.api import (
 )
 from armi_mood.api import MoodCommitPort, MoodViolation
 from armi_prompt.api import PromptCommitPort, PromptViolation
-from armi_relationship.api import (
-    RelationshipCommitPort,
-    RelationshipPolicyPort,
-    RelationshipReadPort,
-    RelationshipViolation,
-)
+from armi_relationship.api import RelationshipCommitPort, RelationshipViolation
 from armi_sleep.api import (
     SleepCommitContext,
     SleepCommitPort,
@@ -80,7 +76,6 @@ from armi_subject_state.api import SubjectStateCommitPort, SubjectStateViolation
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.subject.commit"
-_RESPONSE_WORK_KIND = "cognition.response.admit"
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,19 +138,36 @@ def _activity_commit_context(snapshot: SubjectCommitSnapshot) -> ActivityCommitC
     )
 
 
+def _expression_commit_context(
+    snapshot: SubjectCommitSnapshot,
+) -> ExpressionCommitContext:
+    return ExpressionCommitContext(
+        snapshot.validation_id,
+        snapshot.episode_id,
+        snapshot.opportunity_id,
+        snapshot.root_opportunity_id,
+        snapshot.subject_id,
+        snapshot.generation_id,
+        snapshot.scene_id,
+        snapshot.creator_party_id,
+        snapshot.other_party_id,
+        snapshot.opportunity_purpose,
+        snapshot.trace_id,
+    )
+
+
 class PostgreSQLSubjectCommitRepository:
     """Read one validated ChangeSet and atomically apply or settle it."""
 
     __slots__ = (
         "_activity_commit",
         "_evidence",
+        "_expression_commit",
         "_material_commit",
         "_memory_commit",
         "_mood_commit",
         "_prompt_commit",
         "_relationship_commit",
-        "_relationship_policy",
-        "_relationships",
         "_sleep_commit",
         "_subject_state_commit",
     )
@@ -164,25 +176,23 @@ class PostgreSQLSubjectCommitRepository:
         self,
         activity_commit: ActivityCommitPort,
         evidence: EvidenceWritePort,
+        expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
         mood_commit: MoodCommitPort,
         prompt_commit: PromptCommitPort,
         material_commit: MaterialCommitPort,
         relationship_commit: RelationshipCommitPort,
-        relationship_read: RelationshipReadPort,
-        relationship_policy: RelationshipPolicyPort,
         sleep_commit: SleepCommitPort,
         subject_state_commit: SubjectStateCommitPort,
     ) -> None:
         self._activity_commit = activity_commit
         self._evidence = evidence
+        self._expression_commit = expression_commit
         self._memory_commit = memory_commit
         self._mood_commit = mood_commit
         self._prompt_commit = prompt_commit
         self._material_commit = material_commit
         self._relationship_commit = relationship_commit
-        self._relationships = relationship_read
-        self._relationship_policy = relationship_policy
         self._sleep_commit = sleep_commit
         self._subject_state_commit = subject_state_commit
 
@@ -517,6 +527,7 @@ class PostgreSQLSubjectCommitRepository:
         if await _data_rights_block_subject_commit(connection, snapshot):
             return await _settle_data_rights_blocked(
                 unit_of_work,
+                expression_commit=self._expression_commit,
                 lease=lease,
                 snapshot=snapshot,
                 observed_version=change_set.base_subject_version,
@@ -579,9 +590,7 @@ class PostgreSQLSubjectCommitRepository:
                 drafts=change_set.owner_drafts,
             )
         except PromptViolation as error:
-            raise SubjectCommitViolation(
-                f"SUBJECT-{error.code}"
-            ) from None
+            raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
         try:
             sleep_heads_current = await self._sleep_commit.heads_match(
                 unit_of_work.transaction,
@@ -648,6 +657,7 @@ class PostgreSQLSubjectCommitRepository:
             return await _settle_without_commit(
                 unit_of_work,
                 activity_commit=self._activity_commit,
+                expression_commit=self._expression_commit,
                 sleep_commit=self._sleep_commit,
                 lease=lease,
                 snapshot=snapshot,
@@ -855,9 +865,7 @@ class PostgreSQLSubjectCommitRepository:
                 artifacts=prompt_artifacts,
             )
         except PromptViolation as error:
-            raise SubjectCommitViolation(
-                f"SUBJECT-{error.code}"
-            ) from None
+            raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
         for prompt_document_id in changed_prompt_ids:
             await unit_of_work.audit.append(
                 _audit(
@@ -898,15 +906,16 @@ class PostgreSQLSubjectCommitRepository:
             commit_id=commit_id,
             requests=change_set.capability_requests,
         )
-        await _insert_response_intent(
-            unit_of_work,
-            relationships=self._relationships,
-            relationship_policy=self._relationship_policy,
-            snapshot=snapshot,
-            commit_id=commit_id,
-            change_set=change_set,
-            response_artifact=response_artifact,
-        )
+        try:
+            await self._expression_commit.commit(
+                unit_of_work,
+                context=_expression_commit_context(snapshot),
+                commit_id=commit_id.value,
+                choices=change_set.action_choices,
+                response_artifact=response_artifact,
+            )
+        except ResponseViolation as error:
+            raise SubjectCommitViolation(error.code) from None
         await _insert_web_research_intent(
             unit_of_work,
             snapshot=snapshot,
@@ -1115,6 +1124,7 @@ async def _settle_without_commit(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
     activity_commit: ActivityCommitPort,
+    expression_commit: ExpressionCommitPort,
     sleep_commit: SleepCommitPort,
     lease: WorkLease,
     snapshot: SubjectCommitSnapshot,
@@ -1157,13 +1167,6 @@ async def _settle_without_commit(
         observed_version=observed_version,
         successor_id=successor_id,
     )
-    if snapshot.opportunity_purpose == "consider_other_human_input":
-        await _insert_other_human_terminal_decision(
-            connection,
-            snapshot=snapshot,
-            application_id=application_id,
-            status=status,
-        )
     try:
         await activity_commit.record_decision(
             unit_of_work.transaction,
@@ -1189,21 +1192,19 @@ async def _settle_without_commit(
         raise SubjectCommitViolation(
             f"SUBJECT-{error.code.removeprefix('SLEEP-')}"
         ) from None
-    if (
-        snapshot.opportunity_purpose != "consider_other_human_input"
-        and not any(item.owner == "activity" for item in change_set.owner_drafts)
-        and status
-        in {
-            CandidateApplicationStatus.DECLINED,
-            CandidateApplicationStatus.NO_ACTION,
-        }
-    ):
-        await _insert_formal_no_action(
+    try:
+        await expression_commit.record_terminal(
             unit_of_work,
-            snapshot=snapshot,
-            application_id=application_id,
-            change_set=change_set,
+            context=_expression_commit_context(snapshot),
+            application_id=application_id.value,
+            application_status=status.value,
+            choices=change_set.action_choices,
+            activity_owned=any(
+                item.owner == "activity" for item in change_set.owner_drafts
+            ),
         )
+    except ResponseViolation as error:
+        raise SubjectCommitViolation(error.code) from None
     await _finish_episode_and_work(
         unit_of_work,
         lease=lease,
@@ -1279,6 +1280,7 @@ async def _data_rights_block_subject_commit(
 async def _settle_data_rights_blocked(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
+    expression_commit: ExpressionCommitPort,
     lease: WorkLease,
     snapshot: SubjectCommitSnapshot,
     observed_version: int,
@@ -1296,13 +1298,17 @@ async def _settle_data_rights_blocked(
         observed_version=observed_version,
         successor_id=None,
     )
-    if snapshot.opportunity_purpose == "consider_other_human_input":
-        await _insert_other_human_terminal_decision(
-            connection,
-            snapshot=snapshot,
-            application_id=application_id,
-            status=status,
+    try:
+        await expression_commit.record_terminal(
+            unit_of_work,
+            context=_expression_commit_context(snapshot),
+            application_id=application_id.value,
+            application_status=status.value,
+            choices=(),
+            activity_owned=True,
         )
+    except ResponseViolation as error:
+        raise SubjectCommitViolation(error.code) from None
     await _finish_episode_and_work(
         unit_of_work,
         lease=lease,
@@ -1682,587 +1688,6 @@ async def _grant_local_creator_reply(
     )
 
 
-async def _insert_response_intent(
-    unit_of_work: PostgreSQLUnitOfWork,
-    *,
-    relationships: RelationshipReadPort,
-    relationship_policy: RelationshipPolicyPort,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    change_set: SubjectChangeSet,
-    response_artifact: ArtifactRef | None,
-) -> None:
-    other_replies = tuple(
-        item
-        for item in change_set.action_choices
-        if isinstance(item, OtherHumanReplyDraft)
-    )
-    endings = tuple(
-        item
-        for item in change_set.action_choices
-        if isinstance(item, OtherHumanEndConversationDraft)
-    )
-    if snapshot.opportunity_purpose == "consider_other_human_input":
-        if other_replies or endings:
-            await _insert_other_human_action(
-                unit_of_work,
-                relationships=relationships,
-                relationship_policy=relationship_policy,
-                snapshot=snapshot,
-                commit_id=commit_id,
-                replies=other_replies,
-                endings=endings,
-                response_artifact=response_artifact,
-            )
-        else:
-            await _insert_other_human_change_terminal_decision(
-                unit_of_work,
-                snapshot=snapshot,
-                commit_id=commit_id,
-                change_set=change_set,
-                response_artifact=response_artifact,
-            )
-        return
-    replies = tuple(
-        item
-        for item in change_set.action_choices
-        if isinstance(item, CreatorReplyDraft)
-    )
-    if not replies:
-        if response_artifact is not None:
-            raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
-        return
-    if len(replies) != 1 or response_artifact is None:
-        raise SubjectCommitViolation("SUBJECT-RESPONSE-COUNT")
-    reply = replies[0]
-    if (
-        reply.subject_id != snapshot.subject_id
-        or reply.scene_id != snapshot.scene_id
-        or reply.creator_party_id != snapshot.creator_party_id
-    ):
-        raise SubjectCommitViolation("SUBJECT-RESPONSE-SCOPE")
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    item = await (
-        await connection.execute(
-            """
-            SELECT validation_status
-            FROM armi.cognitive_candidate_validation_items
-            WHERE candidate_validation_id = %s AND proposal_ref = %s
-              AND owner_kind = 'action'
-            """,
-            (snapshot.validation_id, reply.proposal_ref),
-        )
-    ).fetchone()
-    if item is None or str(item[0]) != "accepted":
-        raise SubjectCommitViolation("SUBJECT-RESPONSE-VALIDATION")
-    action_id = uuid7()
-    revision_id = uuid7()
-    await connection.execute(
-        """
-        INSERT INTO armi.action_intents (
-            action_intent_id, subject_id, scene_id,
-            context_party_id, root_opportunity_id, purpose,
-            current_revision_id, action_kind) VALUES (%s, %s, %s, %s, %s, 'respond_to_creator', NULL, 'party_response')
-        """,
-        (
-            action_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.creator_party_id,
-            snapshot.root_opportunity_id,
-        ),
-    )
-    await _finish_creator_response_intent(
-        unit_of_work,
-        connection=connection,
-        snapshot=snapshot,
-        commit_id=commit_id,
-        reply=reply,
-        response_artifact=response_artifact,
-        action_id=action_id,
-        revision_id=revision_id,
-    )
-
-
-async def _insert_other_human_change_terminal_decision(
-    unit_of_work: PostgreSQLUnitOfWork,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    change_set: SubjectChangeSet,
-    response_artifact: ArtifactRef | None,
-) -> None:
-    no_actions = tuple(
-        item
-        for item in change_set.action_choices
-        if isinstance(item, FormalNoActionDraft)
-    )
-    if (
-        snapshot.scene_id is None
-        or snapshot.other_party_id is None
-        or snapshot.creator_party_id is not None
-        or response_artifact is not None
-        or len(no_actions) > 1
-        or len(no_actions) != len(change_set.action_choices)
-    ):
-        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-TERMINAL")
-    decision_kind = "silence" if no_actions else "defer"
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    await connection.execute(
-        """
-        INSERT INTO armi.dialogue_decisions (
-            dialogue_decision_id, opportunity_id,
-            cognitive_episode_id, candidate_validation_id,
-            subject_commit_id, subject_id, scene_id, context_party_id,
-            decision_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            uuid7(),
-            snapshot.opportunity_id,
-            snapshot.episode_id,
-            snapshot.validation_id,
-            commit_id.value,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.other_party_id,
-            decision_kind,
-        ),
-    )
-
-
-async def _insert_other_human_action(
-    unit_of_work: PostgreSQLUnitOfWork,
-    *,
-    relationships: RelationshipReadPort,
-    relationship_policy: RelationshipPolicyPort,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    replies: tuple[OtherHumanReplyDraft, ...],
-    endings: tuple[OtherHumanEndConversationDraft, ...],
-    response_artifact: ArtifactRef | None,
-) -> None:
-    if (
-        snapshot.scene_id is None
-        or snapshot.other_party_id is None
-        or snapshot.creator_party_id is not None
-        or len(replies) + len(endings) != 1
-    ):
-        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCOPE")
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    route = await (
-        await connection.execute(
-            """
-            SELECT scene.scene_kind, scene.primary_party_id,
-                   group_binding.external_binding_id,
-                   person_binding.external_binding_id,
-                   context_party.party_kind
-            FROM armi.interaction_scenes AS scene
-            JOIN armi.parties AS context_party ON context_party.party_id = %s
-            LEFT JOIN armi.external_channel_bindings AS group_binding
-              ON group_binding.scene_id = scene.scene_id
-             AND group_binding.party_id = scene.primary_party_id
-             AND group_binding.external_kind = 'group'
-             AND group_binding.status = 'active'
-            LEFT JOIN armi.external_channel_bindings AS person_binding
-              ON person_binding.scene_id = scene.scene_id
-             AND person_binding.party_id = %s
-             AND person_binding.external_kind = 'person'
-             AND person_binding.status = 'active'
-            WHERE scene.scene_id = %s AND scene.subject_id = %s
-              AND scene.current_status = 'open'
-              AND scene.scene_kind IN ('other_human_dialogue', 'group_dialogue')
-            """,
-            (
-                snapshot.other_party_id,
-                snapshot.other_party_id,
-                snapshot.scene_id,
-                snapshot.subject_id,
-            ),
-        )
-    ).fetchone()
-    if route is None:
-        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
-    group_route = str(route[0]) == "group_dialogue"
-    private_route = str(route[0]) == "other_human_dialogue" and route[3] is not None
-    relationship_scope = (
-        "creator_social" if route[4] == "creator" else "other_human_social"
-    )
-    if group_route:
-        if route[2] is None:
-            raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
-    elif route[1] != snapshot.other_party_id or route[2] is not None:
-        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
-    destination_party_id = route[1] if group_route else snapshot.other_party_id
-    destination_binding_id = route[2] if group_route else route[3]
-    action = replies[0] if replies else endings[0]
-    if (
-        action.subject_id != snapshot.subject_id
-        or action.scene_id != snapshot.scene_id
-        or action.other_party_id != snapshot.other_party_id
-    ):
-        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCOPE")
-    decision_id = uuid7()
-    if endings:
-        if group_route:
-            raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-GROUP-END")
-        if response_artifact is not None:
-            raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.interaction_scenes
-                SET current_status = 'closed', closed_at = statement_timestamp(),
-                    scene_version = scene_version + 1
-                WHERE scene_id = %s AND subject_id = %s
-                  AND primary_party_id = %s
-                  AND scene_kind = 'other_human_dialogue'
-                  AND current_status = 'open'
-                RETURNING scene_id
-                """,
-                (snapshot.scene_id, snapshot.subject_id, snapshot.other_party_id),
-            )
-        ).fetchone()
-        if updated is None:
-            raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-SCENE")
-        await connection.execute(
-            """
-            INSERT INTO armi.dialogue_decisions (
-                dialogue_decision_id, opportunity_id,
-                cognitive_episode_id, candidate_validation_id,
-                subject_commit_id, subject_id, scene_id, context_party_id,
-                decision_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'end_conversation')
-            """,
-            (
-                decision_id,
-                snapshot.opportunity_id,
-                snapshot.episode_id,
-                snapshot.validation_id,
-                commit_id.value,
-                snapshot.subject_id,
-                snapshot.scene_id,
-                snapshot.other_party_id,
-            ),
-        )
-        return
-    reply = replies[0]
-    if response_artifact is None:
-        raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
-    relationship = await relationships.current_for_party(
-        unit_of_work.transaction,
-        subject_id=snapshot.subject_id,
-        generation_id=snapshot.generation_id,
-        other_party_id=snapshot.other_party_id,
-        scope=relationship_scope,
-    )
-    if relationship is not None and not relationship_policy.allows_snapshot_contact(
-        relationship
-    ):
-        raise SubjectCommitViolation("SUBJECT-RELATIONSHIP-BOUNDARY")
-    action_id = uuid7()
-    revision_id = uuid7()
-    operation_id = uuid7()
-    effect_id = uuid7()
-    capability_kind = (
-        "external.group.message.send"
-        if group_route
-        else "external.private.message.send"
-        if private_route
-        else "local.other-human-inbox.deliver"
-    )
-    audience_scope = "social_group" if group_route else "other_human"
-    effect_kind = (
-        "external_group_delivery"
-        if group_route
-        else "external_private_delivery"
-        if private_route
-        else "local_inbox_delivery"
-    )
-    authorization_basis = (
-        "runtime_configuration" if group_route or private_route else "runtime_builtin"
-    )
-    destination_kind = (
-        "external_group"
-        if group_route
-        else "external_private"
-        if private_route
-        else "other_human_inbox"
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.action_intents (
-            action_intent_id, subject_id, scene_id, context_party_id,
-            root_opportunity_id, purpose, current_revision_id, action_kind) VALUES (%s, %s, %s, %s, %s, 'respond_to_other_human', NULL, 'party_response')
-        """,
-        (
-            action_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.other_party_id,
-            snapshot.root_opportunity_id,
-        ),
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.action_intent_revisions (
-            action_intent_revision_id, action_intent_id,
-            revision_no, response_artifact_id, response_digest, response_bytes,
-            media_type, capability_kind, operation_class, audience_scope,
-            data_scope, purpose, candidate_validation_id, proposal_ref,
-            subject_commit_id) VALUES (%s, %s, 1, %s, %s, %s, 'text/plain',
-            %s, 'send', %s,
-            'declared_party_response', 'respond_to_other_human', %s, %s, %s)
-        """,
-        (
-            revision_id,
-            action_id,
-            response_artifact.artifact_id.value,
-            response_artifact.content_digest.value,
-            len(reply.content_bytes),
-            capability_kind,
-            audience_scope,
-            snapshot.validation_id,
-            reply.proposal_ref,
-            commit_id.value,
-        ),
-    )
-    await connection.execute(
-        """UPDATE armi.action_intents
-           SET current_revision_id = %s
-           WHERE action_intent_id = %s""",
-        (revision_id, action_id),
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.dialogue_decisions (
-            dialogue_decision_id, opportunity_id,
-            cognitive_episode_id, candidate_validation_id,
-            subject_commit_id, subject_id, scene_id, context_party_id,
-            proposal_ref, decision_kind, action_intent_id, effect_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, NULL)
-        """,
-        (
-            decision_id,
-            snapshot.opportunity_id,
-            snapshot.episode_id,
-            snapshot.validation_id,
-            commit_id.value,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.other_party_id,
-            reply.proposal_ref,
-            action_id,
-        ),
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.action_operations (
-            operation_id, root_opportunity_id, subject_id, scene_id,
-            context_party_id, action_intent_id, dialogue_decision_id,
-            phase, outcome, operation_kind) VALUES (%s, %s, %s, %s, %s, %s, %s,
-                  'admitted', NULL, 'party_response')
-        """,
-        (
-            operation_id,
-            snapshot.root_opportunity_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.other_party_id,
-            action_id,
-            decision_id,
-        ),
-    )
-    registration_digest = Digest.from_bytes(
-        rfc8785.dumps(
-            {
-                "effect_id": str(effect_id),
-                "revision_id": str(revision_id),
-                "scene_id": str(snapshot.scene_id),
-                "other_party_id": str(snapshot.other_party_id),
-                "destination_party_id": str(destination_party_id),
-                "destination_binding_id": (
-                    None
-                    if destination_binding_id is None
-                    else str(destination_binding_id)
-                ),
-                "response_digest": response_artifact.content_digest.value,
-            }
-        )
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.effects (
-            effect_id, action_intent_revision_id, action_intent_id,
-            operation_id, subject_id, scene_id,
-            context_party_id, payload_artifact_id, payload_digest, payload_bytes,
-            effect_kind, capability_kind, operation_class, audience_scope,
-            data_scope, purpose, authorization_basis, destination_kind,
-            destination_party_id, destination_binding_id,
-            status, verification_status,
-            registration_digest, trace_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, 'send', %s, 'declared_party_response',
-            'respond_to_other_human', %s, %s,
-            %s, %s, 'registered', 'not_started', %s, %s)
-        """,
-        (
-            effect_id,
-            revision_id,
-            action_id,
-            operation_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.other_party_id,
-            response_artifact.artifact_id.value,
-            response_artifact.content_digest.value,
-            len(reply.content_bytes),
-            effect_kind,
-            capability_kind,
-            audience_scope,
-            authorization_basis,
-            destination_kind,
-            destination_party_id,
-            destination_binding_id,
-            registration_digest.value,
-            snapshot.trace_id.value,
-        ),
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.effect_outbox_items (
-            effect_outbox_item_id, effect_id, message_kind,
-            status, dispatch_deadline, max_attempts) VALUES (
-            %s, %s, 'effect.dispatch', 'ready',
-            statement_timestamp() + interval '1 hour', %s)
-        """,
-        (uuid7(), effect_id, 1 if group_route or private_route else 2),
-    )
-    await connection.execute(
-        """
-        UPDATE armi.action_operations
-        SET phase = 'effect_registered', effect_id = %s,
-            effect_registered_at = statement_timestamp()
-        WHERE operation_id = %s AND phase = 'admitted' AND outcome IS NULL
-        """,
-        (effect_id, operation_id),
-    )
-    await connection.execute(
-        """UPDATE armi.dialogue_decisions SET effect_id = %s
-           WHERE dialogue_decision_id = %s AND effect_id IS NULL""",
-        (effect_id, decision_id),
-    )
-
-
-async def _finish_creator_response_intent(
-    unit_of_work: PostgreSQLUnitOfWork,
-    *,
-    connection: Any,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    reply: CreatorReplyDraft,
-    response_artifact: ArtifactRef,
-    action_id: UUID,
-    revision_id: UUID,
-) -> None:
-    decision_id = uuid7()
-    await connection.execute(
-        """
-        INSERT INTO armi.action_intent_revisions (
-            action_intent_revision_id, action_intent_id, revision_no,
-            response_artifact_id, response_digest, response_bytes,
-            media_type, capability_kind, operation_class, audience_scope,
-            data_scope, purpose, candidate_validation_id, proposal_ref,
-            subject_commit_id) VALUES (
-            %s, %s, 1, %s, %s, %s, 'text/plain',
-            'creator.scene.reply', 'send', 'creator',
-            'creator_visible_response', 'respond_to_creator',
-            %s, %s, %s)
-        """,
-        (
-            revision_id,
-            action_id,
-            response_artifact.artifact_id.value,
-            response_artifact.content_digest.value,
-            len(reply.content_bytes),
-            snapshot.validation_id,
-            reply.proposal_ref,
-            commit_id.value,
-        ),
-    )
-    await connection.execute(
-        "UPDATE armi.action_intents SET current_revision_id = %s WHERE action_intent_id = %s",
-        (revision_id, action_id),
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.dialogue_decisions (
-            dialogue_decision_id, opportunity_id, cognitive_episode_id,
-            candidate_validation_id, subject_commit_id, subject_id, scene_id,
-            context_party_id, proposal_ref, decision_kind, action_intent_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s)
-        """,
-        (
-            decision_id,
-            snapshot.opportunity_id,
-            snapshot.episode_id,
-            snapshot.validation_id,
-            commit_id.value,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.creator_party_id,
-            reply.proposal_ref,
-            action_id,
-        ),
-    )
-    now_row = await (
-        await connection.execute("SELECT statement_timestamp()")
-    ).fetchone()
-    if now_row is None:
-        raise SubjectCommitViolation("SUBJECT-DATABASE")
-    work_id = WorkId(uuid7())
-    await unit_of_work.work.enqueue(
-        WorkDraft(
-            work_id,
-            _RESPONSE_WORK_KIND,
-            WorkOwner("action_intent", action_id),
-            IdempotencyKey(f"response-admit:{action_id}"),
-            response_artifact.content_digest,
-            50,
-            Instant(now_row[0]),
-            Instant(now_row[0] + timedelta(seconds=3600)),
-            2,
-            snapshot.trace_id,
-            SubjectId(snapshot.subject_id),
-            WorkPayloadRef("action_intent", action_id),
-        )
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.action_operations (
-            operation_id, root_opportunity_id, subject_id,
-            scene_id, context_party_id, action_intent_id, dialogue_decision_id,
-            admission_work_id, phase, outcome, operation_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
-                  'admission_pending', NULL, 'party_response')
-        """,
-        (
-            snapshot.root_opportunity_id,
-            snapshot.root_opportunity_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.creator_party_id,
-            action_id,
-            decision_id,
-            work_id.value,
-        ),
-    )
-    await unit_of_work.audit.append(
-        _audit(
-            unit_of_work,
-            snapshot,
-            "cognition.response.intent.recorded",
-            "action_intent",
-            action_id,
-            AuditResultStatus.ACCEPTED,
-        )
-    )
-
-
 async def _insert_web_research_intent(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
@@ -2561,122 +1986,6 @@ async def _insert_codex_delegation_intent(
             action_id,
             AuditResultStatus.ACCEPTED,
         )
-    )
-
-
-async def _insert_other_human_terminal_decision(
-    connection: Any,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    application_id: CandidateApplicationId,
-    status: CandidateApplicationStatus,
-) -> None:
-    if (
-        snapshot.scene_id is None
-        or snapshot.other_party_id is None
-        or snapshot.creator_party_id is not None
-        or status
-        not in {
-            CandidateApplicationStatus.NO_ACTION,
-            CandidateApplicationStatus.DEFERRED,
-        }
-    ):
-        raise SubjectCommitViolation("SUBJECT-OTHER-HUMAN-TERMINAL")
-    await connection.execute(
-        """
-        INSERT INTO armi.dialogue_decisions (
-            dialogue_decision_id, opportunity_id,
-            cognitive_episode_id, candidate_validation_id,
-            candidate_application_id, subject_id, scene_id, context_party_id,
-            decision_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            uuid7(),
-            snapshot.opportunity_id,
-            snapshot.episode_id,
-            snapshot.validation_id,
-            application_id.value,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.other_party_id,
-            "silence" if status is CandidateApplicationStatus.NO_ACTION else "defer",
-        ),
-    )
-
-
-async def _insert_formal_no_action(
-    unit_of_work: PostgreSQLUnitOfWork,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    application_id: CandidateApplicationId,
-    change_set: SubjectChangeSet,
-) -> None:
-    decisions = tuple(
-        item
-        for item in change_set.action_choices
-        if isinstance(item, FormalNoActionDraft)
-    )
-    if len(decisions) != 1:
-        raise SubjectCommitViolation("SUBJECT-NO-ACTION-COUNT")
-    decision = decisions[0]
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    rows = await (
-        await connection.execute(
-            """
-            SELECT basis.context_item_id
-            FROM armi.cognitive_candidate_basis_links AS basis
-            JOIN armi.cognitive_candidate_validation_items AS item
-              ON item.candidate_validation_id = basis.candidate_validation_id
-             AND item.proposal_ref = basis.proposal_ref
-             AND item.validation_status = 'accepted'
-             AND item.owner_kind = 'action'
-            WHERE basis.candidate_validation_id = %s AND basis.proposal_ref = %s
-            ORDER BY basis.ordinal
-            """,
-            (snapshot.validation_id, decision.proposal_ref),
-        )
-    ).fetchall()
-    if len(rows) != len(decision.basis_ordinals):
-        raise SubjectCommitViolation("SUBJECT-NO-ACTION-BASIS")
-    no_action_id = uuid7()
-    await connection.execute(
-        """
-        INSERT INTO armi.dialogue_decisions (
-            dialogue_decision_id, opportunity_id, candidate_application_id,
-            candidate_validation_id, proposal_ref, decision_kind,
-            reason_class, subject_id, scene_id, context_party_id) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            no_action_id,
-            snapshot.root_opportunity_id,
-            application_id.value,
-            snapshot.validation_id,
-            decision.proposal_ref,
-            "silence" if decision.kind.value == "no_action" else decision.kind.value,
-            decision.reason.value,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.creator_party_id,
-        ),
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.action_operations (
-            operation_id, root_opportunity_id, subject_id,
-            scene_id, context_party_id, dialogue_decision_id,
-            phase, outcome, completed_at, operation_kind) VALUES (
-            %s, %s, %s, %s, %s, %s, 'terminal', 'no_action',
-            statement_timestamp(), 'party_response')
-        """,
-        (
-            snapshot.root_opportunity_id,
-            snapshot.root_opportunity_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.creator_party_id,
-            no_action_id,
-        ),
     )
 
 

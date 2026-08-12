@@ -10,6 +10,7 @@ members = [
     "armi-artifact-store",
     "armi-channel-napcat",
     "armi-evidence",
+    "armi-expression",
     "armi-interaction",
     "armi-kernel",
     "armi-material",
@@ -184,6 +185,7 @@ source = { editable = "modules/cognition" }
 dependencies = [
     { name = "armi-activity" },
     { name = "armi-artifact-store" },
+    { name = "armi-expression" },
     { name = "armi-kernel" },
     { name = "armi-material" },
     { name = "armi-memory" },
@@ -201,6 +203,7 @@ dependencies = [
 requires-dist = [
     { name = "armi-activity", editable = "modules/activity" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
@@ -262,6 +265,25 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+]
+
+[[package]]
+name = "armi-expression"
+version = "0.0.0"
+source = { editable = "modules/expression" }
+dependencies = [
+    { name = "armi-kernel" },
+    { name = "armi-relationship" },
+    { name = "armi-runtime-foundation" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-relationship", editable = "modules/relationship" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "rfc8785", specifier = "==0.1.4" },
 ]
 
 [[package]]
@@ -482,6 +504,7 @@ dependencies = [
     { name = "armi-cognition" },
     { name = "armi-context" },
     { name = "armi-evidence" },
+    { name = "armi-expression" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-material" },
@@ -515,6 +538,7 @@ requires-dist = [
     { name = "armi-cognition", editable = "modules/cognition" },
     { name = "armi-context", editable = "modules/context" },
     { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-material", editable = "modules/material" },

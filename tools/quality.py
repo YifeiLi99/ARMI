@@ -133,6 +133,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             "armi_cognition",
             "armi_context",
             "armi_evidence",
+            "armi_expression",
             "armi_kernel",
             "armi_interaction",
             "armi_opportunity",
@@ -151,9 +152,9 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         wheels = [name for name in artifacts if name.endswith(".whl")]
         source_distributions = [name for name in artifacts if name.endswith(".tar.gz")]
         valid = (
-            len(artifacts) == 44
-            and len(wheels) == 22
-            and len(source_distributions) == 22
+            len(artifacts) == 46
+            and len(wheels) == 23
+            and len(source_distributions) == 23
             and all(
                 any(name.startswith(prefix) for name in wheels) for prefix in expected
             )

@@ -28,6 +28,7 @@
     "modules/opportunity/src",
     "modules/context/src",
     "modules/cognition/src",
+    "modules/expression/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -54,6 +55,7 @@
     "modules/opportunity/src",
     "modules/context/src",
     "modules/cognition/src",
+    "modules/expression/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

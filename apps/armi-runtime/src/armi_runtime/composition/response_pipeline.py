@@ -9,9 +9,9 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_expression.api import ResponseViolation
 from armi_kernel.application import (
     ArtifactViolation,
-    ResponseViolation,
     RuntimeFence,
     WorkLease,
     WorkViolation,

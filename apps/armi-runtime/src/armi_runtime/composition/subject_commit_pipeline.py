@@ -16,6 +16,11 @@ from armi_artifact_store.life_material_codec import (
 )
 from armi_cognition import parse_subject_change_set
 from armi_evidence.api import EvidenceWritePort
+from armi_expression.api import (
+    CreatorReplyDraft,
+    ExpressionCommitPort,
+    OtherHumanReplyDraft,
+)
 from armi_interaction.api import (
     SceneKey,
 )
@@ -34,8 +39,6 @@ from armi_kernel.application import (
     CreatorEventViolation,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
-    CreatorReplyDraft,
-    OtherHumanReplyDraft,
     PublishedArtifact,
     RuntimeFence,
     SubjectCommitResult,
@@ -52,8 +55,6 @@ from armi_prompt.api import PromptCognitionPort, PromptCommitPort
 from armi_relationship.api import (
     RelationshipCognitionPort,
     RelationshipCommitPort,
-    RelationshipPolicyPort,
-    RelationshipReadPort,
 )
 from armi_sleep.api import SleepCognitionPort, SleepCommitPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateCommitPort
@@ -125,6 +126,7 @@ class SubjectCommitPipeline:
         activity_cognition: ActivityCognitionPort,
         activity_commit: ActivityCommitPort,
         evidence: EvidenceWritePort,
+        expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
         memory_cognition: MemoryCognitionPort,
         mood_commit: MoodCommitPort,
@@ -135,8 +137,6 @@ class SubjectCommitPipeline:
         material_commit: MaterialCommitPort,
         relationship_cognition: RelationshipCognitionPort,
         relationship_commit: RelationshipCommitPort,
-        relationship_read: RelationshipReadPort,
-        relationship_policy: RelationshipPolicyPort,
         sleep_cognition: SleepCognitionPort,
         sleep_commit: SleepCommitPort,
         subject_state_cognition: SubjectStateCognitionPort,
@@ -161,13 +161,12 @@ class SubjectCommitPipeline:
         self._repository = PostgreSQLSubjectCommitRepository(
             activity_commit,
             evidence,
+            expression_commit,
             memory_commit,
             mood_commit,
             prompt_commit,
             material_commit,
             relationship_commit,
-            relationship_read,
-            relationship_policy,
             sleep_commit,
             subject_state_commit,
         )
@@ -722,6 +721,7 @@ def build_subject_commit_pipeline(
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
     evidence: EvidenceWritePort,
+    expression_commit: ExpressionCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
@@ -732,8 +732,6 @@ def build_subject_commit_pipeline(
     material_commit: MaterialCommitPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_commit: RelationshipCommitPort,
-    relationship_read: RelationshipReadPort,
-    relationship_policy: RelationshipPolicyPort,
     sleep_cognition: SleepCognitionPort,
     sleep_commit: SleepCommitPort,
     subject_state_cognition: SubjectStateCognitionPort,
@@ -760,6 +758,7 @@ def build_subject_commit_pipeline(
         activity_cognition=activity_cognition,
         activity_commit=activity_commit,
         evidence=evidence,
+        expression_commit=expression_commit,
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,
         mood_commit=mood_commit,
@@ -770,8 +769,6 @@ def build_subject_commit_pipeline(
         material_commit=material_commit,
         relationship_cognition=relationship_cognition,
         relationship_commit=relationship_commit,
-        relationship_read=relationship_read,
-        relationship_policy=relationship_policy,
         sleep_cognition=sleep_cognition,
         sleep_commit=sleep_commit,
         subject_state_cognition=subject_state_cognition,
