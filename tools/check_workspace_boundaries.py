@@ -111,6 +111,19 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-sleep",
+        module="armi_sleep",
+        project_dir=Path("modules/sleep"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -124,6 +137,7 @@ DISTRIBUTIONS = (
             "armi-runtime-foundation==0.0.0",
             "armi-relationship==0.0.0",
             "armi-memory==0.0.0",
+            "armi-sleep==0.0.0",
             "fastapi==0.140.13",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -534,6 +548,10 @@ def _literal_exports(
             bound_names.update(
                 target.id for target in targets if isinstance(target, ast.Name)
             )
+        elif isinstance(statement, ast.TypeAlias) and isinstance(
+            statement.name, ast.Name
+        ):
+            bound_names.add(statement.name.id)
     violations.extend(
         Violation(
             "ARC-SURFACE-EXPORT",
@@ -642,6 +660,16 @@ def _check_import(
                 "armi-memory",
             }
         )
+        or (
+            source_distribution == "armi-sleep"
+            and target_distribution
+            not in {
+                None,
+                "armi-kernel",
+                "armi-runtime-foundation",
+                "armi-sleep",
+            }
+        )
     )
     if reverse_dependency:
         violations.append(
@@ -720,6 +748,9 @@ def _check_import(
         "armi-memory": frozenset(
             {"armi_memory", "armi_memory.api", "armi_memory.bootstrap"}
         ),
+        "armi-sleep": frozenset(
+            {"armi_sleep", "armi_sleep.api", "armi_sleep.bootstrap"}
+        ),
     }
     if crosses_distribution and target_distribution in public_modules:
         if (
@@ -743,6 +774,17 @@ def _check_import(
                     path,
                     line,
                     "memory bootstrap is reserved for Runtime composition",
+                )
+            )
+        if imported_module == "armi_sleep.bootstrap" and not source_module.startswith(
+            "armi_runtime.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "sleep bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -889,6 +931,9 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_memory": root / "modules/memory/src/armi_memory/__init__.py",
         "armi_memory.api": root / "modules/memory/src/armi_memory/api.py",
         "armi_memory.bootstrap": root / "modules/memory/src/armi_memory/bootstrap.py",
+        "armi_sleep": root / "modules/sleep/src/armi_sleep/__init__.py",
+        "armi_sleep.api": root / "modules/sleep/src/armi_sleep/api.py",
+        "armi_sleep.bootstrap": root / "modules/sleep/src/armi_sleep/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -955,6 +1000,55 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "memory table SQL is owned by armi-memory",
                     )
                 )
+            if (
+                distribution.name != "armi-sleep"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:sleep_decisions|maintenance_sessions|"
+                    r"maintenance_session_revisions|maintenance_phase_results)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-SLEEP-SQL",
+                        relative,
+                        1,
+                        "sleep table SQL is owned by armi-sleep",
+                    )
+                )
+    runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
+    runtime_source = runtime_path.read_text(encoding="utf-8")
+    for module_name, required in {
+        "relationship": (
+            "relationship_module = compose_relationship_module(",
+            "relationship_module.read",
+            "relationship_module.commit",
+        ),
+        "memory": (
+            "memory_module = compose_memory_module(",
+            "memory_module.read",
+            "memory_module.commit",
+        ),
+        "sleep": (
+            "sleep_module = compose_sleep_module(",
+            "sleep_module.read",
+            "sleep_module.cognition",
+            "sleep_module.commit",
+            "sleep_module.maintenance",
+        ),
+    }.items():
+        if any(item not in runtime_source for item in required):
+            violations.append(
+                Violation(
+                    "ARC-ACTIVE-MODULE",
+                    _relative(runtime_path, root),
+                    1,
+                    f"default Runtime composition must bind the {module_name} module",
+                )
+            )
     return violations
 
 

@@ -7,13 +7,15 @@ from uuid import uuid7
 
 import pytest
 from armi_kernel.application import (
-    MaintenancePhase,
-    MaintenanceResultStatus,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
 )
-from armi_runtime.adapters.persistence.maintenance import MaintenanceProgress
 from armi_runtime.composition.life_opportunity import MaintenanceCoordinator
+from armi_sleep.api import (
+    MaintenancePhase,
+    MaintenanceProgress,
+    MaintenanceResultStatus,
+)
 
 
 class _Factory:
@@ -33,7 +35,6 @@ def _coordinator(
     return MaintenanceCoordinator(
         factory=cast(Any, _Factory()),
         repository=cast(Any, repository),
-        opportunities=cast(Any, repository),
         consideration_seconds=57_600,
         deadline_seconds=86_400,
         quiet_seconds=quiet_seconds,
@@ -53,7 +54,7 @@ async def test_active_session_checkpoint_precedes_new_sleep_window() -> None:
     )
     outcome = await _coordinator(repository).maintain_once()
     assert outcome.reason_code == "LIFE-MAINTENANCE-ADVANCED"
-    repository.maintain_sleep_window.assert_not_awaited()
+    repository.maintain_window.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -94,14 +95,14 @@ async def test_maintenance_phase_work_reports_first_admission_then_pending() -> 
 async def test_no_active_session_scans_the_objective_window() -> None:
     repository = AsyncMock()
     repository.maintain_active_session.return_value = None
-    repository.maintain_sleep_window.return_value = OpportunityAdmissionOutcome(
+    repository.maintain_window.return_value = OpportunityAdmissionOutcome(
         OpportunityAdmissionStatus.REJECTED,
         None,
         "LIFE-MAINTENANCE-NOT-DUE",
     )
     outcome = await _coordinator(repository).maintain_once()
-    assert outcome is repository.maintain_sleep_window.return_value
-    repository.maintain_sleep_window.assert_awaited_once()
+    assert outcome is repository.maintain_window.return_value
+    repository.maintain_window.assert_awaited_once()
 
 
 @pytest.mark.asyncio

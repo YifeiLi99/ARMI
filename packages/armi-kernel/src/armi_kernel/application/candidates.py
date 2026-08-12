@@ -19,7 +19,6 @@ from .life import (
 )
 from .life_materials import CandidateLifeMaterialDraft
 from .life_records import LifeRecordKind
-from .maintenance import MaintenancePhase, MaintenanceWorkOutcome, SleepDecisionKind
 from .response import ResponseChoiceDraft
 from .web_evidence import WebResearchRequestDraft
 
@@ -62,7 +61,6 @@ class CandidateOwner(StrEnum):
     MATERIAL = "material"
     PROMPT = "prompt"
     EXACT_LIFE_QUERY = "exact_life_query"
-    MAINTENANCE = "maintenance"
 
 
 class CandidateValidationStatus(StrEnum):
@@ -440,86 +438,6 @@ class CandidateActivityDecisionDraft:
 
 
 @dataclass(frozen=True, slots=True)
-class CandidateSleepDecisionDraft:
-    proposal_ref: str
-    atomic_group_ref: str
-    basis_ordinals: tuple[int, ...]
-    decision_kind: SleepDecisionKind
-    cycle_anchor_ref: UUID
-
-    def __post_init__(self) -> None:
-        _validate_proposal(
-            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
-        )
-        if (
-            type(self.decision_kind) is not SleepDecisionKind
-            or type(self.cycle_anchor_ref) is not UUID
-            or self.cycle_anchor_ref.version != 7
-        ):
-            raise CandidateViolation("CON-CANDIDATE-SLEEP")
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateMaintenanceDecisionDraft:
-    proposal_ref: str
-    atomic_group_ref: str
-    basis_ordinals: tuple[int, ...]
-    maintenance_session_id: UUID
-    current_revision_id: UUID
-    expected_head_version: int
-    phase: MaintenancePhase
-    outcome: MaintenanceWorkOutcome
-    result_summary: str
-    creator_visible_problem: str | None = None
-    memory_proposal_ref: str | None = None
-
-    def __post_init__(self) -> None:
-        _validate_proposal(
-            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
-        )
-        if (
-            any(
-                type(value) is not UUID or value.version != 7
-                for value in (self.maintenance_session_id, self.current_revision_id)
-            )
-            or type(self.expected_head_version) is not int
-            or self.expected_head_version <= 0
-            or self.phase
-            not in {MaintenancePhase.MEMORY_MAINTENANCE, MaintenancePhase.SELF_CHECK}
-            or type(self.outcome) is not MaintenanceWorkOutcome
-            or not _optional_text(self.result_summary, 2048)
-            or len(self.result_summary) > 512
-            or not _optional_text(self.creator_visible_problem, 2048)
-            or (
-                self.creator_visible_problem is not None
-                and len(self.creator_visible_problem) > 512
-            )
-            or (
-                self.memory_proposal_ref is not None
-                and (
-                    type(self.memory_proposal_ref) is not str
-                    or _REF.fullmatch(self.memory_proposal_ref) is None
-                    or self.memory_proposal_ref == self.proposal_ref
-                )
-            )
-        ):
-            raise CandidateViolation("CON-CANDIDATE-MAINTENANCE")
-        memory_phase = self.phase is MaintenancePhase.MEMORY_MAINTENANCE
-        memory_changed = self.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
-        if memory_phase != (
-            self.outcome
-            in {
-                MaintenanceWorkOutcome.MEMORY_CHANGED,
-                MaintenanceWorkOutcome.MEMORY_UNCHANGED,
-            }
-        ) or memory_changed != (self.memory_proposal_ref is not None):
-            raise CandidateViolation("CON-CANDIDATE-MAINTENANCE-SHAPE")
-        issue_found = self.outcome is MaintenanceWorkOutcome.ISSUE_FOUND
-        if issue_found != (self.creator_visible_problem is not None):
-            raise CandidateViolation("CON-CANDIDATE-MAINTENANCE-SHAPE")
-
-
-@dataclass(frozen=True, slots=True)
 class CandidateRejection:
     proposal_ref: str
     atomic_group_ref: str
@@ -565,12 +483,10 @@ class SubjectChangeSet:
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()
     activities: tuple[CandidateActivityDraft, ...] = ()
     activity_decisions: tuple[CandidateActivityDecisionDraft, ...] = ()
-    sleep_decisions: tuple[CandidateSleepDecisionDraft, ...] = ()
     owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
     materials: tuple[CandidateLifeMaterialDraft, ...] = ()
     prompts: tuple[CandidateSubjectPromptDraft, ...] = ()
     exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
-    maintenance_decisions: tuple[CandidateMaintenanceDecisionDraft, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -681,11 +597,9 @@ __all__ = (
     "CandidateExperienceDraft",
     "CandidateFactClass",
     "CandidateLifeMaterialDraft",
-    "CandidateMaintenanceDecisionDraft",
     "CandidateOwner",
     "CandidateOwnerDraft",
     "CandidateRejection",
-    "CandidateSleepDecisionDraft",
     "CandidateSubjectPromptDraft",
     "CandidateValidationId",
     "CandidateValidationResult",

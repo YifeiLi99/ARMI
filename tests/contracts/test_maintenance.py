@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import pytest
-from armi_kernel.application import (
+from armi_runtime.composition.sleep_decision_candidate_contract import (
+    parse_sleep_decision_candidate,
+)
+from armi_sleep.api import (
     MaintenancePhase,
     MaintenancePhaseState,
     MaintenanceResultStatus,
     MaintenanceViolation,
     plan_maintenance_checkpoint,
     validate_maintenance_advance,
-)
-from armi_runtime.composition.sleep_decision_candidate_contract import (
-    parse_sleep_decision_candidate,
 )
 from pydantic import ValidationError
 

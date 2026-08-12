@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
+from uuid import UUID
 
 
 @runtime_checkable
@@ -20,4 +21,22 @@ class PostgreSQLTransactionAccess(Protocol):
     def transaction(self) -> PostgreSQLTransaction: ...
 
 
-__all__ = ("PostgreSQLTransaction", "PostgreSQLTransactionAccess")
+@runtime_checkable
+class PostgreSQLRuntimeUnitOfWork(PostgreSQLTransactionAccess, Protocol):
+    """Active Runtime transaction surface required by business coordinators."""
+
+    @property
+    def environment_id(self) -> UUID: ...
+
+    @property
+    def runtime_fence(self) -> Any: ...
+
+    @property
+    def audit(self) -> Any: ...
+
+
+__all__ = (
+    "PostgreSQLRuntimeUnitOfWork",
+    "PostgreSQLTransaction",
+    "PostgreSQLTransactionAccess",
+)

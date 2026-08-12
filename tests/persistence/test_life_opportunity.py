@@ -31,10 +31,16 @@ class _RelationshipPolicy:
         return False
 
 
+class _SleepRead:
+    async def active_maintenance(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+
 def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepository:
     return PostgreSQLLifeOpportunityRepository(
         cast(Any, _Relationships(boundary=boundary)),
         cast(Any, _RelationshipPolicy()),
+        cast(Any, _SleepRead()),
     )
 
 

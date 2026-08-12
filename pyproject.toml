@@ -27,6 +27,7 @@ members = [
     "packages/armi-runtime-foundation",
     "modules/relationship",
     "modules/memory",
+    "modules/sleep",
     "apps/armi-runtime",
     "apps/armi-admin",
 ]
@@ -34,7 +35,12 @@ members = [
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]
 asyncio_mode = "strict"
-testpaths = ["tests", "modules/relationship/tests", "modules/memory/tests"]
+testpaths = [
+    "tests",
+    "modules/relationship/tests",
+    "modules/memory/tests",
+    "modules/sleep/tests",
+]
 
 [tool.ruff]
 target-version = "py314"

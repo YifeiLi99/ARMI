@@ -32,6 +32,7 @@ from armi_kernel.contracts import (
     TraceId,
 )
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
+from armi_sleep.api import SleepReadPort
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -39,179 +40,17 @@ from .unit_of_work import PostgreSQLUnitOfWork
 class PostgreSQLLifeOpportunityRepository:
     """Admit one source-backed root opportunity under the active Runtime fence."""
 
-    __slots__ = ("_relationship_policy", "_relationships")
+    __slots__ = ("_relationship_policy", "_relationships", "_sleep")
 
     def __init__(
         self,
         relationships: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
+        sleep: SleepReadPort,
     ) -> None:
         self._relationships = relationships
         self._relationship_policy = relationship_policy
-
-    async def maintain_sleep_window(
-        self,
-        unit_of_work: PostgreSQLUnitOfWork,
-        *,
-        consideration_after_seconds: int,
-        deadline_after_seconds: int,
-    ) -> OpportunityAdmissionOutcome:
-        """Admit the current sleep window or force its objective deadline."""
-
-        fence = unit_of_work.runtime_fence
-        if fence is None:
-            raise LifeViolation("LIFE-FENCE-REQUIRED")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        anchor = await (
-            await connection.execute(
-                """
-                SELECT anchor_kind, anchor_ref, anchor_at, subject_version, state_epoch
-                FROM (
-                    SELECT 'maintenance_session'::text AS anchor_kind,
-                           maintenance_session_id AS anchor_ref,
-                           finished_at AS anchor_at,
-                           subject.subject_version, subject.state_epoch, 0 AS priority
-                    FROM armi.maintenance_sessions AS session
-                    JOIN armi.subjects AS subject ON subject.subject_id = session.subject_id
-                    WHERE session.subject_id = %s
-                      AND session.life_generation_id = %s
-                      AND session.finished_at IS NOT NULL
-                    UNION ALL
-                    SELECT 'life_generation', generation.life_generation_id,
-                           generation.created_at, subject.subject_version,
-                           subject.state_epoch, 1
-                    FROM armi.life_generations AS generation
-                    JOIN armi.subjects AS subject ON subject.subject_id = generation.subject_id
-                    WHERE generation.subject_id = %s
-                      AND generation.life_generation_id = %s
-                      AND generation.status = 'active'
-                ) AS anchors
-                ORDER BY priority, anchor_at DESC
-                LIMIT 1
-                """,
-                (
-                    fence.subject_id,
-                    fence.life_generation_id,
-                    fence.subject_id,
-                    fence.life_generation_id,
-                ),
-            )
-        ).fetchone()
-        if anchor is None:
-            raise LifeViolation("LIFE-SOURCE-STALE")
-        anchor_at = anchor[2]
-        consideration_at = anchor_at + timedelta(seconds=consideration_after_seconds)
-        deadline_at = anchor_at + timedelta(seconds=deadline_after_seconds)
-        now = datetime.now(UTC)
-        if now >= deadline_at:
-            session_id = uuid7()
-            revision_id = uuid7()
-            inserted = await (
-                await connection.execute(
-                    """
-                    INSERT INTO armi.maintenance_sessions (
-                        maintenance_session_id, subject_id, life_generation_id,
-                        origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
-                        consideration_at, deadline_at,
-                        trigger_kind, sleep_decision_id, started_subject_version,
-                        started_state_epoch, current_revision_id) VALUES (
-                        %s, %s, %s, NULL, %s, %s, %s, %s,
-                        'system_deadline', NULL, %s, %s, %s)
-                    ON CONFLICT (subject_id, life_generation_id, cycle_anchor_ref)
-                    DO NOTHING RETURNING maintenance_session_id
-                    """,
-                    (
-                        session_id,
-                        fence.subject_id,
-                        fence.life_generation_id,
-                        str(anchor[0]),
-                        anchor[1],
-                        consideration_at,
-                        deadline_at,
-                        int(anchor[3]),
-                        int(anchor[4]),
-                        revision_id,
-                    ),
-                )
-            ).fetchone()
-            if inserted is not None:
-                await connection.execute(
-                    """
-                    INSERT INTO armi.maintenance_session_revisions (
-                        maintenance_revision_id, maintenance_session_id,
-                        revision_no, previous_revision_id, phase,
-                        result_status, transition_kind) VALUES (%s, %s, 1, NULL, 'preparing', 'running', 'started')
-                    """,
-                    (revision_id, session_id),
-                )
-            await connection.execute(
-                """
-                UPDATE armi.opportunities
-                SET current_disposition = 'cancelled', resolved_at = statement_timestamp()
-                WHERE subject_id = %s AND source_kind = 'maintenance_window'
-                  AND source_ref = %s AND purpose = 'consider_sleep'
-                  AND current_disposition IN ('open', 'selected')
-                """,
-                (fence.subject_id, anchor[1]),
-            )
-            return OpportunityAdmissionOutcome(
-                OpportunityAdmissionStatus.REJECTED,
-                None,
-                "LIFE-MAINTENANCE-DEADLINE",
-            )
-        if now < consideration_at:
-            return OpportunityAdmissionOutcome(
-                OpportunityAdmissionStatus.REJECTED,
-                None,
-                "LIFE-MAINTENANCE-NOT-DUE",
-            )
-        opportunity_id = uuid7()
-        inserted = await (
-            await connection.execute(
-                """
-                INSERT INTO armi.opportunities (
-                    opportunity_id, evidence_id, subject_id, scene_id,
-                    context_party_id, purpose, eligibility_status,
-                    current_disposition, root_opportunity_id, reconsideration_no,
-                    available_after, expires_at, source_kind, source_ref,
-                    source_version, activity_id) VALUES (
-                    %s, NULL, %s, NULL, NULL, 'consider_sleep', 'eligible',
-                    'open', %s, 0, %s, %s, 'maintenance_window', %s, 1, NULL)
-                ON CONFLICT (
-                    subject_id, source_kind, source_ref, source_version,
-                    purpose, reconsideration_no
-                ) DO NOTHING RETURNING opportunity_id
-                """,
-                (
-                    opportunity_id,
-                    fence.subject_id,
-                    opportunity_id,
-                    consideration_at,
-                    deadline_at,
-                    anchor[1],
-                ),
-            )
-        ).fetchone()
-        if inserted is None:
-            existing = await (
-                await connection.execute(
-                    """
-                    SELECT opportunity_id FROM armi.opportunities
-                    WHERE subject_id = %s AND source_kind = 'maintenance_window'
-                      AND source_ref = %s AND source_version = 1
-                      AND purpose = 'consider_sleep' AND reconsideration_no = 0
-                    """,
-                    (fence.subject_id, anchor[1]),
-                )
-            ).fetchone()
-            if existing is None:
-                raise LifeViolation("LIFE-SOURCE-STALE")
-            return OpportunityAdmissionOutcome(
-                OpportunityAdmissionStatus.DUPLICATE, existing[0]
-            )
-        return OpportunityAdmissionOutcome(
-            OpportunityAdmissionStatus.ADMITTED, opportunity_id
-        )
+        self._sleep = sleep
 
     async def admit_generation_available(
         self,
@@ -431,6 +270,9 @@ class PostgreSQLLifeOpportunityRepository:
         if fence is None:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        maintenance = await self._sleep.active_maintenance(
+            connection, subject_id=fence.subject_id
+        )
         state = await (
             await connection.execute(
                 """
@@ -445,22 +287,18 @@ class PostgreSQLLifeOpportunityRepository:
                         WHERE status NOT IN (
                             'completed', 'stale', 'failed', 'cancelled',
                             'candidate_rejected'
-                        )),
-                       EXISTS (
-                           SELECT 1 FROM armi.maintenance_sessions
-                           WHERE subject_id = %s AND finished_at IS NULL
-                       )
+                        ))
                 FROM armi.subject_component_heads AS head
                 JOIN armi.subject_component_revisions AS revision
                   ON revision.component_revision_id = head.current_revision_id
                 WHERE head.subject_id = %s AND head.component_kind = 'life_mode'
                 """,
-                (fence.subject_id, fence.subject_id, fence.subject_id),
+                (fence.subject_id, fence.subject_id),
             )
         ).fetchone()
         if state is None or not isinstance(state[0], dict):
             raise LifeViolation("LIFE-SCHEDULER-STATE")
-        if bool(state[3]):
+        if maintenance is not None:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
@@ -760,6 +598,9 @@ class PostgreSQLLifeOpportunityRepository:
                 "LIFE-BACKPRESSURE-MODEL-CONCURRENCY",
             )
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        maintenance = await self._sleep.active_maintenance(
+            connection, subject_id=fence.subject_id
+        )
         state = await (
             await connection.execute(
                 """
@@ -774,22 +615,18 @@ class PostgreSQLLifeOpportunityRepository:
                         WHERE status NOT IN (
                             'completed', 'stale', 'failed', 'cancelled',
                             'candidate_rejected'
-                        )),
-                       EXISTS (
-                           SELECT 1 FROM armi.maintenance_sessions
-                           WHERE subject_id = %s AND finished_at IS NULL
-                       )
+                        ))
                 FROM armi.subject_component_heads AS head
                 JOIN armi.subject_component_revisions AS revision
                   ON revision.component_revision_id = head.current_revision_id
                 WHERE head.subject_id = %s AND head.component_kind = 'life_mode'
                 """,
-                (fence.subject_id, fence.subject_id, fence.subject_id),
+                (fence.subject_id, fence.subject_id),
             )
         ).fetchone()
         if state is None or not isinstance(state[0], dict):
             raise LifeViolation("LIFE-SCHEDULER-STATE")
-        if bool(state[3]):
+        if maintenance is not None:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,

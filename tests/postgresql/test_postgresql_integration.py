@@ -70,7 +70,6 @@ from armi_kernel.application import (
     CreatorGrantCommand,
     CreatorGrantDecision,
     CreatorInputAcceptance,
-    CreatorMaintenanceViolation,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
     CredentialLocator,
@@ -151,9 +150,6 @@ from armi_runtime.adapters.persistence.creator_activities import (
     PostgreSQLCreatorActivityQuery,
 )
 from armi_runtime.adapters.persistence.creator_input import CreatorInputRepository
-from armi_runtime.adapters.persistence.creator_maintenance import (
-    PostgreSQLCreatorMaintenanceQuery,
-)
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
 )
@@ -224,6 +220,8 @@ from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
 from armi_runtime.composition.web_search_pipeline import build_web_search_pipeline
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
+from armi_sleep.api import CreatorMaintenanceViolation
+from armi_sleep.bootstrap import bootstrap_sleep
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -1968,11 +1966,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             await relationship_module.open()
+            sleep_module = bootstrap_sleep(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=manifest.creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            await sleep_module.open()
             pipelines = tuple(
                 LifeOpportunityPipeline(
                     factory=factory,
                     relationship_read=relationship_module.read,
                     relationship_policy=relationship_module.policy,
+                    sleep_maintenance=sleep_module.maintenance,
+                    sleep_read=sleep_module.read,
                     maintenance_consideration_seconds=1,
                     maintenance_deadline_seconds=120,
                 )
@@ -1993,6 +2000,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 for pipeline in pipelines:
                     await pipeline.close()
                 await relationship_module.close()
+                await sleep_module.close()
                 await authority.release(record.fence)
                 await authority.close()
             return first, second, restarted, attention, sleep_window
@@ -2227,35 +2235,36 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             await relationship_module.open()
+            sleep_module = bootstrap_sleep(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            await sleep_module.open()
             pipeline = LifeOpportunityPipeline(
                 factory=maintenance_factory,
                 relationship_read=relationship_module.read,
                 relationship_policy=relationship_module.policy,
+                sleep_maintenance=sleep_module.maintenance,
+                sleep_read=sleep_module.read,
             )
             await pipeline.open()
             try:
                 outcome = await pipeline.maintain_sleep_once()
             finally:
                 await pipeline.close()
-                await relationship_module.close()
                 await authority.release(record.fence)
                 await authority.close()
             self.assertEqual(outcome.reason_code, "LIFE-MAINTENANCE-ADVANCED")
 
-            maintenance = PostgreSQLCreatorMaintenanceQuery(
-                fixture.runtime_dsn,
-                environment_id=fixture.environment_id,
-                creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
-            )
-            await maintenance.open()
             try:
-                status = await maintenance.status()
+                status = await sleep_module.read.status()
                 assert status.session is not None
                 self.assertEqual(status.session.session_id, session_id)
                 self.assertEqual(status.session.phase.value, "memory_maintenance")
                 self.assertEqual(status.waiting_input_count, 0)
-                timeline = await maintenance.timeline(session_id)
+                timeline = await sleep_module.read.timeline(session_id)
                 self.assertEqual(len(timeline.items), 2)
                 self.assertEqual(timeline.items[0].transition_kind, "advanced")
                 self.assertEqual(timeline.items[1].transition_kind, "started")
@@ -2263,9 +2272,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     CreatorMaintenanceViolation,
                     "MAINTENANCE-QUERY-NOT-FOUND",
                 ):
-                    await maintenance.timeline(_uuid7())
+                    await sleep_module.read.timeline(_uuid7())
             finally:
-                await maintenance.close()
+                await sleep_module.close()
+                await relationship_module.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             asyncio.run(
@@ -5521,14 +5531,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 cursor_key=hashlib.sha256(b"t03-memory-cursor-key").digest(),
                 pool_timeout_seconds=2,
             )
+            sleep_module = bootstrap_sleep(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
             repository = PostgreSQLSubjectCommitRepository(
                 memory_module.commit,
                 relationship_module.commit,
                 relationship_module.read,
                 relationship_module.policy,
+                sleep_module.commit,
             )
             await memory_module.open()
             await relationship_module.open()
+            await sleep_module.open()
             await factory.open()
             try:
                 async with factory.unit_of_work() as unit_of_work:
@@ -5557,6 +5575,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await factory.close()
                 await memory_module.close()
                 await relationship_module.close()
+                await sleep_module.close()
 
         status, version = asyncio.run(
             settle(),

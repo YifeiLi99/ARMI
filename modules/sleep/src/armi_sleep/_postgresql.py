@@ -6,7 +6,11 @@ from typing import Any, cast
 from uuid import UUID
 
 import psycopg
-from armi_kernel.application import (
+from armi_runtime_foundation import PostgreSQLTransaction
+from psycopg.pq import TransactionStatus
+from psycopg_pool import AsyncConnectionPool, PoolTimeout
+
+from .api import (
     CreatorMaintenanceSession,
     CreatorMaintenanceStatus,
     CreatorMaintenanceTimeline,
@@ -17,14 +21,20 @@ from armi_kernel.application import (
     MaintenanceTransitionKind,
     MaintenanceTriggerKind,
     MaintenanceWorkOutcome,
+    SleepMaintenanceSnapshot,
 )
-from psycopg.pq import TransactionStatus
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
-
-from .role_policy import physical_role_name
 
 _SEARCH_PATH = "pg_catalog, armi"
 _PAGE_SIZE = 100
+
+
+def _snapshot(row: tuple[Any, ...]) -> SleepMaintenanceSnapshot:
+    return SleepMaintenanceSnapshot(
+        session_id=row[0],
+        current_revision_id=row[1],
+        head_version=int(row[2]),
+        phase=MaintenancePhase(str(row[3])),
+    )
 
 
 async def _configure(
@@ -42,8 +52,8 @@ async def _reset(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
     await connection.execute("SET search_path TO pg_catalog, armi")
 
 
-class PostgreSQLCreatorMaintenanceQuery:
-    """Read the latest maintenance session without exposing maintenance internals."""
+class PostgreSQLSleepRead:
+    """Serve Runtime and Creator reads without exposing maintenance internals."""
 
     __slots__ = (
         "_creator_party_id",
@@ -56,12 +66,12 @@ class PostgreSQLCreatorMaintenanceQuery:
         self,
         conninfo: str,
         *,
-        environment_id: UUID,
+        expected_role: str,
         creator_party_id: UUID,
         pool_timeout_seconds: int,
     ) -> None:
         self._creator_party_id = creator_party_id
-        self._expected_role = physical_role_name(environment_id, "runtime")
+        self._expected_role = expected_role
         self._pool_timeout_seconds = pool_timeout_seconds
 
         async def check(
@@ -95,6 +105,63 @@ class PostgreSQLCreatorMaintenanceQuery:
 
     async def close(self) -> None:
         await self._pool.close()
+
+    async def active_maintenance(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> SleepMaintenanceSnapshot | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT session.maintenance_session_id,
+                       session.current_revision_id,
+                       session.head_version, revision.phase
+                FROM armi.maintenance_sessions AS session
+                JOIN armi.maintenance_session_revisions AS revision
+                  ON revision.maintenance_revision_id = session.current_revision_id
+                WHERE session.subject_id = %s
+                  AND session.finished_at IS NULL
+                """,
+                (subject_id,),
+            )
+        ).fetchone()
+        return None if row is None else _snapshot(row)
+
+    async def candidate_maintenance(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> SleepMaintenanceSnapshot | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT session.maintenance_session_id,
+                       session.current_revision_id,
+                       session.head_version, revision.phase
+                FROM armi.cognitive_episodes AS episode
+                JOIN armi.opportunities AS opportunity
+                  ON opportunity.opportunity_id = episode.opportunity_id
+                JOIN armi.maintenance_session_revisions AS revision
+                  ON revision.maintenance_revision_id = opportunity.source_ref
+                JOIN armi.maintenance_sessions AS session
+                  ON session.maintenance_session_id = revision.maintenance_session_id
+                 AND session.current_revision_id = revision.maintenance_revision_id
+                 AND session.head_version = opportunity.source_version
+                 AND session.finished_at IS NULL
+                WHERE episode.cognitive_episode_id = %s
+                  AND episode.purpose IN (
+                      'maintain_subjective_memory',
+                      'perform_subject_self_check'
+                  )
+                  AND opportunity.source_kind = 'maintenance_phase_revision'
+                """,
+                (episode_id,),
+            )
+        ).fetchone()
+        return None if row is None else _snapshot(row)
 
     async def status(self) -> CreatorMaintenanceStatus:
         try:
@@ -266,4 +333,4 @@ class PostgreSQLCreatorMaintenanceQuery:
         )
 
 
-__all__ = ("PostgreSQLCreatorMaintenanceQuery",)
+__all__ = ("PostgreSQLSleepRead",)

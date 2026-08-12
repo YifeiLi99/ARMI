@@ -30,8 +30,6 @@ from armi_kernel.application import (
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
     LifeRecordKind,
-    MaintenancePhase,
-    MaintenanceWorkOutcome,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
     SubjectCommitViolation,
@@ -80,6 +78,11 @@ from armi_runtime.composition.other_human_dialogue_candidate_contract import (
 from armi_runtime.composition.subject_commit_contract import (
     parse_subject_change_set as _parse_subject_change_set,
 )
+from armi_sleep.api import (
+    MaintenancePhase,
+    MaintenanceWorkOutcome,
+    default_sleep_cognition,
+)
 
 _CandidateValidator = DeterministicCandidateValidator
 
@@ -112,6 +115,15 @@ def _memories(change_set: Any) -> tuple[Any, ...]:
         cognition.decode(item.canonical_payload)
         for item in change_set.owner_drafts
         if item.owner == "memory"
+    )
+
+
+def _sleep(change_set: Any) -> tuple[Any, ...]:
+    cognition = default_sleep_cognition()
+    return tuple(
+        cognition.decode(item.canonical_payload)
+        for item in change_set.owner_drafts
+        if item.owner == "sleep"
     )
 
 
@@ -167,7 +179,9 @@ def test_terminal_validation_failure_also_fails_owning_episode() -> None:
     )
 
     asyncio.run(
-        PostgreSQLCandidateValidationRepository(cast(Any, SimpleNamespace())).fail(
+        PostgreSQLCandidateValidationRepository(
+            cast(Any, SimpleNamespace()), cast(Any, SimpleNamespace())
+        ).fail(
             cast(Any, unit_of_work),
             lease=cast(Any, lease),
             error_code="CON-CANDIDATE-RELATIONSHIP-CONTEXT",
@@ -686,7 +700,7 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
         ("need_information", "need_information"),
     ],
 )
-def test_sleep_decision_binds_window_authority_into_v9_change_set(
+def test_sleep_decision_binds_window_authority_and_reads_historical_v9(
     kind: str, disposition: str
 ) -> None:
     ids = tuple(uuid7() for _ in range(8))
@@ -719,11 +733,34 @@ def test_sleep_decision_binds_window_authority_into_v9_change_set(
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert result.change_set.sleep_decisions[0].cycle_anchor_ref == ids[6]
+    assert _sleep(result.change_set)[0].cycle_anchor_ref == ids[6]
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v9" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v24" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert reparsed.sleep_decisions == result.change_set.sleep_decisions
+    assert _sleep(reparsed) == _sleep(result.change_set)
+    historical_wire = json.loads(result.change_set.canonical_bytes)
+    historical_wire["schema_version"] = "armi.subject-change-set.v9"
+    historical_wire["sleep_decisions"] = [
+        {
+            "proposal_ref": _sleep(result.change_set)[0].proposal_ref,
+            "atomic_group_ref": _sleep(result.change_set)[0].atomic_group_ref,
+            "basis_ordinals": list(_sleep(result.change_set)[0].basis_ordinals),
+            "decision_kind": _sleep(result.change_set)[0].decision_kind.value,
+            "cycle_anchor_ref": str(_sleep(result.change_set)[0].cycle_anchor_ref),
+        }
+    ]
+    for key in (
+        "web_research_requests",
+        "owner_drafts",
+        "materials",
+        "prompts",
+        "exact_life_queries",
+    ):
+        historical_wire.pop(key)
+    historical = parse_subject_change_set(
+        rfc8785.dumps(cast(Any, historical_wire))
+    )
+    assert _sleep(historical) == _sleep(result.change_set)
 
 
 def _maintenance_fixture(
@@ -808,10 +845,10 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     assert _memories(changed.change_set)[0].mechanism_config_identity == (
         "sleep-maintenance-v1"
     )
-    decision = changed.change_set.maintenance_decisions[0]
+    decision = _sleep(changed.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
     assert decision.memory_proposal_ref == "proposal:1"
-    assert b"armi.subject-change-set.v23" in changed.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v24" in changed.change_set.canonical_bytes
     assert parse_subject_change_set(changed.change_set.canonical_bytes) == (
         changed.change_set
     )
@@ -823,9 +860,46 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     assert unchanged.status is CandidateValidationStatus.ACCEPTED
     assert unchanged.change_set is not None
     assert _memories(unchanged.change_set) == ()
-    assert unchanged.change_set.maintenance_decisions[0].outcome is (
+    assert _sleep(unchanged.change_set)[0].outcome is (
         MaintenanceWorkOutcome.MEMORY_UNCHANGED
     )
+    maintenance = _sleep(unchanged.change_set)[0]
+    maintenance_wire = {
+        "proposal_ref": maintenance.proposal_ref,
+        "atomic_group_ref": maintenance.atomic_group_ref,
+        "basis_ordinals": list(maintenance.basis_ordinals),
+        "maintenance_session_id": str(maintenance.maintenance_session_id),
+        "current_revision_id": str(maintenance.current_revision_id),
+        "expected_head_version": maintenance.expected_head_version,
+        "phase": maintenance.phase.value,
+        "outcome": maintenance.outcome.value,
+        "result_summary": maintenance.result_summary,
+        "creator_visible_problem": maintenance.creator_visible_problem,
+        "memory_proposal_ref": maintenance.memory_proposal_ref,
+    }
+    historical_v19 = json.loads(unchanged.change_set.canonical_bytes)
+    historical_v19["schema_version"] = "armi.subject-change-set.v19"
+    historical_v19.pop("owner_drafts")
+    historical_v19.update(
+        memories=[],
+        memory_revisions=[],
+        relationships=[],
+        maintenance_decisions=[maintenance_wire],
+    )
+    assert _sleep(
+        parse_subject_change_set(rfc8785.dumps(cast(Any, historical_v19)))
+    ) == (maintenance,)
+
+    historical_v23 = json.loads(unchanged.change_set.canonical_bytes)
+    historical_v23["schema_version"] = "armi.subject-change-set.v23"
+    historical_v23["owner_drafts"] = []
+    historical_v23.update(
+        sleep_decisions=[],
+        maintenance_decisions=[maintenance_wire],
+    )
+    assert _sleep(
+        parse_subject_change_set(rfc8785.dumps(cast(Any, historical_v23)))
+    ) == (maintenance,)
 
 
 def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> None:
@@ -845,7 +919,7 @@ def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> No
     assert result.change_set is not None
     assert _relationships(result.change_set) == ()
     assert result.change_set.components == ()
-    decision = result.change_set.maintenance_decisions[0]
+    decision = _sleep(result.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.ISSUE_FOUND
     assert decision.creator_visible_problem == "有一项内部责任需要后续关注。"
 
@@ -855,7 +929,7 @@ def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> No
     )
     assert no_issue.status is CandidateValidationStatus.ACCEPTED
     assert no_issue.change_set is not None
-    assert no_issue.change_set.maintenance_decisions[0].outcome is (
+    assert _sleep(no_issue.change_set)[0].outcome is (
         MaintenanceWorkOutcome.NO_ISSUE
     )
 
@@ -2947,7 +3021,7 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None and repeated.change_set is not None
     assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v23" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v24" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
     assert len(_relationships(result.change_set)) == 1
     assert {item.atomic_group_ref for item in result.change_set.action_choices} == {
@@ -2995,7 +3069,7 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
         "exact_life_queries",
         "maintenance_decisions",
     ):
-        historical_wire.pop(key)
+        historical_wire.pop(key, None)
     for item in historical_wire["relationships"]:
         item.pop("commitments")
         item.pop("open_issues")
@@ -3537,7 +3611,7 @@ def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() ->
     assert memory.source_experience_ref == result.change_set.experiences[0].proposal_ref
     assert memory.source_kind is MemorySourceKind.REPORTED
     assert memory.mechanism_identity == "armi.memory-formation.contextual-v1"
-    assert b"armi.subject-change-set.v23" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v24" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert _memories(reparsed) == _memories(result.change_set)
     assert any(
@@ -3651,7 +3725,7 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
     assert revision.accessibility is MemoryAccessibility.AVAILABLE
     assert revision.related_memory_id == related_id
     assert revision.relation_kind is MemoryRelationKind.CONTRADICTS
-    assert b"armi.subject-change-set.v23" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v24" in result.change_set.canonical_bytes
     assert _memories(parse_subject_change_set(result.change_set.canonical_bytes)) == (
         revision,
     )

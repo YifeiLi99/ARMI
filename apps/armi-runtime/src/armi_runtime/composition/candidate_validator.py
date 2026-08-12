@@ -23,11 +23,9 @@ from armi_kernel.application import (
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateLifeMaterialDraft,
-    CandidateMaintenanceDecisionDraft,
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
-    CandidateSleepDecisionDraft,
     CandidateSubjectPromptDraft,
     CandidateValidationId,
     CandidateValidationResult,
@@ -49,12 +47,9 @@ from armi_kernel.application import (
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
     LifeRecordKind,
-    MaintenancePhase,
-    MaintenanceWorkOutcome,
     ModelViolation,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
-    SleepDecisionKind,
     SubjectChangeSet,
     WebResearchRequestDraft,
 )
@@ -86,6 +81,15 @@ from armi_relationship.api import (
     RelationshipIssueStatus,
     RelationshipPartyRole,
     RelationshipStatus,
+)
+from armi_sleep.api import (
+    CandidateMaintenanceDecisionDraft,
+    CandidateSleepDecisionDraft,
+    MaintenancePhase,
+    MaintenanceWorkOutcome,
+    SleepCognitionPort,
+    SleepDecisionKind,
+    default_sleep_cognition,
 )
 from pydantic import ValidationError
 
@@ -227,11 +231,10 @@ CODEX_CHANGE_SET_VERSION = "armi.subject-change-set.v5"
 RUNTIME_BOUND_CHANGE_SET_VERSION = "armi.subject-change-set.v6"
 ACTIVITY_CHANGE_SET_VERSION = "armi.subject-change-set.v7"
 ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
-SLEEP_CHANGE_SET_VERSION = "armi.subject-change-set.v9"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v23"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v24"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
@@ -555,17 +558,24 @@ class CandidateValidationContext:
 class DeterministicCandidateValidator:
     """Validate candidate v4 into a canonical, not-yet-effective change set."""
 
-    __slots__ = ("_context", "_memory_cognition", "_relationship_cognition")
+    __slots__ = (
+        "_context",
+        "_memory_cognition",
+        "_relationship_cognition",
+        "_sleep_cognition",
+    )
 
     def __init__(
         self,
         context: CandidateValidationContext,
         memory_cognition: MemoryCognitionPort | None = None,
         relationship_cognition: RelationshipCognitionPort | None = None,
+        sleep_cognition: SleepCognitionPort | None = None,
     ) -> None:
         self._context = context
         self._memory_cognition = memory_cognition or default_memory_cognition()
         self._relationship_cognition = relationship_cognition
+        self._sleep_cognition = sleep_cognition or default_sleep_cognition()
 
     def _bind_relationship(
         self, value: CandidateRelationshipDraft
@@ -1245,14 +1255,12 @@ class DeterministicCandidateValidator:
                 ],
                 activities=[],
                 activity_decisions=[],
-                sleep_decisions=[],
                 owner_drafts=[_owner_draft_wire(item) for item in owner_drafts],
                 materials=[_material_wire(item) for item in materials],
                 prompts=[_prompt_wire(item) for item in prompts],
                 exact_life_queries=[
                     _exact_life_query_wire(item) for item in exact_life_queries
                 ],
-                maintenance_decisions=[],
             )
         if change_set_version in {
             MEMORY_CHANGE_SET_VERSION,
@@ -1546,12 +1554,9 @@ class DeterministicCandidateValidator:
             "materials": [],
             "prompts": [],
             "exact_life_queries": [],
-            "maintenance_decisions": [],
             "rejections": [],
         }
-        if change_set_version == ACTIVE_CHANGE_SET_VERSION:
-            value["sleep_decisions"] = []
-        else:
+        if change_set_version != ACTIVE_CHANGE_SET_VERSION:
             value["memories"] = []
             value["memory_revisions"] = []
         canonical = rfc8785.dumps(cast(Any, value))
@@ -1722,8 +1727,9 @@ class DeterministicCandidateValidator:
             SleepDecisionKind.DEFER: CandidateDisposition.DEFER,
             SleepDecisionKind.NEED_INFORMATION: CandidateDisposition.NEED_INFORMATION,
         }[decision.decision_kind]
+        owner_draft = self._sleep_cognition.bind_sleep(decision)
         value = {
-            "schema_version": SLEEP_CHANGE_SET_VERSION,
+            "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
             "generation_id": str(context.generation_id),
             "episode_id": str(context.episode_id),
@@ -1739,10 +1745,14 @@ class DeterministicCandidateValidator:
             "components": [],
             "capability_requests": [],
             "action_choices": [],
+            "web_research_requests": [],
             "codex_delegations": [],
             "activities": [],
             "activity_decisions": [],
-            "sleep_decisions": [_sleep_decision_wire(decision)],
+            "owner_drafts": [_owner_draft_wire(owner_draft)],
+            "materials": [],
+            "prompts": [],
+            "exact_life_queries": [],
             "rejections": [],
         }
         canonical = rfc8785.dumps(cast(Any, value))
@@ -1763,10 +1773,7 @@ class DeterministicCandidateValidator:
             (),
             (),
             (),
-            (),
-            (),
-            (),
-            (decision,),
+            owner_drafts=(owner_draft,),
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
@@ -2131,6 +2138,8 @@ class DeterministicCandidateValidator:
             if memory_revision is None
             else (self._memory_cognition.bind_legacy(memory_revision, revision=True),)
         )
+        sleep_owner_draft = self._sleep_cognition.bind_maintenance(decision)
+        owner_drafts = (*memory_owner_drafts, sleep_owner_draft)
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
@@ -2152,12 +2161,10 @@ class DeterministicCandidateValidator:
             "codex_delegations": [],
             "activities": [],
             "activity_decisions": [],
-            "sleep_decisions": [],
-            "owner_drafts": [_owner_draft_wire(item) for item in memory_owner_drafts],
+            "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "materials": [],
             "prompts": [],
             "exact_life_queries": [],
-            "maintenance_decisions": [_maintenance_decision_wire(decision)],
             "rejections": [],
         }
         canonical = rfc8785.dumps(cast(Any, value))
@@ -2178,8 +2185,7 @@ class DeterministicCandidateValidator:
             action_choices=(),
             web_research_requests=(),
             rejections=(),
-            owner_drafts=memory_owner_drafts,
-            maintenance_decisions=(decision,),
+            owner_drafts=owner_drafts,
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
@@ -4550,34 +4556,6 @@ def _activity_decision_wire(
         ),
         "delay_seconds": value.delay_seconds,
         "terminal_reason": value.terminal_reason,
-    }
-
-
-def _sleep_decision_wire(value: CandidateSleepDecisionDraft) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "decision_kind": value.decision_kind.value,
-        "cycle_anchor_ref": str(value.cycle_anchor_ref),
-    }
-
-
-def _maintenance_decision_wire(
-    value: CandidateMaintenanceDecisionDraft,
-) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "maintenance_session_id": str(value.maintenance_session_id),
-        "current_revision_id": str(value.current_revision_id),
-        "expected_head_version": value.expected_head_version,
-        "phase": value.phase.value,
-        "outcome": value.outcome.value,
-        "result_summary": value.result_summary,
-        "creator_visible_problem": value.creator_visible_problem,
-        "memory_proposal_ref": value.memory_proposal_ref,
     }
 
 

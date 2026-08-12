@@ -22,12 +22,10 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Instant
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
+from armi_sleep.api import SleepMaintenancePort, SleepReadPort, SleepViolation
 
 from armi_runtime.adapters.persistence.life_opportunity import (
     PostgreSQLLifeOpportunityRepository,
-)
-from armi_runtime.adapters.persistence.maintenance import (
-    PostgreSQLMaintenanceRepository,
 )
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
@@ -43,7 +41,6 @@ class MaintenanceCoordinator:
         "_deadline_seconds",
         "_factory",
         "_notifier",
-        "_opportunities",
         "_quiet_seconds",
         "_repository",
     )
@@ -52,8 +49,7 @@ class MaintenanceCoordinator:
         self,
         *,
         factory: PostgreSQLUnitOfWorkFactory,
-        repository: PostgreSQLMaintenanceRepository,
-        opportunities: PostgreSQLLifeOpportunityRepository,
+        repository: SleepMaintenancePort,
         consideration_seconds: int,
         deadline_seconds: int,
         quiet_seconds: int = 60,
@@ -63,7 +59,6 @@ class MaintenanceCoordinator:
             raise LifeViolation("LIFE-MAINTENANCE-CONFIG")
         self._factory = factory
         self._repository = repository
-        self._opportunities = opportunities
         self._consideration_seconds = consideration_seconds
         self._deadline_seconds = deadline_seconds
         self._quiet_seconds = quiet_seconds
@@ -94,7 +89,7 @@ class MaintenanceCoordinator:
                     ),
                 )
             else:
-                outcome = await self._opportunities.maintain_sleep_window(
+                outcome = await self._repository.maintain_window(
                     unit_of_work,
                     consideration_after_seconds=self._consideration_seconds,
                     deadline_after_seconds=self._deadline_seconds,
@@ -152,6 +147,8 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         factory: PostgreSQLUnitOfWorkFactory,
         relationship_read: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
+        sleep_maintenance: SleepMaintenancePort,
+        sleep_read: SleepReadPort,
         wakeups: WorkWakeupBus | None = None,
         model_concurrency: int = 2,
         maintenance_consideration_seconds: int = 57_600,
@@ -162,7 +159,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
     ) -> None:
         self._factory = factory
         self._repository = PostgreSQLLifeOpportunityRepository(
-            relationship_read, relationship_policy
+            relationship_read, relationship_policy, sleep_read
         )
         self._stop = asyncio.Event()
         self._wakeups = wakeups or WorkWakeupBus()
@@ -173,8 +170,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         )
         self._maintenance = MaintenanceCoordinator(
             factory=factory,
-            repository=PostgreSQLMaintenanceRepository(),
-            opportunities=self._repository,
+            repository=sleep_maintenance,
             consideration_seconds=maintenance_consideration_seconds,
             deadline_seconds=maintenance_deadline_seconds,
             notifier=notifier,
@@ -243,6 +239,10 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
             return await self._maintenance.maintain_once()
         except LifeViolation:
             raise
+        except SleepViolation as error:
+            raise LifeViolation(
+                f"LIFE-{error.code.removeprefix('SLEEP-')}"
+            ) from None
         except DatabaseTransactionError:
             raise LifeViolation("LIFE-DATABASE") from None
 
@@ -279,6 +279,10 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
             )
         except LifeViolation:
             raise
+        except SleepViolation as error:
+            raise LifeViolation(
+                f"LIFE-{error.code.removeprefix('SLEEP-')}"
+            ) from None
         except DatabaseTransactionError:
             raise LifeViolation("LIFE-DATABASE") from None
 
@@ -312,6 +316,8 @@ def compose_life_opportunity_pipeline(
     factory: PostgreSQLUnitOfWorkFactory,
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
+    sleep_maintenance: SleepMaintenancePort,
+    sleep_read: SleepReadPort,
     wakeups: WorkWakeupBus | None = None,
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
@@ -324,6 +330,8 @@ def compose_life_opportunity_pipeline(
         factory=factory,
         relationship_read=relationship_read,
         relationship_policy=relationship_policy,
+        sleep_maintenance=sleep_maintenance,
+        sleep_read=sleep_read,
         wakeups=wakeups,
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,
@@ -347,6 +355,8 @@ def build_life_opportunity_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
+    sleep_maintenance: SleepMaintenancePort,
+    sleep_read: SleepReadPort,
     wakeups: WorkWakeupBus | None = None,
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
@@ -368,6 +378,8 @@ def build_life_opportunity_pipeline(
         factory=factory,
         relationship_read=relationship_read,
         relationship_policy=relationship_policy,
+        sleep_maintenance=sleep_maintenance,
+        sleep_read=sleep_read,
         wakeups=wakeups,
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,

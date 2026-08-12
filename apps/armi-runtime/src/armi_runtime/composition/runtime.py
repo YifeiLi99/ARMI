@@ -24,7 +24,6 @@ from armi_kernel.application import (
     CreatorExportViolation,
     CreatorInputCommand,
     CreatorInputViolation,
-    CreatorMaintenanceViolation,
     CreatorPromptViolation,
     DataRightsViolation,
     EffectViolation,
@@ -46,6 +45,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import IdempotencyKey, TraceId
 from armi_memory.api import MemoryViolation
 from armi_relationship.api import RelationshipViolation
+from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation
 
 from armi_runtime.adapters.persistence.runtime_observability import (
     RuntimeObservationError,
@@ -79,7 +79,6 @@ from .database import (
     compose_creator_activity_query,
     compose_creator_export_service,
     compose_creator_input,
-    compose_creator_maintenance_query,
     compose_creator_prompt_service,
     compose_creator_scene_service,
     compose_data_rights_order_service,
@@ -99,6 +98,7 @@ from .database import (
     compose_runtime_observation,
     compose_runtime_recovery,
     compose_scene_timeline_query,
+    compose_sleep_module,
     compose_subject_commit_pipeline,
     compose_web_research_admission_pipeline,
     compose_web_search_pipeline,
@@ -188,10 +188,10 @@ async def _serve(
     data_rights_order_service = None
     life_record_query = None
     exact_life_query_pipeline = None
-    creator_maintenance_query = None
     creator_relationship_query = None
     relationship_module = None
     memory_module = None
+    sleep_module = None
     creator_prompt_service = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
@@ -357,11 +357,11 @@ async def _serve(
                 ),
             )
             await exact_life_query_pipeline.open()
-            creator_maintenance_query = compose_creator_maintenance_query(
+            sleep_module = compose_sleep_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
             )
-            await creator_maintenance_query.open()
+            await sleep_module.open()
             creator_prompt_service = compose_creator_prompt_service(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -449,6 +449,8 @@ async def _serve(
                 authority_admission=authority.require_writable,
                 relationship_read=relationship_module.read,
                 relationship_policy=relationship_module.policy,
+                sleep_maintenance=sleep_module.maintenance,
+                sleep_read=sleep_module.read,
                 wakeups=work_wakeups,
                 notifier=creator_events,
             )
@@ -459,6 +461,7 @@ async def _serve(
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
                 relationship_read=relationship_module.read,
+                sleep_read=sleep_module.read,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -473,6 +476,8 @@ async def _serve(
                 memory_read=memory_module.read,
                 relationship_cognition=relationship_module.cognition,
                 relationship_read=relationship_module.read,
+                sleep_cognition=sleep_module.cognition,
+                sleep_read=sleep_module.read,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -489,6 +494,8 @@ async def _serve(
                 relationship_commit=relationship_module.commit,
                 relationship_read=relationship_module.read,
                 relationship_policy=relationship_module.policy,
+                sleep_cognition=sleep_module.cognition,
+                sleep_commit=sleep_module.commit,
                 notifier=creator_events,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
@@ -651,6 +658,7 @@ async def _serve(
             CreatorPromptViolation,
             MemoryViolation,
             RelationshipViolation,
+            SleepViolation,
             OtherHumanRecordViolation,
             LifeRecordQueryViolation,
             SceneQueryViolation,
@@ -681,8 +689,8 @@ async def _serve(
                 await life_record_query.close()
             if other_human_record_query is not None:
                 await other_human_record_query.close()
-            if creator_maintenance_query is not None:
-                await creator_maintenance_query.close()
+            if sleep_module is not None:
+                await sleep_module.close()
             if relationship_module is not None:
                 await relationship_module.close()
             if memory_module is not None:
@@ -926,8 +934,8 @@ async def _serve(
             await creator_activity_query.close()
         if other_human_record_query is not None:
             await other_human_record_query.close()
-        if creator_maintenance_query is not None:
-            await creator_maintenance_query.close()
+        if sleep_module is not None:
+            await sleep_module.close()
         if relationship_module is not None:
             await relationship_module.close()
         if memory_module is not None:
@@ -1135,7 +1143,7 @@ async def _serve(
         other_human_record_query=other_human_record_query,
         creator_life_material_query=life_record_query,
         creator_memory_query=(None if memory_module is None else memory_module.read),
-        creator_maintenance_query=creator_maintenance_query,
+        creator_maintenance_query=(None if sleep_module is None else sleep_module.read),
         creator_relationship_query=creator_relationship_query,
         creator_prompt=creator_prompt_service,
         creator_export=creator_export_service,
@@ -1232,8 +1240,8 @@ async def _serve(
             await life_record_query.close()
         if other_human_record_query is not None:
             await other_human_record_query.close()
-        if creator_maintenance_query is not None:
-            await creator_maintenance_query.close()
+        if sleep_module is not None:
+            await sleep_module.close()
         if relationship_module is not None:
             await relationship_module.close()
         if memory_module is not None:

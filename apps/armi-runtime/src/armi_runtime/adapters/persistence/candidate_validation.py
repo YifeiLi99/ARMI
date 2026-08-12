@@ -26,11 +26,9 @@ from armi_kernel.application import (
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateLifeMaterialDraft,
-    CandidateMaintenanceDecisionDraft,
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
-    CandidateSleepDecisionDraft,
     CandidateSubjectPromptDraft,
     CandidateValidationResult,
     CandidateValidationStatus,
@@ -64,6 +62,7 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_relationship.api import RelationshipReadPort
+from armi_sleep.api import SleepReadPort
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -153,15 +152,17 @@ class CandidateEpisodeSnapshot:
 class PostgreSQLCandidateValidationRepository:
     """Freeze validation input and atomically preserve its result."""
 
-    __slots__ = ("_memories", "_relationships")
+    __slots__ = ("_memories", "_relationships", "_sleep")
 
     def __init__(
         self,
         relationships: RelationshipReadPort,
+        sleep: SleepReadPort,
         memories: MemoryReadPort | None = None,
     ) -> None:
         self._memories = memories
         self._relationships = relationships
+        self._sleep = sleep
 
     async def snapshot(
         self,
@@ -336,35 +337,9 @@ class PostgreSQLCandidateValidationRepository:
                 (row[0],),
             )
         ).fetchone()
-        maintenance_row = await (
-            await connection.execute(
-                """
-                SELECT session.maintenance_session_id,
-                       session.current_revision_id,
-                       session.head_version, revision.phase
-                FROM armi.cognitive_episodes AS episode
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.opportunity_id = episode.opportunity_id
-                JOIN armi.maintenance_session_revisions AS revision
-                  ON revision.maintenance_revision_id = opportunity.source_ref
-                JOIN armi.maintenance_sessions AS session
-                  ON session.maintenance_session_id =
-                     revision.maintenance_session_id
-                 AND session.current_revision_id =
-                     revision.maintenance_revision_id
-                 AND session.head_version = opportunity.source_version
-                 AND session.finished_at IS NULL
-                WHERE episode.cognitive_episode_id = %s
-                  AND episode.purpose IN (
-                      'maintain_subjective_memory',
-                      'perform_subject_self_check'
-                  )
-                  AND opportunity.source_kind =
-                      'maintenance_phase_revision'
-                """,
-                (row[0],),
-            )
-        ).fetchone()
+        maintenance = await self._sleep.candidate_maintenance(
+            connection, episode_id=row[0]
+        )
         if self._memories is None:
             raise CandidateViolation("CANDIDATE-MEMORY-CONTEXT")
         memory_rows = await self._memories.candidate_context(
@@ -594,10 +569,10 @@ class PostgreSQLCandidateValidationRepository:
                 subject_prompt_row[1],
                 int(subject_prompt_row[2]),
             ),
-            None if maintenance_row is None else maintenance_row[0],
-            None if maintenance_row is None else maintenance_row[1],
-            None if maintenance_row is None else int(maintenance_row[2]),
-            None if maintenance_row is None else str(maintenance_row[3]),
+            None if maintenance is None else maintenance.session_id,
+            None if maintenance is None else maintenance.current_revision_id,
+            None if maintenance is None else maintenance.head_version,
+            None if maintenance is None else maintenance.phase.value,
             None if row[15] is None else str(row[15]),
             None if row[16] is None else str(row[16]),
         )
@@ -908,7 +883,6 @@ def _validation_drafts(
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
     | CandidateLifeMaterialDraft
-    | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -921,7 +895,6 @@ def _validation_drafts(
     | CodexDelegationDraft
     | CandidateActivityDraft
     | CandidateActivityDecisionDraft
-    | CandidateSleepDecisionDraft
     | CandidateRejection,
     ...,
 ]:
@@ -938,8 +911,6 @@ def _validation_drafts(
         *change_set.codex_delegations,
         *change_set.activities,
         *change_set.activity_decisions,
-        *change_set.sleep_decisions,
-        *change_set.maintenance_decisions,
         *change_set.rejections,
     )
 
@@ -950,7 +921,6 @@ def _owner(
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
     | CandidateLifeMaterialDraft
-    | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -963,13 +933,8 @@ def _owner(
     | CodexDelegationDraft
     | CandidateActivityDraft
     | CandidateActivityDecisionDraft
-    | CandidateSleepDecisionDraft
     | CandidateRejection,
 ) -> CandidateOwner:
-    if isinstance(value, CandidateMaintenanceDecisionDraft):
-        return CandidateOwner.MAINTENANCE
-    if isinstance(value, CandidateSleepDecisionDraft):
-        return CandidateOwner.SLEEP
     if isinstance(value, (CandidateActivityDraft, CandidateActivityDecisionDraft)):
         return CandidateOwner.ACTIVITY
     if isinstance(value, CandidateExperienceDraft):
@@ -1009,7 +974,6 @@ def _implicit_fact_class(
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
     | CandidateLifeMaterialDraft
-    | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -1022,11 +986,8 @@ def _implicit_fact_class(
     | CodexDelegationDraft
     | CandidateActivityDraft
     | CandidateActivityDecisionDraft
-    | CandidateSleepDecisionDraft
     | CandidateRejection,
 ) -> CandidateFactClass:
-    if isinstance(value, CandidateMaintenanceDecisionDraft):
-        return CandidateFactClass.INFERENCE
     if isinstance(
         value,
         (
@@ -1045,8 +1006,6 @@ def _implicit_fact_class(
     if isinstance(value, CandidateLifeMaterialDraft):
         return CandidateFactClass.SUBJECTIVE_UNDERSTANDING
     if isinstance(value, CandidateActivityDecisionDraft):
-        return CandidateFactClass.INFERENCE
-    if isinstance(value, CandidateSleepDecisionDraft):
         return CandidateFactClass.INFERENCE
     return CandidateFactClass.INFERENCE
 

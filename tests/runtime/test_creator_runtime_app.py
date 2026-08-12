@@ -26,11 +26,6 @@ from armi_kernel.application import (
     CreatorInteractionId,
     CreatorLifeMaterialItem,
     CreatorLifeMaterialQueryViolation,
-    CreatorMaintenanceSession,
-    CreatorMaintenanceStatus,
-    CreatorMaintenanceTimeline,
-    CreatorMaintenanceTimelineItem,
-    CreatorMaintenanceViolation,
     CreatorOperation,
     CreatorOperationPhase,
     CreatorPromptDeactivateCommand,
@@ -60,10 +55,6 @@ from armi_kernel.application import (
     LifeRecordPage,
     LifeRecordQuery,
     LifeRecordQueryViolation,
-    MaintenancePhase,
-    MaintenanceResultStatus,
-    MaintenanceTriggerKind,
-    MaintenanceWorkOutcome,
     OpportunityId,
     OtherHumanInputAcceptance,
     OtherHumanInputCommand,
@@ -131,6 +122,17 @@ from armi_runtime.interfaces.creator_contract import (
 )
 from armi_runtime.interfaces.creator_events import CreatorEventBroker
 from armi_runtime.interfaces.static_assets import StaticAsset, StaticAssetStore
+from armi_sleep.api import (
+    CreatorMaintenanceSession,
+    CreatorMaintenanceStatus,
+    CreatorMaintenanceTimeline,
+    CreatorMaintenanceTimelineItem,
+    CreatorMaintenanceViolation,
+    MaintenancePhase,
+    MaintenanceResultStatus,
+    MaintenanceTriggerKind,
+    MaintenanceWorkOutcome,
+)
 from fastapi.testclient import TestClient
 
 ENVIRONMENT_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"

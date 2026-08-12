@@ -38,6 +38,7 @@ from armi_kernel.contracts import (
 )
 from armi_memory.api import MemoryReadPort
 from armi_relationship.api import RelationshipReadPort
+from armi_sleep.api import MaintenancePhase, SleepReadPort
 
 from .artifact_catalog import ArtifactCatalogRepository
 from .capability_context import CapabilityStatePayload, load_capability_state_payloads
@@ -155,22 +156,38 @@ class ContextEpisodeSnapshot:
 class PostgreSQLContextRepository:
     """Own SQL for selecting, freezing and settling one Context episode."""
 
-    __slots__ = ("_catalog", "_memories", "_relationships")
+    __slots__ = ("_catalog", "_memories", "_relationships", "_sleep")
 
     def __init__(
         self,
         relationships: RelationshipReadPort,
+        sleep: SleepReadPort,
         memories: MemoryReadPort | None = None,
     ) -> None:
         self._catalog = ArtifactCatalogRepository()
         self._memories = memories
         self._relationships = relationships
+        self._sleep = sleep
 
     async def select_one(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
     ) -> CognitiveEpisodeId | None:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        fence = unit_of_work.runtime_fence
+        if fence is None:
+            raise ContextViolation("CTX-FENCE-REQUIRED")
+        maintenance = await self._sleep.active_maintenance(
+            connection, subject_id=fence.subject_id
+        )
+        maintenance_purpose = (
+            None
+            if maintenance is None
+            else {
+                MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
+                MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
+            }.get(maintenance.phase)
+        )
         row = await (
             await connection.execute(
                 """
@@ -261,39 +278,24 @@ class PostgreSQLContextRepository:
                       OR opportunity.expires_at > transaction_timestamp()
                   )
                   AND (
-                      NOT EXISTS (
-                          SELECT 1 FROM armi.maintenance_sessions AS maintenance
-                          WHERE maintenance.subject_id = opportunity.subject_id
-                            AND maintenance.finished_at IS NULL
-                      )
-                      OR EXISTS (
-                          SELECT 1
-                          FROM armi.maintenance_sessions AS maintenance
-                          JOIN armi.maintenance_session_revisions AS revision
-                            ON revision.maintenance_revision_id =
-                               maintenance.current_revision_id
-                          WHERE maintenance.subject_id = opportunity.subject_id
-                            AND maintenance.finished_at IS NULL
-                            AND opportunity.source_kind =
-                                'maintenance_phase_revision'
-                            AND opportunity.source_ref =
-                                maintenance.current_revision_id
-                            AND opportunity.source_version =
-                                maintenance.head_version
-                            AND (
-                                (opportunity.purpose =
-                                    'maintain_subjective_memory'
-                                  AND revision.phase = 'memory_maintenance')
-                                OR (opportunity.purpose =
-                                    'perform_subject_self_check'
-                                  AND revision.phase = 'self_check')
-                            )
+                      %s::uuid IS NULL
+                      OR (
+                          opportunity.source_kind = 'maintenance_phase_revision'
+                          AND opportunity.source_ref = %s
+                          AND opportunity.source_version = %s
+                          AND opportunity.purpose = %s
                       )
                   )
                 ORDER BY opportunity.available_after, opportunity.opportunity_id
                 FOR UPDATE OF opportunity SKIP LOCKED
                 LIMIT 1
-                """
+                """,
+                (
+                    None if maintenance is None else maintenance.current_revision_id,
+                    None if maintenance is None else maintenance.current_revision_id,
+                    None if maintenance is None else maintenance.head_version,
+                    maintenance_purpose,
+                ),
             )
         ).fetchone()
         if row is None:

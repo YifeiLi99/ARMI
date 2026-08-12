@@ -22,7 +22,6 @@ from armi_kernel.application import (
     CreatorActivityViolation,
     CreatorCodexTaskAdmissionPort,
     CreatorCodexTaskCommand,
-    CreatorEmergencyWakePort,
     CreatorEventResourceKind,
     CreatorExportCommand,
     CreatorExportPort,
@@ -37,8 +36,6 @@ from armi_kernel.application import (
     CreatorInputViolation,
     CreatorLifeMaterialQueryPort,
     CreatorLifeMaterialQueryViolation,
-    CreatorMaintenanceQueryPort,
-    CreatorMaintenanceViolation,
     CreatorOperation,
     CreatorOperationPhase,
     CreatorOperationQueryPort,
@@ -109,6 +106,11 @@ from armi_relationship.api import (
     CreatorRelationshipRevision,
     RelationshipReadPort,
     RelationshipViolation,
+)
+from armi_sleep.api import (
+    CreatorEmergencyWakePort,
+    CreatorMaintenanceQueryPort,
+    CreatorMaintenanceViolation,
 )
 from fastapi import FastAPI, Request
 from fastapi.responses import (

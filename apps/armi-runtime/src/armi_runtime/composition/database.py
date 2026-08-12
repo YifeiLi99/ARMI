@@ -14,7 +14,6 @@ from armi_kernel.application import (
     CodexDelegationViolation,
     CreatorActivityViolation,
     CreatorExportViolation,
-    CreatorMaintenanceViolation,
     CreatorProjectionNotifier,
     CreatorPromptViolation,
     CredentialPort,
@@ -51,6 +50,14 @@ from armi_relationship.api import (
     RelationshipViolation,
 )
 from armi_relationship.bootstrap import RelationshipModule, bootstrap_relationship
+from armi_sleep.api import (
+    CreatorMaintenanceViolation,
+    SleepCognitionPort,
+    SleepCommitPort,
+    SleepMaintenancePort,
+    SleepReadPort,
+)
+from armi_sleep.bootstrap import SleepModule, bootstrap_sleep
 
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
@@ -67,9 +74,6 @@ from armi_runtime.adapters.persistence.capability_policy import (
 )
 from armi_runtime.adapters.persistence.creator_activities import (
     PostgreSQLCreatorActivityQuery,
-)
-from armi_runtime.adapters.persistence.creator_maintenance import (
-    PostgreSQLCreatorMaintenanceQuery,
 )
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.other_human_records import (
@@ -738,12 +742,12 @@ def compose_memory_module(
         raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE") from None
 
 
-def compose_creator_maintenance_query(
+def compose_sleep_module(
     prepared: PreparedEnvironment,
     *,
     creator_party_id: UUID,
-) -> PostgreSQLCreatorMaintenanceQuery:
-    """Resolve the Runtime credential for the maintenance projection."""
+) -> SleepModule:
+    """Resolve and bind the one active sleep owner implementation."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
@@ -754,7 +758,7 @@ def compose_creator_maintenance_query(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> PostgreSQLCreatorMaintenanceQuery:
+            def create(value: memoryview) -> SleepModule:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
@@ -762,9 +766,11 @@ def compose_creator_maintenance_query(
                         "MAINTENANCE-QUERY-UNAVAILABLE"
                     ) from None
                 config = prepared.effective.config
-                return PostgreSQLCreatorMaintenanceQuery(
+                return bootstrap_sleep(
                     conninfo,
-                    environment_id=config.environment.environment_id,
+                    expected_role=physical_role_name(
+                        config.environment.environment_id, "runtime"
+                    ),
                     creator_party_id=creator_party_id,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                 )
@@ -1212,6 +1218,8 @@ def compose_life_opportunity_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
+    sleep_maintenance: SleepMaintenancePort,
+    sleep_read: SleepReadPort,
     wakeups: WorkWakeupBus | None = None,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
@@ -1246,6 +1254,8 @@ def compose_life_opportunity_pipeline(
                     authority_admission=authority_admission,
                     relationship_read=relationship_read,
                     relationship_policy=relationship_policy,
+                    sleep_maintenance=sleep_maintenance,
+                    sleep_read=sleep_read,
                     wakeups=wakeups,
                     notifier=notifier,
                     model_concurrency=config.model.concurrency,
@@ -1269,6 +1279,7 @@ def compose_context_pipeline(
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     relationship_read: RelationshipReadPort,
+    sleep_read: SleepReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ContextPipeline:
@@ -1321,6 +1332,7 @@ def compose_context_pipeline(
                     memory_read=memory_read,
                     memory_projection=memory_projection,
                     relationship_read=relationship_read,
+                    sleep_read=sleep_read,
                     web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1548,6 +1560,8 @@ def compose_candidate_validation_pipeline(
     memory_read: MemoryReadPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_read: RelationshipReadPort,
+    sleep_cognition: SleepCognitionPort,
+    sleep_read: SleepReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CandidateValidationPipeline:
@@ -1586,6 +1600,8 @@ def compose_candidate_validation_pipeline(
                     memory_read=memory_read,
                     relationship_cognition=relationship_cognition,
                     relationship_read=relationship_read,
+                    sleep_cognition=sleep_cognition,
+                    sleep_read=sleep_read,
                     web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1606,6 +1622,8 @@ def compose_subject_commit_pipeline(
     relationship_commit: RelationshipCommitPort,
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
+    sleep_cognition: SleepCognitionPort,
+    sleep_commit: SleepCommitPort,
     notifier: CreatorProjectionNotifier | None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -1644,6 +1662,8 @@ def compose_subject_commit_pipeline(
                     relationship_commit=relationship_commit,
                     relationship_read=relationship_read,
                     relationship_policy=relationship_policy,
+                    sleep_cognition=sleep_cognition,
+                    sleep_commit=sleep_commit,
                     notifier=notifier,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1909,7 +1929,6 @@ __all__ = (
     "compose_creator_activity_query",
     "compose_creator_export_service",
     "compose_creator_input",
-    "compose_creator_maintenance_query",
     "compose_creator_prompt_service",
     "compose_creator_scene_service",
     "compose_data_rights_order_service",
@@ -1928,6 +1947,7 @@ __all__ = (
     "compose_runtime_observation",
     "compose_runtime_recovery",
     "compose_scene_timeline_query",
+    "compose_sleep_module",
     "compose_subject_commit_pipeline",
     "compose_web_research_admission_pipeline",
     "compose_web_search_pipeline",

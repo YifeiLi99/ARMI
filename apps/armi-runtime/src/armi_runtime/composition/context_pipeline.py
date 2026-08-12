@@ -47,6 +47,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
 from armi_relationship.api import RelationshipReadPort
+from armi_sleep.api import SleepReadPort
 
 from armi_runtime.adapters.model.volcengine_embedding import (
     VolcengineArkEmbeddingAdapter,
@@ -127,6 +128,7 @@ class ContextPipeline(OpportunitySelector):
         memory_read: MemoryReadPort,
         memory_projection: MemoryProjectionPort,
         relationship_read: RelationshipReadPort,
+        sleep_read: SleepReadPort,
         policy_version: str = CONTEXT_POLICY_VERSION,
         web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
@@ -138,7 +140,7 @@ class ContextPipeline(OpportunitySelector):
         self._policy_version = policy_version
         self._web_search_active = web_search_active
         self._repository = PostgreSQLContextRepository(
-            relationship_read, memories=memory_read
+            relationship_read, sleep_read, memories=memory_read
         )
         self._catalog = ArtifactCatalogRepository()
         self._compiler = DeterministicContextCompiler()
@@ -1299,6 +1301,7 @@ def build_context_pipeline(
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     relationship_read: RelationshipReadPort,
+    sleep_read: SleepReadPort,
     web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -1323,6 +1326,7 @@ def build_context_pipeline(
         memory_read=memory_read,
         memory_projection=memory_projection,
         relationship_read=relationship_read,
+        sleep_read=sleep_read,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
