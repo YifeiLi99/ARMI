@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, cast
 
 _CODE = re.compile(r"^NAPCAT-[A-Z0-9-]+$", re.ASCII)
@@ -32,6 +34,29 @@ class NapCatAmbiguousDelivery(NapCatViolation):
 
 
 @dataclass(frozen=True, slots=True)
+class NapCatMessageSegment:
+    """Validated, immutable OneBot segment data used by the QQ adapter."""
+
+    kind: str
+    data: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not str or not self.kind or "\x00" in self.kind:
+            raise NapCatViolation("NAPCAT-SEGMENT-INVALID")
+        values = dict(self.data)
+        if any(
+            type(key) is not str
+            or not key
+            or "\x00" in key
+            or type(value) is not str
+            or "\x00" in value
+            for key, value in values.items()
+        ):
+            raise NapCatViolation("NAPCAT-SEGMENT-INVALID")
+        object.__setattr__(self, "data", MappingProxyType(values))
+
+
+@dataclass(frozen=True, slots=True)
 class NapCatGroupMessageEvent:
     time: int
     self_id: int
@@ -39,15 +64,15 @@ class NapCatGroupMessageEvent:
     group_id: int
     user_id: int
     sender_label: str
-    segments: tuple[tuple[str, dict[str, str]], ...]
+    segments: tuple[NapCatMessageSegment, ...]
 
     @property
     def mentioned_ids(self) -> frozenset[int]:
         values: set[int] = set()
-        for kind, data in self.segments:
-            if kind != "at":
+        for segment in self.segments:
+            if segment.kind != "at":
                 continue
-            value = data.get("qq")
+            value = segment.data.get("qq")
             if value is not None and value.isdecimal():
                 values.add(int(value))
         return frozenset(values)
@@ -63,7 +88,7 @@ class NapCatPrivateMessageEvent:
     message_id: str
     user_id: int
     sender_label: str
-    segments: tuple[tuple[str, dict[str, str]], ...]
+    segments: tuple[NapCatMessageSegment, ...]
 
     def render_text(self) -> str | None:
         return _render_text(self.segments)
@@ -182,8 +207,8 @@ def _parse_private_message(document: dict[str, Any]) -> NapCatPrivateMessageEven
 
 def _segments(
     raw_segments: list[object], violation_code: str
-) -> list[tuple[str, dict[str, str]]]:
-    segments: list[tuple[str, dict[str, str]]] = []
+) -> list[NapCatMessageSegment]:
+    segments: list[NapCatMessageSegment] = []
     for raw in raw_segments:
         if type(raw) is not dict:
             raise NapCatViolation(violation_code)
@@ -192,24 +217,74 @@ def _segments(
         data = typed.get("data")
         if type(kind) is not str or type(data) is not dict:
             raise NapCatViolation(violation_code)
-        normalized: dict[str, str] = {}
-        for key, item in cast(dict[object, object], data).items():
-            if type(key) is str and type(item) in {str, int}:
-                normalized[key] = str(item)
-        segments.append((kind, normalized))
+        normalized = _segment_data(kind, cast(dict[object, object], data))
+        segments.append(NapCatMessageSegment(kind, normalized))
     return segments
 
 
-def _render_text(segments: tuple[tuple[str, dict[str, str]], ...]) -> str | None:
+def _segment_data(kind: str, data: dict[object, object]) -> dict[str, str]:
+    allowed = {
+        "text": ("text",),
+        "at": ("qq", "name"),
+        "reply": ("id",),
+        "face": ("id", "resultId", "chainCount"),
+        "dice": ("result",),
+        "rps": ("result",),
+        "poke": ("type", "id"),
+        "image": (
+            "file",
+            "file_id",
+            "file_size",
+            "mime_type",
+            "summary",
+            "sub_type",
+            "emoji_id",
+            "emoji_package_id",
+        ),
+        "mface": (
+            "file",
+            "file_id",
+            "file_size",
+            "mime_type",
+            "summary",
+            "emoji_id",
+            "emoji_package_id",
+        ),
+        "record": ("file", "file_id", "file_size", "mime_type"),
+        "video": ("file", "file_id", "file_size", "mime_type"),
+        "file": ("file", "file_id", "file_size", "mime_type", "name"),
+    }.get(kind)
+    normalized: dict[str, str] = {}
+    keys = (
+        allowed
+        if allowed is not None
+        else tuple(key for key in ("summary", "name", "title", "label") if key in data)
+    )
+    for key in keys:
+        item = data.get(key)
+        if type(item) in {str, int}:
+            value = str(item)
+            if "\x00" not in value:
+                normalized[key] = value
+    if kind == "face":
+        raw = data.get("raw")
+        if type(raw) is dict:
+            face_text = cast(dict[object, object], raw).get("faceText")
+            if type(face_text) is str and face_text and "\x00" not in face_text:
+                normalized["face_text"] = face_text
+    return normalized
+
+
+def _render_text(segments: tuple[NapCatMessageSegment, ...]) -> str | None:
     parts: list[str] = []
-    for kind, data in segments:
-        if kind == "text":
-            parts.append(data.get("text", ""))
-        elif kind == "at":
-            value = data.get("qq", "")
+    for segment in segments:
+        if segment.kind == "text":
+            parts.append(segment.data.get("text", ""))
+        elif segment.kind == "at":
+            value = segment.data.get("qq", "")
             parts.append("@全体成员" if value == "all" else f"@QQ({value})")
-        elif kind == "reply":
-            value = data.get("id", "")
+        elif segment.kind == "reply":
+            value = segment.data.get("id", "")
             parts.append(f"[回复消息 {value}]")
     text = "".join(parts).strip()
     return text if text else None

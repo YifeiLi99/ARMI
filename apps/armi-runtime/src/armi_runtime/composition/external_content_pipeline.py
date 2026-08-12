@@ -19,20 +19,24 @@ from armi_kernel.application import (
     ExternalChannel,
     ExternalContentRecognitionPort,
     ExternalContentRecognitionRequest,
+    ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
     ExternalMediaFetchPort,
     ExternalMessagePartKind,
     ExternalMessageViolation,
+    PublishedArtifact,
     RuntimeFence,
     WorkLease,
     WorkViolation,
 )
+from armi_kernel.contracts import Digest, TraceId
 
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.external_content import (
     ExternalContentPartSnapshot,
     ExternalFinalizationPart,
+    ExternalRecognitionSnapshot,
     PostgreSQLExternalContentRepository,
 )
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
@@ -163,7 +167,10 @@ class ExternalContentPipeline:
             await self._terminalize_recognition(lease)
 
     async def _recognize_part(
-        self, lease: WorkLease, snapshot, part: ExternalContentPartSnapshot
+        self,
+        lease: WorkLease,
+        snapshot: ExternalRecognitionSnapshot,
+        part: ExternalContentPartSnapshot,
     ) -> None:
         attempt_id: UUID | None = None
         try:
@@ -183,6 +190,8 @@ class ExternalContentPipeline:
                 kind=part.kind,
                 content=downloaded.content,
                 file_name=downloaded.file_name,
+                visual_role=part.visual_role,
+                source_summary=part.source_summary,
             )
             if (
                 part.kind is ExternalMessagePartKind.FILE
@@ -206,6 +215,20 @@ class ExternalContentPipeline:
                     part_id=part.part_id,
                     raw_artifact_id=raw_registration.ref.artifact_id.value,
                 )
+                if part.kind is ExternalMessagePartKind.IMAGE:
+                    assert (
+                        extracted.pixel_width is not None
+                        and extracted.pixel_height is not None
+                        and extracted.frame_count is not None
+                    )
+                    await self._repository.attach_visual_detection(
+                        unit,
+                        part_id=part.part_id,
+                        media_type=extracted.media_type,
+                        pixel_width=extracted.pixel_width,
+                        pixel_height=extracted.pixel_height,
+                        frame_count=extracted.frame_count,
+                    )
             if not extracted.requires_provider:
                 assert extracted.text is not None
                 interpretation = await self._publish_text(
@@ -229,7 +252,7 @@ class ExternalContentPipeline:
             request_evidence = await self._publish(
                 json.dumps(
                     {
-                        "schema_version": "armi.external-content-recognition-request.v1",
+                        "schema_version": "armi.external-content-recognition-request.v2",
                         "provider": provider,
                         "model_id": model_id,
                         "part_kind": part.kind.value,
@@ -237,6 +260,29 @@ class ExternalContentPipeline:
                         "media_type": extracted.media_type,
                         "raw_artifact_id": str(raw_registration.ref.artifact_id.value),
                         "raw_content_digest": raw_registration.ref.content_digest.value,
+                        "visual_role": (
+                            None if part.visual_role is None else part.visual_role.value
+                        ),
+                        "source_kind": part.source_kind,
+                        "source_summary": part.source_summary,
+                        "pixel_width": extracted.pixel_width,
+                        "pixel_height": extracted.pixel_height,
+                        "frame_count": extracted.frame_count,
+                        "visual_inputs": [
+                            {
+                                "ordinal": index,
+                                "media_type": item.media_type,
+                                "content_digest": Digest.from_bytes(item.content).value,
+                            }
+                            for index, item in enumerate(
+                                extracted.visual_inputs, start=1
+                            )
+                        ],
+                        "visual_conversion": (
+                            "armi.image-visual-input.v1"
+                            if part.kind is ExternalMessagePartKind.IMAGE
+                            else None
+                        ),
                     },
                     ensure_ascii=False,
                     sort_keys=True,
@@ -262,11 +308,15 @@ class ExternalContentPipeline:
                 )
             result = await self._recognizer.recognize(
                 ExternalContentRecognitionRequest(
-                    part.kind,
-                    downloaded.content,
-                    downloaded.file_name,
-                    extracted.media_type,
-                    snapshot.trace_id,
+                    kind=part.kind,
+                    content=downloaded.content,
+                    file_name=downloaded.file_name,
+                    media_type=extracted.media_type,
+                    trace_id=snapshot.trace_id,
+                    visual_role=part.visual_role,
+                    source_kind=part.source_kind,
+                    source_summary=part.source_summary,
+                    visual_inputs=extracted.visual_inputs,
                 )
             )
             if result.status is ExternalContentRecognitionStatus.SUCCEEDED:
@@ -329,7 +379,7 @@ class ExternalContentPipeline:
         code: str,
         *,
         attempt_id: UUID | None = None,
-        result=None,
+        result: ExternalContentRecognitionResult | None = None,
     ) -> None:
         async with self._factory.unit_of_work() as unit:
             await self._repository.settle_failure(
@@ -411,10 +461,10 @@ class ExternalContentPipeline:
         self,
         value: str,
         *,
-        trace_id,
+        trace_id: TraceId,
         creator_visible: bool,
         logical_kind: str = "external.message.interpretation",
-    ):
+    ) -> PublishedArtifact:
         return await self._publish(
             value.encode("utf-8"),
             media_type="text/plain",
@@ -429,9 +479,9 @@ class ExternalContentPipeline:
         *,
         media_type: str,
         logical_kind: str,
-        trace_id,
+        trace_id: TraceId,
         creator_visible: bool,
-    ):
+    ) -> PublishedArtifact:
         staged = await self._storage.stage(
             _one_chunk(value),
             ArtifactPolicy(
@@ -479,6 +529,8 @@ def _render_projection(parts: tuple[ExternalFinalizationPart, ...]) -> str:
             values.append(f"[QQ表情 {part.text_value}]")
         elif part.kind is ExternalMessagePartKind.UNKNOWN:
             values.append(f"[不支持的消息类型: {part.text_value}]")
+        elif part.kind is ExternalMessagePartKind.IMAGE:
+            values.append(_render_image_projection(part))
         elif part.status == "succeeded":
             values.append(
                 f"[{_part_label(part.kind)}识别结果]\n{part.interpretation_text}"
@@ -504,6 +556,35 @@ def _part_label(kind: ExternalMessagePartKind) -> str:
         ExternalMessagePartKind.VIDEO: "视频",
         ExternalMessagePartKind.FILE: "文件",
     }[kind]
+
+
+def _render_image_projection(part: ExternalFinalizationPart) -> str:
+    metadata: list[str] = []
+    if part.visual_role:
+        metadata.append(f"ARMI视觉角色: {part.visual_role.value}")
+    if part.source_kind:
+        metadata.append(f"QQ来源类别: {part.source_kind}")
+    if part.source_summary:
+        metadata.append(f"QQ摘要: {part.source_summary}")
+    if (
+        part.detected_media_type
+        and part.pixel_width is not None
+        and part.pixel_height is not None
+        and part.frame_count is not None
+    ):
+        metadata.append(
+            f"本地检测: {part.detected_media_type}, "
+            f"{part.pixel_width}x{part.pixel_height}, {part.frame_count}帧"
+        )
+    prefix = "[图片来源信息]\n" + "\n".join(metadata) if metadata else "[图片]"
+    if part.status == "succeeded":
+        interpretation_kind = (
+            "本地内容解释"
+            if (part.interpretation_text or "").startswith("QQ 提供的商城表情摘要: ")
+            else "外部视觉观察"
+        )
+        return f"{prefix}\n[{interpretation_kind}]\n{part.interpretation_text}"
+    return f"{prefix}\n[原图无法读取,状态: {part.status}]"
 
 
 def _download_limit(part: ExternalContentPartSnapshot) -> int:

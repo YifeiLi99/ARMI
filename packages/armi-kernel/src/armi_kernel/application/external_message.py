@@ -54,6 +54,14 @@ class ExternalMessagePartKind(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ExternalVisualRole(StrEnum):
+    ORDINARY = "ordinary"
+    STICKER = "sticker"
+    STICKER_CANDIDATE = "sticker_candidate"
+    PLATFORM_SPECIAL = "platform_special"
+    UNKNOWN = "unknown"
+
+
 class ExternalMessageOutputPartKind(StrEnum):
     TEXT = "text"
     IMAGE = "image"
@@ -71,6 +79,9 @@ class ExternalMessagePart:
     file_name: str | None = None
     media_type: str | None = None
     byte_size: int | None = None
+    visual_role: ExternalVisualRole | None = None
+    source_kind: str | None = None
+    source_summary: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.kind) is not ExternalMessagePartKind:
@@ -81,6 +92,8 @@ class ExternalMessagePart:
             self.locator,
             self.file_name,
             self.media_type,
+            self.source_kind,
+            self.source_summary,
         ):
             if value is not None and (type(value) is not str or "\x00" in value):
                 raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART")
@@ -99,6 +112,9 @@ class ExternalMessagePart:
                     self.file_name,
                     self.media_type,
                     self.byte_size,
+                    self.visual_role,
+                    self.source_kind,
+                    self.source_summary,
                 )
             ):
                 raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART")
@@ -114,6 +130,9 @@ class ExternalMessagePart:
                     self.file_name,
                     self.media_type,
                     self.byte_size,
+                    self.visual_role,
+                    self.source_kind,
+                    self.source_summary,
                 )
             ):
                 raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART")
@@ -124,6 +143,18 @@ class ExternalMessagePart:
             ExternalMessagePartKind.FILE,
         }:
             if not self.locator or self.target_key is not None or self.text is not None:
+                raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART")
+            if self.kind is ExternalMessagePartKind.IMAGE:
+                if (
+                    type(self.visual_role) is not ExternalVisualRole
+                    or type(self.source_kind) is not str
+                    or _TOKEN.fullmatch(self.source_kind) is None
+                ):
+                    raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART")
+            elif any(
+                value is not None
+                for value in (self.visual_role, self.source_kind, self.source_summary)
+            ):
                 raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART")
         elif self.kind in {
             ExternalMessagePartKind.FACE,
@@ -138,6 +169,9 @@ class ExternalMessagePart:
                     self.file_name,
                     self.media_type,
                     self.byte_size,
+                    self.visual_role,
+                    self.source_kind,
+                    self.source_summary,
                 )
             )
         ):
@@ -150,6 +184,11 @@ class ExternalMessagePart:
         if self.locator is not None and len(self.locator.encode("utf-8")) > 2048:
             raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART")
         if self.file_name is not None and len(self.file_name.encode("utf-8")) > 512:
+            raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART")
+        if self.source_summary is not None and (
+            not self.source_summary.strip()
+            or len(self.source_summary.encode("utf-8")) > 512
+        ):
             raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART")
 
     @property
@@ -173,7 +212,9 @@ class ExternalMessagePart:
         if self.kind is ExternalMessagePartKind.FACE:
             return f"[QQ表情 {self.text}]"
         if self.kind is ExternalMessagePartKind.IMAGE:
-            return "[图片]"
+            summary = f",摘要: {self.source_summary}" if self.source_summary else ""
+            role = self.visual_role.value if self.visual_role is not None else "unknown"
+            return f"[图片,来源类别: {role}{summary}]"
         if self.kind is ExternalMessagePartKind.AUDIO:
             return "[语音]"
         if self.kind is ExternalMessagePartKind.VIDEO:
@@ -260,6 +301,10 @@ class ExternalContentRecognitionRequest:
     file_name: str
     media_type: str
     trace_id: TraceId
+    visual_role: ExternalVisualRole | None = None
+    source_kind: str | None = None
+    source_summary: str | None = None
+    visual_inputs: tuple[ExternalMediaContent, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -278,6 +323,36 @@ class ExternalContentRecognitionRequest:
             or type(self.media_type) is not str
             or not self.media_type
             or type(self.trace_id) is not TraceId
+        ):
+            raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-RECOGNITION")
+        if self.kind is ExternalMessagePartKind.IMAGE:
+            if (
+                type(self.visual_role) is not ExternalVisualRole
+                or type(self.source_kind) is not str
+                or _TOKEN.fullmatch(self.source_kind) is None
+                or (
+                    self.source_summary is not None
+                    and (
+                        type(self.source_summary) is not str
+                        or not self.source_summary.strip()
+                        or "\x00" in self.source_summary
+                        or len(self.source_summary.encode("utf-8")) > 512
+                    )
+                )
+                or type(self.visual_inputs) is not tuple
+                or not 1 <= len(self.visual_inputs) <= 4
+                or any(
+                    type(item) is not ExternalMediaContent
+                    for item in self.visual_inputs
+                )
+            ):
+                raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-RECOGNITION")
+        elif (
+            any(
+                value is not None
+                for value in (self.visual_role, self.source_kind, self.source_summary)
+            )
+            or self.visual_inputs
         ):
             raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-RECOGNITION")
 

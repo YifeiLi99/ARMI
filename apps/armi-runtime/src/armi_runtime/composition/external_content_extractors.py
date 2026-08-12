@@ -5,20 +5,41 @@ from __future__ import annotations
 import csv
 import io
 import json
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
-from armi_kernel.application import ExternalMessagePartKind, ExternalMessageViolation
+from armi_kernel.application import (
+    ExternalMediaContent,
+    ExternalMessagePartKind,
+    ExternalMessageViolation,
+    ExternalVisualRole,
+)
 from docx import Document
 from docx.opc.exceptions import PackageNotFoundError as DocxPackageNotFoundError
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
+from PIL import Image, UnidentifiedImageError
 from pptx import Presentation
 from pptx.exc import PackageNotFoundError as PptxPackageNotFoundError
 
 _MAX_PROJECTION_BYTES = 256 * 1024
 _TRUNCATED = "\n[内容已按 ARMI 单条认知材料上限截断]"
+_MAX_IMAGE_PIXELS = 36_000_000
+_GENERIC_STICKER_SUMMARIES = frozenset(
+    {
+        "图片",
+        "表情",
+        "表情包",
+        "动画表情",
+        "商城表情",
+        "[图片]",
+        "[表情]",
+        "[动画表情]",
+        "[商城表情]",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,13 +47,29 @@ class ExtractedExternalContent:
     media_type: str
     text: str | None
     requires_provider: bool
+    pixel_width: int | None = None
+    pixel_height: int | None = None
+    frame_count: int | None = None
+    visual_inputs: tuple[ExternalMediaContent, ...] = ()
 
 
 def extract_external_content(
-    *, kind: ExternalMessagePartKind, content: bytes, file_name: str
+    *,
+    kind: ExternalMessagePartKind,
+    content: bytes,
+    file_name: str,
+    visual_role: ExternalVisualRole | None = None,
+    source_summary: str | None = None,
 ) -> ExtractedExternalContent:
     if kind is ExternalMessagePartKind.IMAGE:
-        return ExtractedExternalContent(_image_media_type(content), None, True)
+        if type(visual_role) is not ExternalVisualRole:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-MEDIA-TYPE")
+        return _extract_image(
+            content,
+            file_name=file_name,
+            visual_role=visual_role,
+            source_summary=source_summary,
+        )
     if kind is ExternalMessagePartKind.AUDIO:
         if not (content.startswith(b"ID3") or _looks_like_mp3_frame(content)):
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-MEDIA-TYPE")
@@ -179,6 +216,94 @@ def _image_media_type(content: bytes) -> str:
     raise ExternalMessageViolation("EXTERNAL-MESSAGE-MEDIA-TYPE")
 
 
+def _extract_image(
+    content: bytes,
+    *,
+    file_name: str,
+    visual_role: ExternalVisualRole,
+    source_summary: str | None,
+) -> ExtractedExternalContent:
+    media_type = _image_media_type(content)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(content)) as image:
+                width, height = image.size
+                frame_count = int(getattr(image, "n_frames", 1))
+                if (
+                    width <= 0
+                    or height <= 0
+                    or width * height > _MAX_IMAGE_PIXELS
+                    or frame_count <= 0
+                ):
+                    raise ExternalMessageViolation("EXTERNAL-MESSAGE-IMAGE-DIMENSIONS")
+                image.verify()
+            inputs = _visual_inputs(
+                content,
+                file_name=file_name,
+                media_type=media_type,
+                frame_count=frame_count,
+            )
+    except ExternalMessageViolation:
+        raise
+    except Image.DecompressionBombError, Image.DecompressionBombWarning:
+        raise ExternalMessageViolation("EXTERNAL-MESSAGE-IMAGE-DIMENSIONS") from None
+    except OSError, SyntaxError, UnidentifiedImageError, ValueError:
+        raise ExternalMessageViolation("EXTERNAL-MESSAGE-FILE-INVALID") from None
+    local_text = None
+    if visual_role is ExternalVisualRole.STICKER and _meaningful_sticker_summary(
+        source_summary
+    ):
+        local_text = f"QQ 提供的商城表情摘要: {source_summary}"
+    return ExtractedExternalContent(
+        media_type,
+        local_text,
+        local_text is None,
+        width,
+        height,
+        frame_count,
+        inputs,
+    )
+
+
+def _visual_inputs(
+    content: bytes, *, file_name: str, media_type: str, frame_count: int
+) -> tuple[ExternalMediaContent, ...]:
+    if frame_count == 1 and media_type in {"image/jpeg", "image/png"}:
+        return (ExternalMediaContent(content, file_name, media_type),)
+    indexes = _frame_indexes(frame_count)
+    values: list[ExternalMediaContent] = []
+    with Image.open(io.BytesIO(content)) as image:
+        for ordinal, index in enumerate(indexes, start=1):
+            image.seek(index)
+            frame = image.convert("RGBA")
+            output = io.BytesIO()
+            frame.save(output, format="PNG")
+            values.append(
+                ExternalMediaContent(
+                    output.getvalue(),
+                    f"{Path(file_name).stem}-frame-{ordinal}.png",
+                    "image/png",
+                )
+            )
+    return tuple(values)
+
+
+def _frame_indexes(frame_count: int) -> tuple[int, ...]:
+    if frame_count <= 4:
+        return tuple(range(frame_count))
+    return tuple(round(index * (frame_count - 1) / 3) for index in range(4))
+
+
+def _meaningful_sticker_summary(value: str | None) -> bool:
+    if value is None:
+        return False
+    normalized = value.strip()
+    return bool(normalized) and normalized.casefold() not in {
+        item.casefold() for item in _GENERIC_STICKER_SUMMARIES
+    }
+
+
 def _looks_like_mp3_frame(content: bytes) -> bool:
     return len(content) >= 2 and content[0] == 0xFF and content[1] & 0xE0 == 0xE0
 
@@ -196,11 +321,11 @@ def _pptx_text(content: bytes) -> str:
     presentation = Presentation(io.BytesIO(content))
     chunks: list[str] = []
     for index, slide in enumerate(presentation.slides, start=1):
-        values = [
-            shape.text
-            for shape in slide.shapes
-            if hasattr(shape, "text") and shape.text
-        ]
+        values: list[str] = []
+        for shape in slide.shapes:
+            text = getattr(shape, "text", None)
+            if isinstance(text, str) and text:
+                values.append(text)
         chunks.append(f"[幻灯片 {index}]\n" + "\n".join(values))
     return "\n\n".join(chunks)
 

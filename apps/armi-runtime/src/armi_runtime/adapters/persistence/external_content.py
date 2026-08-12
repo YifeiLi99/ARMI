@@ -10,6 +10,7 @@ from armi_kernel.application import (
     ExternalContentRecognitionResult,
     ExternalMessagePartKind,
     ExternalMessageViolation,
+    ExternalVisualRole,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -31,6 +32,9 @@ class ExternalContentPartSnapshot:
     file_name: str | None
     media_type: str | None
     declared_byte_size: int | None
+    visual_role: ExternalVisualRole | None
+    source_kind: str | None
+    source_summary: str | None
     status: str
 
 
@@ -54,6 +58,13 @@ class ExternalFinalizationPart:
     text_value: str | None
     target_key: str | None
     file_name: str | None
+    visual_role: ExternalVisualRole | None
+    source_kind: str | None
+    source_summary: str | None
+    detected_media_type: str | None
+    pixel_width: int | None
+    pixel_height: int | None
+    frame_count: int | None
     status: str
     interpretation_text: str | None
     failure_code: str | None
@@ -172,7 +183,8 @@ class PostgreSQLExternalContentRepository:
                 """
                 SELECT external_message_part_id, ordinal, part_kind,
                        external_locator, declared_file_name, declared_media_type,
-                       declared_byte_size, processing_status
+                       declared_byte_size, visual_role, source_kind, source_summary,
+                       processing_status
                 FROM armi.external_message_parts
                 WHERE interaction_id = %s
                   AND part_kind IN ('image','audio','video','file')
@@ -190,7 +202,10 @@ class PostgreSQLExternalContentRepository:
                 None if row[4] is None else str(row[4]),
                 None if row[5] is None else str(row[5]),
                 None if row[6] is None else int(row[6]),
-                str(row[7]),
+                None if row[7] is None else ExternalVisualRole(str(row[7])),
+                None if row[8] is None else str(row[8]),
+                None if row[9] is None else str(row[9]),
+                str(row[10]),
             )
             for row in rows
         )
@@ -221,6 +236,30 @@ class PostgreSQLExternalContentRepository:
             WHERE external_message_part_id = %s AND processing_status = 'pending'
             """,
             (raw_artifact_id, part_id),
+        )
+        if updated.rowcount != 1:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
+
+    async def attach_visual_detection(
+        self,
+        unit: PostgreSQLUnitOfWork,
+        *,
+        part_id: UUID,
+        media_type: str,
+        pixel_width: int,
+        pixel_height: int,
+        frame_count: int,
+    ) -> None:
+        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        updated = await connection.execute(
+            """
+            UPDATE armi.external_message_parts
+            SET detected_media_type = %s, pixel_width = %s,
+                pixel_height = %s, frame_count = %s
+            WHERE external_message_part_id = %s
+              AND part_kind = 'image' AND processing_status = 'pending'
+            """,
+            (media_type, pixel_width, pixel_height, frame_count, part_id),
         )
         if updated.rowcount != 1:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
@@ -458,8 +497,9 @@ class PostgreSQLExternalContentRepository:
             await connection.execute(
                 """
                 SELECT ordinal, part_kind, text_value, target_key,
-                       declared_file_name, processing_status,
-                       interpretation_text, failure_code
+                       declared_file_name, visual_role, source_kind, source_summary,
+                       detected_media_type, pixel_width, pixel_height, frame_count,
+                       processing_status, interpretation_text, failure_code
                 FROM armi.external_message_parts
                 WHERE interaction_id = %s ORDER BY ordinal
                 """,
@@ -481,9 +521,16 @@ class PostgreSQLExternalContentRepository:
                     None if part[2] is None else str(part[2]),
                     None if part[3] is None else str(part[3]),
                     None if part[4] is None else str(part[4]),
-                    str(part[5]),
+                    None if part[5] is None else ExternalVisualRole(str(part[5])),
                     None if part[6] is None else str(part[6]),
                     None if part[7] is None else str(part[7]),
+                    None if part[8] is None else str(part[8]),
+                    None if part[9] is None else int(part[9]),
+                    None if part[10] is None else int(part[10]),
+                    None if part[11] is None else int(part[11]),
+                    str(part[12]),
+                    None if part[13] is None else str(part[13]),
+                    None if part[14] is None else str(part[14]),
                 )
                 for part in parts
             ),

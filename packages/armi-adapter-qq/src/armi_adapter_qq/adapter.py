@@ -14,6 +14,7 @@ from armi_channel_napcat import (
     NapCatAmbiguousDelivery,
     NapCatGateway,
     NapCatGroupMessageEvent,
+    NapCatMessageSegment,
     NapCatPrivateMessageEvent,
     NapCatRejected,
     NapCatViolation,
@@ -40,6 +41,7 @@ from armi_kernel.application import (
     ExternalMessageSendRequest,
     ExternalMessageViolation,
     ExternalPartyKey,
+    ExternalVisualRole,
     FrozenEffectRequest,
     ObservedExternalMessage,
 )
@@ -173,10 +175,10 @@ class QQIngressAdapter:
         )
 
     async def _replies_to_self(self, event: NapCatGroupMessageEvent) -> bool:
-        for kind, data in event.segments:
-            if kind != "reply":
+        for segment in event.segments:
+            if segment.kind != "reply":
                 continue
-            message_id = data.get("id")
+            message_id = segment.data.get("id")
             if not message_id:
                 continue
             try:
@@ -388,10 +390,12 @@ def _effect_violation(error: ExternalMessageViolation) -> EffectViolation:
 
 
 def _message_parts(
-    segments: tuple[tuple[str, dict[str, str]], ...],
+    segments: tuple[NapCatMessageSegment, ...],
 ) -> tuple[ExternalMessagePart, ...]:
     parts: list[ExternalMessagePart] = []
-    for kind, data in segments:
+    for segment in segments:
+        kind = segment.kind
+        data = segment.data
         if kind == "text":
             text = data.get("text", "")
             if text:
@@ -415,8 +419,36 @@ def _message_parts(
                     )
                 )
         elif kind == "face":
-            label = data.get("raw") or data.get("id") or "未知"
+            label = data.get("face_text") or data.get("id") or "未知"
+            details: list[str] = []
+            if data.get("resultId"):
+                details.append(f"结果={data['resultId']}")
+            if data.get("chainCount"):
+                details.append(f"连击={data['chainCount']}")
+            if details:
+                label = f"{label} ({','.join(details)})"
             parts.append(ExternalMessagePart(ExternalMessagePartKind.FACE, text=label))
+        elif kind == "dice":
+            parts.append(
+                ExternalMessagePart(
+                    ExternalMessagePartKind.FACE,
+                    text=f"骰子结果 {data.get('result', '未知')}",
+                )
+            )
+        elif kind == "rps":
+            parts.append(
+                ExternalMessagePart(
+                    ExternalMessagePartKind.FACE,
+                    text=f"猜拳结果 {data.get('result', '未知')}",
+                )
+            )
+        elif kind == "poke":
+            parts.append(
+                ExternalMessagePart(
+                    ExternalMessagePartKind.FACE,
+                    text=f"戳一戳 type={data.get('type', '未知')} id={data.get('id', '未知')}",
+                )
+            )
         elif kind in {"image", "mface", "record", "video", "file"}:
             locator = (
                 data.get("file_id") or data.get("file") or data.get("url")
@@ -440,6 +472,12 @@ def _message_parts(
             }[kind]
             raw_size = data.get("file_size")
             byte_size = int(raw_size) if raw_size and raw_size.isdecimal() else None
+            visual_role = None
+            source_kind = None
+            source_summary = None
+            if mapped_kind is ExternalMessagePartKind.IMAGE:
+                visual_role, source_kind = _visual_route(kind, data)
+                source_summary = _summary(data.get("summary"))
             parts.append(
                 ExternalMessagePart(
                     mapped_kind,
@@ -451,6 +489,9 @@ def _message_parts(
                     ),
                     media_type=data.get("mime_type"),
                     byte_size=byte_size,
+                    visual_role=visual_role,
+                    source_kind=source_kind,
+                    source_summary=source_summary,
                 )
             )
         else:
@@ -463,7 +504,43 @@ def _message_parts(
     return tuple(parts)
 
 
-def _unknown_part_label(kind: str, data: dict[str, str]) -> str:
+def _visual_route(kind: str, data: Mapping[str, str]) -> tuple[ExternalVisualRole, str]:
+    if kind == "mface" or data.get("emoji_id") or data.get("emoji_package_id"):
+        return ExternalVisualRole.STICKER, "qq.market_face"
+    source_by_subtype = {
+        "0": (ExternalVisualRole.ORDINARY, "qq.image.normal"),
+        "1": (ExternalVisualRole.STICKER_CANDIDATE, "qq.image.custom"),
+        "2": (ExternalVisualRole.PLATFORM_SPECIAL, "qq.image.hot"),
+        "3": (ExternalVisualRole.PLATFORM_SPECIAL, "qq.image.dipper_chart"),
+        "4": (ExternalVisualRole.PLATFORM_SPECIAL, "qq.image.smart"),
+        "5": (ExternalVisualRole.PLATFORM_SPECIAL, "qq.image.space"),
+        "6": (ExternalVisualRole.UNKNOWN, "qq.image.unknown"),
+        "7": (ExternalVisualRole.PLATFORM_SPECIAL, "qq.image.related"),
+    }
+    return source_by_subtype.get(
+        data.get("sub_type", ""),
+        (ExternalVisualRole.UNKNOWN, "qq.image.unknown"),
+    )
+
+
+def _summary(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    encoded = normalized.encode("utf-8")
+    if len(encoded) <= 512:
+        return normalized
+    clipped = encoded[:512]
+    while True:
+        try:
+            return clipped.decode("utf-8")
+        except UnicodeDecodeError:
+            clipped = clipped[:-1]
+
+
+def _unknown_part_label(kind: str, data: Mapping[str, str]) -> str:
     details = [
         f"{key}={data[key]}"
         for key in ("summary", "name", "title", "label")

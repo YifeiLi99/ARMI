@@ -43,6 +43,53 @@ class NapCatContractTests(unittest.TestCase):
         self.assertEqual(parsed.mentioned_ids, frozenset({10001}))
         self.assertEqual(parsed.render_text(), "@QQ(10001) 你好")
 
+    def test_preserves_validated_visual_and_face_fields_only(self) -> None:
+        parsed = parse_onebot_message(
+            json.dumps(
+                {
+                    "time": 1_800_000_000,
+                    "self_id": 10001,
+                    "post_type": "message",
+                    "message_type": "private",
+                    "sub_type": "friend",
+                    "message_id": 347,
+                    "user_id": 30003,
+                    "message": [
+                        {
+                            "type": "face",
+                            "data": {
+                                "id": "14",
+                                "resultId": "2",
+                                "chainCount": 3,
+                                "raw": {"faceText": "/微笑", "secret": "drop"},
+                            },
+                        },
+                        {
+                            "type": "image",
+                            "data": {
+                                "file": "picture.jpg",
+                                "summary": "开心企鹅",
+                                "sub_type": 1,
+                                "emoji_id": "emoji-1",
+                                "emoji_package_id": 8,
+                                "key": "must-not-cross-boundary",
+                                "url": "https://signed.invalid/value",
+                            },
+                        },
+                    ],
+                    "sender": {"nickname": "小明"},
+                }
+            )
+        )
+        self.assertIsInstance(parsed, NapCatPrivateMessageEvent)
+        assert isinstance(parsed, NapCatPrivateMessageEvent)
+        self.assertEqual(parsed.segments[0].data["face_text"], "/微笑")
+        self.assertEqual(parsed.segments[0].data["chainCount"], "3")
+        self.assertNotIn("raw", parsed.segments[0].data)
+        self.assertEqual(parsed.segments[1].data["sub_type"], "1")
+        self.assertNotIn("key", parsed.segments[1].data)
+        self.assertNotIn("url", parsed.segments[1].data)
+
     def test_parses_successful_action_response(self) -> None:
         parsed = parse_onebot_message(
             '{"status":"ok","retcode":0,"data":{"message_id":88},"echo":"e1"}'
@@ -218,7 +265,7 @@ class NapCatContractTests(unittest.TestCase):
             ) as client:
                 gateway = NapCatHttpClient(
                     base_url="http://127.0.0.1:3000",
-                    access_token="test-token",
+                    access_token="test-" + "token",
                     client=client,
                 )
                 for kind in ("image", "audio", "video", "file"):

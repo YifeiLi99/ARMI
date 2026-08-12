@@ -289,6 +289,7 @@ from .external_message import (
     ExternalMessageSendRequest,
     ExternalMessageViolation,
     ExternalPartyKey,
+    ExternalVisualRole,
     ObservedExternalMessage,
 )
 from .life import (
@@ -732,6 +733,7 @@ __all__: tuple[str, ...] = (
     "ExternalMessageSendRequest",
     "ExternalMessageViolation",
     "ExternalPartyKey",
+    "ExternalVisualRole",
     "FormalNoActionDraft",
     "FormalNoActionId",
     "FormalNoActionKind",

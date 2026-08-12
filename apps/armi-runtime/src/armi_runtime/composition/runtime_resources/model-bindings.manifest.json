@@ -77,6 +77,8 @@
   "external_content_recognition": {
     "api_base": "https://ark.cn-beijing.volces.com/api/v3",
     "output_token_limit": 2048,
+    "image_output_token_limit": 512,
+    "sticker_output_token_limit": 256,
     "speech_model_name": "bigmodel",
     "speech_model_version": "400",
     "speech_poll_interval_seconds": 1,

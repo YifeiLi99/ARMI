@@ -315,8 +315,8 @@ class ExternalMessageInputRepository:
                     external_message_part_id, interaction_id, ordinal, part_kind,
                     text_value, target_key, external_locator, declared_file_name,
                     declared_media_type, declared_byte_size, processing_status,
-                    settled_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    visual_role, source_kind, source_summary, settled_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     part_id,
@@ -330,6 +330,9 @@ class ExternalMessageInputRepository:
                     part.media_type,
                     part.byte_size,
                     status,
+                    None if part.visual_role is None else part.visual_role.value,
+                    part.source_kind,
+                    part.source_summary,
                     settled_at,
                 ),
             )

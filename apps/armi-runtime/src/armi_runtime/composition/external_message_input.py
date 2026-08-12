@@ -430,7 +430,7 @@ def _request_digest(
     return Digest.from_bytes(
         rfc8785.dumps(
             {
-                "schema_version": "armi.external-message-input.v2",
+                "schema_version": "armi.external-message-input.v3",
                 "environment_id": str(environment_id),
                 "subject_id": str(context.subject_id),
                 "scene_id": str(context.scene_id),
@@ -454,6 +454,11 @@ def _request_digest(
                         "file_name": part.file_name,
                         "media_type": part.media_type,
                         "byte_size": part.byte_size,
+                        "visual_role": (
+                            None if part.visual_role is None else part.visual_role.value
+                        ),
+                        "source_kind": part.source_kind,
+                        "source_summary": part.source_summary,
                     }
                     for part in command.parts
                 ],

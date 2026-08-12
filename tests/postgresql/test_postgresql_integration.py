@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import http.client
 import io
@@ -85,6 +86,7 @@ from armi_kernel.application import (
     ExternalMessagePart,
     ExternalMessagePartKind,
     ExternalPartyKey,
+    ExternalVisualRole,
     LifeRecordActor,
     LifeRecordKind,
     LifeRecordQuery,
@@ -349,7 +351,9 @@ class DatabaseFixture:
 class _ExternalMediaFetch:
     async def fetch(self, **_kwargs: object) -> ExternalMediaContent:
         return ExternalMediaContent(
-            b"\x89PNG\r\n\x1a\nrecognition-sample",
+            base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            ),
             "sample.png",
             "image/png",
         )
@@ -732,6 +736,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             file_name="sample.png",
                             media_type="image/png",
                             byte_size=32,
+                            visual_role=ExternalVisualRole.ORDINARY,
+                            source_kind="qq.image.normal",
+                            source_summary="普通照片",
                         ),
                     ),
                     observed_at=Instant(datetime(2026, 8, 10, 14, 2, tzinfo=UTC)),
@@ -774,6 +781,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             ExternalMessagePart(
                                 ExternalMessagePartKind.IMAGE,
                                 locator="silent-image",
+                                visual_role=ExternalVisualRole.UNKNOWN,
+                                source_kind="qq.image.unknown",
                             ),
                         ),
                         addressed_to_subject=False,
@@ -791,6 +800,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             ExternalMessagePart(
                                 ExternalMessagePartKind.IMAGE,
                                 locator="unaddressed-image",
+                                visual_role=ExternalVisualRole.UNKNOWN,
+                                source_kind="qq.image.unknown",
                             ),
                         ),
                         addressed_to_subject=False,
@@ -912,6 +923,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """,
                 (media.interaction_id.value,),
             ).fetchone()
+            visual_state = connection.execute(
+                """
+                SELECT visual_role, source_kind, source_summary,
+                       detected_media_type, pixel_width, pixel_height, frame_count
+                FROM armi.external_message_parts
+                WHERE interaction_id = %s AND part_kind = 'image'
+                """,
+                (media.interaction_id.value,),
+            ).fetchone()
             group_media_state = connection.execute(
                 """
                 SELECT input.external_message_key, input.recognition_status,
@@ -954,6 +974,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(media_state, ("succeeded", 2, 1, 1, 1))
         self.assertEqual(
+            visual_state,
+            (
+                "ordinary",
+                "qq.image.normal",
+                "普通照片",
+                "image/png",
+                1,
+                1,
+                1,
+            ),
+        )
+        self.assertEqual(
             group_media_state,
             [
                 ("30008", "skipped", 0, 0, "skipped"),
@@ -991,7 +1023,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(namespace, ("armi",))
         self.assertEqual(tables, (0,))
 
-    def test_external_content_revision_migrates_0000_to_0001(self) -> None:
+    def test_external_visual_revision_migrates_0001_to_0002(self) -> None:
         fixture = self.create_database()
         source = Path(
             "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
@@ -999,19 +1031,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (
-                schema_root / "alembic/versions/0001_external_message_content_parts.py"
-            ).unlink()
+            (schema_root / "alembic/versions/0002_external_visual_routing.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
             )
-        self.assertEqual(installed.current_revision, "0000")
+        self.assertEqual(installed.current_revision, "0001")
         migrated = PostgreSQLSchemaGateway().migrate(
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0001")
+        self.assertEqual(migrated.current_revision, "0002")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1025,6 +1055,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                          WHERE table_schema = 'armi'
                            AND table_name = 'party_input_interactions'
                            AND column_name = 'cognition_content_digest'
+                       ),
+                       EXISTS (
+                         SELECT 1 FROM information_schema.columns
+                         WHERE table_schema = 'armi'
+                           AND table_name = 'external_message_parts'
+                           AND column_name = 'visual_role'
                        )
                 """
             ).fetchone()
@@ -1033,6 +1069,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             (
                 "external_message_parts",
                 "external_content_recognition_attempts",
+                True,
                 True,
                 True,
             ),
@@ -1086,10 +1123,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0002_probe.py").write_text(
+            (schema_root / "alembic/versions/0003_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0002'\n"
-                "down_revision = '0001'\n"
+                "revision = '0003'\n"
+                "down_revision = '0002'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1144,8 +1181,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0002")
-            self.assertEqual(migrated.head_revision, "0002")
+            self.assertEqual(migrated.current_revision, "0003")
+            self.assertEqual(migrated.head_revision, "0003")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1166,10 +1203,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0002_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0003_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0002'\n"
-                "down_revision = '0001'\n"
+                "revision = '0003'\n"
+                "down_revision = '0002'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1194,7 +1231,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0001",)])
+            self.assertEqual(history, [("0002",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -6227,7 +6264,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0001",)])
+            self.assertEqual(restored, [("0002",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

@@ -18,6 +18,7 @@ from armi_channel_napcat import (
     NapCatAmbiguousDelivery,
     NapCatDownloadedFile,
     NapCatGroupMessageEvent,
+    NapCatMessageSegment,
     NapCatPrivateMessageEvent,
     NapCatRejected,
 )
@@ -96,7 +97,68 @@ def _config() -> QQAdapterConfig:
     )
 
 
+def _segments(
+    *values: tuple[str, dict[str, str]],
+) -> tuple[NapCatMessageSegment, ...]:
+    return tuple(NapCatMessageSegment(kind, data) for kind, data in values)
+
+
 class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ingress_classifies_qq_visual_sources_and_magic_faces(self) -> None:
+        port = _InputPort()
+        adapter = QQIngressAdapter(
+            config=_config(), input_port=port, gateway=_Gateway()
+        )
+        event = NapCatPrivateMessageEvent(
+            1_800_000_000,
+            10001,
+            "visual-routes",
+            90009,
+            "主人",
+            _segments(
+                ("face", {"id": "14", "face_text": "/微笑"}),
+                ("dice", {"result": "6"}),
+                ("rps", {"result": "2"}),
+                (
+                    "image",
+                    {
+                        "file": "market.gif",
+                        "summary": "开心企鹅",
+                        "emoji_id": "e1",
+                    },
+                ),
+                ("image", {"file": "custom.gif", "sub_type": "1"}),
+                ("image", {"file": "normal.jpg", "sub_type": "0"}),
+                ("image", {"file": "hot.jpg", "sub_type": "2"}),
+                ("image", {"file": "unknown.jpg", "sub_type": "99"}),
+            ),
+        )
+        await adapter.accept_event(event)
+        parts = port.accepted[0].parts
+        self.assertEqual([part.kind.value for part in parts[:3]], ["face"] * 3)
+        self.assertEqual(parts[0].text, "/微笑")
+        self.assertEqual(parts[1].text, "骰子结果 6")
+        self.assertEqual(parts[2].text, "猜拳结果 2")
+        visual_roles = []
+        for part in parts[3:]:
+            assert part.visual_role is not None
+            visual_roles.append(part.visual_role.value)
+        self.assertEqual(
+            visual_roles,
+            ["sticker", "sticker_candidate", "ordinary", "platform_special", "unknown"],
+        )
+        self.assertEqual(
+            [part.source_kind for part in parts[3:]],
+            [
+                "qq.market_face",
+                "qq.image.custom",
+                "qq.image.normal",
+                "qq.image.hot",
+                "qq.image.unknown",
+            ],
+        )
+        self.assertEqual(parts[3].source_summary, "开心企鹅")
+
     async def test_ingress_maps_group_and_friend_private(self) -> None:
         port = _InputPort()
         adapter = QQIngressAdapter(
@@ -109,7 +171,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             20002,
             30003,
             "小明",
-            (("at", {"qq": "10001"}), ("text", {"text": " 你好"})),
+            _segments(("at", {"qq": "10001"}), ("text", {"text": " 你好"})),
         )
         private = NapCatPrivateMessageEvent(
             1_800_000_001,
@@ -117,7 +179,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             "346",
             90009,
             "主人",
-            (("text", {"text": "晚上好"}),),
+            _segments(("text", {"text": "晚上好"})),
         )
         await adapter.accept_event(group)
         await adapter.accept_event(private)
@@ -139,13 +201,13 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
         )
         events = (
             NapCatGroupMessageEvent(
-                1, 10001, "1", 99999, 3, "x", (("text", {"text": "x"}),)
+                1, 10001, "1", 99999, 3, "x", _segments(("text", {"text": "x"}))
             ),
             NapCatPrivateMessageEvent(
-                1, 20000, "2", 3, "x", (("text", {"text": "x"}),)
+                1, 20000, "2", 3, "x", _segments(("text", {"text": "x"}))
             ),
             NapCatPrivateMessageEvent(
-                1, 10001, "3", 10001, "ARMI", (("text", {"text": "x"}),)
+                1, 10001, "3", 10001, "ARMI", _segments(("text", {"text": "x"}))
             ),
         )
         for event in events:
@@ -166,7 +228,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             20002,
             30003,
             "小明",
-            (
+            _segments(
                 ("reply", {"id": "armi-message"}),
                 ("text", {"text": "看看"}),
                 ("image", {"file": "image-locator", "file_size": "12"}),
@@ -182,7 +244,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(accepted.addressed_to_subject)
         self.assertEqual(
             [part.kind.value for part in accepted.parts],
-            ["reply", "text", "image", "audio", "video", "file", "unknown"],
+            ["reply", "text", "image", "audio", "video", "file", "face"],
         )
         self.assertEqual(accepted.parts[2].byte_size, 12)
         self.assertEqual(accepted.parts[5].file_name, "report.pdf")
@@ -201,7 +263,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
         adapter = QQIngressAdapter(config=config, input_port=port, gateway=_Gateway())
         events = (
             NapCatPrivateMessageEvent(
-                1, 10001, "1", 40004, "路人", (("text", {"text": "x"}),)
+                1, 10001, "1", 40004, "路人", _segments(("text", {"text": "x"}))
             ),
             NapCatGroupMessageEvent(
                 1,
@@ -210,13 +272,13 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
                 20003,
                 30003,
                 "白名单好友",
-                (("text", {"text": "x"}),),
+                _segments(("text", {"text": "x"})),
             ),
             NapCatGroupMessageEvent(
-                1, 10001, "3", 20002, 40004, "路人", (("text", {"text": "x"}),)
+                1, 10001, "3", 20002, 40004, "路人", _segments(("text", {"text": "x"}))
             ),
             NapCatPrivateMessageEvent(
-                1, 10001, "4", 90009, "主人", (("text", {"text": "x"}),)
+                1, 10001, "4", 90009, "主人", _segments(("text", {"text": "x"}))
             ),
             NapCatPrivateMessageEvent(
                 1,
@@ -224,7 +286,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
                 "5",
                 30003,
                 "白名单好友",
-                (("text", {"text": "x"}),),
+                _segments(("text", {"text": "x"})),
             ),
             NapCatGroupMessageEvent(
                 1,
@@ -233,7 +295,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
                 20002,
                 30003,
                 "白名单好友",
-                (("text", {"text": "x"}),),
+                _segments(("text", {"text": "x"})),
             ),
         )
         for event in events:
