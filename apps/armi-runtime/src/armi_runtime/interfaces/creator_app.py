@@ -33,8 +33,6 @@ from armi_kernel.application import (
     CreatorInputAcceptancePort,
     CreatorInputCommand,
     CreatorInputViolation,
-    CreatorLifeMaterialQueryPort,
-    CreatorLifeMaterialQueryViolation,
     CreatorOperation,
     CreatorOperationPhase,
     CreatorOperationQueryPort,
@@ -100,6 +98,7 @@ from armi_kernel.contracts import (
     UnknownOutcome,
     WaitingOutcome,
 )
+from armi_material.api import CreatorLifeMaterialItem, MaterialViolation
 from armi_memory.api import MemoryReadPort, MemoryViolation
 from armi_relationship.api import (
     CreatorRelationshipRevision,
@@ -241,6 +240,12 @@ class CapabilityPolicyPort(Protocol):
     ) -> dict[str, object]: ...
 
     async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult: ...
+
+
+class CreatorLifeMaterialQueryPort(Protocol):
+    async def get_creator_visible(
+        self, material_id: UUID
+    ) -> CreatorLifeMaterialItem | None: ...
 
 
 class _OutcomeArguments(TypedDict):
@@ -2711,7 +2716,7 @@ def create_runtime_app(
             )
         try:
             item = await creator_life_material_query.get_creator_visible(parsed)
-        except CreatorLifeMaterialQueryViolation:
+        except MaterialViolation:
             return JSONResponse(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_LIFE_MATERIAL_QUERY_UNAVAILABLE"),

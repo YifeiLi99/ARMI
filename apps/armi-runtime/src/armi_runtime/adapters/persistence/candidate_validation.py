@@ -24,7 +24,6 @@ from armi_kernel.application import (
     CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
-    CandidateLifeMaterialDraft,
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
@@ -55,6 +54,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_material.api import MaterialCandidateSource, MaterialReadPort
 from armi_memory.api import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
@@ -124,21 +124,7 @@ class CandidateEpisodeSnapshot:
         ]
         | None
     ) = None
-    current_materials: tuple[
-        tuple[
-            UUID,
-            UUID,
-            int,
-            UUID,
-            str,
-            str,
-            tuple[tuple[str, str], ...],
-            str,
-            str,
-            ArtifactRef,
-        ],
-        ...,
-    ] = ()
+    current_materials: tuple[MaterialCandidateSource, ...] = ()
     current_subject_prompt: tuple[UUID, UUID | None, int] | None = None
     current_maintenance_session_id: UUID | None = None
     current_maintenance_revision_id: UUID | None = None
@@ -151,7 +137,7 @@ class CandidateEpisodeSnapshot:
 class PostgreSQLCandidateValidationRepository:
     """Freeze validation input and atomically preserve its result."""
 
-    __slots__ = ("_activities", "_memories", "_relationships", "_sleep")
+    __slots__ = ("_activities", "_materials", "_memories", "_relationships", "_sleep")
 
     def __init__(
         self,
@@ -159,9 +145,11 @@ class PostgreSQLCandidateValidationRepository:
         sleep: SleepReadPort,
         activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
+        materials: MaterialReadPort | None = None,
     ) -> None:
         self._activities = activities
         self._memories = memories
+        self._materials = materials
         self._relationships = relationships
         self._sleep = sleep
 
@@ -375,39 +363,14 @@ class PostgreSQLCandidateValidationRepository:
             or relationship_snapshot.relationship_id != relationship_context_row[0]
         ):
             raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        material_rows = await (
-            await connection.execute(
-                """
-                SELECT material.life_material_id,
-                       material.current_revision_id,
-                       material.head_version,
-                       material.owner_party_id,
-                       material.material_kind,
-                       revision.title,
-                       revision.metadata,
-                       revision.material_status,
-                       revision.privacy_status,
-                       revision.artifact_id
-                FROM armi.cognitive_context_items AS item
-                JOIN armi.life_materials AS material
-                  ON material.life_material_id = item.source_ref
-                 AND material.subject_id = %s
-                 AND material.life_generation_id = %s
-                 AND material.head_version = item.source_version
-                 AND material.deleted_at IS NULL
-                JOIN armi.life_material_revisions AS revision
-                  ON revision.life_material_revision_id =
-                     material.current_revision_id
-                WHERE item.cognitive_episode_id = %s
-                  AND item.disposition = 'included'
-                  AND item.section = 'material'
-                  AND item.item_kind = 'current_material'
-                  AND item.source_kind = 'life_material'
-                ORDER BY item.ordinal
-                """,
-                (row[2], row[3], row[0]),
-            )
-        ).fetchall()
+        if self._materials is None:
+            raise CandidateViolation("CANDIDATE-MATERIAL-OWNER")
+        material_rows = await self._materials.candidate_sources(
+            unit_of_work.transaction,
+            subject_id=row[2],
+            generation_id=row[3],
+            episode_id=row[0],
+        )
         subject_prompt_row = await (
             await connection.execute(
                 """
@@ -529,23 +492,7 @@ class PostgreSQLCandidateValidationRepository:
                     for item in relationship_snapshot.revision.open_issues
                 ),
             ),
-            tuple(
-                [
-                    (
-                        item[0],
-                        item[1],
-                        int(item[2]),
-                        item[3],
-                        str(item[4]),
-                        str(item[5]),
-                        _material_metadata(item[6]),
-                        str(item[7]),
-                        str(item[8]),
-                        await _artifact_ref(connection, item[9]),
-                    )
-                    for item in material_rows
-                ]
-            ),
+            material_rows,
             (
                 subject_prompt_row[0],
                 subject_prompt_row[1],
@@ -864,7 +811,6 @@ def _validation_drafts(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
-    | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -881,7 +827,6 @@ def _validation_drafts(
     return (
         *change_set.experiences,
         *change_set.owner_drafts,
-        *change_set.materials,
         *change_set.prompts,
         *change_set.exact_life_queries,
         *change_set.components,
@@ -898,7 +843,6 @@ def _owner(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
-    | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -917,8 +861,6 @@ def _owner(
         return CandidateOwner.MEMORY
     if isinstance(value, CandidateOwnerDraft):
         return CandidateOwner(value.owner)
-    if isinstance(value, CandidateLifeMaterialDraft):
-        return CandidateOwner.MATERIAL
     if isinstance(value, CandidateSubjectPromptDraft):
         return CandidateOwner.PROMPT
     if isinstance(value, CandidateExactLifeQueryDraft):
@@ -947,7 +889,6 @@ def _implicit_fact_class(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
-    | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateComponentDraft
@@ -974,8 +915,6 @@ def _implicit_fact_class(
         ),
     ):
         return value.fact_class
-    if isinstance(value, CandidateLifeMaterialDraft):
-        return CandidateFactClass.SUBJECTIVE_UNDERSTANDING
     return CandidateFactClass.INFERENCE
 
 
@@ -1035,20 +974,6 @@ async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
         str(row[4]),
         ArtifactPrivacyScope(str(row[5])),
         ArtifactIntegrityStatus(str(row[6])),
-    )
-
-
-def _material_metadata(value: object) -> tuple[tuple[str, str], ...]:
-    if type(value) is not dict:
-        raise CandidateViolation("CANDIDATE-MATERIAL-CONTEXT")
-    metadata = cast(dict[object, object], value)
-    if len(metadata) > 32 or any(
-        type(key) is not str or type(item) is not str or "\x00" in key or "\x00" in item
-        for key, item in metadata.items()
-    ):
-        raise CandidateViolation("CANDIDATE-MATERIAL-CONTEXT")
-    return tuple(
-        sorted((cast(str, key), cast(str, item)) for key, item in metadata.items())
     )
 
 

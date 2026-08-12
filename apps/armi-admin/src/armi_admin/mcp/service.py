@@ -9,6 +9,7 @@ from typing import Any, Literal, cast
 from uuid import uuid7
 
 from armi_kernel.application import CredentialPurpose
+from armi_material.bootstrap import bootstrap_material_admin_read
 
 from armi_admin.application import (
     AdminConfig,
@@ -423,7 +424,11 @@ class AdminToolService:
         return AdminObservationGateway(
             conninfo,
             expected_role=self._config.expected_role,
-            artifact_root=self._config.environment_root / "data" / "artifacts",
+            materials=bootstrap_material_admin_read(
+                conninfo,
+                expected_role=self._config.expected_role,
+                artifact_root=self._config.environment_root / "data" / "artifacts",
+            ),
         )
 
     def _initialize_environment(

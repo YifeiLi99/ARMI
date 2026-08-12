@@ -8,28 +8,13 @@ import hmac
 import json
 from collections.abc import Mapping
 from datetime import datetime
-from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
 import psycopg
 import rfc8785
 from armi_activity.api import ActivityReadPort
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_artifact_store.life_material_codec import (
-    parse_life_material_artifact,
-)
 from armi_kernel.application import (
-    ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
-    ArtifactRef,
-    ArtifactViolation,
-    CreatorLifeMaterialItem,
-    CreatorLifeMaterialQueryViolation,
-    LifeMaterialKind,
-    LifeMaterialPrivacyStatus,
-    LifeMaterialStatus,
     LifeRecordActor,
     LifeRecordItem,
     LifeRecordKind,
@@ -37,7 +22,8 @@ from armi_kernel.application import (
     LifeRecordQuery,
     LifeRecordQueryViolation,
 )
-from armi_kernel.contracts import Digest, Instant, OpaqueCursor
+from armi_kernel.contracts import Instant, OpaqueCursor
+from armi_material.api import MaterialReadPort
 from armi_memory.api import (
     CreatorMemoryPage,
     CreatorMemoryTimeline,
@@ -166,11 +152,11 @@ class PostgreSQLLifeRecordQuery:
         "_codec",
         "_creator_party_id",
         "_expected_role",
+        "_materials",
         "_memories",
         "_pool",
         "_pool_timeout_seconds",
         "_relationships",
-        "_storage",
     )
 
     def __init__(
@@ -180,23 +166,19 @@ class PostgreSQLLifeRecordQuery:
         environment_id: UUID,
         creator_party_id: UUID,
         cursor_key: bytes,
-        data_root: Path,
-        max_object_bytes: int,
         pool_timeout_seconds: int,
         activities: ActivityReadPort,
+        materials: MaterialReadPort,
         memories: MemoryReadPort | None = None,
         relationships: RelationshipReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._activities = activities
         self._expected_role = physical_role_name(environment_id, "runtime")
+        self._materials = materials
         self._pool_timeout_seconds = pool_timeout_seconds
         self._memories = memories
         self._relationships = relationships
-        self._storage = ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        )
         self._codec = LifeRecordCursorCodec(
             key=cursor_key,
             environment_id=environment_id,
@@ -345,31 +327,6 @@ class PostgreSQLLifeRecordQuery:
                             )
                             UNION ALL
                             (
-                            SELECT material.life_material_id,
-                                   'material'::text,
-                                   revision.title,
-                                   'life_material_current'::text,
-                                   revision.created_at,
-                                   NULL::boolean
-                            FROM armi.life_materials AS material
-                            JOIN armi.life_material_revisions AS revision
-                              ON revision.life_material_revision_id =
-                                 material.current_revision_id
-                            CROSS JOIN query_input AS query
-                            WHERE material.subject_id = query.subject_id
-                              AND material.deleted_at IS NULL
-                              AND (query.record_kind IS NULL OR query.record_kind = 'material')
-                              AND (query.query_text IS NULL OR revision.title ILIKE '%%' || query.query_text || '%%')
-                              AND (query.before_at IS NULL OR (revision.created_at, 'material'::text, material.life_material_id) < (query.before_at, query.before_kind, query.before_id))
-                              AND (
-                                  query.actor = 'subject'
-                                  OR revision.privacy_status = 'creator_visible'
-                              )
-                            ORDER BY revision.created_at DESC, material.life_material_id DESC
-                            LIMIT (SELECT branch_limit FROM query_input)
-                            )
-                            UNION ALL
-                            (
                             SELECT revision.component_revision_id,
                                    'self_change'::text,
                                    left(revision.semantic_payload::text, 4096),
@@ -425,6 +382,20 @@ class PostgreSQLLifeRecordQuery:
                     and request.record_kind in {None, LifeRecordKind.MEMORY}
                     else ()
                 )
+                material_rows = (
+                    await self._materials.life_record_branch(
+                        connection,
+                        subject_id=subject_id,
+                        creator_visible_only=request.actor is LifeRecordActor.CREATOR,
+                        query_text=request.query_text,
+                        before=None
+                        if boundary is None
+                        else (boundary[0].value, boundary[1], boundary[2]),
+                        limit=request.limit + 1,
+                    )
+                    if request.record_kind in {None, LifeRecordKind.MATERIAL}
+                    else ()
+                )
         except LifeRecordQueryViolation:
             raise
         except psycopg.Error, PoolTimeout:
@@ -471,6 +442,17 @@ class PostgreSQLLifeRecordQuery:
             *relationship_rows,
             *(
                 (
+                    item.material_id,
+                    "material",
+                    item.title,
+                    "life_material_current",
+                    item.occurred_at,
+                    None,
+                )
+                for item in material_rows
+            ),
+            *(
+                (
                     item.memory_id,
                     "memory",
                     item.summary,
@@ -513,109 +495,6 @@ class PostgreSQLLifeRecordQuery:
             ),
             next_cursor=next_cursor,
         )
-
-    async def get_creator_visible(
-        self,
-        material_id: UUID,
-    ) -> CreatorLifeMaterialItem | None:
-        try:
-            async with (
-                self._pool.connection(
-                    timeout=float(self._pool_timeout_seconds)
-                ) as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("SET TRANSACTION READ ONLY")
-                try:
-                    subject_id = await self._scope(connection, LifeRecordActor.CREATOR)
-                except LifeRecordQueryViolation:
-                    raise CreatorLifeMaterialQueryViolation(
-                        "LIFE-MATERIAL-QUERY-NOT-AUTHORIZED"
-                    ) from None
-                row = await (
-                    await connection.execute(
-                        """
-                        SELECT material.life_material_id,
-                               material.current_revision_id,
-                               material.material_kind,
-                               material.head_version,
-                               material.created_at,
-                               material.updated_at,
-                               revision.revision_no,
-                               revision.title,
-                               revision.metadata,
-                               revision.material_status,
-                               revision.privacy_status,
-                               artifact.artifact_id,
-                               artifact.content_digest,
-                               artifact.byte_size,
-                               artifact.media_type,
-                               artifact.logical_kind,
-                               artifact.privacy_scope,
-                               artifact.integrity_status
-                        FROM armi.life_materials AS material
-                        JOIN armi.life_material_revisions AS revision
-                          ON revision.life_material_revision_id =
-                             material.current_revision_id
-                        JOIN armi.artifacts AS artifact
-                          ON artifact.artifact_id = revision.artifact_id
-                        WHERE material.life_material_id = %s
-                          AND material.subject_id = %s
-                          AND material.deleted_at IS NULL
-                          AND revision.privacy_status = 'creator_visible'
-                        """,
-                        (material_id, subject_id),
-                    )
-                ).fetchone()
-        except CreatorLifeMaterialQueryViolation:
-            raise
-        except psycopg.Error, PoolTimeout:
-            raise CreatorLifeMaterialQueryViolation(
-                "LIFE-MATERIAL-QUERY-UNAVAILABLE"
-            ) from None
-        if row is None:
-            return None
-        try:
-            ref = ArtifactRef(
-                ArtifactId(cast(UUID, row[11])),
-                Digest(str(row[12])),
-                int(row[13]),
-                str(row[14]),
-                str(row[15]),
-                ArtifactPrivacyScope(str(row[16])),
-                ArtifactIntegrityStatus(str(row[17])),
-            )
-            if (
-                ref.media_type != "application/json"
-                or ref.logical_kind != "life.material.content"
-                or ref.privacy_scope is not ArtifactPrivacyScope.PRIVATE
-                or ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
-            ):
-                raise ValueError
-            artifact_bytes = b""
-            async with await self._storage.open_verified(ref) as stream:
-                artifact_bytes = await stream.read()
-            body = parse_life_material_artifact(artifact_bytes).decode(
-                "utf-8", errors="strict"
-            )
-            return CreatorLifeMaterialItem(
-                material_id=cast(UUID, row[0]),
-                current_revision_id=cast(UUID, row[1]),
-                material_kind=LifeMaterialKind(str(row[2])),
-                revision_no=int(row[6]),
-                head_version=int(row[3]),
-                title=str(row[7]),
-                body=body,
-                metadata=_material_metadata(row[8]),
-                material_status=LifeMaterialStatus(str(row[9])),
-                privacy_status=LifeMaterialPrivacyStatus(str(row[10])),
-                created_at=Instant(cast(datetime, row[4])),
-                updated_at=Instant(cast(datetime, row[5])),
-            )
-        except ArtifactViolation, TypeError, ValueError, UnicodeError:
-            raise CreatorLifeMaterialQueryViolation(
-                "LIFE-MATERIAL-QUERY-UNAVAILABLE"
-            ) from None
 
     async def list_current(
         self,
@@ -668,16 +547,6 @@ class PostgreSQLLifeRecordQuery:
         if row is None or not isinstance(row[0], UUID):
             raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
         return row[0]
-
-
-def _material_metadata(value: object) -> tuple[tuple[str, str], ...]:
-    if type(value) is not dict:
-        raise ValueError("life material metadata is invalid")
-    raw = cast(dict[object, object], value)
-    if any(type(key) is not str or type(item) is not str for key, item in raw.items()):
-        raise ValueError("life material metadata is invalid")
-    metadata = cast(dict[str, str], value)
-    return tuple(sorted(metadata.items()))
 
 
 __all__ = ("LifeRecordCursorCodec", "PostgreSQLLifeRecordQuery")

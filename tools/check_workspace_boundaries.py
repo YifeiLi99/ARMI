@@ -137,6 +137,20 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-material",
+        module="armi_material",
+        project_dir=Path("modules/material"),
+        layers=(),
+        dependencies=(
+            "armi-artifact-store==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -152,6 +166,7 @@ DISTRIBUTIONS = (
             "armi-memory==0.0.0",
             "armi-sleep==0.0.0",
             "armi-activity==0.0.0",
+            "armi-material==0.0.0",
             "fastapi==0.140.13",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -175,6 +190,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-artifact-store==0.0.0",
             "armi-kernel==0.0.0",
+            "armi-material==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "mcp==2.0.0",
             "psycopg[binary]==3.3.4",
@@ -694,6 +710,17 @@ def _check_import(
                 "armi-activity",
             }
         )
+        or (
+            source_distribution == "armi-material"
+            and target_distribution
+            not in {
+                None,
+                "armi-artifact-store",
+                "armi-kernel",
+                "armi-runtime-foundation",
+                "armi-material",
+            }
+        )
     )
     if reverse_dependency:
         violations.append(
@@ -778,6 +805,9 @@ def _check_import(
         "armi-activity": frozenset(
             {"armi_activity", "armi_activity.api", "armi_activity.bootstrap"}
         ),
+        "armi-material": frozenset(
+            {"armi_material", "armi_material.api", "armi_material.bootstrap"}
+        ),
     }
     if crosses_distribution and target_distribution in public_modules:
         if (
@@ -824,6 +854,19 @@ def _check_import(
                     path,
                     line,
                     "Activity bootstrap is reserved for Runtime composition",
+                )
+            )
+        if imported_module == "armi_material.bootstrap" and not (
+            source_module.startswith("armi_runtime.composition")
+            or source_module == "armi_admin.mcp.service"
+            or source_module == "armi_admin.application.control_plane"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "material bootstrap is reserved for Runtime/Admin composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -977,6 +1020,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_activity.api": root / "modules/activity/src/armi_activity/api.py",
         "armi_activity.bootstrap": root
         / "modules/activity/src/armi_activity/bootstrap.py",
+        "armi_material": root / "modules/material/src/armi_material/__init__.py",
+        "armi_material.api": root / "modules/material/src/armi_material/api.py",
+        "armi_material.bootstrap": root
+        / "modules/material/src/armi_material/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1080,6 +1127,24 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "Activity table SQL is owned by armi-activity",
                     )
                 )
+            if (
+                distribution.name != "armi-material"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:life_materials|life_material_revisions)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-MATERIAL-SQL",
+                        relative,
+                        1,
+                        "life-material table SQL is owned by armi-material",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1105,6 +1170,13 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "activity_module.read",
             "activity_module.cognition",
             "activity_module.commit",
+        ),
+        "life material": (
+            "material_module = compose_material_module(",
+            "material_module.read",
+            "material_module.cognition",
+            "material_module.commit",
+            "material_module.projection",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

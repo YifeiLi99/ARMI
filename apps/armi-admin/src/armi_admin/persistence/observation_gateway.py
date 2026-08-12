@@ -5,22 +5,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
-from armi_artifact_store import (
-    ContentAddressedArtifactStore,
-    parse_life_material_artifact,
-)
-from armi_kernel.application import (
-    ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
-    ArtifactRef,
-    ArtifactViolation,
-)
-from armi_kernel.contracts import Digest
+from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
 from armi_postgresql_contract.catalog_fingerprint import (
     database_catalog_digest,
 )
@@ -43,21 +31,18 @@ def _safe(value: Any) -> Any:
 class AdminObservationGateway:
     """Execute only static, bounded SELECT and environment registration statements."""
 
-    __slots__ = ("_conninfo", "_expected_role", "_storage")
+    __slots__ = ("_conninfo", "_expected_role", "_materials")
 
     def __init__(
         self,
         conninfo: str,
         *,
         expected_role: str,
-        artifact_root: Path,
+        materials: MaterialAdminReadPort,
     ) -> None:
         self._conninfo = conninfo
         self._expected_role = expected_role
-        self._storage = ContentAddressedArtifactStore(
-            artifact_root,
-            max_object_bytes=104_857_600,
-        )
+        self._materials = materials
 
     def environment(self) -> dict[str, Any] | None:
         row = self._one(
@@ -182,84 +167,30 @@ class AdminObservationGateway:
             ],
         }
         if private:
-            material_rows = self._all(
-                "SELECT material.life_material_id, material.current_revision_id, "
-                "material.material_kind, material.head_version, material.created_at, "
-                "material.updated_at, material.deleted_at, revision.revision_no, "
-                "revision.title, revision.metadata, revision.material_status, "
-                "revision.privacy_status, artifact.artifact_id, "
-                "artifact.content_digest, artifact.media_type, artifact.byte_size, "
-                "artifact.logical_kind, "
-                "artifact.privacy_scope, artifact.integrity_status "
-                "FROM armi.life_materials AS material "
-                "JOIN armi.life_material_revisions AS revision "
-                "ON revision.life_material_revision_id = material.current_revision_id "
-                "JOIN armi.artifacts AS artifact "
-                "ON artifact.artifact_id = revision.artifact_id "
-                "WHERE material.subject_id = %s "
-                "ORDER BY material.updated_at DESC, material.life_material_id "
-                "LIMIT 101",
-                (subject[0],),
-            )
+            snapshot = self._materials.private_snapshot(UUID(str(subject[0])))
             result["materials"] = [
-                self._private_material(row) for row in material_rows[:100]
+                self._private_material(item) for item in snapshot.items
             ]
-            result["materials_truncated"] = len(material_rows) > 100
+            result["materials_truncated"] = snapshot.truncated
         return result
 
-    def _private_material(self, row: tuple[Any, ...]) -> dict[str, Any]:
-        raw_metadata = row[9]
-        if type(raw_metadata) is not dict:
-            raise ValueError("ADMIN-OBSERVATION-MATERIAL-SHAPE")
-        metadata = cast(dict[object, object], raw_metadata)
-        if any(
-            type(key) is not str or type(value) is not str
-            for key, value in metadata.items()
-        ):
-            raise ValueError("ADMIN-OBSERVATION-MATERIAL-SHAPE")
-        body = self._read_material_body(row)
+    def _private_material(self, item: MaterialAdminItem) -> dict[str, Any]:
         return {
-            "material_id": _safe(row[0]),
-            "current_revision_id": _safe(row[1]),
-            "material_kind": _safe(row[2]),
-            "head_version": _safe(row[3]),
-            "revision_no": _safe(row[7]),
-            "title": _safe(row[8]),
-            "body": body,
-            "metadata": dict(cast(dict[str, str], raw_metadata)),
-            "material_status": _safe(row[10]),
-            "privacy_status": _safe(row[11]),
-            "artifact_id": _safe(row[12]),
-            "deleted_at": _safe(row[6]),
-            "created_at": _safe(row[4]),
-            "updated_at": _safe(row[5]),
+            "material_id": _safe(item.material_id),
+            "current_revision_id": _safe(item.current_revision_id),
+            "material_kind": _safe(item.material_kind),
+            "head_version": item.head_version,
+            "revision_no": item.revision_no,
+            "title": item.title,
+            "body": item.body,
+            "metadata": dict(item.metadata),
+            "material_status": _safe(item.material_status),
+            "privacy_status": _safe(item.privacy_status),
+            "artifact_id": _safe(item.artifact_id),
+            "deleted_at": _safe(item.deleted_at),
+            "created_at": _safe(item.created_at),
+            "updated_at": _safe(item.updated_at),
         }
-
-    def _read_material_body(self, row: tuple[Any, ...]) -> str:
-        try:
-            if (
-                str(row[14]) != "application/json"
-                or type(row[15]) is not int
-                or not 1 <= row[15] <= 131_072
-                or str(row[16]) != "life.material.content"
-                or str(row[17]) != "private"
-                or str(row[18]) != "verified"
-            ):
-                raise ValueError
-            ref = ArtifactRef(
-                artifact_id=ArtifactId(UUID(str(row[12]))),
-                content_digest=Digest(str(row[13])),
-                byte_size=row[15],
-                media_type=str(row[14]),
-                logical_kind=str(row[16]),
-                privacy_scope=ArtifactPrivacyScope(str(row[17])),
-                integrity_status=ArtifactIntegrityStatus(str(row[18])),
-            )
-            return parse_life_material_artifact(
-                self._storage.read_verified_bytes(ref)
-            ).decode("utf-8", errors="strict")
-        except ArtifactViolation, UnicodeError, ValueError:
-            raise ValueError("ADMIN-OBSERVATION-MATERIAL-ARTIFACT") from None
 
     def trace_flow(self, selector: tuple[str, str]) -> dict[str, Any]:
         kind, value = selector

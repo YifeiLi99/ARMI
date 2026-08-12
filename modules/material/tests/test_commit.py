@@ -10,16 +10,39 @@ from armi_kernel.application import (
     ArtifactIntegrityStatus,
     ArtifactPrivacyScope,
     ArtifactRef,
+)
+from armi_kernel.contracts import Digest
+from armi_material._application import MaterialApplication
+from armi_material._commit import PostgreSQLMaterialCommit
+from armi_material.api import (
     CandidateLifeMaterialDraft,
     LifeMaterialKind,
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
-    SubjectCommitViolation,
+    MaterialViolation,
 )
-from armi_kernel.contracts import Digest
-from armi_runtime.adapters.persistence.life_material_commit import (
-    apply_life_materials,
-)
+
+
+async def apply_life_materials(
+    connection: Any,
+    *,
+    validation_id: UUID,
+    subject_id: UUID,
+    generation_id: UUID,
+    commit_id: UUID,
+    materials: tuple[CandidateLifeMaterialDraft, ...],
+    artifacts: dict[str, ArtifactRef],
+) -> tuple[UUID, ...]:
+    application = MaterialApplication()
+    return await PostgreSQLMaterialCommit(application).commit(
+        cast(Any, connection),
+        validation_id=validation_id,
+        subject_id=subject_id,
+        generation_id=generation_id,
+        commit_id=commit_id,
+        drafts=tuple(application.bind(item) for item in materials),
+        artifacts=artifacts,
+    )
 
 
 class _Result:
@@ -318,7 +341,7 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         head_version=3,
         body="试图恢复已删除资料",
     )
-    with pytest.raises(SubjectCommitViolation) as terminal:
+    with pytest.raises(MaterialViolation) as terminal:
         await apply_life_materials(
             connection,
             validation_id=uuid7(),
@@ -327,10 +350,12 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
             commit_id=uuid7(),
             materials=(update_after_delete,),
             artifacts={
-                "proposal:1": _artifact(ArtifactId(uuid7()), update_after_delete.body_bytes or b"")
+                "proposal:1": _artifact(
+                    ArtifactId(uuid7()), update_after_delete.body_bytes or b""
+                )
             },
         )
-    assert terminal.value.code == "SUBJECT-MATERIAL-HEAD-STALE"
+    assert terminal.value.code == "MATERIAL-HEAD-STALE"
 
 
 @pytest.mark.asyncio
@@ -357,19 +382,23 @@ async def test_life_material_commit_rejects_duplicate_create_and_missing_artifac
         "commit_id": uuid7(),
         "materials": (draft,),
     }
-    with pytest.raises(SubjectCommitViolation) as missing:
+    with pytest.raises(MaterialViolation) as missing:
         await apply_life_materials(connection, **arguments, artifacts={})
-    assert missing.value.code == "SUBJECT-MATERIAL-ARTIFACT"
+    assert missing.value.code == "MATERIAL-ARTIFACT"
 
     await apply_life_materials(
         connection,
         **arguments,
-        artifacts={"proposal:1": _artifact(ArtifactId(uuid7()), draft.body_bytes or b"")},
+        artifacts={
+            "proposal:1": _artifact(ArtifactId(uuid7()), draft.body_bytes or b"")
+        },
     )
-    with pytest.raises(SubjectCommitViolation) as duplicate:
+    with pytest.raises(MaterialViolation) as duplicate:
         await apply_life_materials(
             connection,
             **arguments,
-            artifacts={"proposal:1": _artifact(ArtifactId(uuid7()), draft.body_bytes or b"")},
+            artifacts={
+                "proposal:1": _artifact(ArtifactId(uuid7()), draft.body_bytes or b"")
+            },
         )
-    assert duplicate.value.code == "SUBJECT-MATERIAL-HEAD-STALE"
+    assert duplicate.value.code == "MATERIAL-HEAD-STALE"

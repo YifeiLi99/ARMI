@@ -26,8 +26,6 @@ from armi_kernel.application import (
     CreatorInputAcceptance,
     CreatorInputCommand,
     CreatorInteractionId,
-    CreatorLifeMaterialItem,
-    CreatorLifeMaterialQueryViolation,
     CreatorOperation,
     CreatorOperationPhase,
     CreatorPromptDeactivateCommand,
@@ -48,9 +46,6 @@ from armi_kernel.application import (
     DataRightsViolation,
     EffectArtifactKind,
     EvidenceId,
-    LifeMaterialKind,
-    LifeMaterialPrivacyStatus,
-    LifeMaterialStatus,
     LifeRecordActor,
     LifeRecordItem,
     LifeRecordKind,
@@ -84,6 +79,13 @@ from armi_kernel.application import (
     SceneTimelineQuery,
 )
 from armi_kernel.contracts import Digest, Instant
+from armi_material.api import (
+    CreatorLifeMaterialItem,
+    LifeMaterialKind,
+    LifeMaterialPrivacyStatus,
+    LifeMaterialStatus,
+    MaterialViolation,
+)
 from armi_memory.api import (
     CreatorMemoryItem,
     CreatorMemoryPage,
@@ -477,7 +479,7 @@ class _LifeRecordQuery:
         material_id: UUID,
     ) -> CreatorLifeMaterialItem | None:
         if self.material_unavailable:
-            raise CreatorLifeMaterialQueryViolation("LIFE-MATERIAL-QUERY-UNAVAILABLE")
+            raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE")
         if material_id != self.material_id:
             return None
         body = "这段正文经过服务端可见性授权。"

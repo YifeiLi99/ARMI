@@ -10,6 +10,7 @@ members = [
     "armi-artifact-store",
     "armi-channel-napcat",
     "armi-kernel",
+    "armi-material",
     "armi-memory",
     "armi-postgresql-contract",
     "armi-relationship",
@@ -112,6 +113,7 @@ source = { editable = "apps/armi-admin" }
 dependencies = [
     { name = "armi-artifact-store" },
     { name = "armi-kernel" },
+    { name = "armi-material" },
     { name = "armi-postgresql-contract" },
     { name = "mcp" },
     { name = "psycopg", extra = ["binary"] },
@@ -124,6 +126,7 @@ dependencies = [
 requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-material", editable = "modules/material" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "mcp", specifier = "==2.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -168,6 +171,29 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pyyaml", specifier = "==6.0.3" }]
+
+[[package]]
+name = "armi-material"
+version = "0.0.0"
+source = { editable = "modules/material" }
+dependencies = [
+    { name = "armi-artifact-store" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
+    { name = "psycopg-pool", specifier = "==3.3.1" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
 
 [[package]]
 name = "armi-memory"
@@ -228,6 +254,7 @@ dependencies = [
     { name = "armi-adapter-qq" },
     { name = "armi-artifact-store" },
     { name = "armi-kernel" },
+    { name = "armi-material" },
     { name = "armi-memory" },
     { name = "armi-postgresql-contract" },
     { name = "armi-relationship" },
@@ -255,6 +282,7 @@ requires-dist = [
     { name = "armi-adapter-qq", editable = "packages/armi-adapter-qq" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "armi-relationship", editable = "modules/relationship" },

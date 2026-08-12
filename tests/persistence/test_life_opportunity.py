@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -13,6 +14,7 @@ from armi_kernel.application import (
     RuntimeFence,
     RuntimeInstanceId,
 )
+from armi_material.bootstrap import bootstrap_material
 from armi_runtime.adapters.persistence.life_opportunity import (
     PostgreSQLLifeOpportunityRepository,
 )
@@ -46,11 +48,20 @@ def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepositor
         creator_party_id=uuid7(),
         pool_timeout_seconds=1,
     )
+    material = bootstrap_material(
+        "postgresql://unused",
+        expected_role="unused",
+        creator_party_id=uuid7(),
+        data_root=Path.cwd(),
+        max_object_bytes=1_000_000,
+        pool_timeout_seconds=1,
+    )
     return PostgreSQLLifeOpportunityRepository(
         cast(Any, _Relationships(boundary=boundary)),
         cast(Any, _RelationshipPolicy()),
         cast(Any, _SleepRead()),
         activity.read,
+        material.read,
     )
 
 

@@ -1,27 +1,20 @@
 [project]
-name = "armi-admin"
+name = "armi-material"
 version = "0.0.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "armi-artifact-store==0.0.0",
     "armi-kernel==0.0.0",
-    "armi-material==0.0.0",
-    "armi-postgresql-contract==0.0.0",
-    "mcp==2.0.0",
+    "armi-runtime-foundation==0.0.0",
     "psycopg[binary]==3.3.4",
     "psycopg-pool==3.3.1",
-    "pydantic==2.13.4",
     "rfc8785==0.1.4",
 ]
-
-[project.scripts]
-armi-admin-mcp = "armi_admin.mcp.entrypoint:main"
 
 [tool.uv.sources]
 armi-artifact-store = { workspace = true }
 armi-kernel = { workspace = true }
-armi-material = { workspace = true }
-armi-postgresql-contract = { workspace = true }
+armi-runtime-foundation = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.11.33,<0.12"]

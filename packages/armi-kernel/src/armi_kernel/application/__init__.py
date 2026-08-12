@@ -256,17 +256,6 @@ from .life import (
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
 )
-from .life_materials import (
-    CREATOR_LIFE_MATERIAL_PROJECTION_VERSION,
-    CandidateLifeMaterialDraft,
-    CreatorLifeMaterialItem,
-    CreatorLifeMaterialQueryPort,
-    CreatorLifeMaterialQueryViolation,
-    LifeMaterialKind,
-    LifeMaterialPrivacyStatus,
-    LifeMaterialRevisionKind,
-    LifeMaterialStatus,
-)
 from .life_records import (
     LIFE_RECORD_PROJECTION_VERSION,
     LifeRecordActor,
@@ -414,7 +403,6 @@ from .web_observation import (
 )
 
 __all__: tuple[str, ...] = (
-    "CREATOR_LIFE_MATERIAL_PROJECTION_VERSION",
     "CREATOR_PROMPT_PROJECTION_VERSION",
     "EMBEDDING_DIMENSIONS",
     "LIFE_RECORD_PROJECTION_VERSION",
@@ -454,7 +442,6 @@ __all__: tuple[str, ...] = (
     "CandidateExactLifeQueryDraft",
     "CandidateExperienceDraft",
     "CandidateFactClass",
-    "CandidateLifeMaterialDraft",
     "CandidateOwner",
     "CandidateOwnerDraft",
     "CandidateRejection",
@@ -532,9 +519,6 @@ __all__: tuple[str, ...] = (
     "CreatorInputCommand",
     "CreatorInputViolation",
     "CreatorInteractionId",
-    "CreatorLifeMaterialItem",
-    "CreatorLifeMaterialQueryPort",
-    "CreatorLifeMaterialQueryViolation",
     "CreatorOperation",
     "CreatorOperationPhase",
     "CreatorOperationQueryPort",
@@ -625,10 +609,6 @@ __all__: tuple[str, ...] = (
     "FrozenEffectRequest",
     "GrantMatcher",
     "GrantStatus",
-    "LifeMaterialKind",
-    "LifeMaterialPrivacyStatus",
-    "LifeMaterialRevisionKind",
-    "LifeMaterialStatus",
     "LifeOpportunitySourceKind",
     "LifeOpportunitySourcePort",
     "LifeOpportunitySourceSnapshot",

@@ -38,6 +38,14 @@ from armi_kernel.application import (
     WebObservationViolation,
     WebResearchViolation,
 )
+from armi_material.api import (
+    MaterialCognitionPort,
+    MaterialCommitPort,
+    MaterialProjectionPort,
+    MaterialReadPort,
+    MaterialViolation,
+)
+from armi_material.bootstrap import MaterialModule, bootstrap_material
 from armi_memory.api import (
     MemoryCognitionPort,
     MemoryCommitPort,
@@ -548,6 +556,7 @@ def compose_life_record_query(
     cursor_key: bytes,
     activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
+    material_read: MaterialReadPort,
     relationship_read: RelationshipReadPort,
 ) -> PostgreSQLLifeRecordQuery:
     """Resolve the shared read-only exact-life and memory projection."""
@@ -572,10 +581,9 @@ def compose_life_record_query(
                     environment_id=config.environment.environment_id,
                     creator_party_id=creator_party_id,
                     cursor_key=cursor_key,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     activities=activity_read,
+                    materials=material_read,
                     memories=memory_read,
                     relationships=relationship_read,
                 )
@@ -583,6 +591,44 @@ def compose_life_record_query(
             return handle.consume(create)
     except ConfigurationViolation:
         raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
+
+
+def compose_material_module(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+) -> MaterialModule:
+    """Resolve and bind the one active life-material owner implementation."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> MaterialModule:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE") from None
+                config = prepared.effective.config
+                return bootstrap_material(
+                    conninfo,
+                    expected_role=physical_role_name(
+                        config.environment.environment_id, "runtime"
+                    ),
+                    creator_party_id=creator_party_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE") from None
 
 
 def compose_other_human_record_query(
@@ -1226,6 +1272,7 @@ def compose_life_opportunity_pipeline(
     relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
     sleep_read: SleepReadPort,
+    material_read: MaterialReadPort,
     wakeups: WorkWakeupBus | None = None,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
@@ -1263,6 +1310,7 @@ def compose_life_opportunity_pipeline(
                     relationship_policy=relationship_policy,
                     sleep_maintenance=sleep_maintenance,
                     sleep_read=sleep_read,
+                    material_read=material_read,
                     wakeups=wakeups,
                     notifier=notifier,
                     model_concurrency=config.model.concurrency,
@@ -1286,6 +1334,7 @@ def compose_context_pipeline(
     activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
+    material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
     wakeups: WorkWakeupBus | None = None,
@@ -1340,6 +1389,7 @@ def compose_context_pipeline(
                     activity_read=activity_read,
                     memory_read=memory_read,
                     memory_projection=memory_projection,
+                    material_projection=material_projection,
                     relationship_read=relationship_read,
                     sleep_read=sleep_read,
                     web_search_active=prepared.effective.config.web.enabled,
@@ -1364,6 +1414,7 @@ def compose_context_embedding_pipeline(
     *,
     authority_admission: Callable[[], RuntimeFence],
     memory_projection: MemoryProjectionPort,
+    material_projection: MaterialProjectionPort,
 ) -> ContextEmbeddingPipeline:
     database_locator = prepared.effective.config.secret_locators.get(
         RUNTIME_LOCATOR_NAME
@@ -1395,6 +1446,7 @@ def compose_context_embedding_pipeline(
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
                     memories=memory_projection,
+                    materials=material_projection,
                     credential_port=prepared.credential_port,
                     credential_locator=embedding_locator,
                 )
@@ -1569,6 +1621,8 @@ def compose_candidate_validation_pipeline(
     activity_read: ActivityReadPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
+    material_cognition: MaterialCognitionPort,
+    material_read: MaterialReadPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_read: RelationshipReadPort,
     sleep_cognition: SleepCognitionPort,
@@ -1611,6 +1665,8 @@ def compose_candidate_validation_pipeline(
                     activity_read=activity_read,
                     memory_cognition=memory_cognition,
                     memory_read=memory_read,
+                    material_cognition=material_cognition,
+                    material_read=material_read,
                     relationship_cognition=relationship_cognition,
                     relationship_read=relationship_read,
                     sleep_cognition=sleep_cognition,
@@ -1633,6 +1689,8 @@ def compose_subject_commit_pipeline(
     activity_commit: ActivityCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
+    material_cognition: MaterialCognitionPort,
+    material_commit: MaterialCommitPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_commit: RelationshipCommitPort,
     relationship_read: RelationshipReadPort,
@@ -1675,6 +1733,8 @@ def compose_subject_commit_pipeline(
                     activity_commit=activity_commit,
                     memory_commit=memory_commit,
                     memory_cognition=memory_cognition,
+                    material_cognition=material_cognition,
+                    material_commit=material_commit,
                     relationship_cognition=relationship_cognition,
                     relationship_commit=relationship_commit,
                     relationship_read=relationship_read,
@@ -1955,6 +2015,7 @@ __all__ = (
     "compose_external_message_input",
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",
+    "compose_material_module",
     "compose_memory_module",
     "compose_model_pipeline",
     "compose_other_human_record_query",

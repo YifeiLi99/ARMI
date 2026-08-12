@@ -5,15 +5,15 @@ import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self, cast
+from typing import Any, Self
 from uuid import UUID, uuid7
 
 import pytest
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
-from armi_kernel.application import CreatorLifeMaterialQueryViolation
-from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
+from armi_material._postgresql import PostgreSQLMaterialOwner
+from armi_material.api import MaterialViolation
 
 
 class _Cursor:
@@ -144,16 +144,13 @@ def test_creator_material_query_reads_only_current_visible_verified_body(
         subject_id=subject_id,
         material_row=row,
     )
-    query = PostgreSQLLifeRecordQuery(
+    query = PostgreSQLMaterialOwner(
         "postgresql://unused",
-        environment_id=uuid7(),
+        expected_role="runtime_test",
         creator_party_id=creator_party_id,
-        cursor_key=b"k" * 32,
         data_root=data_root,
         max_object_bytes=1_000_000,
         pool_timeout_seconds=1,
-        activities=cast(Any, object()),
-        relationships=cast(Any, object()),
     )
     query._pool = _Pool(connection)  # pyright: ignore[reportPrivateUsage,reportAttributeAccessIssue]
 
@@ -168,7 +165,7 @@ def test_creator_material_query_reads_only_current_visible_verified_body(
     path = next((data_root / "artifacts" / "objects").rglob(content_digest[7:]))
     path.write_bytes(b"corrupt")
     with pytest.raises(
-        CreatorLifeMaterialQueryViolation,
-        match="creator life material query failed",
+        MaterialViolation,
+        match="life-material operation failed",
     ):
         asyncio.run(query.get_creator_visible(material_id))

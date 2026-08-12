@@ -26,7 +26,6 @@ from armi_kernel.application import (
     CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
-    CandidateLifeMaterialDraft,
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
@@ -46,10 +45,6 @@ from armi_kernel.application import (
     FormalNoActionDraft,
     FormalNoActionKind,
     FormalNoActionReason,
-    LifeMaterialKind,
-    LifeMaterialPrivacyStatus,
-    LifeMaterialRevisionKind,
-    LifeMaterialStatus,
     LifeRecordKind,
     ModelViolation,
     OtherHumanEndConversationDraft,
@@ -58,6 +53,18 @@ from armi_kernel.application import (
     WebResearchRequestDraft,
 )
 from armi_kernel.contracts import Digest
+from armi_material.api import (
+    CandidateLifeMaterialDraft,
+    LifeMaterialKind,
+    LifeMaterialPrivacyStatus,
+    LifeMaterialRevisionKind,
+    LifeMaterialStatus,
+    MaterialCognitionPort,
+    default_material_cognition,
+)
+from armi_material.api import (
+    MaterialContextItem as CandidateLifeMaterialContext,
+)
 from armi_memory.api import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
@@ -238,7 +245,7 @@ ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v25"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v26"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
@@ -331,60 +338,6 @@ class CandidateRelationshipContext:
             )
         ):
             raise CandidateViolation("CON-CANDIDATE-RELATIONSHIP-CONTEXT")
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateLifeMaterialContext:
-    material_id: UUID
-    current_revision_id: UUID
-    head_version: int
-    owner_party_id: UUID
-    material_kind: LifeMaterialKind
-    title: str
-    body_bytes: bytes
-    metadata: tuple[tuple[str, str], ...]
-    material_status: LifeMaterialStatus
-    privacy_status: LifeMaterialPrivacyStatus
-
-    def __post_init__(self) -> None:
-        if (
-            any(
-                type(value) is not UUID or value.version != 7
-                for value in (
-                    self.material_id,
-                    self.current_revision_id,
-                    self.owner_party_id,
-                )
-            )
-            or type(self.head_version) is not int
-            or self.head_version <= 0
-            or type(self.material_kind) is not LifeMaterialKind
-            or type(self.title) is not str
-            or not 1 <= len(self.title) <= 256
-            or not self.title.strip()
-            or "\x00" in self.title
-            or type(self.body_bytes) is not bytes
-            or not 1 <= len(self.body_bytes) <= 65_536
-            or b"\x00" in self.body_bytes
-            or type(self.metadata) is not tuple
-            or len(self.metadata) > 32
-            or any(
-                type(key) is not str
-                or type(value) is not str
-                or "\x00" in key
-                or "\x00" in value
-                for key, value in self.metadata
-            )
-            or tuple(sorted(self.metadata)) != self.metadata
-            or type(self.material_status) is not LifeMaterialStatus
-            or type(self.privacy_status) is not LifeMaterialPrivacyStatus
-            or self.privacy_status
-            not in {
-                LifeMaterialPrivacyStatus.CREATOR_VISIBLE,
-                LifeMaterialPrivacyStatus.PRIVATE,
-            }
-        ):
-            raise CandidateViolation("CON-CANDIDATE-MATERIAL-CONTEXT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -565,6 +518,7 @@ class DeterministicCandidateValidator:
     __slots__ = (
         "_activity_cognition",
         "_context",
+        "_material_cognition",
         "_memory_cognition",
         "_relationship_cognition",
         "_sleep_cognition",
@@ -574,12 +528,14 @@ class DeterministicCandidateValidator:
         self,
         context: CandidateValidationContext,
         activity_cognition: ActivityCognitionPort | None = None,
+        material_cognition: MaterialCognitionPort | None = None,
         memory_cognition: MemoryCognitionPort | None = None,
         relationship_cognition: RelationshipCognitionPort | None = None,
         sleep_cognition: SleepCognitionPort | None = None,
     ) -> None:
         self._context = context
         self._activity_cognition = activity_cognition or default_activity_cognition()
+        self._material_cognition = material_cognition or default_material_cognition()
         self._memory_cognition = memory_cognition or default_memory_cognition()
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition or default_sleep_cognition()
@@ -1147,6 +1103,10 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateLifeMaterialDraft)
         )
+        owner_drafts = (
+            *owner_drafts,
+            *(self._material_cognition.bind(value) for value in materials),
+        )
         prompts = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -1226,11 +1186,7 @@ class DeterministicCandidateValidator:
             if source_version == "armi.cognition-candidate.v5"
             else CHANGE_SET_VERSION
         )
-        change_set_version = (
-            ACTIVE_CHANGE_SET_VERSION
-            if memories or memory_revisions or relationships
-            else _legacy_change_set_version
-        )
+        change_set_version: str = ACTIVE_CHANGE_SET_VERSION
         change_set_value: dict[str, object] = {
             "schema_version": change_set_version,
             "subject_id": str(self._context.subject_id),
@@ -1261,7 +1217,6 @@ class DeterministicCandidateValidator:
                     _codex_delegation_wire(item) for item in codex_delegations
                 ],
                 owner_drafts=[_owner_draft_wire(item) for item in owner_drafts],
-                materials=[_material_wire(item) for item in materials],
                 prompts=[_prompt_wire(item) for item in prompts],
                 exact_life_queries=[
                     _exact_life_query_wire(item) for item in exact_life_queries
@@ -1303,10 +1258,6 @@ class DeterministicCandidateValidator:
             EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
         }:
             change_set_value["prompts"] = [_prompt_wire(item) for item in prompts]
-        if change_set_version == EXACT_LIFE_QUERY_CHANGE_SET_VERSION:
-            change_set_value["exact_life_queries"] = [
-                _exact_life_query_wire(item) for item in exact_life_queries
-            ]
         if change_set_version in {
             MEMORY_CHANGE_SET_VERSION,
             MEMORY_REVISION_CHANGE_SET_VERSION,
@@ -1387,7 +1338,6 @@ class DeterministicCandidateValidator:
             rejections,
             codex_delegations,
             owner_drafts=owner_drafts,
-            materials=materials,
             prompts=prompts,
             exact_life_queries=exact_life_queries,
         )
@@ -1554,11 +1504,12 @@ class DeterministicCandidateValidator:
                 if relationship is None
                 else [_owner_draft_wire(self._bind_relationship(relationship))]
             ),
-            "materials": [],
             "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
         }
+        if change_set_version == OTHER_HUMAN_CHANGE_SET_VERSION:
+            value["materials"] = []
         if change_set_version != ACTIVE_CHANGE_SET_VERSION:
             value["memories"] = []
             value["memory_revisions"] = []
@@ -1665,7 +1616,6 @@ class DeterministicCandidateValidator:
             "web_research_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
-            "materials": [],
             "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
@@ -1759,7 +1709,6 @@ class DeterministicCandidateValidator:
             "web_research_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(owner_draft)],
-            "materials": [],
             "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
@@ -1870,7 +1819,6 @@ class DeterministicCandidateValidator:
             "web_research_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(owner_draft)],
-            "materials": [],
             "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
@@ -1991,7 +1939,9 @@ class DeterministicCandidateValidator:
             if material is None:
                 return _rejected(error or "CANDIDATE-ACTIVITY-WORK-MATERIAL")
 
-        owner_draft = self._activity_cognition.bind_decision(decision)
+        owner_drafts = [self._activity_cognition.bind_decision(decision)]
+        if material is not None:
+            owner_drafts.append(self._material_cognition.bind(material))
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
@@ -2011,8 +1961,7 @@ class DeterministicCandidateValidator:
             "action_choices": [],
             "web_research_requests": [],
             "codex_delegations": [],
-            "owner_drafts": [_owner_draft_wire(owner_draft)],
-            "materials": [] if material is None else [_material_wire(material)],
+            "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
@@ -2035,8 +1984,7 @@ class DeterministicCandidateValidator:
             action_choices=(),
             web_research_requests=(),
             rejections=(),
-            owner_drafts=(owner_draft,),
-            materials=() if material is None else (material,),
+            owner_drafts=tuple(owner_drafts),
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
@@ -2168,7 +2116,6 @@ class DeterministicCandidateValidator:
             "web_research_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
-            "materials": [],
             "prompts": [],
             "exact_life_queries": [],
             "rejections": [],

@@ -22,6 +22,7 @@ from armi_kernel.application import (
     RuntimeFence,
 )
 from armi_kernel.contracts import Instant
+from armi_material.api import MaterialReadPort
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 from armi_sleep.api import SleepMaintenancePort, SleepReadPort, SleepViolation
 
@@ -147,6 +148,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         activity_read: ActivityReadPort,
+        material_read: MaterialReadPort,
         relationship_read: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
         sleep_maintenance: SleepMaintenancePort,
@@ -161,7 +163,11 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
     ) -> None:
         self._factory = factory
         self._repository = PostgreSQLLifeOpportunityRepository(
-            relationship_read, relationship_policy, sleep_read, activity_read
+            relationship_read,
+            relationship_policy,
+            sleep_read,
+            activity_read,
+            material_read,
         )
         self._stop = asyncio.Event()
         self._wakeups = wakeups or WorkWakeupBus()
@@ -313,6 +319,7 @@ def compose_life_opportunity_pipeline(
     *,
     factory: PostgreSQLUnitOfWorkFactory,
     activity_read: ActivityReadPort,
+    material_read: MaterialReadPort,
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
@@ -328,6 +335,7 @@ def compose_life_opportunity_pipeline(
     return LifeOpportunityPipeline(
         factory=factory,
         activity_read=activity_read,
+        material_read=material_read,
         relationship_read=relationship_read,
         relationship_policy=relationship_policy,
         sleep_maintenance=sleep_maintenance,
@@ -354,6 +362,7 @@ def build_life_opportunity_pipeline(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     activity_read: ActivityReadPort,
+    material_read: MaterialReadPort,
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
@@ -378,6 +387,7 @@ def build_life_opportunity_pipeline(
     return LifeOpportunityPipeline(
         factory=factory,
         activity_read=activity_read,
+        material_read=material_read,
         relationship_read=relationship_read,
         relationship_policy=relationship_policy,
         sleep_maintenance=sleep_maintenance,

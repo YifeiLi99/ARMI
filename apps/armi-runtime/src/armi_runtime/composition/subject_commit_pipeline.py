@@ -41,6 +41,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation, Instant, Purpose, SubjectId
+from armi_material.api import MaterialCognitionPort, MaterialCommitPort
 from armi_memory.api import MemoryCognitionPort, MemoryCommitPort
 from armi_relationship.api import (
     RelationshipCognitionPort,
@@ -95,6 +96,7 @@ class SubjectCommitPipeline:
         "_factory",
         "_fault_injector",
         "_lease_owner",
+        "_material_cognition",
         "_memory_cognition",
         "_notifier",
         "_relationship_cognition",
@@ -115,6 +117,8 @@ class SubjectCommitPipeline:
         activity_commit: ActivityCommitPort,
         memory_commit: MemoryCommitPort,
         memory_cognition: MemoryCognitionPort,
+        material_cognition: MaterialCognitionPort,
+        material_commit: MaterialCommitPort,
         relationship_cognition: RelationshipCognitionPort,
         relationship_commit: RelationshipCommitPort,
         relationship_read: RelationshipReadPort,
@@ -132,11 +136,13 @@ class SubjectCommitPipeline:
         self._storage = storage
         self._notifier = notifier
         self._memory_cognition = memory_cognition
+        self._material_cognition = material_cognition
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
         self._repository = PostgreSQLSubjectCommitRepository(
             activity_commit,
             memory_commit,
+            material_commit,
             relationship_commit,
             relationship_read,
             relationship_policy,
@@ -185,6 +191,7 @@ class SubjectCommitPipeline:
                 self._memory_cognition,
                 self._sleep_cognition,
                 self._activity_cognition,
+                self._material_cognition,
             )
             replies = tuple(
                 item
@@ -204,8 +211,13 @@ class SubjectCommitPipeline:
                 if research_requests
                 else None
             )
+            material_drafts = tuple(
+                self._material_cognition.decode(item.canonical_payload)
+                for item in change_set.owner_drafts
+                if item.owner == "material"
+            )
             published_materials: list[tuple[str, PublishedArtifact]] = []
-            for material in change_set.materials:
+            for material in material_drafts:
                 if material.body_bytes is None:
                     continue
                 published_materials.append(
@@ -680,6 +692,8 @@ def build_subject_commit_pipeline(
     activity_commit: ActivityCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
+    material_cognition: MaterialCognitionPort,
+    material_commit: MaterialCommitPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_commit: RelationshipCommitPort,
     relationship_read: RelationshipReadPort,
@@ -709,6 +723,8 @@ def build_subject_commit_pipeline(
         activity_commit=activity_commit,
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,
+        material_cognition=material_cognition,
+        material_commit=material_commit,
         relationship_cognition=relationship_cognition,
         relationship_commit=relationship_commit,
         relationship_read=relationship_read,

@@ -46,6 +46,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
+from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import SleepReadPort
@@ -129,6 +130,7 @@ class ContextPipeline(OpportunitySelector):
         activity_read: ActivityReadPort,
         memory_read: MemoryReadPort,
         memory_projection: MemoryProjectionPort,
+        material_projection: MaterialProjectionPort,
         relationship_read: RelationshipReadPort,
         sleep_read: SleepReadPort,
         policy_version: str = CONTEXT_POLICY_VERSION,
@@ -153,7 +155,7 @@ class ContextPipeline(OpportunitySelector):
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._embedding = embedding
         self._embedding_repository = PostgreSQLContextEmbeddingRepository(
-            memory_projection
+            memory_projection, material_projection
         )
 
     async def open(self) -> None:
@@ -1303,6 +1305,7 @@ def build_context_pipeline(
     activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
+    material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
     web_search_active: bool = False,
@@ -1329,6 +1332,7 @@ def build_context_pipeline(
         activity_read=activity_read,
         memory_read=memory_read,
         memory_projection=memory_projection,
+        material_projection=material_projection,
         relationship_read=relationship_read,
         sleep_read=sleep_read,
         web_search_active=web_search_active,

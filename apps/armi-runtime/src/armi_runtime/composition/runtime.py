@@ -88,6 +88,7 @@ from .database import (
     compose_external_message_input,
     compose_life_opportunity_pipeline,
     compose_life_record_query,
+    compose_material_module,
     compose_memory_module,
     compose_model_pipeline,
     compose_other_human_input,
@@ -191,6 +192,7 @@ async def _serve(
     creator_relationship_query = None
     relationship_module = None
     memory_module = None
+    material_module = None
     sleep_module = None
     creator_prompt_service = None
     creator_events: CreatorEventBroker | None = None
@@ -333,12 +335,18 @@ async def _serve(
                 cursor_key=derive_timeline_cursor_key(prepared),
             )
             await memory_module.open()
+            material_module = compose_material_module(
+                prepared,
+                creator_party_id=creator_context.party_id,
+            )
+            await material_module.open()
             life_record_query = compose_life_record_query(
                 prepared,
                 creator_party_id=creator_context.party_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
                 activity_read=activity_module.read,
                 memory_read=memory_module.read,
+                material_read=material_module.read,
                 relationship_read=relationship_module.read,
             )
             await life_record_query.open()
@@ -449,6 +457,7 @@ async def _serve(
                 prepared,
                 authority_admission=authority.require_writable,
                 activity_read=activity_module.read,
+                material_read=material_module.read,
                 relationship_read=relationship_module.read,
                 relationship_policy=relationship_module.policy,
                 sleep_maintenance=sleep_module.maintenance,
@@ -463,6 +472,7 @@ async def _serve(
                 activity_read=activity_module.read,
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
+                material_projection=material_module.projection,
                 relationship_read=relationship_module.read,
                 sleep_read=sleep_module.read,
                 wakeups=work_wakeups,
@@ -479,6 +489,8 @@ async def _serve(
                 activity_read=activity_module.read,
                 memory_cognition=memory_module.cognition,
                 memory_read=memory_module.read,
+                material_cognition=material_module.cognition,
+                material_read=material_module.read,
                 relationship_cognition=relationship_module.cognition,
                 relationship_read=relationship_module.read,
                 sleep_cognition=sleep_module.cognition,
@@ -497,6 +509,8 @@ async def _serve(
                 activity_commit=activity_module.commit,
                 memory_commit=memory_module.commit,
                 memory_cognition=memory_module.cognition,
+                material_cognition=material_module.cognition,
+                material_commit=material_module.commit,
                 relationship_cognition=relationship_module.cognition,
                 relationship_commit=relationship_module.commit,
                 relationship_read=relationship_module.read,
@@ -565,6 +579,7 @@ async def _serve(
                         prepared,
                         authority_admission=authority.require_writable,
                         memory_projection=memory_module.projection,
+                        material_projection=material_module.projection,
                     )
                     await context_embedding_pipeline.open()
                 except ModelViolation:
@@ -702,6 +717,8 @@ async def _serve(
                 await relationship_module.close()
             if memory_module is not None:
                 await memory_module.close()
+            if material_module is not None:
+                await material_module.close()
             if creator_prompt_service is not None:
                 await creator_prompt_service.close()
             if creator_export_service is not None:
@@ -947,6 +964,8 @@ async def _serve(
             await relationship_module.close()
         if memory_module is not None:
             await memory_module.close()
+        if material_module is not None:
+            await material_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:
@@ -1150,7 +1169,9 @@ async def _serve(
         ),
         life_record_query=life_record_query,
         other_human_record_query=other_human_record_query,
-        creator_life_material_query=life_record_query,
+        creator_life_material_query=(
+            None if material_module is None else material_module.read
+        ),
         creator_memory_query=(None if memory_module is None else memory_module.read),
         creator_maintenance_query=(None if sleep_module is None else sleep_module.read),
         creator_relationship_query=creator_relationship_query,
@@ -1255,6 +1276,8 @@ async def _serve(
             await relationship_module.close()
         if memory_module is not None:
             await memory_module.close()
+        if material_module is not None:
+            await material_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:

@@ -4,14 +4,14 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_kernel.contracts import Instant
+from armi_material.api import (
     CreatorLifeMaterialItem,
-    CreatorLifeMaterialQueryViolation,
     LifeMaterialKind,
     LifeMaterialPrivacyStatus,
     LifeMaterialStatus,
+    MaterialViolation,
 )
-from armi_kernel.contracts import Instant
 
 
 def item(**changes: object) -> CreatorLifeMaterialItem:
@@ -44,7 +44,7 @@ def test_creator_material_contract_accepts_only_current_visible_content() -> Non
 
 
 def test_creator_material_query_codes_are_narrow() -> None:
-    error = CreatorLifeMaterialQueryViolation("LIFE-MATERIAL-QUERY-UNAVAILABLE")
-    assert error.code == "LIFE-MATERIAL-QUERY-UNAVAILABLE"
+    error = MaterialViolation("MATERIAL-QUERY-UNAVAILABLE")
+    assert error.code == "MATERIAL-QUERY-UNAVAILABLE"
     with pytest.raises(ValueError):
-        CreatorLifeMaterialQueryViolation("LIFE-QUERY-UNAVAILABLE")
+        MaterialViolation("LIFE-QUERY-UNAVAILABLE")

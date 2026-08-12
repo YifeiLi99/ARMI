@@ -31,6 +31,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_material.api import MaterialReadPort
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 from armi_sleep.api import SleepReadPort
 
@@ -40,7 +41,13 @@ from .unit_of_work import PostgreSQLUnitOfWork
 class PostgreSQLLifeOpportunityRepository:
     """Admit one source-backed root opportunity under the active Runtime fence."""
 
-    __slots__ = ("_activities", "_relationship_policy", "_relationships", "_sleep")
+    __slots__ = (
+        "_activities",
+        "_materials",
+        "_relationship_policy",
+        "_relationships",
+        "_sleep",
+    )
 
     def __init__(
         self,
@@ -48,8 +55,10 @@ class PostgreSQLLifeOpportunityRepository:
         relationship_policy: RelationshipPolicyPort,
         sleep: SleepReadPort,
         activities: ActivityReadPort,
+        materials: MaterialReadPort,
     ) -> None:
         self._activities = activities
+        self._materials = materials
         self._relationships = relationships
         self._relationship_policy = relationship_policy
         self._sleep = sleep
@@ -157,38 +166,12 @@ class PostgreSQLLifeOpportunityRepository:
         if fence is None:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        row = await (
-            await connection.execute(
-                """
-                SELECT material.life_material_id,
-                       revision.life_material_revision_id,
-                       material.head_version
-                FROM armi.life_materials AS material
-                JOIN armi.life_material_revisions AS revision
-                  ON revision.life_material_revision_id =
-                     material.current_revision_id
-                WHERE material.subject_id = %s
-                  AND material.life_generation_id = %s
-                  AND material.deleted_at IS NULL
-                  AND revision.material_status = 'active'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM armi.opportunities AS existing
-                      WHERE existing.subject_id = material.subject_id
-                        AND existing.source_kind = 'life_material_revision'
-                        AND existing.source_ref =
-                            revision.life_material_revision_id
-                        AND existing.source_version = material.head_version
-                        AND existing.purpose = 'consider_autonomous_life'
-                        AND existing.reconsideration_no = 0
-                  )
-                ORDER BY material.updated_at, material.life_material_id
-                LIMIT 1
-                """,
-                (fence.subject_id, fence.life_generation_id),
-            )
-        ).fetchone()
-        if row is None:
+        source = await self._materials.next_opportunity_source(
+            unit_of_work.transaction,
+            subject_id=fence.subject_id,
+            generation_id=fence.life_generation_id,
+        )
+        if source is None:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
@@ -216,8 +199,8 @@ class PostgreSQLLifeOpportunityRepository:
                     opportunity_id,
                     fence.subject_id,
                     opportunity_id,
-                    row[1],
-                    int(row[2]),
+                    source.revision_id,
+                    source.head_version,
                 ),
             )
         ).fetchone()
@@ -234,7 +217,7 @@ class PostgreSQLLifeOpportunityRepository:
                       AND purpose = 'consider_autonomous_life'
                       AND reconsideration_no = 0
                     """,
-                    (fence.subject_id, row[1], int(row[2])),
+                    (fence.subject_id, source.revision_id, source.head_version),
                 )
             ).fetchone()
             if existing is None:
@@ -254,7 +237,7 @@ class PostgreSQLLifeOpportunityRepository:
                 TraceId(opportunity_id.hex),
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(fence.subject_id),
-                request=AuditReference("life_material_revision", row[1]),
+                request=AuditReference("life_material_revision", source.revision_id),
             )
         )
         return OpportunityAdmissionOutcome(

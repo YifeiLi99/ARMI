@@ -31,14 +31,19 @@ from armi_kernel.application import (
     AuditSensitivity,
     CandidateFactClass,
     CandidateViolation,
-    LifeMaterialKind,
-    LifeMaterialPrivacyStatus,
-    LifeMaterialStatus,
     RuntimeFence,
     WorkLease,
     WorkViolation,
 )
 from armi_kernel.contracts import Purpose, SubjectId
+from armi_material.api import (
+    MaterialCandidateSource,
+    MaterialCognitionPort,
+    MaterialReadPort,
+)
+from armi_material.api import (
+    MaterialContextItem as CandidateLifeMaterialContext,
+)
 from armi_memory.api import (
     MemoryAccessibility,
     MemoryCognitionPort,
@@ -82,7 +87,6 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .candidate_validator import (
     CANDIDATE_VALIDATOR_IDENTITY,
-    CandidateLifeMaterialContext,
     CandidateMemoryContext,
     CandidateRelationshipCommitmentContext,
     CandidateRelationshipContext,
@@ -114,6 +118,7 @@ class CandidateValidationPipeline:
         "_diagnostic",
         "_factory",
         "_lease_owner",
+        "_material_cognition",
         "_memory_cognition",
         "_relationship_cognition",
         "_repository",
@@ -134,6 +139,8 @@ class CandidateValidationPipeline:
         activity_read: ActivityReadPort,
         memory_cognition: MemoryCognitionPort,
         memory_read: MemoryReadPort,
+        material_cognition: MaterialCognitionPort,
+        material_read: MaterialReadPort,
         relationship_cognition: RelationshipCognitionPort,
         relationship_read: RelationshipReadPort,
         sleep_cognition: SleepCognitionPort,
@@ -146,12 +153,17 @@ class CandidateValidationPipeline:
         self._activity_cognition = activity_cognition
         self._storage = storage
         self._memory_cognition = memory_cognition
+        self._material_cognition = material_cognition
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
         self._web_search_active = web_search_active
         self._catalog = ArtifactCatalogRepository()
         self._repository = PostgreSQLCandidateValidationRepository(
-            relationship_read, sleep_read, activity_read, memories=memory_read
+            relationship_read,
+            sleep_read,
+            activity_read,
+            memories=memory_read,
+            materials=material_read,
         )
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
@@ -311,6 +323,7 @@ class CandidateValidationPipeline:
                     sender_party_kind=snapshot.sender_party_kind,
                 ),
                 activity_cognition=self._activity_cognition,
+                material_cognition=self._material_cognition,
                 memory_cognition=self._memory_cognition,
                 relationship_cognition=self._relationship_cognition,
                 sleep_cognition=self._sleep_cognition,
@@ -401,26 +414,12 @@ class CandidateValidationPipeline:
 
     async def _read_material_contexts(
         self,
-        values: tuple[
-            tuple[
-                UUID,
-                UUID,
-                int,
-                UUID,
-                str,
-                str,
-                tuple[tuple[str, str], ...],
-                str,
-                str,
-                ArtifactRef,
-            ],
-            ...,
-        ],
+        values: tuple[MaterialCandidateSource, ...],
     ) -> tuple[CandidateLifeMaterialContext, ...]:
         result: list[CandidateLifeMaterialContext] = []
         try:
             for item in values:
-                ref = item[9]
+                ref = item.artifact
                 if (
                     ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
                     or ref.media_type != "application/json"
@@ -433,16 +432,16 @@ class CandidateValidationPipeline:
                     artifact_bytes = await stream.read()
                 result.append(
                     CandidateLifeMaterialContext(
-                        item[0],
-                        item[1],
-                        item[2],
-                        item[3],
-                        LifeMaterialKind(item[4]),
-                        item[5],
+                        item.material_id,
+                        item.current_revision_id,
+                        item.head_version,
+                        item.owner_party_id,
+                        item.material_kind,
+                        item.title,
                         parse_life_material_artifact(artifact_bytes),
-                        item[6],
-                        LifeMaterialStatus(item[7]),
-                        LifeMaterialPrivacyStatus(item[8]),
+                        item.metadata,
+                        item.material_status,
+                        item.privacy_status,
                     )
                 )
         except ArtifactViolation, ValueError, UnicodeError:
@@ -528,6 +527,8 @@ def build_candidate_validation_pipeline(
     activity_read: ActivityReadPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
+    material_cognition: MaterialCognitionPort,
+    material_read: MaterialReadPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_read: RelationshipReadPort,
     sleep_cognition: SleepCognitionPort,
@@ -555,6 +556,8 @@ def build_candidate_validation_pipeline(
         activity_read=activity_read,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
+        material_cognition=material_cognition,
+        material_read=material_read,
         relationship_cognition=relationship_cognition,
         relationship_read=relationship_read,
         sleep_cognition=sleep_cognition,

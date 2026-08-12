@@ -24,7 +24,6 @@ from armi_kernel.application import (
     CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
-    CandidateLifeMaterialDraft,
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
@@ -41,9 +40,6 @@ from armi_kernel.application import (
     FormalNoActionDraft,
     FormalNoActionKind,
     FormalNoActionReason,
-    LifeMaterialKind,
-    LifeMaterialRevisionKind,
-    LifeMaterialStatus,
     LifeRecordKind,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
@@ -52,6 +48,15 @@ from armi_kernel.application import (
     WebResearchRequestDraft,
 )
 from armi_kernel.contracts import ContractViolation, Digest
+from armi_material.api import (
+    CandidateLifeMaterialDraft,
+    LifeMaterialKind,
+    LifeMaterialRevisionKind,
+    LifeMaterialStatus,
+    MaterialCognitionPort,
+    MaterialViolation,
+    default_material_cognition,
+)
 from armi_memory.api import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
@@ -131,6 +136,7 @@ _TOP_KEYS_V23 = (_TOP_KEYS_V22 - {"memories", "memory_revisions"}) | {
 }
 _TOP_KEYS_V24 = _TOP_KEYS_V23 - {"sleep_decisions", "maintenance_decisions"}
 _TOP_KEYS_V25 = _TOP_KEYS_V24 - {"activities", "activity_decisions"}
+_TOP_KEYS_V26 = _TOP_KEYS_V25 - {"materials"}
 
 
 def parse_subject_change_set(
@@ -139,10 +145,12 @@ def parse_subject_change_set(
     memory_cognition: MemoryCognitionPort | None = None,
     sleep_cognition: SleepCognitionPort | None = None,
     activity_cognition: ActivityCognitionPort | None = None,
+    material_cognition: MaterialCognitionPort | None = None,
 ) -> SubjectChangeSet:
     memory_cognition = memory_cognition or default_memory_cognition()
     sleep_cognition = sleep_cognition or default_sleep_cognition()
     activity_cognition = activity_cognition or default_activity_cognition()
+    material_cognition = material_cognition or default_material_cognition()
     try:
         raw = json.loads(value)
         if type(raw) is not dict:
@@ -174,11 +182,14 @@ def parse_subject_change_set(
             "armi.subject-change-set.v23",
             "armi.subject-change-set.v24",
             "armi.subject-change-set.v25",
+            "armi.subject-change-set.v26",
         }:
             raise ValueError
         version = document["schema_version"]
         expected_keys = (
-            _TOP_KEYS_V25
+            _TOP_KEYS_V26
+            if version.endswith(".v26")
+            else _TOP_KEYS_V25
             if version.endswith(".v25")
             else _TOP_KEYS_V24
             if version.endswith(".v24")
@@ -306,16 +317,16 @@ def parse_subject_change_set(
                 _owner_draft(item)
                 for item in _array(
                     document.get("owner_drafts", []),
-                    8 if version.endswith((".v23", ".v24", ".v25")) else 1,
+                    8 if version.endswith((".v23", ".v24", ".v25", ".v26")) else 1,
                 )
             )
-            if version.endswith((".v22", ".v23", ".v24", ".v25"))
+            if version.endswith((".v22", ".v23", ".v24", ".v25", ".v26"))
             else tuple(
                 _bind_legacy_relationship(item, relationship_cognition)
                 for item in relationships
             )
         )
-        if version.endswith((".v22", ".v23", ".v24", ".v25")):
+        if version.endswith((".v22", ".v23", ".v24", ".v25", ".v26")):
             for draft in parsed_owner_drafts:
                 if draft.owner == CandidateOwner.MEMORY.value:
                     decoded_memory = memory_cognition.decode(draft.canonical_payload)
@@ -353,7 +364,7 @@ def parse_subject_change_set(
                     ):
                         raise ValueError
                 elif draft.owner == CandidateOwner.ACTIVITY.value and version.endswith(
-                    ".v25"
+                    (".v25", ".v26")
                 ):
                     decoded_activity = activity_cognition.decode(
                         draft.canonical_payload
@@ -364,6 +375,16 @@ def parse_subject_change_set(
                             decision=isinstance(
                                 decoded_activity, CandidateActivityDecisionDraft
                             ),
+                        )
+                        != draft
+                    ):
+                        raise ValueError
+                elif draft.owner == CandidateOwner.MATERIAL.value and version.endswith(
+                    ".v26"
+                ):
+                    if (
+                        material_cognition.bind_legacy(
+                            material_cognition.decode(draft.canonical_payload)
                         )
                         != draft
                     ):
@@ -397,12 +418,6 @@ def parse_subject_change_set(
                 for item in activity_decisions
             ),
         )
-        owner_drafts = (
-            *memory_owner_drafts,
-            *sleep_owner_drafts,
-            *activity_owner_drafts,
-            *parsed_owner_drafts,
-        )
         materials = tuple(
             _material(
                 item,
@@ -421,6 +436,16 @@ def parse_subject_change_set(
                 ),
             )
             for item in _array(document.get("materials", []), 1)
+        )
+        material_owner_drafts = tuple(
+            material_cognition.bind_legacy(item) for item in materials
+        )
+        owner_drafts = (
+            *memory_owner_drafts,
+            *sleep_owner_drafts,
+            *activity_owner_drafts,
+            *material_owner_drafts,
+            *parsed_owner_drafts,
         )
         prompts = tuple(
             _prompt(item) for item in _array(document.get("prompts", []), 1)
@@ -451,7 +476,6 @@ def parse_subject_change_set(
             rejections,
             codex_delegations,
             owner_drafts,
-            materials,
             prompts,
             exact_life_queries,
         )
@@ -465,7 +489,6 @@ def parse_subject_change_set(
                 *web_research_requests,
                 *codex_delegations,
                 *owner_drafts,
-                *materials,
                 *prompts,
                 *exact_life_queries,
                 *rejections,
@@ -505,7 +528,6 @@ def parse_subject_change_set(
             or result.web_research_requests
             or result.codex_delegations
             or result.owner_drafts
-            or result.materials
             or result.prompts
             or result.exact_life_queries
         )
@@ -715,6 +737,7 @@ def parse_subject_change_set(
         RelationshipViolation,
         SleepViolation,
         ActivityViolation,
+        MaterialViolation,
         KeyError,
         TypeError,
         ValueError,
@@ -906,7 +929,7 @@ def _owner_draft(value: object) -> CandidateOwnerDraft:
         },
     )
     owner = _text(item["owner"])
-    if owner not in {"activity", "memory", "relationship", "sleep"}:
+    if owner not in {"activity", "material", "memory", "relationship", "sleep"}:
         raise ValueError
     return CandidateOwnerDraft(
         _text(item["proposal_ref"]),

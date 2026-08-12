@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from itertools import pairwise
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -18,6 +17,7 @@ from armi_kernel.application import (
     WorkPayloadRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
+from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort
 
 from .context import ContextMaterialSource
@@ -49,57 +49,36 @@ class RecalledContext:
 
 
 class PostgreSQLContextEmbeddingRepository:
-    def __init__(self, memories: MemoryProjectionPort) -> None:
+    def __init__(
+        self, memories: MemoryProjectionPort, materials: MaterialProjectionPort
+    ) -> None:
         self._memories = memories
+        self._materials = materials
 
     async def enqueue_one_missing(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
     ) -> bool:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        raw_row = await (
-            await connection.execute(
-                """
-                WITH candidates AS (
-                  SELECT material.subject_id, material.life_generation_id,
-                         'life_material'::text, material.life_material_id,
-                         material.head_version
-                  FROM armi.life_materials AS material
-                  JOIN armi.life_material_revisions AS revision
-                    ON revision.life_material_revision_id = material.current_revision_id
-                  WHERE material.deleted_at IS NULL
-                    AND revision.revision_kind <> 'deleted'
-                    AND NOT EXISTS (
-                      SELECT 1 FROM armi.context_embedding_projections AS projection
-                      WHERE projection.source_kind = 'life_material'
-                        AND projection.source_ref = material.life_material_id
-                        AND projection.source_version = material.head_version
-                        AND projection.model_binding = %s
-                    )
-                    AND NOT EXISTS (
-                      SELECT 1 FROM armi.durable_work AS work
-                      WHERE work.owner_kind = 'life_material'
-                        AND work.owner_ref = material.life_material_id
-                        AND work.work_kind = %s
-                        AND work.status IN ('ready','leased')
-                    )
-                )
-                SELECT subject_id, life_generation_id, source_kind,
-                       source_ref, source_version, statement_timestamp()
-                FROM candidates
-                ORDER BY source_kind DESC, source_ref
-                LIMIT 1
-                """,
-                (
-                    _EMBEDDING_BINDING_ID,
-                    _WORK_KIND,
-                ),
-            )
-        ).fetchone()
-        row = cast(
-            tuple[UUID, UUID, str, UUID, int, datetime] | None,
-            raw_row,
+        material = await self._materials.next_missing_source(
+            unit_of_work.transaction,
+            model_binding=_EMBEDDING_BINDING_ID,
+            work_kind=_WORK_KIND,
         )
+        row: tuple[UUID, UUID, str, UUID, int, datetime] | None = None
+        if material is not None:
+            timestamp = await (
+                await connection.execute("SELECT statement_timestamp()")
+            ).fetchone()
+            if timestamp is not None:
+                row = (
+                    material.subject_id,
+                    material.generation_id,
+                    "life_material",
+                    material.material_id,
+                    material.head_version,
+                    cast(datetime, timestamp[0]),
+                )
         memory = await self._memories.next_missing_source(
             unit_of_work.transaction, model_binding=_EMBEDDING_BINDING_ID
         )
@@ -179,61 +158,28 @@ class PostgreSQLContextEmbeddingRepository:
                 memory.head_version,
                 memory.text,
             )
-        row = await (
-            await connection.execute(
-                """
-                SELECT material.subject_id, material.life_generation_id,
-                       material.life_material_id, material.current_revision_id,
-                       material.head_version, material.owner_party_id,
-                       material.material_kind, revision.title, revision.metadata,
-                       revision.material_status, revision.privacy_status,
-                       artifact.artifact_id, artifact.content_digest,
-                       artifact.media_type, artifact.byte_size,
-                       artifact.storage_locator, artifact.logical_kind,
-                       artifact.producer, artifact.created_at,
-                       artifact.integrity_status, artifact.privacy_scope
-                FROM armi.life_materials AS material
-                JOIN armi.life_material_revisions AS revision
-                  ON revision.life_material_revision_id = material.current_revision_id
-                JOIN armi.artifacts AS artifact ON artifact.artifact_id = revision.artifact_id
-                WHERE material.life_material_id = %s AND material.deleted_at IS NULL
-                  AND revision.revision_kind <> 'deleted'
-                """,
-                (work[1],),
-            )
-        ).fetchone()
-        if row is None:
+        material = await self._materials.load_source(unit_of_work.transaction, work[1])
+        if material is None:
             return None
-        from armi_kernel.application import (  # local to keep projection SQL focused
-            ArtifactId,
-            ArtifactIntegrityStatus,
-            ArtifactPrivacyScope,
-            ArtifactRef,
-        )
-
-        ref = ArtifactRef(
-            artifact_id=ArtifactId(row[11]),
-            content_digest=Digest(str(row[12])),
-            byte_size=int(row[14]),
-            media_type=str(row[13]),
-            logical_kind=str(row[16]),
-            privacy_scope=ArtifactPrivacyScope(str(row[20])),
-            integrity_status=ArtifactIntegrityStatus(str(row[19])),
-        )
         source = ContextMaterialSource(
-            ref,
-            row[2],
-            row[3],
-            int(row[4]),
-            row[5],
-            str(row[6]),
-            str(row[7]),
-            tuple(sorted((str(k), str(v)) for k, v in row[8].items())),
-            str(row[9]),
-            str(row[10]),
+            material.artifact,
+            material.material_id,
+            material.current_revision_id,
+            material.head_version,
+            material.owner_party_id,
+            material.material_kind.value,
+            material.title,
+            material.metadata,
+            material.material_status.value,
+            material.privacy_status.value,
         )
         return EmbeddingProjectionSource(
-            row[0], row[1], "life_material", row[2], int(row[4]), material_source=source
+            material.subject_id,
+            material.generation_id,
+            "life_material",
+            material.material_id,
+            material.head_version,
+            material_source=source,
         )
 
     async def prepare_attempt(
@@ -371,63 +317,15 @@ class PostgreSQLContextEmbeddingRepository:
         life_generation_id: UUID,
         query_vector: tuple[float, ...],
     ) -> RecalledContext:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
-        rows = await (
-            await connection.execute(
-                """
-                SELECT projection.source_kind, projection.source_ref,
-                       projection.source_version, projection.chunk_ordinal,
-                       projection.chunk_text,
-                       1 - (projection.embedding OPERATOR(armi_extensions.<=>)
-                            %s::armi_extensions.vector) AS similarity
-                FROM armi.context_embedding_projections AS projection
-                JOIN armi.life_materials AS material
-                  ON projection.source_kind='life_material'
-                 AND material.life_material_id=projection.source_ref
-                 AND material.head_version=projection.source_version
-                 AND material.deleted_at IS NULL
-                WHERE projection.subject_id=%s
-                  AND projection.life_generation_id=%s
-                  AND projection.model_binding=%s
-                  AND material.life_material_id IS NOT NULL
-                  AND 1 - (projection.embedding OPERATOR(armi_extensions.<=>)
-                           %s::armi_extensions.vector) >= %s
-                ORDER BY similarity DESC, projection.source_ref,
-                         projection.chunk_ordinal
-                LIMIT 32
-                """,
-                (
-                    vector,
-                    subject_id,
-                    life_generation_id,
-                    _EMBEDDING_BINDING_ID,
-                    vector,
-                    _RECALL_MIN_SIMILARITY,
-                ),
-            )
-        ).fetchall()
-        missing = await (
-            await connection.execute(
-                """
-                SELECT EXISTS (
-                  SELECT 1 FROM armi.life_materials AS material
-                  WHERE material.subject_id=%s AND material.life_generation_id=%s
-                    AND material.deleted_at IS NULL
-                    AND NOT EXISTS (
-                      SELECT 1 FROM armi.context_embedding_projections AS projection
-                      WHERE projection.source_kind='life_material'
-                        AND projection.source_ref=material.life_material_id
-                        AND projection.source_version=material.head_version
-                        AND projection.model_binding=%s))
-                """,
-                (
-                    subject_id,
-                    life_generation_id,
-                    _EMBEDDING_BINDING_ID,
-                ),
-            )
-        ).fetchone()
+        recalled_materials = await self._materials.recall(
+            unit_of_work.transaction,
+            subject_id=subject_id,
+            generation_id=life_generation_id,
+            model_binding=_EMBEDDING_BINDING_ID,
+            query_vector=query_vector,
+            minimum_similarity=_RECALL_MIN_SIMILARITY,
+            limit=_RECALL_MATERIAL_LIMIT,
+        )
         recalled_memories = await self._memories.recall(
             unit_of_work.transaction,
             subject_id=subject_id,
@@ -438,40 +336,20 @@ class PostgreSQLContextEmbeddingRepository:
             limit=_RECALL_MEMORY_LIMIT,
         )
         memory_values = list(recalled_memories.items)
-        material_groups: dict[UUID, list[tuple[int, str, float, int]]] = {}
-        for _source_kind, source_ref, version, ordinal, text, similarity in rows:
-            score = float(similarity)
-            material_groups.setdefault(source_ref, []).append(
-                (int(ordinal), str(text), score, int(version))
-            )
         memory_values = memory_values[:_RECALL_MEMORY_LIMIT]
-        material_values: list[tuple[UUID, int, str, float]] = []
-        ordered_groups = sorted(
-            material_groups.items(),
-            key=lambda item: max(chunk[2] for chunk in item[1]),
-            reverse=True,
-        )
-        for source_ref, chunks in ordered_groups[:_RECALL_MATERIAL_LIMIT]:
-            best = max(chunks, key=lambda item: item[2])
-            adjacent = sorted(
-                (item for item in chunks if abs(item[0] - best[0]) <= 1),
-                key=lambda item: item[0],
-            )
-            merged = adjacent[0][1]
-            for previous, current in pairwise(adjacent):
-                overlap = min(150, len(previous[1]), len(current[1]))
-                merged += current[1][overlap:]
-            material_values.append((source_ref, best[3], merged, best[2]))
+        material_values = recalled_materials.items
         if not memory_values and not material_values:
             status = (
                 RecallStatus.PARTIAL
-                if bool(missing and missing[0]) or recalled_memories.missing_projection
+                if recalled_materials.missing_projection
+                or recalled_memories.missing_projection
                 else RecallStatus.NO_RELEVANT_RESULT
             )
         else:
             status = (
                 RecallStatus.PARTIAL
-                if bool(missing and missing[0]) or recalled_memories.missing_projection
+                if recalled_materials.missing_projection
+                or recalled_memories.missing_projection
                 else RecallStatus.COMPLETE
             )
         return RecalledContext(status, tuple(memory_values), tuple(material_values))

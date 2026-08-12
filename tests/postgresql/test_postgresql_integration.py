@@ -128,6 +128,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_material.bootstrap import bootstrap_material, bootstrap_material_admin_read
 from armi_memory.bootstrap import bootstrap_memory
 from armi_relationship.bootstrap import bootstrap_relationship
 from armi_runtime.adapters.creator_response_inbox import (
@@ -1971,6 +1972,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             await activity_module.open()
+            material_module = bootstrap_material(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=manifest.creator_party_id,
+                data_root=root,
+                max_object_bytes=1024 * 1024,
+                pool_timeout_seconds=2,
+            )
+            await material_module.open()
             sleep_module = bootstrap_sleep(
                 fixture.runtime_dsn,
                 expected_role=physical_role_name(fixture.environment_id, "runtime"),
@@ -1982,6 +1992,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 LifeOpportunityPipeline(
                     factory=factory,
                     activity_read=activity_module.read,
+                    material_read=material_module.read,
                     relationship_read=relationship_module.read,
                     relationship_policy=relationship_module.policy,
                     sleep_maintenance=sleep_module.maintenance,
@@ -2006,6 +2017,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 for pipeline in pipelines:
                     await pipeline.close()
                 await activity_module.close()
+                await material_module.close()
                 await relationship_module.close()
                 await sleep_module.close()
                 await authority.release(record.fence)
@@ -2114,18 +2126,26 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_party_id=creator_party_id,
                 pool_timeout_seconds=2,
             )
+            material_module = bootstrap_material(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                data_root=root,
+                max_object_bytes=1024 * 1024,
+                pool_timeout_seconds=2,
+            )
             await relationship_module.open()
             await memory_module.open()
             await activity_module.open()
+            await material_module.open()
             life_records = PostgreSQLLifeRecordQuery(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
                 creator_party_id=creator_party_id,
                 cursor_key=hashlib.sha256(b"p0-s022-life-record-cursor-key").digest(),
-                data_root=root,
-                max_object_bytes=1024 * 1024,
                 pool_timeout_seconds=2,
                 activities=activity_module.read,
+                materials=material_module.read,
                 memories=memory_module.read,
                 relationships=relationship_module.read,
             )
@@ -2147,6 +2167,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 await life_records.close()
                 await memory_module.close()
+                await material_module.close()
                 await relationship_module.close()
 
             try:
@@ -2250,6 +2271,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             await activity_module.open()
+            material_module = bootstrap_material(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                data_root=root,
+                max_object_bytes=1024 * 1024,
+                pool_timeout_seconds=2,
+            )
+            await material_module.open()
             sleep_module = bootstrap_sleep(
                 fixture.runtime_dsn,
                 expected_role=physical_role_name(fixture.environment_id, "runtime"),
@@ -2260,6 +2290,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             pipeline = LifeOpportunityPipeline(
                 factory=maintenance_factory,
                 activity_read=activity_module.read,
+                material_read=material_module.read,
                 relationship_read=relationship_module.read,
                 relationship_policy=relationship_module.policy,
                 sleep_maintenance=sleep_module.maintenance,
@@ -2292,6 +2323,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 await sleep_module.close()
                 await activity_module.close()
+                await material_module.close()
                 await relationship_module.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
@@ -2474,7 +2506,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         observation = AdminObservationGateway(
             fixture.admin_role_dsn,
             expected_role=fixture.admin_role,
-            artifact_root=Path.cwd() / "data" / "artifacts",
+            materials=bootstrap_material_admin_read(
+                fixture.admin_role_dsn,
+                expected_role=fixture.admin_role,
+                artifact_root=Path.cwd() / "data" / "artifacts",
+            ),
         )
         observation.register_environment(
             {

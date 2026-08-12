@@ -12,7 +12,6 @@ from armi_kernel.contracts import Digest
 
 from .capability import CapabilityRequestDraft
 from .codex_delegation import CodexDelegationDraft
-from .life_materials import CandidateLifeMaterialDraft
 from .life_records import LifeRecordKind
 from .response import ResponseChoiceDraft
 from .web_evidence import WebResearchRequestDraft
@@ -316,7 +315,6 @@ class SubjectChangeSet:
     rejections: tuple[CandidateRejection, ...]
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()
     owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
-    materials: tuple[CandidateLifeMaterialDraft, ...] = ()
     prompts: tuple[CandidateSubjectPromptDraft, ...] = ()
     exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
 
@@ -426,7 +424,6 @@ __all__ = (
     "CandidateExactLifeQueryDraft",
     "CandidateExperienceDraft",
     "CandidateFactClass",
-    "CandidateLifeMaterialDraft",
     "CandidateOwner",
     "CandidateOwnerDraft",
     "CandidateRejection",

@@ -25,6 +25,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import Instant
+from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort
 
 from armi_runtime.adapters.model.volcengine_embedding import (
@@ -66,11 +67,12 @@ class ContextEmbeddingPipeline:
         storage: ContentAddressedArtifactStore,
         adapter: VolcengineArkEmbeddingAdapter,
         memories: MemoryProjectionPort,
+        materials: MaterialProjectionPort,
     ) -> None:
         self._factory = factory
         self._storage = storage
         self._adapter = adapter
-        self._repository = PostgreSQLContextEmbeddingRepository(memories)
+        self._repository = PostgreSQLContextEmbeddingRepository(memories, materials)
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -221,6 +223,7 @@ def build_context_embedding_pipeline(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     memories: MemoryProjectionPort,
+    materials: MaterialProjectionPort,
     credential_port: CredentialPort,
     credential_locator: CredentialLocator,
 ) -> ContextEmbeddingPipeline:
@@ -243,6 +246,7 @@ def build_context_embedding_pipeline(
             locator=credential_locator,
         ),
         memories=memories,
+        materials=materials,
     )
 
 

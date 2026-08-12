@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -57,6 +57,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_material.api import MaterialCommitPort, MaterialViolation
 from armi_memory.api import (
     MemoryCommitPort,
     MemoryViolation,
@@ -73,7 +74,6 @@ from armi_sleep.api import (
     SleepViolation,
 )
 
-from .life_material_commit import apply_life_materials
 from .subject_prompt_commit import (
     apply_subject_prompts,
     lock_subject_prompt_heads,
@@ -150,6 +150,7 @@ class PostgreSQLSubjectCommitRepository:
 
     __slots__ = (
         "_activity_commit",
+        "_material_commit",
         "_memory_commit",
         "_relationship_commit",
         "_relationship_policy",
@@ -161,6 +162,7 @@ class PostgreSQLSubjectCommitRepository:
         self,
         activity_commit: ActivityCommitPort,
         memory_commit: MemoryCommitPort,
+        material_commit: MaterialCommitPort,
         relationship_commit: RelationshipCommitPort,
         relationship_read: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
@@ -168,6 +170,7 @@ class PostgreSQLSubjectCommitRepository:
     ) -> None:
         self._activity_commit = activity_commit
         self._memory_commit = memory_commit
+        self._material_commit = material_commit
         self._relationship_commit = relationship_commit
         self._relationships = relationship_read
         self._relationship_policy = relationship_policy
@@ -335,19 +338,9 @@ class PostgreSQLSubjectCommitRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         validation_id: UUID,
     ) -> tuple[UUID, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        rows = await (
-            await connection.execute(
-                """
-                SELECT life_material_id
-                FROM armi.life_material_revisions
-                WHERE candidate_validation_id = %s
-                ORDER BY life_material_id
-                """,
-                (validation_id,),
-            )
-        ).fetchall()
-        return tuple(UUID(str(row[0])) for row in rows)
+        return await self._material_commit.affected_material_ids(
+            unit_of_work.transaction, validation_id
+        )
 
     async def affected_relationship_ids(
         self,
@@ -549,7 +542,17 @@ class PostgreSQLSubjectCommitRepository:
             subject_id=snapshot.subject_id,
             drafts=change_set.owner_drafts,
         )
-        material_heads = await _lock_material_heads(connection, change_set)
+        try:
+            material_heads_current = await self._material_commit.heads_match(
+                unit_of_work.transaction,
+                subject_id=snapshot.subject_id,
+                generation_id=snapshot.generation_id,
+                drafts=change_set.owner_drafts,
+            )
+        except MaterialViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code.removeprefix('MATERIAL-')}"
+            ) from None
         prompt_heads = await lock_subject_prompt_heads(
             connection,
             subject_id=snapshot.subject_id,
@@ -573,23 +576,7 @@ class PostgreSQLSubjectCommitRepository:
             or _component_heads_are_stale(heads, change_set)
             or not activity_heads_current
             or not memory_heads_current
-            or any(
-                material_heads.get(material.material_id)
-                != (
-                    (None, 0, None, None, None, None, None)
-                    if material.current_revision_id is None
-                    else (
-                        material.current_revision_id,
-                        material.expected_head_version,
-                        snapshot.subject_id,
-                        snapshot.generation_id,
-                        material.owner_party_id,
-                        material.material_kind.value,
-                        None,
-                    )
-                )
-                for material in change_set.materials
-            )
+            or not material_heads_current
             or subject_prompt_heads_are_stale(prompt_heads, change_set.prompts)
             or not sleep_heads_current
         )
@@ -651,7 +638,6 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.web_research_requests
             and not change_set.codex_delegations
             and not change_set.owner_drafts
-            and not change_set.materials
             and not change_set.prompts
             and not change_set.exact_life_queries
         ):
@@ -786,23 +772,28 @@ class PostgreSQLSubjectCommitRepository:
                 f"SUBJECT-{error.code.removeprefix('RELATIONSHIP-')}"
             ) from None
 
-        await apply_life_materials(
-            connection,
-            validation_id=snapshot.validation_id,
-            subject_id=snapshot.subject_id,
-            generation_id=snapshot.generation_id,
-            commit_id=commit_id.value,
-            materials=change_set.materials,
-            artifacts=material_artifacts,
-        )
-        for material in change_set.materials:
+        try:
+            committed_material_ids = await self._material_commit.commit(
+                unit_of_work.transaction,
+                validation_id=snapshot.validation_id,
+                subject_id=snapshot.subject_id,
+                generation_id=snapshot.generation_id,
+                commit_id=commit_id.value,
+                drafts=change_set.owner_drafts,
+                artifacts=material_artifacts,
+            )
+        except MaterialViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code.removeprefix('MATERIAL-')}"
+            ) from None
+        for material_id in committed_material_ids:
             await unit_of_work.audit.append(
                 _audit(
                     unit_of_work,
                     snapshot,
-                    f"life_material.{material.revision_kind.value}",
+                    "life_material.changed",
                     "life_material",
-                    material.material_id,
+                    material_id,
                     AuditResultStatus.APPLIED,
                 )
             )
@@ -981,9 +972,7 @@ class PostgreSQLSubjectCommitRepository:
                 application_id=application_id.value,
                 drafts=change_set.owner_drafts,
                 result_revision_id=activity_result.result_revision_id,
-                output_material_ids=tuple(
-                    item.material_id for item in change_set.materials
-                ),
+                output_material_ids=committed_material_ids,
             )
         except ActivityViolation as error:
             raise SubjectCommitViolation(
@@ -1468,66 +1457,6 @@ def _component_heads_are_stale(
         heads.get(component.owner) != component.expected_version
         for component in change_set.components
     )
-
-
-async def _lock_material_heads(
-    connection: Any,
-    change_set: SubjectChangeSet,
-) -> dict[
-    UUID,
-    tuple[
-        UUID | None,
-        int,
-        UUID | None,
-        UUID | None,
-        UUID | None,
-        str | None,
-        datetime | None,
-    ],
-]:
-    result: dict[
-        UUID,
-        tuple[
-            UUID | None,
-            int,
-            UUID | None,
-            UUID | None,
-            UUID | None,
-            str | None,
-            datetime | None,
-        ],
-    ] = {}
-    for material_id in sorted(
-        {item.material_id for item in change_set.materials},
-        key=str,
-    ):
-        row = await (
-            await connection.execute(
-                """
-                SELECT current_revision_id, head_version, subject_id,
-                       life_generation_id, owner_party_id, material_kind,
-                       deleted_at
-                FROM armi.life_materials
-                WHERE life_material_id = %s
-                FOR UPDATE
-                """,
-                (material_id,),
-            )
-        ).fetchone()
-        result[material_id] = (
-            (None, 0, None, None, None, None, None)
-            if row is None
-            else (
-                row[0],
-                int(row[1]),
-                row[2],
-                row[3],
-                row[4],
-                str(row[5]),
-                row[6],
-            )
-        )
-    return result
 
 
 async def _evidence_links(
