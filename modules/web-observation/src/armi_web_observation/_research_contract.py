@@ -8,10 +8,10 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_kernel.application import ArtifactId
 from armi_kernel.contracts import Digest, IdempotencyKey, SubjectId, TraceId
 
-from .artifacts import ArtifactId
-from .web_observation import WebObservationAttemptId, WebObservationRequestId
+from ._observation_contract import WebObservationAttemptId, WebObservationRequestId
 
 _CODE = re.compile(r"^WEB-(?:RESEARCH|EVIDENCE)-[A-Z0-9-]+$", re.ASCII)
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)

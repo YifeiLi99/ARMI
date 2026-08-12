@@ -24,6 +24,7 @@ dependencies = [
     "armi-activity==0.0.0",
     "armi-material==0.0.0",
     "armi-subject-state==0.0.0",
+    "armi-web-observation==0.0.0",
     "armi-mood==0.0.0",
     "armi-prompt==0.0.0",
     "fastapi==0.140.13",
@@ -60,6 +61,7 @@ armi-sleep = { workspace = true }
 armi-activity = { workspace = true }
 armi-material = { workspace = true }
 armi-subject-state = { workspace = true }
+armi-web-observation = { workspace = true }
 armi-mood = { workspace = true }
 armi-prompt = { workspace = true }
 armi-interaction = { workspace = true }

@@ -9,8 +9,9 @@ from typing import Any, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 import rfc8785
-from armi_kernel.application import WebResearchViolation
 from armi_kernel.contracts import Digest
+
+from ._research_contract import WebResearchViolation
 
 WEB_EVIDENCE_VERSION = "armi.web-evidence.v1"
 WEB_SOURCE_REFERENCE_VERSION = "armi.web-source-reference.v1"

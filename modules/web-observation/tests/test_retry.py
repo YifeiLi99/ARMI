@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import WebObservationAttemptId
 from armi_kernel.contracts import Digest
-from armi_runtime.adapters.persistence.web_observation import (
+from armi_web_observation._observation_postgresql import (
     PostgreSQLWebObservationRepository,
 )
+from armi_web_observation.api import WebObservationAttemptId
 
 
 class _Cursor:
@@ -51,7 +51,7 @@ def test_web_attempt_recovery_only_replays_pre_dispatch(
     connection = SimpleNamespace(execute=AsyncMock(side_effect=execute))
     work = SimpleNamespace(fail=AsyncMock())
     unit_of_work = SimpleNamespace(
-        _connection_for_repository=lambda: connection,
+        transaction=connection,
         work=work,
     )
     snapshot = SimpleNamespace(

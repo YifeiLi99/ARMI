@@ -1,0 +1,21 @@
+[project]
+name = "armi-web-observation"
+version = "0.0.0"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "armi-evidence==0.0.0",
+    "armi-kernel==0.0.0",
+    "armi-runtime-foundation==0.0.0",
+    "httpx==0.28.1",
+    "openai==2.49.0",
+    "rfc8785==0.1.4",
+]
+
+[tool.uv.sources]
+armi-evidence = { workspace = true }
+armi-kernel = { workspace = true }
+armi-runtime-foundation = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11.33,<0.12"]
+build-backend = "uv_build"

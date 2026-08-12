@@ -8,11 +8,8 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_kernel.application import ArtifactId, RuntimeFence, WorkId
 from armi_kernel.contracts import Digest, IdempotencyKey, SubjectId, TraceId
-
-from .artifacts import ArtifactId
-from .durable_work import WorkId
-from .runtime_authority import RuntimeFence
 
 _CODE = re.compile(r"^WEB-[A-Z0-9-]+$", re.ASCII)
 _MAX_QUERY_BYTES = 16 * 1024

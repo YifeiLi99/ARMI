@@ -5,11 +5,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
-from pathlib import Path
 from typing import cast
-from uuid import UUID, uuid7
+from uuid import uuid7
 
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import (
     ArtifactId,
@@ -24,14 +22,7 @@ from armi_kernel.application import (
     AuditSensitivity,
     CredentialLocator,
     CredentialPort,
-    RuntimeFence,
-    WebObservationAttemptId,
-    WebObservationDraft,
-    WebObservationInvocationResult,
-    WebObservationRecord,
-    WebObservationResultStatus,
-    WebObservationViolation,
-    WebResearchViolation,
+    DurableWorkPort,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -46,29 +37,36 @@ from armi_kernel.contracts import (
     Purpose,
     TraceId,
 )
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 
-from armi_runtime.adapters.model.web_search_custody import (
+from ._custody import (
     ArkWebSearchAdapter,
     build_request_bytes,
     load_custody_policy,
     parse_request_bytes,
 )
-from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
-from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWork,
-    PostgreSQLUnitOfWorkFactory,
-)
-from armi_runtime.adapters.persistence.web_evidence import (
+from ._evidence_codec import normalize_web_evidence
+from ._evidence_postgresql import (
     PostgreSQLWebEvidenceRepository,
 )
-from armi_runtime.adapters.persistence.web_observation import (
+from ._observation_contract import (
+    WebObservationAttemptId,
+    WebObservationDraft,
+    WebObservationInvocationResult,
+    WebObservationRecord,
+    WebObservationResultStatus,
+    WebObservationViolation,
+)
+from ._observation_postgresql import (
     PostgreSQLWebObservationRepository,
     WebObservationSnapshot,
 )
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .web_evidence import normalize_web_evidence
+from ._research_contract import WebResearchViolation
+from .api import WebArtifactCatalogPort, WebArtifactStorePort
 
 _WORK_KIND = "web.search.invoke"
 _LEASE_SECONDS = 30
@@ -104,8 +102,10 @@ class WebSearchPipeline:
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
-        storage: ContentAddressedArtifactStore,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        storage: WebArtifactStorePort,
+        catalog: WebArtifactCatalogPort,
+        work: DurableWorkPort,
         credential_port: CredentialPort,
         credential_locator: CredentialLocator,
         manifest_bytes: bytes,
@@ -116,10 +116,10 @@ class WebSearchPipeline:
         self._storage = storage
         self._adapter = ArkWebSearchAdapter(credential_port, credential_locator)
         self._policy = load_custody_policy(manifest_bytes)
-        self._catalog = ArtifactCatalogRepository()
+        self._catalog = catalog
         self._repository = PostgreSQLWebObservationRepository()
         self._evidence_repository = PostgreSQLWebEvidenceRepository(evidence)
-        self._work = PostgreSQLDurableWorkGateway(factory)
+        self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
@@ -128,7 +128,7 @@ class WebSearchPipeline:
         try:
             await self._factory.open()
             await self._storage.prepare()
-        except ArtifactViolation, DatabaseTransactionError:
+        except ArtifactViolation, RuntimeTransactionFailure:
             raise WebObservationViolation("WEB-DEPENDENCY") from None
 
     async def close(self) -> None:
@@ -164,7 +164,7 @@ class WebSearchPipeline:
         request_digest = staged.content_digest
         try:
             existing = await self._existing(draft, request_digest)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             await self._storage.discard(staged)
             raise WebObservationViolation("WEB-DATABASE") from None
         except Exception:
@@ -229,10 +229,10 @@ class WebSearchPipeline:
                 return record
         except WebObservationViolation:
             raise
-        except ArtifactViolation, DatabaseTransactionError, WorkViolation:
+        except ArtifactViolation, RuntimeTransactionFailure, WorkViolation:
             try:
                 recovered = await self._existing(draft, request_digest)
-            except DatabaseTransactionError:
+            except RuntimeTransactionFailure:
                 raise WebObservationViolation("WEB-DATABASE") from None
             if recovered is not None:
                 return recovered
@@ -306,7 +306,7 @@ class WebSearchPipeline:
                                 code=error.code,
                             )
                     except (
-                        DatabaseTransactionError,
+                        RuntimeTransactionFailure,
                         WebObservationViolation,
                         WorkViolation,
                     ):
@@ -337,7 +337,7 @@ class WebSearchPipeline:
                             code=error.code,
                         )
                 except (
-                    DatabaseTransactionError,
+                    RuntimeTransactionFailure,
                     WebObservationViolation,
                     WorkViolation,
                 ):
@@ -345,7 +345,7 @@ class WebSearchPipeline:
             else:
                 self._diagnostic("web.observation.preparation_deferred")
             return True
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("web.observation.transient_failure")
             return True
 
@@ -377,7 +377,7 @@ class WebSearchPipeline:
         try:
             async with self._factory.unit_of_work() as unit:
                 return await self._repository.snapshot(unit, lease)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise WebObservationViolation("WEB-DATABASE") from None
 
     async def _read_request(self, snapshot: WebObservationSnapshot) -> bytes:
@@ -584,8 +584,8 @@ def _failure(error: WebObservationViolation) -> WebObservationInvocationResult:
     )
 
 
-async def _database_now(unit: PostgreSQLUnitOfWork) -> Instant:
-    connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+async def _database_now(unit: PostgreSQLRuntimeUnitOfWork) -> Instant:
+    connection = unit.transaction
     row = await (await connection.execute("SELECT statement_timestamp()")).fetchone()
     if row is None:
         raise WebObservationViolation("WEB-DATABASE")
@@ -593,7 +593,7 @@ async def _database_now(unit: PostgreSQLUnitOfWork) -> Instant:
 
 
 def _artifact_audit(
-    unit: PostgreSQLUnitOfWork,
+    unit: PostgreSQLRuntimeUnitOfWork,
     ref: ArtifactRef,
     draft: WebObservationDraft,
 ) -> AuditDraft:
@@ -611,7 +611,7 @@ def _artifact_audit(
 
 
 def _request_audit(
-    unit: PostgreSQLUnitOfWork, draft: WebObservationDraft
+    unit: PostgreSQLRuntimeUnitOfWork, draft: WebObservationDraft
 ) -> AuditDraft:
     return AuditDraft(
         AuditEventId(uuid7()),
@@ -627,7 +627,7 @@ def _request_audit(
 
 
 def _result_artifact_audit(
-    unit: PostgreSQLUnitOfWork,
+    unit: PostgreSQLRuntimeUnitOfWork,
     ref: ArtifactRef,
     snapshot: WebObservationSnapshot,
 ) -> AuditDraft:
@@ -645,7 +645,7 @@ def _result_artifact_audit(
 
 
 def _settlement_audit(
-    unit: PostgreSQLUnitOfWork,
+    unit: PostgreSQLRuntimeUnitOfWork,
     snapshot: WebObservationSnapshot,
     status: AuditResultStatus,
 ) -> AuditDraft:
@@ -662,44 +662,4 @@ def _settlement_audit(
     )
 
 
-def build_web_search_pipeline(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    credential_port: CredentialPort,
-    credential_locator: CredentialLocator,
-    manifest_bytes: bytes,
-    evidence: EvidenceWritePort,
-    diagnostic: Diagnostic | None,
-) -> WebSearchPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    return WebSearchPipeline(
-        factory=factory,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        ),
-        credential_port=credential_port,
-        credential_locator=credential_locator,
-        manifest_bytes=manifest_bytes,
-        evidence=evidence,
-        diagnostic=diagnostic,
-    )
-
-
-__all__ = ("WebSearchPipeline", "build_web_search_pipeline")
+__all__ = ("WebSearchPipeline",)

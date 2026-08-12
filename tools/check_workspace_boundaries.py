@@ -289,6 +289,20 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-web-observation",
+        module="armi_web_observation",
+        project_dir=Path("modules/web-observation"),
+        layers=(),
+        dependencies=(
+            "armi-evidence==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "httpx==0.28.1",
+            "openai==2.49.0",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-cognition",
         module="armi_cognition",
         project_dir=Path("modules/cognition"),
@@ -307,6 +321,7 @@ DISTRIBUTIONS = (
             "armi-runtime-foundation==0.0.0",
             "armi-sleep==0.0.0",
             "armi-subject-state==0.0.0",
+            "armi-web-observation==0.0.0",
             "pydantic==2.13.4",
             "rfc8785==0.1.4",
         ),
@@ -355,6 +370,7 @@ DISTRIBUTIONS = (
             "armi-activity==0.0.0",
             "armi-material==0.0.0",
             "armi-subject-state==0.0.0",
+            "armi-web-observation==0.0.0",
             "armi-mood==0.0.0",
             "armi-prompt==0.0.0",
             "fastapi==0.140.13",
@@ -1016,6 +1032,17 @@ def _check_import(
             }
         )
         or (
+            source_distribution == "armi-web-observation"
+            and target_distribution
+            not in {
+                None,
+                "armi-evidence",
+                "armi-kernel",
+                "armi-runtime-foundation",
+                "armi-web-observation",
+            }
+        )
+        or (
             source_distribution == "armi-cognition"
             and target_distribution
             not in {
@@ -1034,6 +1061,7 @@ def _check_import(
                 "armi-runtime-foundation",
                 "armi-sleep",
                 "armi-subject-state",
+                "armi-web-observation",
             }
         )
         or (
@@ -1171,6 +1199,13 @@ def _check_import(
         ),
         "armi-effect": frozenset(
             {"armi_effect", "armi_effect.api", "armi_effect.bootstrap"}
+        ),
+        "armi-web-observation": frozenset(
+            {
+                "armi_web_observation",
+                "armi_web_observation.api",
+                "armi_web_observation.bootstrap",
+            }
         ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
@@ -1385,6 +1420,18 @@ def _check_import(
                     "effect bootstrap is reserved for Runtime composition",
                 )
             )
+        if (
+            imported_module == "armi_web_observation.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "web-observation bootstrap is reserved for Runtime composition",
+                )
+            )
         if imported_module not in public_modules[target_distribution]:
             violations.append(
                 Violation(
@@ -1591,6 +1638,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_effect": root / "modules/effect/src/armi_effect/__init__.py",
         "armi_effect.api": root / "modules/effect/src/armi_effect/api.py",
         "armi_effect.bootstrap": root / "modules/effect/src/armi_effect/bootstrap.py",
+        "armi_web_observation": root
+        / "modules/web-observation/src/armi_web_observation/__init__.py",
+        "armi_web_observation.api": root
+        / "modules/web-observation/src/armi_web_observation/api.py",
+        "armi_web_observation.bootstrap": root
+        / "modules/web-observation/src/armi_web_observation/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1621,6 +1674,27 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                     public_exports=public_exports,
                 )
             )
+            if (
+                distribution.name != "armi-web-observation"
+                and ".runtime_resources.schema.alembic." not in module
+                and "armi_runtime.adapters.persistence.recovery" not in module
+                and not module.startswith("armi_admin.persistence.")
+                and re.search(
+                    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:web_observation_requests|observation_attempts|"
+                    r"observation_tool_calls|web_research_intents|web_evidence_sources)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-WEB-OBSERVATION-SQL",
+                        relative,
+                        1,
+                        "web observation writes are owned by armi-web-observation",
+                    )
+                )
             if (
                 distribution.name != "armi-relationship"
                 and ".runtime_resources.schema.alembic." not in module
@@ -2006,6 +2080,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "effect_pipeline = compose_effect_registration_pipeline(",
             "response_pipeline = compose_response_admission_pipeline(",
             "effect_ledger=effect_pipeline",
+        ),
+        "web observation": (
+            "web_search_pipeline = compose_web_search_pipeline(",
+            "web_research_pipeline = compose_web_research_admission_pipeline(",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

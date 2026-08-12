@@ -46,7 +46,6 @@ from armi_kernel.application import (
     SubjectCommitId,
     SubjectCommitResult,
     SubjectCommitViolation,
-    WebResearchRequestDraft,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -76,6 +75,11 @@ from armi_sleep.api import (
     SleepViolation,
 )
 from armi_subject_state.api import SubjectStateCommitPort, SubjectStateViolation
+from armi_web_observation.api import (
+    WebResearchCommitContext,
+    WebResearchCommitPort,
+    WebResearchViolation,
+)
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -173,6 +177,20 @@ def _capability_commit_context(
     )
 
 
+def _web_research_commit_context(
+    snapshot: SubjectCommitSnapshot,
+) -> WebResearchCommitContext:
+    return WebResearchCommitContext(
+        snapshot.validation_id,
+        snapshot.episode_id,
+        snapshot.opportunity_id,
+        snapshot.subject_id,
+        snapshot.scene_id,
+        snapshot.creator_party_id,
+        snapshot.trace_id,
+    )
+
+
 class PostgreSQLSubjectCommitRepository:
     """Read one validated ChangeSet and atomically apply or settle it."""
 
@@ -189,6 +207,7 @@ class PostgreSQLSubjectCommitRepository:
         "_relationship_commit",
         "_sleep_commit",
         "_subject_state_commit",
+        "_web_research_commit",
     )
 
     def __init__(
@@ -205,6 +224,7 @@ class PostgreSQLSubjectCommitRepository:
         relationship_commit: RelationshipCommitPort,
         sleep_commit: SleepCommitPort,
         subject_state_commit: SubjectStateCommitPort,
+        web_research_commit: WebResearchCommitPort,
     ) -> None:
         self._activity_commit = activity_commit
         self._capability_commit = capability_commit
@@ -218,6 +238,7 @@ class PostgreSQLSubjectCommitRepository:
         self._relationship_commit = relationship_commit
         self._sleep_commit = sleep_commit
         self._subject_state_commit = subject_state_commit
+        self._web_research_commit = web_research_commit
 
     async def settle_stale(
         self,
@@ -933,13 +954,16 @@ class PostgreSQLSubjectCommitRepository:
             )
         except ResponseViolation as error:
             raise SubjectCommitViolation(error.code) from None
-        await _insert_web_research_intent(
-            unit_of_work,
-            snapshot=snapshot,
-            commit_id=commit_id,
-            requests=change_set.web_research_requests,
-            query_artifact=research_artifact,
-        )
+        try:
+            await self._web_research_commit.commit_requests(
+                unit_of_work,
+                context=_web_research_commit_context(snapshot),
+                commit_id=commit_id.value,
+                requests=change_set.web_research_requests,
+                query_artifact=research_artifact,
+            )
+        except WebResearchViolation as error:
+            raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
         await _insert_exact_life_query_intent(
             unit_of_work,
             snapshot=snapshot,
@@ -1471,95 +1495,6 @@ async def _evidence_links(
         )
     ).fetchall()
     return [(row[0], row[1], row[2]) for row in rows]
-
-
-async def _insert_web_research_intent(
-    unit_of_work: PostgreSQLUnitOfWork,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    requests: tuple[WebResearchRequestDraft, ...],
-    query_artifact: ArtifactRef | None,
-) -> None:
-    if not requests:
-        if query_artifact is not None:
-            raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-ARTIFACT")
-        return
-    if len(requests) != 1 or query_artifact is None:
-        raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-COUNT")
-    request = requests[0]
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    item = await (
-        await connection.execute(
-            """
-            SELECT validation_status
-            FROM armi.cognitive_candidate_validation_items
-            WHERE candidate_validation_id = %s AND proposal_ref = %s
-              AND owner_kind = 'web_research'
-            """,
-            (snapshot.validation_id, request.proposal_ref),
-        )
-    ).fetchone()
-    if item is None or str(item[0]) != "accepted":
-        raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-VALIDATION")
-    now_row = await (
-        await connection.execute("SELECT statement_timestamp()")
-    ).fetchone()
-    if now_row is None:
-        raise SubjectCommitViolation("SUBJECT-DATABASE")
-    intent_id = uuid7()
-    work_id = WorkId(uuid7())
-    await unit_of_work.work.enqueue(
-        WorkDraft(
-            work_id,
-            "web.observation.admit",
-            WorkOwner("web_research_intent", intent_id),
-            IdempotencyKey(f"web-intent:{snapshot.opportunity_id}"),
-            query_artifact.content_digest,
-            40,
-            Instant(now_row[0]),
-            Instant(now_row[0] + timedelta(seconds=3600)),
-            2,
-            snapshot.trace_id,
-            SubjectId(snapshot.subject_id),
-            WorkPayloadRef("artifact", query_artifact.artifact_id.value),
-        )
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.web_research_intents (
-            web_research_intent_id, subject_commit_id, source_opportunity_id,
-            subject_id, scene_id, creator_party_id, proposal_ref, purpose,
-            operation_class, query_artifact_id, query_digest, idempotency_key,
-            admission_work_id, status, trace_id) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, 'public_web_research',
-            'search_read_public', %s, %s, %s, %s, 'pending', %s)
-        """,
-        (
-            intent_id,
-            commit_id.value,
-            snapshot.opportunity_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.creator_party_id,
-            request.proposal_ref,
-            query_artifact.artifact_id.value,
-            query_artifact.content_digest.value,
-            f"intent:{intent_id}",
-            work_id.value,
-            snapshot.trace_id.value,
-        ),
-    )
-    await unit_of_work.audit.append(
-        _audit(
-            unit_of_work,
-            snapshot,
-            "web.research.intent.recorded",
-            "web_research_intent",
-            intent_id,
-            AuditResultStatus.ACCEPTED,
-        )
-    )
 
 
 async def _insert_exact_life_query_intent(

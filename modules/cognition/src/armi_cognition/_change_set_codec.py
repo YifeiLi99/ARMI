@@ -46,7 +46,6 @@ from armi_kernel.application import (
     CodexTaskSourceId,
     LifeRecordKind,
     SubjectCommitViolation,
-    WebResearchRequestDraft,
 )
 from armi_kernel.contracts import ContractViolation, Digest
 from armi_material.api import (
@@ -113,6 +112,7 @@ from armi_subject_state.api import (
     SubjectStateViolation,
     default_subject_state_cognition,
 )
+from armi_web_observation.api import WebResearchRequestDraft
 
 from ._contracts import SubjectChangeSet
 

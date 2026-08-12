@@ -44,7 +44,6 @@ from armi_kernel.application import (
     RuntimeFence,
     SubjectCommitResult,
     SubjectCommitViolation,
-    WebResearchRequestDraft,
     WorkLease,
     WorkViolation,
 )
@@ -59,6 +58,7 @@ from armi_relationship.api import (
 )
 from armi_sleep.api import SleepCognitionPort, SleepCommitPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateCommitPort
+from armi_web_observation.api import WebResearchCommitPort, WebResearchRequestDraft
 
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
@@ -144,6 +144,7 @@ class SubjectCommitPipeline:
         sleep_commit: SleepCommitPort,
         subject_state_cognition: SubjectStateCognitionPort,
         subject_state_commit: SubjectStateCommitPort,
+        web_research_commit: WebResearchCommitPort,
         notifier: CreatorProjectionNotifier | None,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
@@ -174,6 +175,7 @@ class SubjectCommitPipeline:
             relationship_commit,
             sleep_commit,
             subject_state_commit,
+            web_research_commit,
         )
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
@@ -743,6 +745,7 @@ def build_subject_commit_pipeline(
     sleep_commit: SleepCommitPort,
     subject_state_cognition: SubjectStateCognitionPort,
     subject_state_commit: SubjectStateCommitPort,
+    web_research_commit: WebResearchCommitPort,
     notifier: CreatorProjectionNotifier | None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -782,6 +785,7 @@ def build_subject_commit_pipeline(
         sleep_commit=sleep_commit,
         subject_state_cognition=subject_state_cognition,
         subject_state_commit=subject_state_commit,
+        web_research_commit=web_research_commit,
         notifier=notifier,
         wakeups=wakeups,
         diagnostic=diagnostic,

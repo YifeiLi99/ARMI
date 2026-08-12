@@ -216,6 +216,7 @@ dependencies = [
     { name = "armi-runtime-foundation" },
     { name = "armi-sleep" },
     { name = "armi-subject-state" },
+    { name = "armi-web-observation" },
     { name = "pydantic" },
     { name = "rfc8785" },
 ]
@@ -235,6 +236,7 @@ requires-dist = [
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "armi-sleep", editable = "modules/sleep" },
     { name = "armi-subject-state", editable = "modules/subject-state" },
+    { name = "armi-web-observation", editable = "modules/web-observation" },
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
@@ -309,6 +311,29 @@ requires-dist = [
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
+name = "armi-web-observation"
+version = "0.0.0"
+source = { editable = "modules/web-observation" }
+dependencies = [
+    { name = "armi-evidence" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "httpx" },
+    { name = "openai" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "httpx", specifier = "==0.28.1" },
+    { name = "openai", specifier = "==2.49.0" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
 
@@ -565,6 +590,7 @@ dependencies = [
     { name = "armi-runtime-foundation" },
     { name = "armi-sleep" },
     { name = "armi-subject-state" },
+    { name = "armi-web-observation" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "openai" },
@@ -601,6 +627,7 @@ requires-dist = [
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "armi-sleep", editable = "modules/sleep" },
     { name = "armi-subject-state", editable = "modules/subject-state" },
+    { name = "armi-web-observation", editable = "modules/web-observation" },
     { name = "fastapi", specifier = "==0.140.13" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "openai", specifier = "==2.49.0" },

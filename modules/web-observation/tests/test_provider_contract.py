@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from copy import deepcopy
 
-from armi_runtime.adapters.model.web_search import (
+from armi_web_observation._provider_contract import (
     BINDING_ID,
     WebSearchViolation,
     normalize_provider_response,

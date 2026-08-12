@@ -34,7 +34,6 @@ from armi_kernel.application import (
     CandidateRejection,
     CandidateViolation,
     CodexDelegationDraft,
-    WebResearchRequestDraft,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -62,6 +61,7 @@ from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
+from armi_web_observation.api import WebResearchRequestDraft
 
 from ._contracts import (
     CandidateValidationResult,

@@ -68,8 +68,6 @@ from armi_kernel.application import (
     OtherHumanRecordViolation,
     RuntimeFence,
     SubjectCommitViolation,
-    WebObservationViolation,
-    WebResearchViolation,
 )
 from armi_material.api import (
     MaterialCognitionPort,
@@ -128,6 +126,17 @@ from armi_subject_state.bootstrap import (
     bootstrap_subject_state,
     probe_subject_state_counts,
 )
+from armi_web_observation.api import (
+    WebObservationRuntimePort,
+    WebObservationViolation,
+    WebResearchRuntimePort,
+    WebResearchViolation,
+)
+from armi_web_observation.bootstrap import (
+    bootstrap_web_observation,
+    bootstrap_web_research,
+    bootstrap_web_research_commit,
+)
 
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
@@ -185,11 +194,6 @@ from .subject_commit_pipeline import (
     SubjectCommitPipeline,
     build_subject_commit_pipeline,
 )
-from .web_research_pipeline import (
-    WebResearchAdmissionPipeline,
-    build_web_research_admission_pipeline,
-)
-from .web_search_pipeline import WebSearchPipeline, build_web_search_pipeline
 from .work_wakeup import WorkWakeupBus
 
 RUNTIME_LOCATOR_NAME: Final = "database.runtime"
@@ -1454,7 +1458,7 @@ def compose_web_search_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     evidence: EvidenceWritePort,
     diagnostic: Callable[[str], None] | None = None,
-) -> WebSearchPipeline:
+) -> WebObservationRuntimePort:
     """Resolve the fixed database and Ark credentials for S033 custody."""
 
     database_locator = prepared.effective.config.secret_locators.get(
@@ -1473,17 +1477,15 @@ def compose_web_search_pipeline(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> WebSearchPipeline:
+            def create(value: memoryview) -> WebObservationRuntimePort:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     raise WebObservationViolation("WEB-DATABASE") from None
                 config = prepared.effective.config
-                return build_web_search_pipeline(
+                factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_min=config.database.pool_min,
                     pool_max=config.database.pool_max,
                     acquire_timeout_seconds=(
@@ -1493,6 +1495,15 @@ def compose_web_search_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                )
+                return bootstrap_web_observation(
+                    factory=factory,
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
+                    ),
+                    catalog=ArtifactCatalogRepository(),
+                    work=PostgreSQLDurableWorkGateway(factory),
                     credential_port=prepared.credential_port,
                     credential_locator=model_locator,
                     manifest_bytes=manifest_bytes,
@@ -1509,10 +1520,10 @@ def compose_web_research_admission_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
-    custody: WebSearchPipeline,
+    custody: WebObservationRuntimePort,
     evidence: EvidenceWritePort,
     diagnostic: Callable[[str], None] | None = None,
-) -> WebResearchAdmissionPipeline:
+) -> WebResearchRuntimePort:
     """Resolve the active S034 intent-to-custody worker."""
 
     database_locator = prepared.effective.config.secret_locators.get(
@@ -1526,17 +1537,15 @@ def compose_web_research_admission_pipeline(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> WebResearchAdmissionPipeline:
+            def create(value: memoryview) -> WebResearchRuntimePort:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     raise WebResearchViolation("WEB-RESEARCH-DATABASE") from None
                 config = prepared.effective.config
-                return build_web_research_admission_pipeline(
+                factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_min=config.database.pool_min,
                     pool_max=config.database.pool_max,
                     acquire_timeout_seconds=(
@@ -1546,6 +1555,14 @@ def compose_web_research_admission_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                )
+                return bootstrap_web_research(
+                    factory=factory,
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
+                    ),
+                    work=PostgreSQLDurableWorkGateway(factory),
                     custody=custody,
                     evidence=evidence,
                     diagnostic=diagnostic,
@@ -1725,6 +1742,7 @@ def compose_subject_commit_pipeline(
                     sleep_commit=sleep_commit,
                     subject_state_cognition=subject_state_cognition,
                     subject_state_commit=subject_state_commit,
+                    web_research_commit=bootstrap_web_research_commit(),
                     notifier=notifier,
                     wakeups=wakeups,
                     diagnostic=diagnostic,

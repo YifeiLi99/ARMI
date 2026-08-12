@@ -16,6 +16,7 @@ dependencies = [
     "armi-runtime-foundation==0.0.0",
     "armi-sleep==0.0.0",
     "armi-subject-state==0.0.0",
+    "armi-web-observation==0.0.0",
     "pydantic==2.13.4",
     "rfc8785==0.1.4",
 ]
@@ -34,6 +35,7 @@ armi-relationship = { workspace = true }
 armi-runtime-foundation = { workspace = true }
 armi-sleep = { workspace = true }
 armi-subject-state = { workspace = true }
+armi-web-observation = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.11.33,<0.12"]

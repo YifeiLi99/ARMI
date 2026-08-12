@@ -4,32 +4,32 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from pathlib import Path
 from typing import cast
-from uuid import UUID, uuid7
+from uuid import uuid7
 
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import (
     ArtifactViolation,
-    RuntimeFence,
-    WebObservationDraft,
-    WebObservationRequestId,
-    WebResearchIntentPort,
-    WebResearchViolation,
+    DurableWorkPort,
     WorkLease,
     WorkViolation,
 )
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 
-from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
-from armi_runtime.adapters.persistence.web_evidence import (
+from ._evidence_postgresql import (
     PostgreSQLWebEvidenceRepository,
     WebResearchIntentSnapshot,
 )
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .web_search_pipeline import WebSearchPipeline
+from ._observation_contract import (
+    WebObservationAdmissionPort,
+    WebObservationDraft,
+    WebObservationRequestId,
+)
+from ._research_contract import WebResearchIntentPort, WebResearchViolation
+from .api import WebArtifactStorePort
 
 _WORK_KIND = "web.observation.admit"
 Diagnostic = Callable[[str], None]
@@ -56,9 +56,10 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
-        storage: ContentAddressedArtifactStore,
-        custody: WebSearchPipeline,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        storage: WebArtifactStorePort,
+        work: DurableWorkPort,
+        custody: WebObservationAdmissionPort,
         evidence: EvidenceWritePort,
         diagnostic: Diagnostic | None = None,
     ) -> None:
@@ -66,7 +67,7 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         self._storage = storage
         self._custody = custody
         self._repository = PostgreSQLWebEvidenceRepository(evidence)
-        self._work = PostgreSQLDurableWorkGateway(factory)
+        self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
@@ -75,7 +76,7 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         try:
             await self._factory.open()
             await self._storage.prepare()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise WebResearchViolation("WEB-RESEARCH-DATABASE") from None
         except ArtifactViolation:
             raise WebResearchViolation("WEB-RESEARCH-ARTIFACT") from None
@@ -130,7 +131,7 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         except ArtifactViolation:
             await self._fail(lease, "WEB-RESEARCH-ARTIFACT")
             return True
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("web.research.admission.transient_failure")
             return True
 
@@ -142,7 +143,7 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
                     lease=lease,
                     code=code,
                 )
-        except DatabaseTransactionError, WebResearchViolation, WorkViolation:
+        except RuntimeTransactionFailure, WebResearchViolation, WorkViolation:
             self._diagnostic("web.research.admission.settlement_deferred")
 
     async def _read_query(self, snapshot: WebResearchIntentSnapshot) -> bytes:
@@ -166,43 +167,4 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
             await asyncio.sleep(0 if worked else 1)
 
 
-def build_web_research_admission_pipeline(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    custody: WebSearchPipeline,
-    evidence: EvidenceWritePort,
-    diagnostic: Diagnostic | None = None,
-) -> WebResearchAdmissionPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    return WebResearchAdmissionPipeline(
-        factory=factory,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        ),
-        custody=custody,
-        evidence=evidence,
-        diagnostic=diagnostic,
-    )
-
-
-__all__ = (
-    "WebResearchAdmissionPipeline",
-    "build_web_research_admission_pipeline",
-)
+__all__ = ("WebResearchAdmissionPipeline",)

@@ -24,18 +24,19 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     RuntimeFence,
-    WebEvidenceAcceptanceResult,
-    WebEvidenceSourceId,
-    WebObservationAttemptId,
-    WebObservationRequestId,
-    WebResearchIntentId,
-    WebResearchViolation,
     WorkLease,
     WorkResultRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Purpose, SubjectId, TraceId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
-from .unit_of_work import PostgreSQLUnitOfWork
+from ._observation_contract import WebObservationAttemptId, WebObservationRequestId
+from ._research_contract import (
+    WebEvidenceAcceptanceResult,
+    WebEvidenceSourceId,
+    WebResearchIntentId,
+    WebResearchViolation,
+)
 
 _ADMISSION_WORK = "web.observation.admit"
 
@@ -64,12 +65,12 @@ class PostgreSQLWebEvidenceRepository:
 
     async def fail_admission(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         code: str,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         updated = await (
             await connection.execute(
                 """
@@ -100,13 +101,13 @@ class PostgreSQLWebEvidenceRepository:
 
     async def intent_snapshot(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
     ) -> WebResearchIntentSnapshot:
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise WebResearchViolation("WEB-RESEARCH-FENCE")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -156,13 +157,13 @@ class PostgreSQLWebEvidenceRepository:
 
     async def mark_admitted(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: WebResearchIntentSnapshot,
         request_id: WebObservationRequestId,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         updated = await (
             await connection.execute(
                 """
@@ -206,7 +207,7 @@ class PostgreSQLWebEvidenceRepository:
 
     async def accept_evidence(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         request_id: WebObservationRequestId,
         attempt_id: WebObservationAttemptId,
@@ -214,7 +215,7 @@ class PostgreSQLWebEvidenceRepository:
         source_artifact_ids: tuple[ArtifactId, ...],
         sources: tuple[tuple[int, Digest], ...],
     ) -> WebEvidenceAcceptanceResult | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """

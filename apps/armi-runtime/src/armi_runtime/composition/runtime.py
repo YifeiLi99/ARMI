@@ -11,7 +11,6 @@ import signal
 import threading
 from collections.abc import Generator
 from pathlib import Path
-from typing import cast
 from uuid import uuid7
 
 import uvicorn
@@ -39,8 +38,6 @@ from armi_kernel.application import (
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
     SubjectCommitViolation,
-    WebObservationViolation,
-    WebResearchViolation,
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
 from armi_memory.api import MemoryViolation
@@ -48,6 +45,12 @@ from armi_opportunity.api import LifeViolation
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
 from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation
+from armi_web_observation.api import (
+    WebObservationRuntimePort,
+    WebObservationViolation,
+    WebResearchRuntimePort,
+    WebResearchViolation,
+)
 
 from armi_runtime.adapters.persistence.runtime_observability import (
     RuntimeObservationError,
@@ -116,7 +119,6 @@ from .qq_channel import QQChannelBinding, compose_qq_channel
 from .runtime_errors import RuntimeViolation
 from .runtime_observability import RuntimeObservationDriver
 from .supervisor import RuntimeSupervisor
-from .web_research_pipeline import WebResearchAdmissionPipeline
 from .work_wakeup import WorkWakeupBus
 
 EXIT_GRACEFUL = 0
@@ -218,8 +220,8 @@ async def _serve(
     capability_policy = None
     response_pipeline = None
     effect_pipeline = None
-    web_search_pipeline = None
-    web_research_pipeline: WebResearchAdmissionPipeline | None = None
+    web_search_pipeline: WebObservationRuntimePort | None = None
+    web_research_pipeline: WebResearchRuntimePort | None = None
     codex_pipeline = None
     admin_control: RuntimeAdminControlServer | None = None
     work_wakeups = WorkWakeupBus()
@@ -904,13 +906,11 @@ async def _serve(
                     name=f"model-invoke-worker-{index + 1}",
                 )
         if web_search_pipeline is not None:
-            research_pipeline = cast(
-                WebResearchAdmissionPipeline, web_research_pipeline
-            )
-            supervisor.start(
-                research_pipeline.run_worker(),
-                name="web-research-admission-worker",
-            )
+            if web_research_pipeline is not None:
+                supervisor.start(
+                    web_research_pipeline.run_worker(),
+                    name="web-research-admission-worker",
+                )
             for index in range(config.web.concurrency):
                 supervisor.start(
                     web_search_pipeline.run_worker(),

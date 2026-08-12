@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 
 import pytest
-from armi_kernel.application import WebResearchViolation
-from armi_runtime.adapters.model.web_search_custody import normalize_full_response
-from armi_runtime.composition.web_evidence import (
+from armi_web_observation._custody import normalize_full_response
+from armi_web_observation._evidence_codec import (
     normalize_public_url,
     normalize_web_evidence,
 )
+from armi_web_observation.api import WebResearchViolation
 
 
 def _provider_result(*, text: str = "公开资料摘要") -> bytes:

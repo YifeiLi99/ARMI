@@ -16,15 +16,17 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     CredentialPurpose,
+)
+from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
+
+from ._observation_contract import (
     WebObservationInvocationResult,
     WebObservationResultStatus,
     WebObservationToolAction,
     WebObservationUsage,
     WebObservationViolation,
 )
-from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
-
-from .web_search import API_BASE, MODEL, TOOL_DECLARATION
+from ._provider_contract import API_BASE, MODEL, TOOL_DECLARATION
 
 SCHEMA_VERSION: Final = "armi.web-search-custody.v1"
 REQUEST_VERSION: Final = "armi.web-search-request.v1"

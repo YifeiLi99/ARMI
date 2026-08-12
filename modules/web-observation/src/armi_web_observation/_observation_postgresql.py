@@ -11,6 +11,14 @@ from armi_kernel.application import (
     ArtifactIntegrityStatus,
     ArtifactPrivacyScope,
     ArtifactRef,
+    WorkId,
+    WorkLease,
+    WorkResultRef,
+)
+from armi_kernel.contracts import Digest, SubjectId, TraceId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from ._observation_contract import (
     WebObservationAttemptId,
     WebObservationInvocationResult,
     WebObservationRecord,
@@ -20,13 +28,7 @@ from armi_kernel.application import (
     WebObservationToolCallId,
     WebObservationUsage,
     WebObservationViolation,
-    WorkId,
-    WorkLease,
-    WorkResultRef,
 )
-from armi_kernel.contracts import Digest, SubjectId, TraceId
-
-from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "web.search.invoke"
 _BINDING = "armi.model-tool.volcengine-ark-web-search-v1"
@@ -50,13 +52,13 @@ class PostgreSQLWebObservationRepository:
 
     async def existing(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         subject_id: SubjectId,
         idempotency_key: str,
         request_digest: Digest,
     ) -> WebObservationRecord | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -81,7 +83,7 @@ class PostgreSQLWebObservationRepository:
 
     async def create(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         request_id: WebObservationRequestId,
         subject_id: SubjectId,
@@ -93,7 +95,7 @@ class PostgreSQLWebObservationRepository:
         fence = unit_of_work.runtime_fence
         if fence is None or fence.subject_id != subject_id.value:
             raise WebObservationViolation("WEB-FENCE")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -129,10 +131,10 @@ class PostgreSQLWebObservationRepository:
 
     async def snapshot(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
     ) -> WebObservationSnapshot:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -179,13 +181,13 @@ class PostgreSQLWebObservationRepository:
 
     async def prepare_attempt(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: WebObservationSnapshot,
         credential_identity: Digest,
     ) -> WebObservationAttemptId | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, snapshot.request_id)
         previous = await (
             await connection.execute(
@@ -265,13 +267,13 @@ class PostgreSQLWebObservationRepository:
 
     async def fail_before_attempt(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: WebObservationSnapshot,
         code: str,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, snapshot.request_id)
         updated = await (
             await connection.execute(
@@ -292,13 +294,13 @@ class PostgreSQLWebObservationRepository:
 
     async def mark_dispatched(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: WebObservationSnapshot,
         attempt_id: WebObservationAttemptId,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, snapshot.request_id)
         row = await (
             await connection.execute(
@@ -327,7 +329,7 @@ class PostgreSQLWebObservationRepository:
 
     async def settle_success(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: WebObservationSnapshot,
@@ -337,7 +339,7 @@ class PostgreSQLWebObservationRepository:
     ) -> None:
         if result.status is not WebObservationResultStatus.SUCCEEDED:
             raise WebObservationViolation("WEB-RESULT")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, snapshot.request_id)
         for ordinal, action in enumerate(result.tool_actions, start=1):
             await connection.execute(
@@ -401,7 +403,7 @@ class PostgreSQLWebObservationRepository:
 
     async def settle_failure(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: WebObservationSnapshot,
@@ -414,7 +416,7 @@ class PostgreSQLWebObservationRepository:
             if result.status is WebObservationResultStatus.OUTCOME_UNKNOWN
             else WebObservationRequestStatus.FAILED
         )
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await self._assert_lease(connection, lease, snapshot.request_id)
         await connection.execute(
             """

@@ -20,9 +20,9 @@ from armi_kernel.application import (
     CandidateValidationId,
     CandidateViolation,
     CodexDelegationDraft,
-    WebResearchRequestDraft,
 )
 from armi_kernel.contracts import Digest
+from armi_web_observation.api import WebResearchRequestDraft
 
 _CODE = re.compile(r"^(?:CON|CANDIDATE)-[A-Z0-9-]+$", re.ASCII)
 

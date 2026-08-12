@@ -49,7 +49,6 @@ from armi_kernel.application import (
     CodexTaskSourceId,
     LifeRecordKind,
     ModelViolation,
-    WebResearchRequestDraft,
 )
 from armi_kernel.contracts import Digest
 from armi_material.api import (
@@ -117,6 +116,7 @@ from armi_subject_state.api import (
     SubjectStateKind,
     default_subject_state_cognition,
 )
+from armi_web_observation.api import WebResearchRequestDraft
 from pydantic import ValidationError
 
 from ._activity_attention_contract import (

@@ -141,10 +141,6 @@ from armi_kernel.application import (
     RuntimeAuthorityViolation,
     RuntimeFence,
     RuntimeInstanceId,
-    WebObservationDraft,
-    WebObservationInvocationResult,
-    WebObservationRequestId,
-    WebObservationResultStatus,
     WorkAttemptId,
     WorkDraft,
     WorkId,
@@ -177,7 +173,6 @@ from armi_perception.api import (
 from armi_prompt.bootstrap import bootstrap_prompt
 from armi_relationship.bootstrap import bootstrap_relationship
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
-from armi_runtime.adapters.model.web_search_custody import normalize_full_response
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )
@@ -223,13 +218,23 @@ from armi_runtime.composition.birth_manifest import packaged_birth_digests
 from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
-from armi_runtime.composition.web_search_pipeline import build_web_search_pipeline
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from armi_sleep.api import CreatorMaintenanceViolation
 from armi_sleep.bootstrap import bootstrap_sleep
 from armi_subject_state.bootstrap import (
     bootstrap_subject_state,
     bootstrap_subject_state_admin_read,
+)
+from armi_web_observation._custody import normalize_full_response
+from armi_web_observation.api import (
+    WebObservationDraft,
+    WebObservationInvocationResult,
+    WebObservationRequestId,
+    WebObservationResultStatus,
+)
+from armi_web_observation.bootstrap import (
+    bootstrap_web_observation,
+    bootstrap_web_research_commit,
 )
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -3391,16 +3396,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     secret_roots=(),
                 )
             )
-            pipeline = build_web_search_pipeline(
+            web_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                data_root=data_root,
-                max_object_bytes=2 * 1024 * 1024,
                 pool_min=1,
                 pool_max=2,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=10,
                 authority_admission=lambda: current.fence,
+            )
+            pipeline = bootstrap_web_observation(
+                factory=web_factory,
+                storage=ContentAddressedArtifactStore(
+                    data_root / "artifacts", max_object_bytes=2 * 1024 * 1024
+                ),
+                catalog=ArtifactCatalogRepository(),
+                work=PostgreSQLDurableWorkGateway(web_factory),
                 credential_port=credential_port,
                 credential_locator=(
                     live_credential.locator
@@ -5708,6 +5719,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 relationship_commit=relationship_module.commit,
                 sleep_commit=sleep_module.commit,
                 subject_state_commit=subject_state_module.commit,
+                web_research_commit=bootstrap_web_research_commit(),
             )
             await memory_module.open()
             await relationship_module.open()

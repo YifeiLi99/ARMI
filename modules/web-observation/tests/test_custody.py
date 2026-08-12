@@ -8,18 +8,20 @@ from uuid import uuid7
 from armi_kernel.application import (
     RuntimeFence,
     RuntimeInstanceId,
-    WebObservationDraft,
-    WebObservationRequestId,
-    WebObservationToolAction,
-    WebObservationViolation,
 )
 from armi_kernel.config_yaml import load_yaml_mapping
 from armi_kernel.contracts import IdempotencyKey, SubjectId, TraceId
-from armi_runtime.adapters.model.web_search_custody import (
+from armi_web_observation._custody import (
     build_request_bytes,
     load_custody_policy,
     normalize_full_response,
     parse_request_bytes,
+)
+from armi_web_observation.api import (
+    WebObservationDraft,
+    WebObservationRequestId,
+    WebObservationToolAction,
+    WebObservationViolation,
 )
 
 
