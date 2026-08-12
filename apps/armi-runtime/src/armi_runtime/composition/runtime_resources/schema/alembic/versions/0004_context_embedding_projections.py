@@ -28,7 +28,10 @@ def upgrade() -> None:
         ALTER TABLE armi.cognitive_episodes
           DROP CONSTRAINT cognitive_episodes_mechanism_identity_check,
           ADD CONSTRAINT cognitive_episodes_mechanism_identity_check
-            CHECK (mechanism_identity = 'armi.context-compiler.layered-v2');
+            CHECK (mechanism_identity IN (
+              'armi.context-compiler.deterministic-v1',
+              'armi.context-compiler.layered-v2'
+            ));
 
         CREATE TABLE armi.context_embedding_attempts (
           context_embedding_attempt_id uuid PRIMARY KEY,
