@@ -21,7 +21,6 @@ from armi_kernel.application import (
     CodexDelegationViolation,
     CreatorExportViolation,
     CreatorProjectionNotifier,
-    CreatorPromptViolation,
     CredentialPort,
     CredentialPurpose,
     DataRightsViolation,
@@ -57,6 +56,13 @@ from armi_memory.api import (
 from armi_memory.bootstrap import MemoryModule, bootstrap_memory
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
+from armi_prompt.api import (
+    CreatorPromptViolation,
+    PromptCognitionPort,
+    PromptCommitPort,
+    PromptReadPort,
+)
+from armi_prompt.bootstrap import PromptModule, bootstrap_prompt
 from armi_relationship.api import (
     RelationshipCognitionPort,
     RelationshipCommitPort,
@@ -91,6 +97,7 @@ from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
 )
+from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
@@ -140,7 +147,6 @@ from .creator_input import (
     EvidenceAcceptanceTransaction,
     build_evidence_acceptance_transaction,
 )
-from .creator_prompts import CreatorPromptService, build_creator_prompt_service
 from .creator_scenes import CreatorSceneService, build_creator_scene_service
 from .data_rights import DataRightsOrderService, build_data_rights_order_service
 from .effect_pipeline import (
@@ -1163,12 +1169,12 @@ def compose_external_content_pipeline(
         raise ModelViolation("MODEL-CREDENTIAL") from None
 
 
-def compose_creator_prompt_service(
+def compose_prompt_module(
     prepared: PreparedEnvironment,
     *,
     creator_party_id: UUID,
     authority_admission: Callable[[], RuntimeFence],
-) -> CreatorPromptService:
+) -> PromptModule:
     """Resolve the Runtime credential for the T-04 Creator Prompt owner."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
@@ -1180,27 +1186,33 @@ def compose_creator_prompt_service(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> CreatorPromptService:
+            def create(value: memoryview) -> PromptModule:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
                 config = prepared.effective.config
-                return build_creator_prompt_service(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
+                catalog = ArtifactCatalogRepository()
+                return bootstrap_prompt(
                     creator_party_id=creator_party_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
                     ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
+                    catalog=catalog,
+                    unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
+                        conninfo,
+                        environment_id=config.environment.environment_id,
+                        pool_min=config.database.pool_min,
+                        pool_max=config.database.pool_max,
+                        acquire_timeout_seconds=(
+                            config.database.pool_acquire_timeout_seconds
+                        ),
+                        statement_timeout_seconds=(
+                            config.database.statement_timeout_seconds
+                        ),
+                        authority_admission=authority_admission,
                     ),
-                    authority_admission=authority_admission,
                 )
 
             return handle.consume(create)
@@ -1372,6 +1384,7 @@ def compose_context_pipeline(
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     mood_read: MoodReadPort,
+    prompt_read: PromptReadPort,
     material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
@@ -1429,6 +1442,7 @@ def compose_context_pipeline(
                     memory_read=memory_read,
                     memory_projection=memory_projection,
                     mood_read=mood_read,
+                    prompt_read=prompt_read,
                     material_projection=material_projection,
                     relationship_read=relationship_read,
                     sleep_read=sleep_read,
@@ -1664,6 +1678,8 @@ def compose_candidate_validation_pipeline(
     memory_read: MemoryReadPort,
     mood_cognition: MoodCognitionPort,
     mood_read: MoodReadPort,
+    prompt_cognition: PromptCognitionPort,
+    prompt_read: PromptReadPort,
     material_cognition: MaterialCognitionPort,
     material_read: MaterialReadPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -1712,6 +1728,8 @@ def compose_candidate_validation_pipeline(
                     memory_read=memory_read,
                     mood_cognition=mood_cognition,
                     mood_read=mood_read,
+                    prompt_cognition=prompt_cognition,
+                    prompt_read=prompt_read,
                     material_cognition=material_cognition,
                     material_read=material_read,
                     relationship_cognition=relationship_cognition,
@@ -1740,6 +1758,8 @@ def compose_subject_commit_pipeline(
     memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
     mood_cognition: MoodCognitionPort,
+    prompt_cognition: PromptCognitionPort,
+    prompt_commit: PromptCommitPort,
     material_cognition: MaterialCognitionPort,
     material_commit: MaterialCommitPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -1788,6 +1808,8 @@ def compose_subject_commit_pipeline(
                     memory_cognition=memory_cognition,
                     mood_commit=mood_commit,
                     mood_cognition=mood_cognition,
+                    prompt_cognition=prompt_cognition,
+                    prompt_commit=prompt_commit,
                     material_cognition=material_cognition,
                     material_commit=material_commit,
                     relationship_cognition=relationship_cognition,
@@ -1896,6 +1918,7 @@ def compose_runtime_recovery(
     *,
     authority_admission: Callable[[], RuntimeFence],
     mood_read: MoodReadPort,
+    prompt_read: PromptReadPort,
     subject_state_read: SubjectStateReadPort,
 ) -> PostgreSQLRuntimeRecovery:
     """Resolve the Runtime credential for the fenced startup recovery gateway."""
@@ -1933,6 +1956,7 @@ def compose_runtime_recovery(
                     pool_timeout_seconds=(config.database.pool_acquire_timeout_seconds),
                     authority_admission=authority_admission,
                     mood=mood_read,
+                    prompts=prompt_read,
                     subject_state=subject_state_read,
                 )
 
@@ -2067,7 +2091,6 @@ __all__ = (
     "compose_context_pipeline",
     "compose_creator_export_service",
     "compose_creator_input",
-    "compose_creator_prompt_service",
     "compose_creator_scene_service",
     "compose_data_rights_order_service",
     "compose_effect_registration_pipeline",
@@ -2081,6 +2104,7 @@ __all__ = (
     "compose_model_pipeline",
     "compose_mood_module",
     "compose_other_human_record_query",
+    "compose_prompt_module",
     "compose_relationship_module",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",

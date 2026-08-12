@@ -28,10 +28,6 @@ from armi_kernel.application import (
     CreatorInteractionId,
     CreatorOperation,
     CreatorOperationPhase,
-    CreatorPromptDeactivateCommand,
-    CreatorPromptRevisionCommand,
-    CreatorPromptView,
-    CreatorPromptViolation,
     CreatorSceneCollection,
     CreatorSceneCreateCommand,
     CreatorSceneStatusCommand,
@@ -68,9 +64,6 @@ from armi_kernel.application import (
     OtherHumanSceneView,
     OtherHumanTimelineRecord,
     OtherHumanTimelineRecordPage,
-    PromptDocumentStatus,
-    PromptKind,
-    PromptRevisionKind,
     RegisterOtherHumanPartyCommand,
     SceneKey,
     SceneQueryViolation,
@@ -97,6 +90,15 @@ from armi_memory.api import (
 )
 from armi_memory.api import (
     MemoryRevisionKind as QueryMemoryRevisionKind,
+)
+from armi_prompt.api import (
+    CreatorPromptDeactivateCommand,
+    CreatorPromptRevisionCommand,
+    CreatorPromptView,
+    CreatorPromptViolation,
+    PromptDocumentStatus,
+    PromptKind,
+    PromptRevisionKind,
 )
 from armi_relationship.api import (
     CreatorRelationshipItem,

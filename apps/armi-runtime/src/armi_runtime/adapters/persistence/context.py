@@ -39,6 +39,7 @@ from armi_kernel.contracts import (
 )
 from armi_memory.api import MemoryReadPort
 from armi_mood.api import MoodReadPort, MoodViolation
+from armi_prompt.api import PromptReadPort, PromptViolation
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import MaintenancePhase, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
@@ -164,6 +165,7 @@ class PostgreSQLContextRepository:
         "_catalog",
         "_memories",
         "_mood",
+        "_prompts",
         "_relationships",
         "_sleep",
         "_subject_state",
@@ -176,12 +178,14 @@ class PostgreSQLContextRepository:
         activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
         mood: MoodReadPort | None = None,
+        prompts: PromptReadPort | None = None,
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
         self._catalog = ArtifactCatalogRepository()
         self._memories = memories
         self._mood = mood
+        self._prompts = prompts
         self._relationships = relationships
         self._sleep = sleep
         self._subject_state = subject_state
@@ -432,8 +436,8 @@ class PostgreSQLContextRepository:
                         life_query.exact_life_query_intent_id
                     ),
                     COALESCE(evidence.artifact_id, life_query.result_artifact_id),
-                    prompt.prompt_revision_id,
-                    prompt.content_artifact_id,
+                    NULL::uuid,
+                    NULL::uuid,
                     scene.scene_key,
                     scene.scene_kind,
                     scene.audience_scope,
@@ -447,12 +451,12 @@ class PostgreSQLContextRepository:
                     opportunity.available_after,
                     opportunity.expires_at,
                     subject.current_generation_id,
-                    creator_prompt.prompt_revision_id,
-                    creator_prompt.revision_no,
-                    creator_prompt.content_artifact_id,
-                    subject_prompt.prompt_revision_id,
-                    subject_prompt.revision_no,
-                    subject_prompt.content_artifact_id,
+                    NULL::uuid,
+                    NULL::integer,
+                    NULL::uuid,
+                    NULL::uuid,
+                    NULL::integer,
+                    NULL::uuid,
                     CASE
                       WHEN episode.purpose = 'consider_creator_input'
                       THEN evidence.interaction_id
@@ -487,35 +491,6 @@ class PostgreSQLContextRepository:
                   ON scene.scene_id = episode.scene_id
                 LEFT JOIN armi.parties AS context_party
                   ON context_party.party_id = episode.context_party_id
-                JOIN armi.prompt_documents AS document
-                  ON document.subject_id = episode.subject_id
-                 AND document.prompt_kind = 'personality_anchor'
-                 AND document.write_authority = 'fixed'
-                 AND document.status = 'active'
-                JOIN armi.prompt_revisions AS prompt
-                  ON prompt.prompt_revision_id = document.current_revision_id
-                LEFT JOIN armi.prompt_documents AS creator_document
-                  ON creator_document.subject_id = episode.subject_id
-                 AND creator_document.prompt_kind = 'creator_guidance'
-                 AND creator_document.write_authority = 'creator'
-                 AND creator_document.status = 'active'
-                 AND creator_document.current_revision_id IS NOT NULL
-                LEFT JOIN armi.prompt_revisions AS creator_prompt
-                  ON creator_prompt.prompt_revision_id =
-                     creator_document.current_revision_id
-                 AND creator_prompt.prompt_document_id =
-                     creator_document.prompt_document_id
-                LEFT JOIN armi.prompt_documents AS subject_document
-                  ON subject_document.subject_id = episode.subject_id
-                 AND subject_document.prompt_kind = 'subject_guidance'
-                 AND subject_document.write_authority = 'subject'
-                 AND subject_document.status = 'active'
-                 AND subject_document.current_revision_id IS NOT NULL
-                LEFT JOIN armi.prompt_revisions AS subject_prompt
-                  ON subject_prompt.prompt_revision_id =
-                     subject_document.current_revision_id
-                 AND subject_prompt.prompt_document_id =
-                     subject_document.prompt_document_id
                 WHERE work.work_id = %s
                   AND work.status = 'leased'
                   AND work.current_attempt_id = %s
@@ -534,6 +509,14 @@ class PostgreSQLContextRepository:
         ).fetchone()
         if row is None:
             raise ContextViolation("CTX-WORK-STALE")
+        if self._prompts is None:
+            raise ContextViolation("CTX-PROMPT-OWNER")
+        try:
+            prompt_sources = await self._prompts.context_sources(
+                unit_of_work.transaction, subject_id=row[2]
+            )
+        except PromptViolation:
+            raise ContextViolation("CTX-SOURCE-MISSING") from None
         if self._subject_state is None:
             raise ContextViolation("CTX-SUBJECT-STATE-OWNER")
         try:
@@ -887,28 +870,32 @@ class PostgreSQLContextRepository:
             opportunity_available_after=row[25],
             opportunity_expires_at=row[26],
             fixed_prompt=ContextArtifactSource(
-                await self._artifact_ref(connection, row[14]),
-                row[13],
-                1,
+                await self._artifact_ref(connection, prompt_sources.fixed.artifact_id),
+                prompt_sources.fixed.source_id,
+                prompt_sources.fixed.source_version,
                 "fixed_prompt",
             ),
             creator_prompt=(
                 None
-                if row[28] is None
+                if prompt_sources.creator is None
                 else ContextArtifactSource(
-                    await self._artifact_ref(connection, row[30]),
-                    row[28],
-                    int(row[29]),
+                    await self._artifact_ref(
+                        connection, prompt_sources.creator.artifact_id
+                    ),
+                    prompt_sources.creator.source_id,
+                    prompt_sources.creator.source_version,
                     "creator_prompt",
                 )
             ),
             subject_prompt=(
                 None
-                if row[31] is None
+                if prompt_sources.subject is None
                 else ContextArtifactSource(
-                    await self._artifact_ref(connection, row[33]),
-                    row[31],
-                    int(row[32]),
+                    await self._artifact_ref(
+                        connection, prompt_sources.subject.artifact_id
+                    ),
+                    prompt_sources.subject.source_id,
+                    prompt_sources.subject.source_version,
                     "subject_prompt",
                 )
             ),

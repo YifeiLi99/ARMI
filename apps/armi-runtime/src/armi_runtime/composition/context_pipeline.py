@@ -49,6 +49,7 @@ from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
 from armi_mood.api import MoodReadPort
+from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
@@ -133,6 +134,7 @@ class ContextPipeline(OpportunitySelector):
         memory_read: MemoryReadPort,
         memory_projection: MemoryProjectionPort,
         mood_read: MoodReadPort,
+        prompt_read: PromptReadPort,
         material_projection: MaterialProjectionPort,
         relationship_read: RelationshipReadPort,
         sleep_read: SleepReadPort,
@@ -153,6 +155,7 @@ class ContextPipeline(OpportunitySelector):
             activity_read,
             memories=memory_read,
             mood=mood_read,
+            prompts=prompt_read,
             subject_state=subject_state_read,
         )
         self._catalog = ArtifactCatalogRepository()
@@ -1316,6 +1319,7 @@ def build_context_pipeline(
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     mood_read: MoodReadPort,
+    prompt_read: PromptReadPort,
     material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
@@ -1345,6 +1349,7 @@ def build_context_pipeline(
         memory_read=memory_read,
         memory_projection=memory_projection,
         mood_read=mood_read,
+        prompt_read=prompt_read,
         material_projection=material_projection,
         relationship_read=relationship_read,
         sleep_read=sleep_read,

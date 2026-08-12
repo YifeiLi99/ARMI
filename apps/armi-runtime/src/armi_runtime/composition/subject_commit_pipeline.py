@@ -44,6 +44,7 @@ from armi_kernel.contracts import ContractViolation, Instant, Purpose, SubjectId
 from armi_material.api import MaterialCognitionPort, MaterialCommitPort
 from armi_memory.api import MemoryCognitionPort, MemoryCommitPort
 from armi_mood.api import MoodCognitionPort, MoodCommitPort
+from armi_prompt.api import PromptCognitionPort, PromptCommitPort
 from armi_relationship.api import (
     RelationshipCognitionPort,
     RelationshipCommitPort,
@@ -102,6 +103,7 @@ class SubjectCommitPipeline:
         "_memory_cognition",
         "_mood_cognition",
         "_notifier",
+        "_prompt_cognition",
         "_relationship_cognition",
         "_repository",
         "_sleep_cognition",
@@ -123,6 +125,8 @@ class SubjectCommitPipeline:
         memory_cognition: MemoryCognitionPort,
         mood_commit: MoodCommitPort,
         mood_cognition: MoodCognitionPort,
+        prompt_cognition: PromptCognitionPort,
+        prompt_commit: PromptCommitPort,
         material_cognition: MaterialCognitionPort,
         material_commit: MaterialCommitPort,
         relationship_cognition: RelationshipCognitionPort,
@@ -145,6 +149,7 @@ class SubjectCommitPipeline:
         self._notifier = notifier
         self._memory_cognition = memory_cognition
         self._mood_cognition = mood_cognition
+        self._prompt_cognition = prompt_cognition
         self._material_cognition = material_cognition
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
@@ -153,6 +158,7 @@ class SubjectCommitPipeline:
             activity_commit,
             memory_commit,
             mood_commit,
+            prompt_commit,
             material_commit,
             relationship_commit,
             relationship_read,
@@ -206,6 +212,7 @@ class SubjectCommitPipeline:
                 self._material_cognition,
                 self._subject_state_cognition,
                 self._mood_cognition,
+                self._prompt_cognition,
             )
             replies = tuple(
                 item
@@ -240,12 +247,17 @@ class SubjectCommitPipeline:
                         await self._publish_material(material.body_bytes, snapshot),
                     )
                 )
+            prompt_drafts = tuple(
+                self._prompt_cognition.decode(item.canonical_payload)
+                for item in change_set.owner_drafts
+                if item.owner == "prompt"
+            )
             published_prompts = [
                 (
                     prompt.proposal_ref,
                     await self._publish_prompt(prompt.content_bytes, snapshot),
                 )
-                for prompt in change_set.prompts
+                for prompt in prompt_drafts
             ]
             async with self._factory.unit_of_work() as unit_of_work:
                 response_artifact = None
@@ -708,6 +720,8 @@ def build_subject_commit_pipeline(
     memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
     mood_cognition: MoodCognitionPort,
+    prompt_cognition: PromptCognitionPort,
+    prompt_commit: PromptCommitPort,
     material_cognition: MaterialCognitionPort,
     material_commit: MaterialCommitPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -743,6 +757,8 @@ def build_subject_commit_pipeline(
         memory_cognition=memory_cognition,
         mood_commit=mood_commit,
         mood_cognition=mood_cognition,
+        prompt_cognition=prompt_cognition,
+        prompt_commit=prompt_commit,
         material_cognition=material_cognition,
         material_commit=material_commit,
         relationship_cognition=relationship_cognition,

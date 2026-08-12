@@ -28,7 +28,6 @@ from armi_kernel.application import (
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
-    CandidateSubjectPromptDraft,
     CandidateValidationId,
     CandidateValidationResult,
     CandidateValidationStatus,
@@ -78,6 +77,11 @@ from armi_mood.api import (
     CandidateMoodDraft,
     MoodCognitionPort,
     default_mood_cognition,
+)
+from armi_prompt.api import (
+    CandidatePromptDraft,
+    PromptCognitionPort,
+    default_prompt_cognition,
 )
 from armi_relationship.api import (
     CandidateRelationshipDraft,
@@ -256,7 +260,7 @@ ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v28"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v29"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
@@ -355,7 +359,7 @@ class DialogueBoundChanges:
     memory_revision: CandidateMemoryRevisionDraft | None = None
     relationship: CandidateRelationshipDraft | None = None
     material: CandidateLifeMaterialDraft | None = None
-    prompt: CandidateSubjectPromptDraft | None = None
+    prompt: CandidatePromptDraft | None = None
     exact_life_query: CandidateExactLifeQueryDraft | None = None
     rejections: tuple[CandidateRejection, ...] = ()
 
@@ -531,6 +535,7 @@ class DeterministicCandidateValidator:
         "_material_cognition",
         "_memory_cognition",
         "_mood_cognition",
+        "_prompt_cognition",
         "_relationship_cognition",
         "_sleep_cognition",
         "_subject_state_cognition",
@@ -543,6 +548,7 @@ class DeterministicCandidateValidator:
         material_cognition: MaterialCognitionPort | None = None,
         memory_cognition: MemoryCognitionPort | None = None,
         mood_cognition: MoodCognitionPort | None = None,
+        prompt_cognition: PromptCognitionPort | None = None,
         relationship_cognition: RelationshipCognitionPort | None = None,
         sleep_cognition: SleepCognitionPort | None = None,
         subject_state_cognition: SubjectStateCognitionPort | None = None,
@@ -552,6 +558,7 @@ class DeterministicCandidateValidator:
         self._material_cognition = material_cognition or default_material_cognition()
         self._memory_cognition = memory_cognition or default_memory_cognition()
         self._mood_cognition = mood_cognition or default_mood_cognition()
+        self._prompt_cognition = prompt_cognition or default_prompt_cognition()
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition or default_sleep_cognition()
         self._subject_state_cognition = (
@@ -780,7 +787,7 @@ class DeterministicCandidateValidator:
             | CandidateMemoryRevisionDraft
             | CandidateRelationshipDraft
             | CandidateLifeMaterialDraft
-            | CandidateSubjectPromptDraft
+            | CandidatePromptDraft
             | CandidateExactLifeQueryDraft
             | CandidateOwnerDraft
             | CapabilityRequestDraft
@@ -1046,7 +1053,7 @@ class DeterministicCandidateValidator:
 
         for proposal_ref, draft in tuple(accepted.items()):
             if (
-                isinstance(draft, CandidateSubjectPromptDraft)
+                isinstance(draft, CandidatePromptDraft)
                 or (
                     isinstance(draft, CandidateOwnerDraft)
                     and draft.owner in {"self", "mind", "mood", "life_mode"}
@@ -1151,7 +1158,11 @@ class DeterministicCandidateValidator:
         prompts = tuple(
             value
             for _, value in sorted(accepted.items())
-            if isinstance(value, CandidateSubjectPromptDraft)
+            if isinstance(value, CandidatePromptDraft)
+        )
+        owner_drafts = (
+            *owner_drafts,
+            *(self._prompt_cognition.bind(value) for value in prompts),
         )
         exact_life_queries = tuple(
             value
@@ -1257,7 +1268,6 @@ class DeterministicCandidateValidator:
                     _codex_delegation_wire(item) for item in codex_delegations
                 ],
                 owner_drafts=[_owner_draft_wire(item) for item in owner_drafts],
-                prompts=[_prompt_wire(item) for item in prompts],
                 exact_life_queries=[
                     _exact_life_query_wire(item) for item in exact_life_queries
                 ],
@@ -1377,7 +1387,6 @@ class DeterministicCandidateValidator:
             rejections,
             codex_delegations,
             owner_drafts=owner_drafts,
-            prompts=prompts,
             exact_life_queries=exact_life_queries,
         )
         status = (
@@ -1537,7 +1546,6 @@ class DeterministicCandidateValidator:
                 if relationship is None
                 else [_owner_draft_wire(self._bind_relationship(relationship))]
             ),
-            "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
         }
@@ -1640,7 +1648,6 @@ class DeterministicCandidateValidator:
             "web_research_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
-            "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
         }
@@ -1732,7 +1739,6 @@ class DeterministicCandidateValidator:
             "web_research_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(owner_draft)],
-            "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
         }
@@ -1841,7 +1847,6 @@ class DeterministicCandidateValidator:
             "web_research_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(owner_draft)],
-            "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
         }
@@ -1983,7 +1988,6 @@ class DeterministicCandidateValidator:
             "web_research_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
-            "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
         }
@@ -2135,7 +2139,6 @@ class DeterministicCandidateValidator:
             "web_research_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
-            "prompts": [],
             "exact_life_queries": [],
             "rejections": [],
         }
@@ -2434,7 +2437,7 @@ def _expand_dialogue_candidate(
     memory_revision: CandidateMemoryRevisionDraft | None = None
     relationship: CandidateRelationshipDraft | None = None
     material: CandidateLifeMaterialDraft | None = None
-    prompt: CandidateSubjectPromptDraft | None = None
+    prompt: CandidatePromptDraft | None = None
     experience_ref: str | None = None
     understanding_basis_refs = (evidence_ref,)
     if isinstance(
@@ -2997,7 +3000,7 @@ def _bind_dialogue_subject_prompt(
     evidence: CandidateBasis,
     bases: tuple[CandidateBasis, ...],
     context: CandidateValidationContext,
-) -> tuple[CandidateSubjectPromptDraft | None, str | None]:
+) -> tuple[CandidatePromptDraft | None, str | None]:
     current = context.current_subject_prompt
     self_component = next(
         (
@@ -3079,7 +3082,7 @@ def _bind_dialogue_subject_prompt(
         *((prompt_basis.ordinal,) if prompt_basis is not None else ()),
     )
     return (
-        CandidateSubjectPromptDraft(
+        CandidatePromptDraft(
             proposal_ref,
             "group:1",
             basis_ordinals,
@@ -4302,7 +4305,7 @@ def _draft_owner(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
-    | CandidateSubjectPromptDraft
+    | CandidatePromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateOwnerDraft
     | CapabilityRequestDraft
@@ -4319,7 +4322,7 @@ def _draft_owner(
         return CandidateOwner.RELATIONSHIP
     if isinstance(draft, CandidateLifeMaterialDraft):
         return CandidateOwner.MATERIAL
-    if isinstance(draft, CandidateSubjectPromptDraft):
+    if isinstance(draft, CandidatePromptDraft):
         return CandidateOwner.PROMPT
     if isinstance(draft, CandidateExactLifeQueryDraft):
         return CandidateOwner.EXACT_LIFE_QUERY
@@ -4340,7 +4343,7 @@ def _draft_fact_class(
     | CandidateMemoryRevisionDraft
     | CandidateRelationshipDraft
     | CandidateLifeMaterialDraft
-    | CandidateSubjectPromptDraft
+    | CandidatePromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateOwnerDraft
     | CapabilityRequestDraft
@@ -4357,7 +4360,7 @@ def _draft_fact_class(
         return CandidateFactClass.INFERENCE
     if isinstance(draft, CandidateLifeMaterialDraft):
         return CandidateFactClass.SUBJECTIVE_UNDERSTANDING
-    if isinstance(draft, CandidateSubjectPromptDraft):
+    if isinstance(draft, CandidatePromptDraft):
         return draft.fact_class
     return draft.fact_class
 
@@ -4586,7 +4589,7 @@ def _codex_delegation_wire(value: CodexDelegationDraft) -> dict[str, object]:
     }
 
 
-def _prompt_wire(value: CandidateSubjectPromptDraft) -> dict[str, object]:
+def _prompt_wire(value: CandidatePromptDraft) -> dict[str, object]:
     return {
         "proposal_ref": value.proposal_ref,
         "atomic_group_ref": value.atomic_group_ref,

@@ -14,6 +14,7 @@ members = [
     "armi-memory",
     "armi-mood",
     "armi-postgresql-contract",
+    "armi-prompt",
     "armi-relationship",
     "armi-runtime",
     "armi-runtime-foundation",
@@ -118,6 +119,7 @@ dependencies = [
     { name = "armi-material" },
     { name = "armi-mood" },
     { name = "armi-postgresql-contract" },
+    { name = "armi-prompt" },
     { name = "armi-subject-state" },
     { name = "mcp" },
     { name = "psycopg", extra = ["binary"] },
@@ -133,6 +135,7 @@ requires-dist = [
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-mood", editable = "modules/mood" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
+    { name = "armi-prompt", editable = "modules/prompt" },
     { name = "armi-subject-state", editable = "modules/subject-state" },
     { name = "mcp", specifier = "==2.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -249,6 +252,25 @@ version = "0.0.0"
 source = { editable = "packages/armi-postgresql-contract" }
 
 [[package]]
+name = "armi-prompt"
+version = "0.0.0"
+source = { editable = "modules/prompt" }
+dependencies = [
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
 name = "armi-relationship"
 version = "0.0.0"
 source = { editable = "modules/relationship" }
@@ -285,6 +307,7 @@ dependencies = [
     { name = "armi-memory" },
     { name = "armi-mood" },
     { name = "armi-postgresql-contract" },
+    { name = "armi-prompt" },
     { name = "armi-relationship" },
     { name = "armi-runtime-foundation" },
     { name = "armi-sleep" },
@@ -315,6 +338,7 @@ requires-dist = [
     { name = "armi-memory", editable = "modules/memory" },
     { name = "armi-mood", editable = "modules/mood" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
+    { name = "armi-prompt", editable = "modules/prompt" },
     { name = "armi-relationship", editable = "modules/relationship" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "armi-sleep", editable = "modules/sleep" },

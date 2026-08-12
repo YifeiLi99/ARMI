@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
-from pathlib import Path
-from typing import cast
+from collections.abc import AsyncIterator
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_artifact_store.content_store import (
-    ContentAddressedArtifactStore,
-)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -23,6 +19,20 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     AuditViolation,
+    PublishedArtifact,
+)
+from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
+
+from ._creator_postgresql import (
+    CreatorPromptRepository,
+    CreatorPromptSnapshot,
+)
+from .api import (
     CreatorPromptDeactivateCommand,
     CreatorPromptPort,
     CreatorPromptRevisionCommand,
@@ -31,23 +41,7 @@ from armi_kernel.application import (
     PromptDocumentStatus,
     PromptKind,
     PromptRevisionKind,
-    PublishedArtifact,
-    RuntimeFence,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
-
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
-)
-from armi_runtime.adapters.persistence.creator_prompts import (
-    CreatorPromptRepository,
-    CreatorPromptSnapshot,
-)
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWork,
-    PostgreSQLUnitOfWorkFactory,
-)
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 
 async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
@@ -69,10 +63,10 @@ class CreatorPromptService(CreatorPromptPort):
         self,
         *,
         creator_party_id: UUID,
-        storage: ContentAddressedArtifactStore,
-        catalog: ArtifactCatalogRepository,
+        storage: Any,
+        catalog: Any,
         repository: CreatorPromptRepository,
-        unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+        unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._storage = storage
@@ -83,7 +77,7 @@ class CreatorPromptService(CreatorPromptPort):
     async def open(self) -> None:
         try:
             await self._uow_factory.open()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
 
     async def close(self) -> None:
@@ -136,7 +130,7 @@ class CreatorPromptService(CreatorPromptPort):
                 published=published,
                 revision_kind=revision_kind,
             )
-        except DatabaseTransactionError as error:
+        except RuntimeTransactionFailure as error:
             recovered = await self._recover_revision(
                 expected_revision_id=command.expected_revision_id,
                 content_digest=content_digest,
@@ -169,7 +163,7 @@ class CreatorPromptService(CreatorPromptPort):
             raise CreatorPromptViolation("CONFLICT-PROMPT-NOT-CREATED")
         try:
             changed = await self._apply_deactivation(command)
-        except DatabaseTransactionError as error:
+        except RuntimeTransactionFailure as error:
             recovered = await self._recover_revision(
                 expected_revision_id=command.expected_revision_id,
                 content_digest=observed.content_digest,
@@ -296,7 +290,7 @@ class CreatorPromptService(CreatorPromptPort):
             raise
         except ArtifactViolation:
             raise CreatorPromptViolation("ART-PROMPT-READ") from None
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
 
     async def _recover_revision(
@@ -414,7 +408,7 @@ class CreatorPromptService(CreatorPromptPort):
 
     @staticmethod
     def _artifact_audit(
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact: ArtifactRef,
         trace_id: TraceId,
     ) -> AuditDraft:
@@ -430,37 +424,4 @@ class CreatorPromptService(CreatorPromptPort):
         )
 
 
-def build_creator_prompt_service(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    creator_party_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-) -> CreatorPromptService:
-    return CreatorPromptService(
-        creator_party_id=creator_party_id,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        ),
-        catalog=ArtifactCatalogRepository(),
-        repository=CreatorPromptRepository(),
-        unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
-            conninfo,
-            environment_id=environment_id,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            acquire_timeout_seconds=acquire_timeout_seconds,
-            statement_timeout_seconds=statement_timeout_seconds,
-            authority_admission=authority_admission,
-        ),
-    )
-
-
-__all__ = ("CreatorPromptService", "build_creator_prompt_service")
+__all__ = ("CreatorPromptService",)

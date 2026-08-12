@@ -16,6 +16,7 @@ from armi_artifact_store import ContentAddressedArtifactStore
 from armi_kernel.application import ArtifactViolation, CredentialPurpose
 from armi_kernel.contracts import Digest
 from armi_mood.bootstrap import bootstrap_mood_admin_correction
+from armi_prompt.bootstrap import bootstrap_prompt_admin_reference
 from armi_subject_state.bootstrap import bootstrap_subject_state_admin_correction
 
 from armi_admin.persistence import (
@@ -187,6 +188,7 @@ class AdminCorrectionCoordinator:
             environment_id=self._config.environment_id,
             incarnation=self._config.environment_incarnation,
             mood=bootstrap_mood_admin_correction(),
+            prompts=bootstrap_prompt_admin_reference(),
             subject_state=bootstrap_subject_state_admin_correction(),
         )
 

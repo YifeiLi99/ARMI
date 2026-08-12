@@ -25,7 +25,6 @@ from armi_kernel.application import (
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
-    CandidateSubjectPromptDraft,
     CandidateValidationResult,
     CandidateValidationStatus,
     CandidateViolation,
@@ -59,6 +58,7 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_mood.api import MoodReadPort
+from armi_prompt.api import PromptReadPort, PromptViolation
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
@@ -142,6 +142,7 @@ class PostgreSQLCandidateValidationRepository:
         "_materials",
         "_memories",
         "_mood",
+        "_prompts",
         "_relationships",
         "_sleep",
         "_subject_state",
@@ -154,12 +155,14 @@ class PostgreSQLCandidateValidationRepository:
         activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
         mood: MoodReadPort | None = None,
+        prompts: PromptReadPort | None = None,
         materials: MaterialReadPort | None = None,
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
         self._memories = memories
         self._mood = mood
+        self._prompts = prompts
         self._materials = materials
         self._relationships = relationships
         self._sleep = sleep
@@ -378,40 +381,31 @@ class PostgreSQLCandidateValidationRepository:
             generation_id=row[3],
             episode_id=row[0],
         )
-        subject_prompt_row = await (
-            await connection.execute(
-                """
-                SELECT document.prompt_document_id,
-                       document.current_revision_id,
-                       COALESCE(revision.revision_no, 0)
-                FROM armi.prompt_documents AS document
-                LEFT JOIN armi.prompt_revisions AS revision
-                  ON revision.prompt_revision_id = document.current_revision_id
-                 AND revision.prompt_document_id = document.prompt_document_id
-                WHERE document.subject_id = %s
-                  AND document.prompt_kind = 'subject_guidance'
-                  AND document.write_authority = 'subject'
-                  AND document.status = 'active'
-                  AND (
-                      document.current_revision_id IS NULL
-                      OR EXISTS (
-                          SELECT 1
-                          FROM armi.cognitive_context_items AS item
-                          WHERE item.cognitive_episode_id = %s
-                            AND item.disposition = 'included'
-                            AND item.section = 'prompt'
-                            AND item.item_kind = 'subject_prompt'
-                            AND item.source_kind = 'subject_prompt'
-                            AND item.source_ref = document.current_revision_id
-                            AND item.source_version = revision.revision_no
-                      )
-                  )
-                """,
-                (row[2], row[0]),
-            )
-        ).fetchone()
-        if subject_prompt_row is None:
+        if self._prompts is None:
             raise CandidateViolation("CANDIDATE-SUBJECT-PROMPT-CONTEXT")
+        prompt_basis = next(
+            (
+                item
+                for item in bases
+                if item.section == "prompt"
+                and item.item_kind == "subject_prompt"
+                and item.trust_class == "policy"
+            ),
+            None,
+        )
+        try:
+            subject_prompt = await self._prompts.candidate_subject(
+                unit_of_work.transaction,
+                subject_id=row[2],
+                expected_revision_id=(
+                    None if prompt_basis is None else prompt_basis.source_ref
+                ),
+                expected_revision_no=(
+                    None if prompt_basis is None else prompt_basis.source_version
+                ),
+            )
+        except PromptViolation:
+            raise CandidateViolation("CANDIDATE-SUBJECT-PROMPT-CONTEXT") from None
         creator_party_id, other_party_id = _relationship_party_ids(
             str(row[13]),
             row[9],
@@ -501,9 +495,9 @@ class PostgreSQLCandidateValidationRepository:
             ),
             material_rows,
             (
-                subject_prompt_row[0],
-                subject_prompt_row[1],
-                int(subject_prompt_row[2]),
+                subject_prompt.prompt_document_id,
+                subject_prompt.current_revision_id,
+                subject_prompt.revision_no,
             ),
             None if maintenance is None else maintenance.session_id,
             None if maintenance is None else maintenance.current_revision_id,
@@ -817,7 +811,6 @@ def _validation_drafts(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
-    | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -832,7 +825,6 @@ def _validation_drafts(
     return (
         *change_set.experiences,
         *change_set.owner_drafts,
-        *change_set.prompts,
         *change_set.exact_life_queries,
         *change_set.capability_requests,
         *change_set.action_choices,
@@ -847,7 +839,6 @@ def _owner(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
-    | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -864,8 +855,6 @@ def _owner(
         return CandidateOwner.MEMORY
     if isinstance(value, CandidateOwnerDraft):
         return CandidateOwner(value.owner)
-    if isinstance(value, CandidateSubjectPromptDraft):
-        return CandidateOwner.PROMPT
     if isinstance(value, CandidateExactLifeQueryDraft):
         return CandidateOwner.EXACT_LIFE_QUERY
     if isinstance(value, CapabilityRequestDraft):
@@ -892,7 +881,6 @@ def _implicit_fact_class(
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
-    | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
@@ -910,7 +898,6 @@ def _implicit_fact_class(
             CandidateMemoryDraft,
             CandidateMemoryRevisionDraft,
             CandidateOwnerDraft,
-            CandidateSubjectPromptDraft,
             CandidateExactLifeQueryDraft,
             CandidateRejection,
         ),

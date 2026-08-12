@@ -10,6 +10,12 @@ import psycopg
 from armi_kernel.application import BirthManifest, BirthResult, BirthViolation
 from armi_kernel.contracts import Digest
 from armi_mood.api import MoodBirthPort, default_mood_birth
+from armi_prompt.api import (
+    PromptBirthPort,
+    PromptViolation,
+    default_prompt_birth,
+    probe_prompt_continuity,
+)
 from armi_subject_state.api import SubjectStateBirthPort, default_subject_state_birth
 
 from .unit_of_work import PostgreSQLUnitOfWork
@@ -44,16 +50,8 @@ def probe_continuity(
                         WHERE represented_subject_id = subject.subject_id
                            OR creator_role = 'unique_primary_creator'
                     ),
-                    (
-                        SELECT count(*) FROM armi.prompt_documents
-                        WHERE subject_id = subject.subject_id
-                    ),
-                    (
-                        SELECT count(*) FROM armi.prompt_revisions AS revision
-                        JOIN armi.prompt_documents AS document
-                          ON document.prompt_document_id = revision.prompt_document_id
-                        WHERE document.subject_id = subject.subject_id
-                    ),
+                    0::bigint,
+                    0::bigint,
                     (
                         SELECT count(*) FROM armi.interaction_scenes
                         WHERE subject_id = subject.subject_id
@@ -77,26 +75,38 @@ def probe_continuity(
                         (SELECT count(*) FROM armi.life_generations)
                       + (SELECT count(*) FROM armi.runtime_bundle_activations)
                       + (SELECT count(*) FROM armi.parties)
-                      + (SELECT count(*) FROM armi.prompt_documents)
-                      + (SELECT count(*) FROM armi.prompt_revisions)
+                      + 0
                       + (SELECT count(*) FROM armi.interaction_scenes)
                       + (SELECT count(*) FROM armi.scene_timeline_items)
                     """
                 ).fetchone()
+                prompt_counts = probe_prompt_continuity(conninfo, subject_id=None)
                 return (
                     ContinuityState.UNBORN
-                    if counts is not None and counts[0] == 0
+                    if counts is not None
+                    and counts[0] == 0
+                    and prompt_counts.document_count == 0
+                    and prompt_counts.revision_count == 0
                     else ContinuityState.INVALID
                 )
-    except psycopg.Error:
+    except (psycopg.Error, PromptViolation):
         return ContinuityState.INVALID
     if len(rows) != 1:
         return ContinuityState.INVALID
     row = rows[0]
     if str(row[1]) != birth_contract_digest.value:
         return ContinuityState.INVALID
+    try:
+        prompt_counts = probe_prompt_continuity(conninfo, subject_id=row[0])
+    except PromptViolation:
+        return ContinuityState.INVALID
     counts = tuple(int(value) for value in row[2:])
-    if counts[0:3] != (1, 2, 3) or counts[3] < 1 or counts[4] != 1:
+    if (
+        counts[0:2] != (1, 2)
+        or prompt_counts.document_count != 3
+        or prompt_counts.revision_count < 1
+        or counts[4] != 1
+    ):
         return ContinuityState.INVALID
     return ContinuityState.BORN
 
@@ -110,14 +120,16 @@ class BirthArtifacts:
 class BirthRepository:
     """Write all birth facts through the caller's active SERIALIZABLE UoW."""
 
-    __slots__ = ("_mood", "_subject_state")
+    __slots__ = ("_mood", "_prompts", "_subject_state")
 
     def __init__(
         self,
         subject_state: SubjectStateBirthPort | None = None,
         mood: MoodBirthPort | None = None,
+        prompts: PromptBirthPort | None = None,
     ) -> None:
         self._subject_state = subject_state or default_subject_state_birth()
+        self._prompts = prompts or default_prompt_birth()
         self._mood = mood or default_mood_birth()
 
     async def lock_environment(
@@ -186,10 +198,6 @@ class BirthRepository:
         activation_id = uuid7()
         subject_party_id = uuid7()
         default_scene_id = uuid7()
-        anchor_document_id = uuid7()
-        creator_document_id = uuid7()
-        subject_document_id = uuid7()
-        anchor_revision_id = uuid7()
         await connection.execute(
             """
             INSERT INTO armi.subjects (
@@ -261,40 +269,12 @@ class BirthRepository:
             """,
             (default_scene_id, subject_id, manifest.creator_party_id),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.prompt_documents (
-                prompt_document_id, subject_id, prompt_kind,
-                write_authority, current_revision_id
-            ) VALUES
-                (%s, %s, 'personality_anchor', 'fixed', %s),
-                (%s, %s, 'creator_guidance', 'creator', NULL),
-                (%s, %s, 'subject_guidance', 'subject', NULL)
-            """,
-            (
-                anchor_document_id,
-                subject_id,
-                anchor_revision_id,
-                creator_document_id,
-                subject_id,
-                subject_document_id,
-                subject_id,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.prompt_revisions (
-                prompt_revision_id, prompt_document_id, revision_no,
-                content_artifact_id, content_digest, author_party_id, change_reason
-            ) VALUES (%s, %s, 1, %s, %s, %s, 'birth')
-            """,
-            (
-                anchor_revision_id,
-                anchor_document_id,
-                artifacts.anchor_artifact_id,
-                artifacts.anchor_content_digest.value,
-                manifest.creator_party_id,
-            ),
+        await self._prompts.initialize(
+            unit_of_work.transaction,
+            subject_id=subject_id,
+            creator_party_id=manifest.creator_party_id,
+            anchor_artifact_id=artifacts.anchor_artifact_id,
+            anchor_content_digest=artifacts.anchor_content_digest,
         )
         await self._subject_state.initialize(
             unit_of_work.transaction, subject_id=subject_id

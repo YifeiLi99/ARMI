@@ -62,6 +62,7 @@ from armi_memory.api import (
     MemoryViolation,
 )
 from armi_mood.api import MoodCommitPort, MoodViolation
+from armi_prompt.api import PromptCommitPort, PromptViolation
 from armi_relationship.api import (
     RelationshipCommitPort,
     RelationshipPolicyPort,
@@ -75,11 +76,6 @@ from armi_sleep.api import (
 )
 from armi_subject_state.api import SubjectStateCommitPort, SubjectStateViolation
 
-from .subject_prompt_commit import (
-    apply_subject_prompts,
-    lock_subject_prompt_heads,
-    subject_prompt_heads_are_stale,
-)
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.subject.commit"
@@ -154,6 +150,7 @@ class PostgreSQLSubjectCommitRepository:
         "_material_commit",
         "_memory_commit",
         "_mood_commit",
+        "_prompt_commit",
         "_relationship_commit",
         "_relationship_policy",
         "_relationships",
@@ -166,6 +163,7 @@ class PostgreSQLSubjectCommitRepository:
         activity_commit: ActivityCommitPort,
         memory_commit: MemoryCommitPort,
         mood_commit: MoodCommitPort,
+        prompt_commit: PromptCommitPort,
         material_commit: MaterialCommitPort,
         relationship_commit: RelationshipCommitPort,
         relationship_read: RelationshipReadPort,
@@ -176,6 +174,7 @@ class PostgreSQLSubjectCommitRepository:
         self._activity_commit = activity_commit
         self._memory_commit = memory_commit
         self._mood_commit = mood_commit
+        self._prompt_commit = prompt_commit
         self._material_commit = material_commit
         self._relationship_commit = relationship_commit
         self._relationships = relationship_read
@@ -569,11 +568,16 @@ class PostgreSQLSubjectCommitRepository:
             raise SubjectCommitViolation(
                 f"SUBJECT-{error.code.removeprefix('MATERIAL-')}"
             ) from None
-        prompt_heads = await lock_subject_prompt_heads(
-            connection,
-            subject_id=snapshot.subject_id,
-            prompts=change_set.prompts,
-        )
+        try:
+            prompt_heads_current = await self._prompt_commit.heads_match(
+                unit_of_work.transaction,
+                subject_id=snapshot.subject_id,
+                drafts=change_set.owner_drafts,
+            )
+        except PromptViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code}"
+            ) from None
         try:
             sleep_heads_current = await self._sleep_commit.heads_match(
                 unit_of_work.transaction,
@@ -594,7 +598,7 @@ class PostgreSQLSubjectCommitRepository:
             or not memory_heads_current
             or not mood_heads_current
             or not material_heads_current
-            or subject_prompt_heads_are_stale(prompt_heads, change_set.prompts)
+            or not prompt_heads_current
             or not sleep_heads_current
         )
         if stale:
@@ -654,7 +658,6 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.web_research_requests
             and not change_set.codex_delegations
             and not change_set.owner_drafts
-            and not change_set.prompts
             and not change_set.exact_life_queries
         ):
             raise SubjectCommitViolation("SUBJECT-EMPTY-COMMIT")
@@ -838,22 +841,27 @@ class PostgreSQLSubjectCommitRepository:
                 f"SUBJECT-{error.code.removeprefix('MOOD-')}"
             ) from None
 
-        await apply_subject_prompts(
-            connection,
-            validation_id=snapshot.validation_id,
-            subject_id=snapshot.subject_id,
-            commit_id=commit_id.value,
-            prompts=change_set.prompts,
-            artifacts=prompt_artifacts,
-        )
-        for prompt in change_set.prompts:
+        try:
+            changed_prompt_ids = await self._prompt_commit.commit(
+                unit_of_work.transaction,
+                validation_id=snapshot.validation_id,
+                subject_id=snapshot.subject_id,
+                commit_id=commit_id.value,
+                drafts=change_set.owner_drafts,
+                artifacts=prompt_artifacts,
+            )
+        except PromptViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code}"
+            ) from None
+        for prompt_document_id in changed_prompt_ids:
             await unit_of_work.audit.append(
                 _audit(
                     unit_of_work,
                     snapshot,
                     "subject_prompt.revised",
                     "prompt_document",
-                    prompt.prompt_document_id,
+                    prompt_document_id,
                     AuditResultStatus.APPLIED,
                 )
             )

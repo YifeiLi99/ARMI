@@ -177,6 +177,18 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-prompt",
+        module="armi_prompt",
+        project_dir=Path("modules/prompt"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -195,6 +207,7 @@ DISTRIBUTIONS = (
             "armi-material==0.0.0",
             "armi-subject-state==0.0.0",
             "armi-mood==0.0.0",
+            "armi-prompt==0.0.0",
             "fastapi==0.140.13",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -220,6 +233,7 @@ DISTRIBUTIONS = (
             "armi-kernel==0.0.0",
             "armi-material==0.0.0",
             "armi-mood==0.0.0",
+            "armi-prompt==0.0.0",
             "armi-subject-state==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "mcp==2.0.0",
@@ -751,6 +765,16 @@ def _check_import(
                 "armi-material",
             }
         )
+        or (
+            source_distribution == "armi-prompt"
+            and target_distribution
+            not in {
+                None,
+                "armi-kernel",
+                "armi-runtime-foundation",
+                "armi-prompt",
+            }
+        )
     )
     if reverse_dependency:
         violations.append(
@@ -846,6 +870,9 @@ def _check_import(
             }
         ),
         "armi-mood": frozenset({"armi_mood", "armi_mood.api", "armi_mood.bootstrap"}),
+        "armi-prompt": frozenset(
+            {"armi_prompt", "armi_prompt.api", "armi_prompt.bootstrap"}
+        ),
     }
     if crosses_distribution and target_distribution in public_modules:
         if (
@@ -933,6 +960,18 @@ def _check_import(
                     path,
                     line,
                     "mood bootstrap is reserved for Runtime/Admin composition",
+                )
+            )
+        if imported_module == "armi_prompt.bootstrap" and not (
+            source_module.startswith("armi_runtime.composition")
+            or source_module == "armi_admin.application.corrections"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "Prompt bootstrap is reserved for Runtime/Admin composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1099,6 +1138,9 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_mood": root / "modules/mood/src/armi_mood/__init__.py",
         "armi_mood.api": root / "modules/mood/src/armi_mood/api.py",
         "armi_mood.bootstrap": root / "modules/mood/src/armi_mood/bootstrap.py",
+        "armi_prompt": root / "modules/prompt/src/armi_prompt/__init__.py",
+        "armi_prompt.api": root / "modules/prompt/src/armi_prompt/api.py",
+        "armi_prompt.bootstrap": root / "modules/prompt/src/armi_prompt/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1256,6 +1298,24 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "mood table SQL is owned by armi-mood",
                     )
                 )
+            if (
+                distribution.name != "armi-prompt"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:prompt_documents|prompt_revisions)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-PROMPT-SQL",
+                        relative,
+                        1,
+                        "Prompt table SQL is owned by armi-prompt",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1300,6 +1360,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "mood_module.read",
             "mood_module.cognition",
             "mood_module.commit",
+        ),
+        "Prompt": (
+            "prompt_module = compose_prompt_module(",
+            "prompt_module.read",
+            "prompt_module.cognition",
+            "prompt_module.commit",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

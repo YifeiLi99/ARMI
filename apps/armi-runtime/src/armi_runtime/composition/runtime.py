@@ -24,7 +24,6 @@ from armi_kernel.application import (
     CreatorExportViolation,
     CreatorInputCommand,
     CreatorInputViolation,
-    CreatorPromptViolation,
     DataRightsViolation,
     EffectViolation,
     ExternalMessageViolation,
@@ -44,6 +43,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
 from armi_memory.api import MemoryViolation
+from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
 from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation
 
@@ -79,7 +79,6 @@ from .database import (
     compose_context_pipeline,
     compose_creator_export_service,
     compose_creator_input,
-    compose_creator_prompt_service,
     compose_creator_scene_service,
     compose_data_rights_order_service,
     compose_effect_registration_pipeline,
@@ -94,6 +93,7 @@ from .database import (
     compose_mood_module,
     compose_other_human_input,
     compose_other_human_record_query,
+    compose_prompt_module,
     compose_relationship_module,
     compose_response_admission_pipeline,
     compose_runtime_authority,
@@ -198,7 +198,7 @@ async def _serve(
     sleep_module = None
     subject_state_module = None
     mood_module = None
-    creator_prompt_service = None
+    prompt_module = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
     other_human_input = None
@@ -246,6 +246,18 @@ async def _serve(
             if acquired.fence.runtime_instance_id.value != instance_uuid:
                 raise RuntimeAuthorityViolation("AUTH-INSTANCE-MISMATCH")
             await authority.heartbeat_once()
+            creator_context = inspect_creator_context(prepared)
+            if creator_context is None:
+                raise BrowserSessionViolation(
+                    "SEC_CREATOR_IDENTITY_UNAVAILABLE",
+                    status_code=503,
+                )
+            prompt_module = compose_prompt_module(
+                prepared,
+                creator_party_id=creator_context.party_id,
+                authority_admission=authority.require_writable,
+            )
+            await prompt_module.open()
             lifecycle.begin_recovery()
             diagnostic.emit(
                 "runtime.lifecycle.recovering",
@@ -255,6 +267,7 @@ async def _serve(
                 prepared,
                 authority_admission=authority.require_writable,
                 mood_read=mood_module.read,
+                prompt_read=prompt_module.read,
                 subject_state_read=subject_state_module.read,
             )
             await recovery_port.open()
@@ -304,12 +317,6 @@ async def _serve(
                     "runtime.observability.unavailable",
                     level=logging.WARNING,
                     result_code="OBSERVABILITY_UNAVAILABLE",
-                )
-            creator_context = inspect_creator_context(prepared)
-            if creator_context is None:
-                raise BrowserSessionViolation(
-                    "SEC_CREATOR_IDENTITY_UNAVAILABLE",
-                    status_code=503,
                 )
             browser_sessions = compose_browser_sessions(
                 prepared,
@@ -383,12 +390,6 @@ async def _serve(
                 creator_party_id=creator_context.party_id,
             )
             await sleep_module.open()
-            creator_prompt_service = compose_creator_prompt_service(
-                prepared,
-                creator_party_id=creator_context.party_id,
-                authority_admission=authority.require_writable,
-            )
-            await creator_prompt_service.open()
             creator_export_service = compose_creator_export_service(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -487,6 +488,7 @@ async def _serve(
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
                 mood_read=mood_module.read,
+                prompt_read=prompt_module.read,
                 material_projection=material_module.projection,
                 relationship_read=relationship_module.read,
                 sleep_read=sleep_module.read,
@@ -507,6 +509,8 @@ async def _serve(
                 memory_read=memory_module.read,
                 mood_cognition=mood_module.cognition,
                 mood_read=mood_module.read,
+                prompt_cognition=prompt_module.cognition,
+                prompt_read=prompt_module.read,
                 material_cognition=material_module.cognition,
                 material_read=material_module.read,
                 relationship_cognition=relationship_module.cognition,
@@ -531,6 +535,8 @@ async def _serve(
                 memory_cognition=memory_module.cognition,
                 mood_commit=mood_module.commit,
                 mood_cognition=mood_module.cognition,
+                prompt_cognition=prompt_module.cognition,
+                prompt_commit=prompt_module.commit,
                 material_cognition=material_module.cognition,
                 material_commit=material_module.commit,
                 relationship_cognition=relationship_module.cognition,
@@ -747,8 +753,8 @@ async def _serve(
                 await subject_state_module.close()
             if mood_module is not None:
                 await mood_module.close()
-            if creator_prompt_service is not None:
-                await creator_prompt_service.close()
+            if prompt_module is not None:
+                await prompt_module.close()
             if creator_export_service is not None:
                 await creator_export_service.close()
             if data_rights_order_service is not None:
@@ -998,8 +1004,8 @@ async def _serve(
             await subject_state_module.close()
         if mood_module is not None:
             await mood_module.close()
-        if creator_prompt_service is not None:
-            await creator_prompt_service.close()
+        if prompt_module is not None:
+            await prompt_module.close()
         if creator_export_service is not None:
             await creator_export_service.close()
         if data_rights_order_service is not None:
@@ -1207,7 +1213,7 @@ async def _serve(
         creator_memory_query=(None if memory_module is None else memory_module.read),
         creator_maintenance_query=(None if sleep_module is None else sleep_module.read),
         creator_relationship_query=creator_relationship_query,
-        creator_prompt=creator_prompt_service,
+        creator_prompt=None if prompt_module is None else prompt_module.creator,
         creator_export=creator_export_service,
         data_rights=data_rights_order_service,
         creator_emergency_wake=life_opportunity_pipeline,
@@ -1314,8 +1320,8 @@ async def _serve(
             await subject_state_module.close()
         if mood_module is not None:
             await mood_module.close()
-        if creator_prompt_service is not None:
-            await creator_prompt_service.close()
+        if prompt_module is not None:
+            await prompt_module.close()
         if creator_export_service is not None:
             await creator_export_service.close()
         if data_rights_order_service is not None:

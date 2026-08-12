@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 import psycopg
+from armi_runtime_foundation import RuntimeTransactionFailure
 from psycopg_pool import PoolTimeout
 
 
@@ -57,7 +58,7 @@ _COMMIT_UNKNOWN_SQLSTATES = frozenset({"08007", "40003"})
 
 
 @dataclass(frozen=True, slots=True)
-class DatabaseTransactionError(RuntimeError):
+class DatabaseTransactionError(RuntimeTransactionFailure):
     code: str
     kind: DatabaseFailureKind
     retryable_work: bool

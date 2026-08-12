@@ -15,8 +15,7 @@ from armi_kernel.application import (
     PublishedArtifact,
 )
 from armi_kernel.contracts import Digest
-
-from .unit_of_work import PostgreSQLUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 _SELECT_COLUMNS = """
     artifact_id,
@@ -42,11 +41,11 @@ class ArtifactCatalogRepository:
 
     async def register(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
         published: PublishedArtifact,
     ) -> ArtifactRegistration:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         digest_hex = published.content_digest.value.removeprefix("sha256:")
         locator = f"objects/sha256/{digest_hex[:2]}/{digest_hex[2:4]}/{digest_hex}"
         cursor = await connection.execute(
@@ -103,10 +102,10 @@ class ArtifactCatalogRepository:
 
     async def get(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
     ) -> ArtifactRef:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         cursor = await connection.execute(
             f"""
             SELECT {_SELECT_COLUMNS}
@@ -122,9 +121,9 @@ class ArtifactCatalogRepository:
 
     async def all_refs(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ) -> tuple[ArtifactRef, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         cursor = await connection.execute(
             f"""
             SELECT {_SELECT_COLUMNS}
@@ -136,7 +135,7 @@ class ArtifactCatalogRepository:
 
     async def mark_integrity(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
         status: ArtifactIntegrityStatus,
     ) -> bool:
@@ -145,7 +144,7 @@ class ArtifactCatalogRepository:
             ArtifactIntegrityStatus.CORRUPT,
         ):
             raise ArtifactViolation("ART-STATE")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         cursor = await connection.execute(
             """
             UPDATE armi.artifacts

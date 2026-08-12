@@ -37,11 +37,6 @@ from armi_kernel.application import (
     CreatorOperationPhase,
     CreatorOperationQueryPort,
     CreatorProjectionInvalidation,
-    CreatorPromptDeactivateCommand,
-    CreatorPromptPort,
-    CreatorPromptRevisionCommand,
-    CreatorPromptView,
-    CreatorPromptViolation,
     CreatorSceneCreateCommand,
     CreatorScenePort,
     CreatorSceneStatusCommand,
@@ -71,7 +66,6 @@ from armi_kernel.application import (
     OtherHumanRecordQueryPort,
     OtherHumanRecordViolation,
     OtherHumanSceneCommand,
-    PromptKind,
     RegisterOtherHumanPartyCommand,
     SceneKey,
     SceneQueryViolation,
@@ -99,6 +93,14 @@ from armi_kernel.contracts import (
 )
 from armi_material.api import CreatorLifeMaterialItem, MaterialViolation
 from armi_memory.api import MemoryReadPort, MemoryViolation
+from armi_prompt.api import (
+    CreatorPromptDeactivateCommand,
+    CreatorPromptPort,
+    CreatorPromptRevisionCommand,
+    CreatorPromptView,
+    CreatorPromptViolation,
+    PromptKind,
+)
 from armi_relationship.api import (
     CreatorRelationshipRevision,
     RelationshipReadPort,

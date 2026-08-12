@@ -15,6 +15,7 @@ from uuid import UUID
 import psycopg
 import rfc8785
 from armi_mood.api import MoodAdminCorrectionPort
+from armi_prompt.api import PromptAdminReferencePort
 from armi_subject_state.api import SubjectStateAdminCorrectionPort
 from psycopg_pool import PoolTimeout
 
@@ -48,6 +49,7 @@ class AdminCorrectionGateway:
         "_expected_role",
         "_incarnation",
         "_mood",
+        "_prompts",
         "_subject_state",
     )
 
@@ -59,6 +61,7 @@ class AdminCorrectionGateway:
         environment_id: str,
         incarnation: int,
         mood: MoodAdminCorrectionPort,
+        prompts: PromptAdminReferencePort,
         subject_state: SubjectStateAdminCorrectionPort,
     ) -> None:
         self._conninfo = conninfo
@@ -66,6 +69,7 @@ class AdminCorrectionGateway:
         self._environment_id = environment_id
         self._incarnation = incarnation
         self._mood = mood
+        self._prompts = prompts
         self._subject_state = subject_state
 
     def _component_owner(
@@ -1003,16 +1007,17 @@ class AdminCorrectionGateway:
         ).fetchone()
         return None if row is None else str(row[0])
 
-    @staticmethod
     def _artifact_has_other_references(
+        self,
         connection: psycopg.Connection[Any],
         artifact_id: str,
         *,
         excluded_evidence_id: str,
     ) -> bool:
+        if self._prompts.references_artifact(connection, artifact_id=artifact_id):
+            return True
         row = connection.execute(
-            "SELECT EXISTS (SELECT 1 FROM armi.prompt_revisions WHERE content_artifact_id = %s) "
-            "OR EXISTS (SELECT 1 FROM armi.external_evidence WHERE artifact_id = %s AND evidence_id <> %s) "
+            "SELECT EXISTS (SELECT 1 FROM armi.external_evidence WHERE artifact_id = %s AND evidence_id <> %s) "
             "OR EXISTS (SELECT 1 FROM armi.cognitive_episodes WHERE context_manifest_artifact_id = %s OR compiled_context_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.cognitive_attempts WHERE request_artifact_id = %s OR response_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.cognitive_candidate_validations WHERE change_set_artifact_id = %s) "
@@ -1024,7 +1029,6 @@ class AdminCorrectionGateway:
             "OR EXISTS (SELECT 1 FROM armi.web_research_intents WHERE query_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.web_evidence_sources WHERE source_artifact_id = %s)",
             (
-                artifact_id,
                 artifact_id,
                 excluded_evidence_id,
                 artifact_id,

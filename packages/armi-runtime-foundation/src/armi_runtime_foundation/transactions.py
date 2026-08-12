@@ -35,8 +35,24 @@ class PostgreSQLRuntimeUnitOfWork(PostgreSQLTransactionAccess, Protocol):
     def audit(self) -> Any: ...
 
 
+class PostgreSQLRuntimeUnitOfWorkFactory(Protocol):
+    """Create caller-owned Runtime transactions for a business coordinator."""
+
+    async def open(self) -> None: ...
+    async def close(self) -> None: ...
+    def unit_of_work(self, *, read_only: bool = False) -> Any: ...
+
+
+class RuntimeTransactionFailure(RuntimeError):
+    """Stable base for redacted transaction failures crossing module boundaries."""
+
+    code: str
+
+
 __all__ = (
     "PostgreSQLRuntimeUnitOfWork",
+    "PostgreSQLRuntimeUnitOfWorkFactory",
     "PostgreSQLTransaction",
     "PostgreSQLTransactionAccess",
+    "RuntimeTransactionFailure",
 )

@@ -34,6 +34,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 from armi_mood.api import MoodReadPort, default_mood_read
+from armi_prompt.api import PromptReadPort, PromptViolation, default_prompt_read
 from armi_subject_state.api import SubjectStateReadPort, default_subject_state_read
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
@@ -113,6 +114,7 @@ class PostgreSQLRuntimeRecovery:
         "_mood",
         "_pool",
         "_pool_timeout_seconds",
+        "_prompts",
         "_storage",
         "_subject_state",
     )
@@ -127,6 +129,7 @@ class PostgreSQLRuntimeRecovery:
         pool_timeout_seconds: int,
         authority_admission: Callable[[], RuntimeFence],
         mood: MoodReadPort | None = None,
+        prompts: PromptReadPort | None = None,
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._environment_id = environment_id
@@ -135,6 +138,7 @@ class PostgreSQLRuntimeRecovery:
         self._admission = authority_admission
         self._subject_state = subject_state or default_subject_state_read()
         self._mood = mood or default_mood_read()
+        self._prompts = prompts or default_prompt_read()
         self._storage = ContentAddressedArtifactStore(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
@@ -339,7 +343,7 @@ class PostgreSQLRuntimeRecovery:
                     subject.subject_id,
                     subject.current_generation_id,
                     subject.current_bundle_activation_id,
-                    prompt_revision.content_artifact_id,
+                    NULL::uuid,
                     (
                         SELECT count(*)
                         FROM armi.interaction_scenes AS scene
@@ -360,12 +364,6 @@ class PostgreSQLRuntimeRecovery:
                   ON activation.bundle_activation_id
                     = subject.current_bundle_activation_id
                  AND activation.status = 'current'
-                JOIN armi.prompt_documents AS prompt
-                  ON prompt.subject_id = subject.subject_id
-                 AND prompt.prompt_kind = 'personality_anchor'
-                 AND prompt.write_authority = 'fixed'
-                JOIN armi.prompt_revisions AS prompt_revision
-                  ON prompt_revision.prompt_revision_id = prompt.current_revision_id
                 WHERE subject.singleton_key = 1
                   AND subject.status = 'active'
                 """
@@ -394,8 +392,30 @@ class PostgreSQLRuntimeRecovery:
                 )
             )
             return tuple(findings), ()
+        try:
+            prompt_state = await self._prompts.recovery_state(
+                connection, subject_id=fence.subject_id
+            )
+        except PromptViolation:
+            findings.append(
+                RecoveryFinding(
+                    "subject_continuity",
+                    RecoveryDecision.BLOCKED,
+                    "REC-SUBJECT-INVALID",
+                )
+            )
+            return tuple(findings), ()
+        if prompt_state.document_count != 3 or prompt_state.fixed_revision_count != 1:
+            findings.append(
+                RecoveryFinding(
+                    "subject_continuity",
+                    RecoveryDecision.BLOCKED,
+                    "REC-SUBJECT-INVALID",
+                )
+            )
+            return tuple(findings), ()
         refs: list[ArtifactRef] = []
-        for artifact_id in (row[3],):
+        for artifact_id in (prompt_state.fixed_artifact_id,):
             artifact_row = await (
                 await connection.execute(
                     """

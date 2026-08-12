@@ -5,7 +5,8 @@ from typing import cast
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_kernel.contracts import Instant, TraceId
+from armi_prompt.api import (
     MAX_CREATOR_PROMPT_BYTES,
     CreatorPromptRevisionCommand,
     CreatorPromptView,
@@ -14,7 +15,6 @@ from armi_kernel.application import (
     PromptKind,
     PromptRevisionKind,
 )
-from armi_kernel.contracts import Instant, TraceId
 
 
 def test_creator_prompt_command_preserves_exact_utf8_content() -> None:

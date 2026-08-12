@@ -186,42 +186,6 @@ class CandidateOwnerDraft:
 
 
 @dataclass(frozen=True, slots=True)
-class CandidateSubjectPromptDraft:
-    proposal_ref: str
-    atomic_group_ref: str
-    basis_ordinals: tuple[int, ...]
-    fact_class: CandidateFactClass
-    prompt_document_id: UUID
-    current_revision_id: UUID | None
-    expected_revision_no: int
-    content_bytes: bytes
-
-    def __post_init__(self) -> None:
-        _validate_proposal(
-            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
-        )
-        if (
-            self.fact_class is not CandidateFactClass.SUBJECTIVE_UNDERSTANDING
-            or type(self.prompt_document_id) is not UUID
-            or self.prompt_document_id.version != 7
-            or (
-                self.current_revision_id is not None
-                and (
-                    type(self.current_revision_id) is not UUID
-                    or self.current_revision_id.version != 7
-                )
-            )
-            or type(self.expected_revision_no) is not int
-            or self.expected_revision_no < 0
-            or (self.current_revision_id is None) != (self.expected_revision_no == 0)
-            or type(self.content_bytes) is not bytes
-            or not self.content_bytes
-            or len(self.content_bytes) > 16_384
-        ):
-            raise CandidateViolation("CON-CANDIDATE-SUBJECT-PROMPT")
-
-
-@dataclass(frozen=True, slots=True)
 class CandidateExactLifeQueryDraft:
     proposal_ref: str
     atomic_group_ref: str
@@ -289,7 +253,6 @@ class SubjectChangeSet:
     rejections: tuple[CandidateRejection, ...]
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()
     owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
-    prompts: tuple[CandidateSubjectPromptDraft, ...] = ()
     exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
 
     def __post_init__(self) -> None:
@@ -400,7 +363,6 @@ __all__ = (
     "CandidateOwner",
     "CandidateOwnerDraft",
     "CandidateRejection",
-    "CandidateSubjectPromptDraft",
     "CandidateValidationId",
     "CandidateValidationResult",
     "CandidateValidationStatus",

@@ -16,6 +16,7 @@ dependencies = [
     "armi-material==0.0.0",
     "armi-subject-state==0.0.0",
     "armi-mood==0.0.0",
+    "armi-prompt==0.0.0",
     "fastapi==0.140.13",
     "httpx==0.28.1",
     "openai==2.49.0",
@@ -48,6 +49,7 @@ armi-activity = { workspace = true }
 armi-material = { workspace = true }
 armi-subject-state = { workspace = true }
 armi-mood = { workspace = true }
+armi-prompt = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.31.0"]

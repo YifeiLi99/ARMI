@@ -7,6 +7,7 @@ dependencies = [
     "armi-kernel==0.0.0",
     "armi-material==0.0.0",
     "armi-mood==0.0.0",
+    "armi-prompt==0.0.0",
     "armi-subject-state==0.0.0",
     "armi-postgresql-contract==0.0.0",
     "mcp==2.0.0",
@@ -24,6 +25,7 @@ armi-artifact-store = { workspace = true }
 armi-kernel = { workspace = true }
 armi-material = { workspace = true }
 armi-mood = { workspace = true }
+armi-prompt = { workspace = true }
 armi-subject-state = { workspace = true }
 armi-postgresql-contract = { workspace = true }
 

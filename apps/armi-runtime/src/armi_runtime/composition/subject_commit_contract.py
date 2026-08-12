@@ -26,7 +26,6 @@ from armi_kernel.application import (
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
-    CandidateSubjectPromptDraft,
     CandidateViolation,
     CapabilityKind,
     CapabilityOperation,
@@ -68,6 +67,12 @@ from armi_memory.api import (
     default_memory_cognition,
 )
 from armi_mood.api import MoodCognitionPort, MoodViolation, default_mood_cognition
+from armi_prompt.api import (
+    CandidatePromptDraft,
+    PromptCognitionPort,
+    PromptViolation,
+    default_prompt_cognition,
+)
 from armi_relationship.api import (
     RELATIONSHIP_MECHANISM_IDENTITY,
     CandidateRelationshipDraft,
@@ -146,6 +151,7 @@ _TOP_KEYS_V25 = _TOP_KEYS_V24 - {"activities", "activity_decisions"}
 _TOP_KEYS_V26 = _TOP_KEYS_V25 - {"materials"}
 _TOP_KEYS_V27 = _TOP_KEYS_V26 - {"components"}
 _TOP_KEYS_V28 = _TOP_KEYS_V27
+_TOP_KEYS_V29 = _TOP_KEYS_V28 - {"prompts"}
 
 
 def parse_subject_change_set(
@@ -157,6 +163,7 @@ def parse_subject_change_set(
     material_cognition: MaterialCognitionPort | None = None,
     subject_state_cognition: SubjectStateCognitionPort | None = None,
     mood_cognition: MoodCognitionPort | None = None,
+    prompt_cognition: PromptCognitionPort | None = None,
 ) -> SubjectChangeSet:
     memory_cognition = memory_cognition or default_memory_cognition()
     sleep_cognition = sleep_cognition or default_sleep_cognition()
@@ -166,6 +173,7 @@ def parse_subject_change_set(
         subject_state_cognition or default_subject_state_cognition()
     )
     mood_cognition = mood_cognition or default_mood_cognition()
+    prompt_cognition = prompt_cognition or default_prompt_cognition()
     try:
         raw = json.loads(value)
         if type(raw) is not dict:
@@ -200,11 +208,14 @@ def parse_subject_change_set(
             "armi.subject-change-set.v26",
             "armi.subject-change-set.v27",
             "armi.subject-change-set.v28",
+            "armi.subject-change-set.v29",
         }:
             raise ValueError
         version = document["schema_version"]
         expected_keys = (
-            _TOP_KEYS_V28
+            _TOP_KEYS_V29
+            if version.endswith(".v29")
+            else _TOP_KEYS_V28
             if version.endswith(".v28")
             else _TOP_KEYS_V27
             if version.endswith(".v27")
@@ -338,7 +349,9 @@ def parse_subject_change_set(
                 _owner_draft(item)
                 for item in _array(
                     document.get("owner_drafts", []),
-                    12
+                    13
+                    if version.endswith(".v29")
+                    else 12
                     if version.endswith((".v27", ".v28"))
                     else 8
                     if version.endswith((".v23", ".v24", ".v25", ".v26"))
@@ -346,14 +359,25 @@ def parse_subject_change_set(
                 )
             )
             if version.endswith(
-                (".v22", ".v23", ".v24", ".v25", ".v26", ".v27", ".v28")
+                (
+                    ".v22",
+                    ".v23",
+                    ".v24",
+                    ".v25",
+                    ".v26",
+                    ".v27",
+                    ".v28",
+                    ".v29",
+                )
             )
             else tuple(
                 _bind_legacy_relationship(item, relationship_cognition)
                 for item in relationships
             )
         )
-        if version.endswith((".v22", ".v23", ".v24", ".v25", ".v26", ".v27", ".v28")):
+        if version.endswith(
+            (".v22", ".v23", ".v24", ".v25", ".v26", ".v27", ".v28", ".v29")
+        ):
             for draft in parsed_owner_drafts:
                 if draft.owner == CandidateOwner.MEMORY.value:
                     decoded_memory = memory_cognition.decode(draft.canonical_payload)
@@ -391,7 +415,7 @@ def parse_subject_change_set(
                     ):
                         raise ValueError
                 elif draft.owner == CandidateOwner.ACTIVITY.value and version.endswith(
-                    (".v25", ".v26", ".v27", ".v28")
+                    (".v25", ".v26", ".v27", ".v28", ".v29")
                 ):
                     decoded_activity = activity_cognition.decode(
                         draft.canonical_payload
@@ -407,7 +431,7 @@ def parse_subject_change_set(
                     ):
                         raise ValueError
                 elif draft.owner == CandidateOwner.MATERIAL.value and version.endswith(
-                    (".v26", ".v27", ".v28")
+                    (".v26", ".v27", ".v28", ".v29")
                 ):
                     if (
                         material_cognition.bind_legacy(
@@ -420,7 +444,7 @@ def parse_subject_change_set(
                     CandidateOwner.SELF.value,
                     CandidateOwner.MIND.value,
                     CandidateOwner.LIFE_MODE.value,
-                } and version.endswith((".v27", ".v28")):
+                } and version.endswith((".v27", ".v28", ".v29")):
                     if (
                         subject_state_cognition.bind(
                             subject_state_cognition.decode(draft.canonical_payload)
@@ -429,7 +453,7 @@ def parse_subject_change_set(
                     ):
                         raise ValueError
                 elif draft.owner == CandidateOwner.MOOD.value and version.endswith(
-                    ".v28"
+                    (".v28", ".v29")
                 ):
                     if (
                         mood_cognition.bind(
@@ -437,6 +461,13 @@ def parse_subject_change_set(
                         )
                         != draft
                     ):
+                        raise ValueError
+                elif draft.owner == CandidateOwner.PROMPT.value and version.endswith(
+                    ".v29"
+                ):
+                    if prompt_cognition.bind(
+                        prompt_cognition.decode(draft.canonical_payload)
+                    ) != draft:
                         raise ValueError
                 else:
                     raise ValueError
@@ -492,16 +523,18 @@ def parse_subject_change_set(
         material_owner_drafts = tuple(
             material_cognition.bind_legacy(item) for item in materials
         )
+        prompts = tuple(
+            _prompt(item) for item in _array(document.get("prompts", []), 1)
+        )
+        prompt_owner_drafts = tuple(prompt_cognition.bind(item) for item in prompts)
         owner_drafts = (
             *component_owner_drafts,
             *memory_owner_drafts,
             *sleep_owner_drafts,
             *activity_owner_drafts,
             *material_owner_drafts,
+            *prompt_owner_drafts,
             *parsed_owner_drafts,
-        )
-        prompts = tuple(
-            _prompt(item) for item in _array(document.get("prompts", []), 1)
         )
         exact_life_queries = tuple(
             _exact_life_query(item)
@@ -528,7 +561,6 @@ def parse_subject_change_set(
             rejections,
             codex_delegations,
             owner_drafts,
-            prompts,
             exact_life_queries,
         )
         proposal_refs = [
@@ -540,7 +572,6 @@ def parse_subject_change_set(
                 *web_research_requests,
                 *codex_delegations,
                 *owner_drafts,
-                *prompts,
                 *exact_life_queries,
                 *rejections,
             )
@@ -578,7 +609,6 @@ def parse_subject_change_set(
             or result.web_research_requests
             or result.codex_delegations
             or result.owner_drafts
-            or result.prompts
             or result.exact_life_queries
         )
         reply = any(
@@ -789,6 +819,7 @@ def parse_subject_change_set(
         ActivityViolation,
         MaterialViolation,
         MoodViolation,
+        PromptViolation,
         SubjectStateViolation,
         KeyError,
         TypeError,
@@ -988,6 +1019,7 @@ def _owner_draft(value: object) -> CandidateOwnerDraft:
         "memory",
         "mind",
         "mood",
+        "prompt",
         "relationship",
         "self",
         "sleep",
@@ -1324,7 +1356,7 @@ def _component(value: object) -> CandidateSubjectStateDraft:
     )
 
 
-def _prompt(value: object) -> CandidateSubjectPromptDraft:
+def _prompt(value: object) -> CandidatePromptDraft:
     item = _object(
         value,
         {
@@ -1354,7 +1386,7 @@ def _prompt(value: object) -> CandidateSubjectPromptDraft:
         if not 1 <= len(text) <= 512 or not text.strip() or "\x00" in text:
             raise ValueError
     content_bytes = rfc8785.dumps(cast(Any, content))
-    return CandidateSubjectPromptDraft(
+    return CandidatePromptDraft(
         _text(item["proposal_ref"]),
         _text(item["atomic_group_ref"]),
         _ordinals(item["basis_ordinals"]),

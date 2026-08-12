@@ -3,20 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
-from armi_kernel.application import (
-    ArtifactId,
-    ArtifactRef,
+from armi_kernel.application import ArtifactId, ArtifactRef
+from armi_kernel.contracts import Digest, Instant
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from .api import (
     CreatorPromptViolation,
     PromptDocumentStatus,
     PromptKind,
     PromptRevisionKind,
 )
-from armi_kernel.contracts import Digest, Instant
-
-from .artifact_catalog import ArtifactCatalogRepository
-from .unit_of_work import PostgreSQLUnitOfWork
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,19 +37,19 @@ class CreatorPromptRepository:
 
     __slots__ = ("_catalog",)
 
-    def __init__(self) -> None:
-        self._catalog = ArtifactCatalogRepository()
+    def __init__(self, catalog: Any) -> None:
+        self._catalog = catalog
 
     async def get(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         creator_party_id: UUID,
         prompt_kind: PromptKind,
         for_update: bool = False,
     ) -> CreatorPromptSnapshot:
         suffix = " FOR UPDATE OF document" if for_update else ""
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 f"""
@@ -114,7 +113,7 @@ class CreatorPromptRepository:
 
     async def append_revision(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         current: CreatorPromptSnapshot,
         prompt_revision_id: UUID,
@@ -136,7 +135,7 @@ class CreatorPromptRepository:
             if revision_kind is PromptRevisionKind.DEACTIVATED
             else PromptDocumentStatus.ACTIVE
         )
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         activated = await (
             await connection.execute(
                 """
