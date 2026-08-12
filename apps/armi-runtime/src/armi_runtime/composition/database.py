@@ -14,10 +14,7 @@ from armi_activity.api import (
 )
 from armi_activity.bootstrap import ActivityModule, bootstrap_activity
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_interaction.api import (
-    CreatorInputTransactionPort,
-    ExternalMediaFetchPort,
-)
+from armi_interaction.api import CreatorInputTransactionPort
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel.application import (
     ActionAdapterPort,
@@ -59,6 +56,8 @@ from armi_memory.api import (
 from armi_memory.bootstrap import MemoryModule, bootstrap_memory
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
+from armi_perception.api import ExternalMediaFetchPort
+from armi_perception.bootstrap import PerceptionModule, bootstrap_perception
 from armi_prompt.api import (
     CreatorPromptViolation,
     PromptCognitionPort,
@@ -109,6 +108,7 @@ from armi_runtime.adapters.persistence.capability_policy import (
     PostgreSQLCreatorGrantPolicy,
 )
 from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
+from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.other_human_records import (
     PostgreSQLOtherHumanRecordQuery,
@@ -154,11 +154,6 @@ from .exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
     build_exact_life_query_pipeline,
 )
-from .external_content_pipeline import (
-    ExternalContentPipeline,
-    build_external_content_pipeline,
-)
-from .external_content_recognizer import ExternalContentRecognizer
 from .life_opportunity import (
     LifeOpportunityPipeline,
     build_life_opportunity_pipeline,
@@ -891,14 +886,14 @@ def compose_runtime_authority(
         ) from None
 
 
-def compose_external_content_pipeline(
+def compose_perception_module(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
     fetch: ExternalMediaFetchPort,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
-) -> ExternalContentPipeline:
+) -> PerceptionModule:
     database_locator = prepared.effective.config.secret_locators.get(
         RUNTIME_LOCATOR_NAME
     )
@@ -911,7 +906,7 @@ def compose_external_content_pipeline(
             database_locator, CredentialPurpose("database.runtime")
         ) as handle:
 
-            def create(value: memoryview) -> ExternalContentPipeline:
+            def create(value: memoryview) -> PerceptionModule:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
@@ -923,32 +918,33 @@ def compose_external_content_pipeline(
                     )
                 except ValueError:
                     raise ModelViolation("MODEL-BINDING-MANIFEST") from None
-                return build_external_content_pipeline(
+                factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_min=config.database.pool_min,
                     pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
+                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                )
+                return bootstrap_perception(
+                    unit_of_work_factory=factory,
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
+                    ),
+                    catalog=ArtifactCatalogRepository(),
+                    work=PostgreSQLDurableWorkGateway(factory),
                     fetch=fetch,
-                    recognizer=ExternalContentRecognizer(
-                        ark=VolcengineArkExternalContentRecognizer(
-                            credential_port=prepared.credential_port,
-                            locator=model_locator,
-                            binding=recognition_binding.ark,
-                        ),
-                        speech=DoubaoSpeechRecognizer(
-                            credential_port=prepared.credential_port,
-                            locator=speech_locator,
-                            binding=recognition_binding.speech,
-                        ),
+                    ark_recognizer=VolcengineArkExternalContentRecognizer(
+                        credential_port=prepared.credential_port,
+                        locator=model_locator,
+                        binding=recognition_binding.ark,
+                    ),
+                    speech_recognizer=DoubaoSpeechRecognizer(
+                        credential_port=prepared.credential_port,
+                        locator=speech_locator,
+                        binding=recognition_binding.speech,
                     ),
                     target_for=recognition_binding.target_for,
                     wakeups=wakeups,
@@ -1886,7 +1882,6 @@ __all__ = (
     "compose_data_rights_order_service",
     "compose_effect_registration_pipeline",
     "compose_exact_life_query_pipeline",
-    "compose_external_content_pipeline",
     "compose_interaction_module",
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",
@@ -1895,6 +1890,7 @@ __all__ = (
     "compose_model_pipeline",
     "compose_mood_module",
     "compose_other_human_record_query",
+    "compose_perception_module",
     "compose_prompt_module",
     "compose_relationship_module",
     "compose_response_admission_pipeline",

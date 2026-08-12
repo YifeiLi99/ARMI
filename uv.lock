@@ -14,6 +14,7 @@ members = [
     "armi-material",
     "armi-memory",
     "armi-mood",
+    "armi-perception",
     "armi-postgresql-contract",
     "armi-prompt",
     "armi-relationship",
@@ -101,6 +102,7 @@ dependencies = [
     { name = "armi-channel-napcat" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
+    { name = "armi-perception" },
     { name = "fastapi" },
 ]
 
@@ -109,6 +111,7 @@ requires-dist = [
     { name = "armi-channel-napcat", editable = "packages/armi-channel-napcat" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-perception", editable = "modules/perception" },
     { name = "fastapi", specifier = "==0.140.13" },
 ]
 
@@ -275,6 +278,33 @@ requires-dist = [
 ]
 
 [[package]]
+name = "armi-perception"
+version = "0.0.0"
+source = { editable = "modules/perception" }
+dependencies = [
+    { name = "armi-artifact-store" },
+    { name = "armi-interaction" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "openpyxl" },
+    { name = "pillow" },
+    { name = "python-docx" },
+    { name = "python-pptx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-interaction", editable = "modules/interaction" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "openpyxl", specifier = "==3.1.5" },
+    { name = "pillow", specifier = "==12.3.0" },
+    { name = "python-docx", specifier = "==1.2.0" },
+    { name = "python-pptx", specifier = "==1.0.2" },
+]
+
+[[package]]
 name = "armi-postgresql-contract"
 version = "0.0.0"
 source = { editable = "packages/armi-postgresql-contract" }
@@ -335,6 +365,7 @@ dependencies = [
     { name = "armi-material" },
     { name = "armi-memory" },
     { name = "armi-mood" },
+    { name = "armi-perception" },
     { name = "armi-postgresql-contract" },
     { name = "armi-prompt" },
     { name = "armi-relationship" },
@@ -345,13 +376,9 @@ dependencies = [
     { name = "httpx" },
     { name = "openai" },
     { name = "openai-codex" },
-    { name = "openpyxl" },
-    { name = "pillow" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
     { name = "pydantic" },
-    { name = "python-docx" },
-    { name = "python-pptx" },
     { name = "rfc8785" },
     { name = "uvicorn" },
 ]
@@ -367,6 +394,7 @@ requires-dist = [
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
     { name = "armi-mood", editable = "modules/mood" },
+    { name = "armi-perception", editable = "modules/perception" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "armi-prompt", editable = "modules/prompt" },
     { name = "armi-relationship", editable = "modules/relationship" },
@@ -377,13 +405,9 @@ requires-dist = [
     { name = "httpx", specifier = "==0.28.1" },
     { name = "openai", specifier = "==2.49.0" },
     { name = "openai-codex", specifier = "==0.144.4" },
-    { name = "openpyxl", specifier = "==3.1.5" },
-    { name = "pillow", specifier = "==12.3.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
     { name = "pydantic", specifier = "==2.13.4" },
-    { name = "python-docx", specifier = "==1.2.0" },
-    { name = "python-pptx", specifier = "==1.0.2" },
     { name = "rfc8785", specifier = "==0.1.4" },
     { name = "uvicorn", specifier = "==0.51.0" },
 ]

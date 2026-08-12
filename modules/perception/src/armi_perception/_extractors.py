@@ -11,7 +11,6 @@ from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
 from armi_interaction.api import (
-    ExternalMediaContent,
     ExternalMessagePartKind,
     ExternalMessageViolation,
     ExternalVisualRole,
@@ -23,6 +22,8 @@ from openpyxl.utils.exceptions import InvalidFileException
 from PIL import Image, UnidentifiedImageError
 from pptx import Presentation
 from pptx.exc import PackageNotFoundError as PptxPackageNotFoundError
+
+from .api import ExternalMediaContent
 
 _MAX_PROJECTION_BYTES = 256 * 1024
 _TRUNCATED = "\n[内容已按 ARMI 单条认知材料上限截断]"

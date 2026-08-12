@@ -57,11 +57,8 @@ from armi_interaction.api import (
     CreatorInputAcceptance,
     ExternalAccountKey,
     ExternalChannel,
-    ExternalContentRecognitionResult,
-    ExternalContentRecognitionStatus,
     ExternalConversationKey,
     ExternalConversationKind,
-    ExternalMediaContent,
     ExternalMessageKey,
     ExternalMessagePart,
     ExternalMessagePartKind,
@@ -138,6 +135,12 @@ from armi_kernel.contracts import (
 from armi_material.bootstrap import bootstrap_material, bootstrap_material_admin_read
 from armi_memory.bootstrap import bootstrap_memory
 from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_admin_read
+from armi_perception._application import ExternalContentPipeline
+from armi_perception.api import (
+    ExternalContentRecognitionResult,
+    ExternalContentRecognitionStatus,
+    ExternalMediaContent,
+)
 from armi_prompt.bootstrap import bootstrap_prompt
 from armi_relationship.bootstrap import bootstrap_relationship
 from armi_runtime.adapters.creator_response_inbox import (
@@ -205,7 +208,6 @@ from armi_runtime.composition.candidate_validator import (
 )
 from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
-from armi_runtime.composition.external_content_pipeline import ExternalContentPipeline
 from armi_runtime.composition.life_opportunity import LifeOpportunityPipeline
 from armi_runtime.composition.model_contract import (
     build_request_bytes,
@@ -760,6 +762,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pipeline = ExternalContentPipeline(
                     factory=pipeline_factory,
                     storage=storage,
+                    catalog=ArtifactCatalogRepository(),
+                    work=PostgreSQLDurableWorkGateway(pipeline_factory),
                     fetch=_ExternalMediaFetch(),
                     recognizer=_ExternalContentRecognizer(),
                     target_for=lambda _kind: ("test_provider", "test_model"),

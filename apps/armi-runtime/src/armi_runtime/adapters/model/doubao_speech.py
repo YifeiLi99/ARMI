@@ -6,15 +6,12 @@ import asyncio
 import base64
 import json
 from dataclasses import dataclass
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
 import rfc8785
 from armi_interaction.api import (
-    ExternalContentRecognitionPort,
-    ExternalContentRecognitionRequest,
-    ExternalContentRecognitionResult,
-    ExternalContentRecognitionStatus,
     ExternalMessagePartKind,
     ExternalMessageViolation,
 )
@@ -22,6 +19,12 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     CredentialPurpose,
+)
+from armi_perception.api import (
+    ExternalContentRecognitionPort,
+    ExternalContentRecognitionRequest,
+    ExternalContentRecognitionResult,
+    ExternalContentRecognitionStatus,
 )
 
 _PURPOSE = CredentialPurpose("speech.recognition")
@@ -194,16 +197,18 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
     def _decode_response(
         self, response: httpx.Response, *, fallback_log_id: str | None
     ) -> ExternalContentRecognitionResult:
-        document = response.json()
-        if type(document) is not dict:
+        decoded: object = response.json()
+        if type(decoded) is not dict:
             raise ValueError("ASR response must be an object")
-        result = document.get("result")
-        if type(result) is not dict:
+        document = cast(dict[str, object], decoded)
+        decoded_result = document.get("result")
+        if type(decoded_result) is not dict:
             raise ValueError("ASR result must be an object")
+        result = cast(dict[str, object], decoded_result)
         text = result.get("text")
         if type(text) is not str or not text.strip():
             raise ValueError("ASR result text is missing")
-        raw = rfc8785.dumps(document) + b"\n"
+        raw = rfc8785.dumps(cast(Any, document)) + b"\n"
         return ExternalContentRecognitionResult(
             ExternalContentRecognitionStatus.SUCCEEDED,
             text,
@@ -229,10 +234,13 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
 
 def _decode_credentials(secret: bytearray) -> _Credentials:
     try:
-        document = json.loads(secret.decode("utf-8", errors="strict"))
+        decoded: object = json.loads(secret.decode("utf-8", errors="strict"))
     except UnicodeDecodeError, json.JSONDecodeError:
         raise _CredentialFormatError("speech credentials are invalid") from None
-    if type(document) is not dict or set(document) != {"app_id", "access_token"}:
+    if type(decoded) is not dict:
+        raise _CredentialFormatError("speech credentials are invalid")
+    document = cast(dict[str, object], decoded)
+    if set(document) != {"app_id", "access_token"}:
         raise _CredentialFormatError("speech credentials are invalid")
     app_id = document["app_id"]
     access_token = document["access_token"]

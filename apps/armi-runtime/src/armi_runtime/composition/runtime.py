@@ -83,7 +83,6 @@ from .database import (
     compose_data_rights_order_service,
     compose_effect_registration_pipeline,
     compose_exact_life_query_pipeline,
-    compose_external_content_pipeline,
     compose_interaction_module,
     compose_life_opportunity_pipeline,
     compose_life_record_query,
@@ -92,6 +91,7 @@ from .database import (
     compose_model_pipeline,
     compose_mood_module,
     compose_other_human_record_query,
+    compose_perception_module,
     compose_prompt_module,
     compose_relationship_module,
     compose_response_admission_pipeline,
@@ -202,7 +202,7 @@ async def _serve(
     creator_input = None
     other_human_input = None
     external_message_input = None
-    external_content_pipeline = None
+    perception_module = None
     qq_channel: QQChannelBinding | None = None
     qq_server: _RuntimeServer | None = None
     other_human_record_query = None
@@ -431,7 +431,7 @@ async def _serve(
             )
             if qq_channel is not None:
                 try:
-                    external_content_pipeline = compose_external_content_pipeline(
+                    perception_module = compose_perception_module(
                         prepared,
                         authority_admission=authority.require_writable,
                         fetch=qq_channel.media_fetch,
@@ -441,7 +441,7 @@ async def _serve(
                             result_code="EXTERNAL_CONTENT",
                         ),
                     )
-                    await external_content_pipeline.open()
+                    await perception_module.open()
                 except ModelViolation:
                     raise ExternalMessageViolation(
                         "EXTERNAL-MESSAGE-RECOGNITION-UNAVAILABLE"
@@ -737,8 +737,8 @@ async def _serve(
                 await creator_export_service.close()
             if data_rights_order_service is not None:
                 await data_rights_order_service.close()
-            if external_content_pipeline is not None:
-                await external_content_pipeline.close()
+            if perception_module is not None:
+                await perception_module.close()
             if qq_channel is not None:
                 await qq_channel.close()
             if context_pipeline is not None:
@@ -876,9 +876,9 @@ async def _serve(
                 exact_life_query_pipeline.run_worker(),
                 name="exact-life-query-worker",
             )
-        if external_content_pipeline is not None:
+        if perception_module is not None:
             supervisor.start(
-                external_content_pipeline.run_worker(),
+                perception_module.worker.run_worker(),
                 name="external-content-worker",
             )
         if model_pipeline is not None:
@@ -980,8 +980,8 @@ async def _serve(
             await creator_export_service.close()
         if data_rights_order_service is not None:
             await data_rights_order_service.close()
-        if external_content_pipeline is not None:
-            external_content_pipeline.stop()
+        if perception_module is not None:
+            perception_module.stop()
         if context_pipeline is not None:
             context_pipeline.stop()
         if context_embedding_pipeline is not None:
@@ -1019,8 +1019,8 @@ async def _serve(
             await life_opportunity_pipeline.close()
         if exact_life_query_pipeline is not None:
             await exact_life_query_pipeline.close()
-        if external_content_pipeline is not None:
-            await external_content_pipeline.close()
+        if perception_module is not None:
+            await perception_module.close()
         if life_record_query is not None:
             await life_record_query.close()
         if model_pipeline is not None:

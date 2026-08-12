@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
 from armi_interaction.api import (
-    ExternalContentRecognitionResult,
     ExternalMessagePartKind,
     ExternalMessageViolation,
     ExternalVisualRole,
@@ -21,8 +20,9 @@ from armi_kernel.application import (
     WorkResultRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
-from .unit_of_work import PostgreSQLUnitOfWork
+from .api import ExternalContentRecognitionResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,8 +87,10 @@ class ExternalFinalizationSnapshot:
 class PostgreSQLExternalContentRepository:
     __slots__ = ()
 
-    async def recover_terminal_recognition(self, unit: PostgreSQLUnitOfWork) -> int:
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    async def recover_terminal_recognition(
+        self, unit: PostgreSQLRuntimeUnitOfWork
+    ) -> int:
+        connection = unit.transaction
         rows = await (
             await connection.execute(
                 """
@@ -153,9 +155,9 @@ class PostgreSQLExternalContentRepository:
         return len(rows)
 
     async def recognition_snapshot(
-        self, unit: PostgreSQLUnitOfWork, lease: WorkLease
+        self, unit: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
     ) -> ExternalRecognitionSnapshot:
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         interaction = await (
             await connection.execute(
                 """
@@ -225,12 +227,12 @@ class PostgreSQLExternalContentRepository:
 
     async def attach_raw(
         self,
-        unit: PostgreSQLUnitOfWork,
+        unit: PostgreSQLRuntimeUnitOfWork,
         *,
         part_id: UUID,
         raw_artifact_id: UUID,
     ) -> None:
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         updated = await connection.execute(
             """
             UPDATE armi.external_message_parts
@@ -244,7 +246,7 @@ class PostgreSQLExternalContentRepository:
 
     async def attach_visual_detection(
         self,
-        unit: PostgreSQLUnitOfWork,
+        unit: PostgreSQLRuntimeUnitOfWork,
         *,
         part_id: UUID,
         media_type: str,
@@ -252,7 +254,7 @@ class PostgreSQLExternalContentRepository:
         pixel_height: int,
         frame_count: int,
     ) -> None:
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         updated = await connection.execute(
             """
             UPDATE armi.external_message_parts
@@ -268,7 +270,7 @@ class PostgreSQLExternalContentRepository:
 
     async def begin_attempt(
         self,
-        unit: PostgreSQLUnitOfWork,
+        unit: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         part_id: UUID,
@@ -278,7 +280,7 @@ class PostgreSQLExternalContentRepository:
         model_id: str,
     ) -> UUID:
         await self.attach_raw(unit, part_id=part_id, raw_artifact_id=raw_artifact_id)
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         attempt_id = uuid7()
         inserted = await connection.execute(
             """
@@ -305,7 +307,7 @@ class PostgreSQLExternalContentRepository:
 
     async def settle_success(
         self,
-        unit: PostgreSQLUnitOfWork,
+        unit: PostgreSQLRuntimeUnitOfWork,
         *,
         part_id: UUID,
         raw_artifact_id: UUID,
@@ -315,7 +317,7 @@ class PostgreSQLExternalContentRepository:
         response_artifact_id: UUID | None = None,
         result: ExternalContentRecognitionResult | None = None,
     ) -> None:
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         updated = await connection.execute(
             """
             UPDATE armi.external_message_parts
@@ -353,7 +355,7 @@ class PostgreSQLExternalContentRepository:
 
     async def settle_failure(
         self,
-        unit: PostgreSQLUnitOfWork,
+        unit: PostgreSQLRuntimeUnitOfWork,
         *,
         part_id: UUID,
         status: str,
@@ -363,7 +365,7 @@ class PostgreSQLExternalContentRepository:
     ) -> None:
         if status not in {"failed", "unknown"}:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-RECOGNITION")
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         updated = await connection.execute(
             """
             UPDATE armi.external_message_parts
@@ -400,12 +402,12 @@ class PostgreSQLExternalContentRepository:
 
     async def finish_recognition(
         self,
-        unit: PostgreSQLUnitOfWork,
+        unit: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: ExternalRecognitionSnapshot,
     ) -> None:
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         pending = await (
             await connection.execute(
                 """
@@ -440,9 +442,9 @@ class PostgreSQLExternalContentRepository:
         )
 
     async def requeue_finalization(
-        self, unit: PostgreSQLUnitOfWork, lease: WorkLease
+        self, unit: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
     ) -> bool:
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         row = await (
             await connection.execute(
                 """
@@ -469,9 +471,9 @@ class PostgreSQLExternalContentRepository:
         return row is not None and str(row[0]) == "ready"
 
     async def finalization_snapshot(
-        self, unit: PostgreSQLUnitOfWork, lease: WorkLease
+        self, unit: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
     ) -> ExternalFinalizationSnapshot:
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         row = await (
             await connection.execute(
                 """
@@ -540,7 +542,7 @@ class PostgreSQLExternalContentRepository:
 
     async def finalize(
         self,
-        unit: PostgreSQLUnitOfWork,
+        unit: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: ExternalFinalizationSnapshot,
@@ -554,7 +556,7 @@ class PostgreSQLExternalContentRepository:
             return snapshot.existing_evidence_id
         if artifact_id is None or content_digest is None:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-FINALIZATION")
-        connection = unit._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit.transaction
         statuses = {part.status for part in snapshot.parts}
         recognition_status = (
             "unknown"

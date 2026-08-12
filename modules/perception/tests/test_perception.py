@@ -10,10 +10,6 @@ from pathlib import Path
 
 import httpx
 from armi_interaction.api import (
-    ExternalContentRecognitionRequest,
-    ExternalContentRecognitionResult,
-    ExternalContentRecognitionStatus,
-    ExternalMediaContent,
     ExternalMessagePartKind,
     ExternalMessageViolation,
     ExternalVisualRole,
@@ -22,6 +18,14 @@ from armi_kernel.application import (
     CredentialLocator,
 )
 from armi_kernel.contracts import TraceId
+from armi_perception._extractors import extract_external_content
+from armi_perception._recognizer import ExternalContentRecognizer
+from armi_perception.api import (
+    ExternalContentRecognitionRequest,
+    ExternalContentRecognitionResult,
+    ExternalContentRecognitionStatus,
+    ExternalMediaContent,
+)
 from armi_runtime.adapters.model.doubao_speech import (
     DoubaoSpeechRecognizer,
     _audio_format,
@@ -31,12 +35,6 @@ from armi_runtime.adapters.model.external_content import (
     load_external_recognition_binding,
 )
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
-from armi_runtime.composition.external_content_extractors import (
-    extract_external_content,
-)
-from armi_runtime.composition.external_content_recognizer import (
-    ExternalContentRecognizer,
-)
 from docx import Document
 from openpyxl import Workbook
 from PIL import Image

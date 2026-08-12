@@ -8,6 +8,7 @@ dependencies = [
     "armi-artifact-store==0.0.0",
     "armi-interaction==0.0.0",
     "armi-kernel==0.0.0",
+    "armi-perception==0.0.0",
     "armi-postgresql-contract==0.0.0",
     "armi-runtime-foundation==0.0.0",
     "armi-relationship==0.0.0",
@@ -22,13 +23,9 @@ dependencies = [
     "httpx==0.28.1",
     "openai==2.49.0",
     "openai-codex==0.144.4",
-    "openpyxl==3.1.5",
-    "pillow==12.3.0",
     "psycopg[binary]==3.3.4",
     "psycopg-pool==3.3.1",
     "pydantic==2.13.4",
-    "python-docx==1.2.0",
-    "python-pptx==1.0.2",
     "rfc8785==0.1.4",
     "uvicorn==0.51.0",
 ]
@@ -52,6 +49,7 @@ armi-subject-state = { workspace = true }
 armi-mood = { workspace = true }
 armi-prompt = { workspace = true }
 armi-interaction = { workspace = true }
+armi-perception = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.31.0"]

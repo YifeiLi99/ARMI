@@ -13,11 +13,6 @@ from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_interaction.api import (
     ExternalAccountKey,
     ExternalChannel,
-    ExternalContentRecognitionPort,
-    ExternalContentRecognitionRequest,
-    ExternalContentRecognitionResult,
-    ExternalContentRecognitionStatus,
-    ExternalMediaFetchPort,
     ExternalMessagePartKind,
     ExternalMessageViolation,
 )
@@ -27,28 +22,37 @@ from armi_kernel.application import (
     ArtifactPrivacyScope,
     ArtifactViolation,
     PublishedArtifact,
-    RuntimeFence,
     WorkLease,
     WorkViolation,
 )
 from armi_kernel.contracts import Digest, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 
-from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
-from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
-from armi_runtime.adapters.persistence.external_content import (
+from ._extractors import extract_external_content
+from ._postgresql import (
     ExternalContentPartSnapshot,
     ExternalFinalizationPart,
     ExternalRecognitionSnapshot,
     PostgreSQLExternalContentRepository,
 )
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .external_content_extractors import extract_external_content
-from .work_wakeup import EXTERNAL_CONTENT, OPPORTUNITY_AVAILABLE, WorkWakeupBus
+from .api import (
+    ExternalContentRecognitionPort,
+    ExternalContentRecognitionRequest,
+    ExternalContentRecognitionResult,
+    ExternalContentRecognitionStatus,
+    ExternalMediaFetchPort,
+    PerceptionArtifactCatalogPort,
+    PerceptionDurableWorkPort,
+    PerceptionWakeupPort,
+)
 
 _RECOGNIZE_WORK = "external.content.recognize"
 _FINALIZE_WORK = "external.content.finalize"
+EXTERNAL_CONTENT = "external.content"
+OPPORTUNITY_AVAILABLE = "opportunity.available"
 _MAX_BYTES = {
     ExternalMessagePartKind.IMAGE: 10 * 1024 * 1024,
     ExternalMessagePartKind.AUDIO: 25 * 1024 * 1024,
@@ -83,12 +87,14 @@ class ExternalContentPipeline:
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        catalog: PerceptionArtifactCatalogPort,
+        work: PerceptionDurableWorkPort,
         fetch: ExternalMediaFetchPort,
         recognizer: ExternalContentRecognitionPort,
         target_for: Callable[[ExternalMessagePartKind], tuple[str, str]],
-        wakeups: WorkWakeupBus,
+        wakeups: PerceptionWakeupPort,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
@@ -98,9 +104,9 @@ class ExternalContentPipeline:
         self._target_for = target_for
         self._wakeups = wakeups
         self._diagnostic = diagnostic or _ignore_diagnostic
-        self._catalog = ArtifactCatalogRepository()
+        self._catalog = catalog
         self._repository = PostgreSQLExternalContentRepository()
-        self._work = PostgreSQLDurableWorkGateway(factory)
+        self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
 
@@ -112,7 +118,7 @@ class ExternalContentPipeline:
                 recovered = await self._repository.recover_terminal_recognition(unit)
             if recovered:
                 self._wakeups.notify(EXTERNAL_CONTENT)
-        except ArtifactViolation, DatabaseTransactionError, WorkViolation:
+        except ArtifactViolation, RuntimeTransactionFailure, WorkViolation:
             raise ExternalMessageViolation(
                 "EXTERNAL-MESSAGE-RECOGNITION-UNAVAILABLE"
             ) from None
@@ -164,7 +170,7 @@ class ExternalContentPipeline:
             if error.code != "EXTERNAL-MESSAGE-WORK-STALE":
                 self._diagnostic("external.content.recognition.failed")
                 await self._fail_work(lease, error.code)
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("external.content.recognition.transient_failure")
             await self._terminalize_recognition(lease)
 
@@ -433,14 +439,14 @@ class ExternalContentPipeline:
                 await self._fail_work(lease, error.code)
         except WorkViolation:
             self._diagnostic("external.content.finalization.stale")
-        except ArtifactViolation, DatabaseTransactionError, OSError:
+        except ArtifactViolation, RuntimeTransactionFailure, OSError:
             self._diagnostic("external.content.finalization.failed")
             try:
                 async with self._factory.unit_of_work() as unit:
                     requeued = await self._repository.requeue_finalization(unit, lease)
                 if requeued:
                     self._wakeups.notify(EXTERNAL_CONTENT)
-            except DatabaseTransactionError:
+            except RuntimeTransactionFailure:
                 self._diagnostic("external.content.finalization.settlement_deferred")
 
     async def _fail_work(self, lease: WorkLease, code: str) -> None:
@@ -456,7 +462,7 @@ class ExternalContentPipeline:
                 recovered = await self._repository.recover_terminal_recognition(unit)
             if recovered:
                 self._wakeups.notify(EXTERNAL_CONTENT)
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("external.content.recognition.settlement_deferred")
 
     async def _publish_text(
@@ -600,43 +606,4 @@ async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
     yield value
 
 
-def build_external_content_pipeline(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    fetch: ExternalMediaFetchPort,
-    recognizer: ExternalContentRecognitionPort,
-    target_for: Callable[[ExternalMessagePartKind], tuple[str, str]],
-    wakeups: WorkWakeupBus,
-    diagnostic: Diagnostic | None = None,
-) -> ExternalContentPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    return ExternalContentPipeline(
-        factory=factory,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts", max_object_bytes=max_object_bytes
-        ),
-        fetch=fetch,
-        recognizer=recognizer,
-        target_for=target_for,
-        wakeups=wakeups,
-        diagnostic=diagnostic,
-    )
-
-
-__all__ = ("ExternalContentPipeline", "build_external_content_pipeline")
+__all__ = ("ExternalContentPipeline",)

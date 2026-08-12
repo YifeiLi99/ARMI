@@ -74,6 +74,7 @@ DISTRIBUTIONS = (
             "armi-channel-napcat==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
+            "armi-perception==0.0.0",
             "fastapi==0.140.13",
         ),
     ),
@@ -205,6 +206,22 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-perception",
+        module="armi_perception",
+        project_dir=Path("modules/perception"),
+        layers=(),
+        dependencies=(
+            "armi-artifact-store==0.0.0",
+            "armi-interaction==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "openpyxl==3.1.5",
+            "pillow==12.3.0",
+            "python-docx==1.2.0",
+            "python-pptx==1.0.2",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -215,6 +232,7 @@ DISTRIBUTIONS = (
             "armi-artifact-store==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
+            "armi-perception==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-relationship==0.0.0",
@@ -229,13 +247,9 @@ DISTRIBUTIONS = (
             "httpx==0.28.1",
             "openai==2.49.0",
             "openai-codex==0.144.4",
-            "openpyxl==3.1.5",
-            "pillow==12.3.0",
             "psycopg[binary]==3.3.4",
             "psycopg-pool==3.3.1",
             "pydantic==2.13.4",
-            "python-docx==1.2.0",
-            "python-pptx==1.0.2",
             "rfc8785==0.1.4",
             "uvicorn==0.51.0",
         ),
@@ -723,6 +737,7 @@ def _check_import(
                 "armi-channel-napcat",
                 "armi-adapter-qq",
                 "armi-interaction",
+                "armi-perception",
             }
         )
         or (
@@ -808,6 +823,18 @@ def _check_import(
                 "armi-runtime-foundation",
                 "armi-subject-state",
                 "armi-interaction",
+            }
+        )
+        or (
+            source_distribution == "armi-perception"
+            and target_distribution
+            not in {
+                None,
+                "armi-artifact-store",
+                "armi-interaction",
+                "armi-kernel",
+                "armi-runtime-foundation",
+                "armi-perception",
             }
         )
     )
@@ -910,6 +937,9 @@ def _check_import(
         ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
+        ),
+        "armi-perception": frozenset(
+            {"armi_perception", "armi_perception.api", "armi_perception.bootstrap"}
         ),
     }
     if crosses_distribution and target_distribution in public_modules:
@@ -1021,6 +1051,17 @@ def _check_import(
                     path,
                     line,
                     "interaction bootstrap is reserved for Runtime composition",
+                )
+            )
+        if imported_module == "armi_perception.bootstrap" and not source_module.startswith(
+            "armi_runtime.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "perception bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1196,6 +1237,11 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "modules/interaction/src/armi_interaction/api.py",
         "armi_interaction.bootstrap": root
         / "modules/interaction/src/armi_interaction/bootstrap.py",
+        "armi_perception": root
+        / "modules/perception/src/armi_perception/__init__.py",
+        "armi_perception.api": root / "modules/perception/src/armi_perception/api.py",
+        "armi_perception.bootstrap": root
+        / "modules/perception/src/armi_perception/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1371,6 +1417,25 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "Prompt table SQL is owned by armi-prompt",
                     )
                 )
+            if (
+                distribution.name != "armi-perception"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"external_content_recognition_attempts\b",
+                    source,
+                    re.IGNORECASE,
+                )
+                and "armi_runtime.adapters.persistence.data_deletion" not in module
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-PERCEPTION-SQL",
+                        relative,
+                        1,
+                        "recognition attempt SQL is owned by armi-perception",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1429,6 +1494,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "interaction_module.scene_timeline",
             "interaction_module.other_human_input",
             "interaction_module.external_message_input",
+        ),
+        "perception": (
+            "perception_module = compose_perception_module(",
+            "perception_module.worker.run_worker()",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

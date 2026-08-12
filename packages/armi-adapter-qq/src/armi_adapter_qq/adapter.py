@@ -24,8 +24,6 @@ from armi_interaction.api import (
     ExternalChannel,
     ExternalConversationKey,
     ExternalConversationKind,
-    ExternalMediaContent,
-    ExternalMediaFetchPort,
     ExternalMessageInputAcceptance,
     ExternalMessageInputPort,
     ExternalMessageKey,
@@ -48,6 +46,7 @@ from armi_kernel.application import (
     FrozenEffectRequest,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
+from armi_perception.api import ExternalMediaContent, ExternalMediaFetchPort
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from armi_interaction.api import (
+from armi_interaction.api import ExternalMessagePartKind
+
+from .api import (
     ExternalContentRecognitionPort,
     ExternalContentRecognitionRequest,
     ExternalContentRecognitionResult,
-    ExternalMessagePartKind,
 )
 
 

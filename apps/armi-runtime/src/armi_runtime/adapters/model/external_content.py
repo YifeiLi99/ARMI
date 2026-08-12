@@ -10,10 +10,6 @@ from typing import Any, cast
 import httpx
 import rfc8785
 from armi_interaction.api import (
-    ExternalContentRecognitionPort,
-    ExternalContentRecognitionRequest,
-    ExternalContentRecognitionResult,
-    ExternalContentRecognitionStatus,
     ExternalMessagePartKind,
     ExternalMessageViolation,
     ExternalVisualRole,
@@ -23,6 +19,12 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     CredentialPurpose,
+)
+from armi_perception.api import (
+    ExternalContentRecognitionPort,
+    ExternalContentRecognitionRequest,
+    ExternalContentRecognitionResult,
+    ExternalContentRecognitionStatus,
 )
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 

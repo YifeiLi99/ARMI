@@ -6,6 +6,7 @@ dependencies = [
     "armi-channel-napcat==0.0.0",
     "armi-interaction==0.0.0",
     "armi-kernel==0.0.0",
+    "armi-perception==0.0.0",
     "fastapi==0.140.13",
 ]
 
@@ -13,6 +14,7 @@ dependencies = [
 armi-channel-napcat = { workspace = true }
 armi-kernel = { workspace = true }
 armi-interaction = { workspace = true }
+armi-perception = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.11.33,<0.12"]
