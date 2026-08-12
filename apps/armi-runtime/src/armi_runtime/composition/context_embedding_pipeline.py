@@ -25,6 +25,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import Instant
+from armi_memory.api import MemoryProjectionPort
 
 from armi_runtime.adapters.model.volcengine_embedding import (
     VolcengineArkEmbeddingAdapter,
@@ -64,11 +65,12 @@ class ContextEmbeddingPipeline:
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         adapter: VolcengineArkEmbeddingAdapter,
+        memories: MemoryProjectionPort,
     ) -> None:
         self._factory = factory
         self._storage = storage
         self._adapter = adapter
-        self._repository = PostgreSQLContextEmbeddingRepository()
+        self._repository = PostgreSQLContextEmbeddingRepository(memories)
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -104,7 +106,9 @@ class ContextEmbeddingPipeline:
             async with self._factory.unit_of_work() as unit_of_work:
                 await unit_of_work.work.complete(
                     lease,
-                    WorkResultRef("context_embedding_source", records[0].draft.owner.reference),
+                    WorkResultRef(
+                        "context_embedding_source", records[0].draft.owner.reference
+                    ),
                 )
             return True
         chunks = await self._source_chunks(source)
@@ -176,10 +180,13 @@ class ContextEmbeddingPipeline:
         ):
             raise ArtifactViolation("ART-STATE")
         stream = await self._storage.open_verified(material.ref)
+        artifact = b""
         async with stream:
             artifact = await stream.read()
         try:
-            body = parse_life_material_artifact(artifact).decode("utf-8", errors="strict")
+            body = parse_life_material_artifact(artifact).decode(
+                "utf-8", errors="strict"
+            )
         except ValueError, UnicodeError:
             raise ArtifactViolation("ART-INTEGRITY") from None
         return chunk_life_material(f"{material.title}\n{body}")
@@ -213,6 +220,7 @@ def build_context_embedding_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    memories: MemoryProjectionPort,
     credential_port: CredentialPort,
     credential_locator: CredentialLocator,
 ) -> ContextEmbeddingPipeline:
@@ -234,6 +242,7 @@ def build_context_embedding_pipeline(
             credential_port=credential_port,
             locator=credential_locator,
         ),
+        memories=memories,
     )
 
 

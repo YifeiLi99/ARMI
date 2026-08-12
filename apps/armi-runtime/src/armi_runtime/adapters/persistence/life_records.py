@@ -26,25 +26,22 @@ from armi_kernel.application import (
     ArtifactViolation,
     CreatorLifeMaterialItem,
     CreatorLifeMaterialQueryViolation,
-    CreatorMemoryItem,
-    CreatorMemoryPage,
-    CreatorMemoryTimeline,
-    CreatorMemoryTimelineItem,
     LifeMaterialKind,
     LifeMaterialPrivacyStatus,
     LifeMaterialStatus,
     LifeRecordActor,
     LifeRecordItem,
     LifeRecordKind,
-    LifeRecordMemoryAccessibility,
-    LifeRecordMemoryRelationKind,
-    LifeRecordMemoryRevisionKind,
     LifeRecordPage,
     LifeRecordQuery,
     LifeRecordQueryViolation,
-    LifeRecordRetrievalKind,
 )
 from armi_kernel.contracts import Digest, Instant, OpaqueCursor
+from armi_memory.api import (
+    CreatorMemoryPage,
+    CreatorMemoryTimeline,
+    MemoryReadPort,
+)
 from armi_relationship.api import RelationshipReadPort
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
@@ -167,6 +164,7 @@ class PostgreSQLLifeRecordQuery:
         "_codec",
         "_creator_party_id",
         "_expected_role",
+        "_memories",
         "_pool",
         "_pool_timeout_seconds",
         "_relationships",
@@ -183,11 +181,13 @@ class PostgreSQLLifeRecordQuery:
         data_root: Path,
         max_object_bytes: int,
         pool_timeout_seconds: int,
+        memories: MemoryReadPort | None = None,
         relationships: RelationshipReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
+        self._memories = memories
         self._relationships = relationships
         self._storage = ContentAddressedArtifactStore(
             data_root / "artifacts",
@@ -232,6 +232,9 @@ class PostgreSQLLifeRecordQuery:
         await self._pool.close()
 
     async def query(self, request: LifeRecordQuery) -> LifeRecordPage:
+        if request.record_kind is LifeRecordKind.MEMORY and self._memories is None:
+            raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
+        memories = self._memories
         scope = {
             "projection_version": "life-record-query.v2",
             "resource": "life_records",
@@ -351,32 +354,6 @@ class PostgreSQLLifeRecordQuery:
                             )
                             UNION ALL
                             (
-                            SELECT memory.memory_id,
-                                   'memory'::text,
-                                   revision.summary,
-                                   revision.source_kind,
-                                   revision.created_at,
-                                   revision.accessibility <> 'forgotten'
-                            FROM armi.subjective_memories AS memory
-                            JOIN armi.subjective_memory_revisions AS revision
-                              ON revision.memory_revision_id =
-                                 memory.current_revision_id
-                            CROSS JOIN query_input AS query
-                            WHERE memory.subject_id = query.subject_id
-                              AND (query.record_kind IS NULL OR query.record_kind = 'memory')
-                              AND (query.query_text IS NULL OR revision.summary ILIKE '%%' || query.query_text || '%%')
-                              AND (query.before_at IS NULL OR (revision.created_at, 'memory'::text, memory.memory_id) < (query.before_at, query.before_kind, query.before_id))
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM armi.deletion_items AS deletion_item
-                                  WHERE deletion_item.target_kind = 'memory'
-                                    AND deletion_item.target_ref = memory.memory_id
-                                    AND deletion_item.result_status IN ('completed', 'partial')
-                              )
-                            ORDER BY revision.created_at DESC, memory.memory_id DESC
-                            LIMIT (SELECT branch_limit FROM query_input)
-                            )
-                            UNION ALL
-                            (
                             SELECT material.life_material_id,
                                    'material'::text,
                                    revision.title,
@@ -439,11 +416,29 @@ class PostgreSQLLifeRecordQuery:
                         ),
                     )
                 ).fetchall()
+                rows = cast(
+                    list[tuple[UUID, str, str, str, datetime, bool | None]],
+                    rows,
+                )
+                memory_rows = (
+                    await memories.life_record_branch(
+                        connection,
+                        subject_id=subject_id,
+                        query_text=request.query_text,
+                        before=None
+                        if boundary is None
+                        else (boundary[0].value, boundary[1], boundary[2]),
+                        limit=request.limit + 1,
+                    )
+                    if memories is not None
+                    and request.record_kind in {None, LifeRecordKind.MEMORY}
+                    else ()
+                )
         except LifeRecordQueryViolation:
             raise
         except psycopg.Error, PoolTimeout:
             raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
-        relationship_rows = [
+        relationship_rows: list[tuple[UUID, str, str, str, datetime, bool | None]] = [
             (
                 snapshot.relationship_id,
                 "relationship",
@@ -469,9 +464,24 @@ class PostgreSQLLifeRecordQuery:
                 < (boundary[0].value, boundary[1], boundary[2])
             )
         ]
+        combined_rows: list[tuple[UUID, str, str, str, datetime, bool | None]] = [
+            *rows,
+            *relationship_rows,
+            *(
+                (
+                    item.memory_id,
+                    "memory",
+                    item.summary,
+                    item.source_kind,
+                    item.occurred_at,
+                    item.naturally_recallable,
+                )
+                for item in memory_rows
+            ),
+        ]
         rows = sorted(
-            [*rows, *relationship_rows],
-            key=lambda row: (cast(datetime, row[4]), str(row[1]), cast(UUID, row[0])),
+            combined_rows,
+            key=lambda row: (row[4], row[1], row[0]),
             reverse=True,
         )
         visible = rows[: request.limit]
@@ -481,7 +491,7 @@ class PostgreSQLLifeRecordQuery:
             next_cursor = self._codec.encode(
                 scope=scope,
                 boundary={
-                    "before_at": Instant(cast(datetime, oldest[4])).to_wire(),
+                    "before_at": Instant(oldest[4]).to_wire(),
                     "before_kind": str(oldest[1]),
                     "before_id": str(oldest[0]),
                 },
@@ -493,8 +503,8 @@ class PostgreSQLLifeRecordQuery:
                     record_kind=LifeRecordKind(str(row[1])),
                     summary=str(row[2]),
                     source_kind=str(row[3]),
-                    occurred_at=Instant(cast(datetime, row[4])),
-                    naturally_recallable=cast(bool | None, row[5]),
+                    occurred_at=Instant(row[4]),
+                    naturally_recallable=row[5],
                     retrieval_kind=request.retrieval_kind,
                 )
                 for row in visible
@@ -612,103 +622,10 @@ class PostgreSQLLifeRecordQuery:
         query_text: str | None = None,
         cursor: OpaqueCursor | None = None,
     ) -> CreatorMemoryPage:
-        request = LifeRecordQuery(
-            actor=LifeRecordActor.CREATOR,
-            retrieval_kind=LifeRecordRetrievalKind.CREATOR_VIEW,
-            limit=limit,
-            record_kind=LifeRecordKind.MEMORY,
-            query_text=query_text,
-            cursor=cursor,
-        )
-        scope = {
-            "projection_version": "creator-memory.v1",
-            "resource": "memory_current",
-            "query_text": request.query_text,
-            "limit": request.limit,
-        }
-        boundary: tuple[Instant, UUID] | None = None
-        if cursor is not None:
-            raw = self._codec.decode(
-                cursor,
-                scope=scope,
-                boundary_keys=frozenset({"before_at", "before_id"}),
-            )
-            try:
-                boundary = (
-                    Instant.from_wire(raw["before_at"]),
-                    UUID(cast(str, raw["before_id"])),
-                )
-            except KeyError, TypeError, ValueError:
-                raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID") from None
-            if boundary[1].version != 7:
-                raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID")
-        try:
-            async with (
-                self._pool.connection(
-                    timeout=float(self._pool_timeout_seconds)
-                ) as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("SET TRANSACTION READ ONLY")
-                subject_id = await self._scope(connection, LifeRecordActor.CREATOR)
-                rows = await (
-                    await connection.execute(
-                        """
-                        SELECT memory.memory_id, revision.summary,
-                               revision.uncertainty, revision.source_kind,
-                               revision.source_fact_class,
-                               revision.accessibility, revision.revision_kind,
-                               revision.revision_no, memory.head_version,
-                               memory.created_at, revision.created_at
-                        FROM armi.subjective_memories AS memory
-                        JOIN armi.subjective_memory_revisions AS revision
-                          ON revision.memory_revision_id = memory.current_revision_id
-                        WHERE memory.subject_id = %s
-                          AND NOT EXISTS (
-                              SELECT 1 FROM armi.deletion_items AS deletion_item
-                              WHERE deletion_item.target_kind = 'memory'
-                                AND deletion_item.target_ref = memory.memory_id
-                                AND deletion_item.result_status IN ('completed', 'partial')
-                          )
-                          AND (%s::text IS NULL OR revision.summary ILIKE
-                               '%%' || %s || '%%')
-                          AND (
-                              %s::timestamptz IS NULL
-                              OR (revision.created_at, memory.memory_id)
-                                 < (%s, %s)
-                          )
-                        ORDER BY revision.created_at DESC, memory.memory_id DESC
-                        LIMIT %s
-                        """,
-                        (
-                            subject_id,
-                            query_text,
-                            query_text,
-                            None if boundary is None else boundary[0].value,
-                            None if boundary is None else boundary[0].value,
-                            None if boundary is None else boundary[1],
-                            limit + 1,
-                        ),
-                    )
-                ).fetchall()
-        except LifeRecordQueryViolation:
-            raise
-        except psycopg.Error, PoolTimeout:
-            raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
-        visible = rows[:limit]
-        next_cursor = None
-        if len(rows) > limit and visible:
-            oldest = visible[-1]
-            next_cursor = self._codec.encode(
-                scope=scope,
-                boundary={
-                    "before_at": Instant(cast(datetime, oldest[10])).to_wire(),
-                    "before_id": str(oldest[0]),
-                },
-            )
-        return CreatorMemoryPage(
-            items=tuple(self._memory_item(row) for row in visible),
-            next_cursor=next_cursor,
+        if self._memories is None:
+            raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
+        return await self._memories.list_current(
+            limit=limit, query_text=query_text, cursor=cursor
         )
 
     async def timeline(
@@ -718,94 +635,9 @@ class PostgreSQLLifeRecordQuery:
         limit: int,
         cursor: OpaqueCursor | None = None,
     ) -> CreatorMemoryTimeline:
-        scope = {
-            "projection_version": "creator-memory.v1",
-            "resource": "memory_timeline",
-            "memory_id": str(memory_id),
-            "limit": limit,
-        }
-        before_revision_no: int | None = None
-        if cursor is not None:
-            raw = self._codec.decode(
-                cursor,
-                scope=scope,
-                boundary_keys=frozenset({"before_revision_no"}),
-            )
-            value = raw.get("before_revision_no")
-            if type(value) is not int or value < 1:
-                raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID")
-            before_revision_no = value
-        try:
-            async with (
-                self._pool.connection(
-                    timeout=float(self._pool_timeout_seconds)
-                ) as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("SET TRANSACTION READ ONLY")
-                subject_id = await self._scope(connection, LifeRecordActor.CREATOR)
-                visible = await (
-                    await connection.execute(
-                        """
-                        SELECT 1 FROM armi.subjective_memories AS memory
-                        WHERE memory.memory_id = %s AND memory.subject_id = %s
-                          AND NOT EXISTS (
-                              SELECT 1 FROM armi.deletion_items AS deletion_item
-                              WHERE deletion_item.target_kind = 'memory'
-                                AND deletion_item.target_ref = memory.memory_id
-                                AND deletion_item.result_status IN ('completed', 'partial')
-                          )
-                        """,
-                        (memory_id, subject_id),
-                    )
-                ).fetchone()
-                if visible is None:
-                    raise LifeRecordQueryViolation("LIFE-QUERY-NOT-FOUND")
-                rows = await (
-                    await connection.execute(
-                        """
-                        SELECT revision.memory_revision_id,
-                               revision.revision_no, revision.revision_kind,
-                               revision.accessibility, revision.summary,
-                               revision.uncertainty, revision.source_kind,
-                               revision.source_fact_class,
-                               relation.relation_kind,
-                               relation.to_memory_id,
-                               revision.created_at
-                        FROM armi.subjective_memory_revisions AS revision
-                        LEFT JOIN LATERAL (
-                            SELECT item.relation_kind, item.to_memory_id
-                            FROM armi.memory_relations AS item
-                            WHERE item.from_memory_revision_id =
-                                  revision.memory_revision_id
-                            ORDER BY item.created_at DESC,
-                                     item.memory_relation_id DESC
-                            LIMIT 1
-                        ) AS relation ON true
-                        WHERE revision.memory_id = %s
-                          AND (%s::bigint IS NULL OR revision.revision_no < %s)
-                        ORDER BY revision.revision_no DESC
-                        LIMIT %s
-                        """,
-                        (memory_id, before_revision_no, before_revision_no, limit + 1),
-                    )
-                ).fetchall()
-        except LifeRecordQueryViolation:
-            raise
-        except psycopg.Error, PoolTimeout:
-            raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
-        items = rows[:limit]
-        next_cursor = None
-        if len(rows) > limit and items:
-            next_cursor = self._codec.encode(
-                scope=scope,
-                boundary={"before_revision_no": int(items[-1][1])},
-            )
-        return CreatorMemoryTimeline(
-            memory_id=memory_id,
-            items=tuple(self._timeline_item(row) for row in items),
-            next_cursor=next_cursor,
-        )
+        if self._memories is None:
+            raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
+        return await self._memories.timeline(memory_id, limit=limit, cursor=cursor)
 
     async def _scope(
         self,
@@ -834,40 +666,6 @@ class PostgreSQLLifeRecordQuery:
         if row is None or not isinstance(row[0], UUID):
             raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
         return row[0]
-
-    @staticmethod
-    def _memory_item(row: tuple[Any, ...]) -> CreatorMemoryItem:
-        return CreatorMemoryItem(
-            memory_id=row[0],
-            summary=str(row[1]),
-            uncertainty=None if row[2] is None else str(row[2]),
-            source_kind=str(row[3]),
-            source_fact_class=str(row[4]),
-            accessibility=LifeRecordMemoryAccessibility(str(row[5])),
-            revision_kind=LifeRecordMemoryRevisionKind(str(row[6])),
-            revision_no=int(row[7]),
-            head_version=int(row[8]),
-            created_at=Instant(cast(datetime, row[9])),
-            updated_at=Instant(cast(datetime, row[10])),
-        )
-
-    @staticmethod
-    def _timeline_item(row: tuple[Any, ...]) -> CreatorMemoryTimelineItem:
-        return CreatorMemoryTimelineItem(
-            revision_id=row[0],
-            revision_no=int(row[1]),
-            revision_kind=LifeRecordMemoryRevisionKind(str(row[2])),
-            accessibility=LifeRecordMemoryAccessibility(str(row[3])),
-            summary=str(row[4]),
-            uncertainty=None if row[5] is None else str(row[5]),
-            source_kind=str(row[6]),
-            source_fact_class=str(row[7]),
-            relation_kind=(
-                None if row[8] is None else LifeRecordMemoryRelationKind(str(row[8]))
-            ),
-            related_memory_id=cast(UUID | None, row[9]),
-            occurred_at=Instant(cast(datetime, row[10])),
-        )
 
 
 def _material_metadata(value: object) -> tuple[tuple[str, str], ...]:

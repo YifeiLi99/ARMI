@@ -33,6 +33,15 @@ from armi_kernel.application import (
     WebObservationViolation,
     WebResearchViolation,
 )
+from armi_memory.api import (
+    MemoryCognitionPort,
+    MemoryCommitPort,
+    MemoryDataRightsParticipant,
+    MemoryProjectionPort,
+    MemoryReadPort,
+    MemoryViolation,
+)
+from armi_memory.bootstrap import MemoryModule, bootstrap_memory
 from armi_relationship.api import (
     RelationshipCognitionPort,
     RelationshipCommitPort,
@@ -530,6 +539,7 @@ def compose_life_record_query(
     *,
     creator_party_id: UUID,
     cursor_key: bytes,
+    memory_read: MemoryReadPort,
     relationship_read: RelationshipReadPort,
 ) -> PostgreSQLLifeRecordQuery:
     """Resolve the shared read-only exact-life and memory projection."""
@@ -557,6 +567,7 @@ def compose_life_record_query(
                     data_root=prepared.data_root,
                     max_object_bytes=config.artifacts.max_object_bytes,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    memories=memory_read,
                     relationships=relationship_read,
                 )
 
@@ -687,6 +698,44 @@ def compose_relationship_module(
             return handle.consume(create)
     except ConfigurationViolation:
         raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE") from None
+
+
+def compose_memory_module(
+    prepared: PreparedEnvironment,
+    *,
+    creator_party_id: UUID,
+    cursor_key: bytes,
+) -> MemoryModule:
+    """Resolve and bind the one active subjective-memory owner implementation."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE")
+    try:
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.runtime")
+        ) as handle:
+
+            def create(value: memoryview) -> MemoryModule:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE") from None
+                config = prepared.effective.config
+                return bootstrap_memory(
+                    conninfo,
+                    expected_role=physical_role_name(
+                        config.environment.environment_id, "runtime"
+                    ),
+                    environment_id=config.environment.environment_id,
+                    creator_party_id=creator_party_id,
+                    cursor_key=cursor_key,
+                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE") from None
 
 
 def compose_creator_maintenance_query(
@@ -1115,6 +1164,7 @@ def compose_data_rights_order_service(
     *,
     creator_party_id: UUID,
     authority_admission: Callable[[], RuntimeFence],
+    memory_data_rights: MemoryDataRightsParticipant,
     relationship_data_rights: RelationshipDataRightsParticipant,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsOrderService:
@@ -1146,6 +1196,7 @@ def compose_data_rights_order_service(
                     ),
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    memory_data_rights=memory_data_rights,
                     relationship_data_rights=relationship_data_rights,
                     notifier=notifier,
                 )
@@ -1215,6 +1266,8 @@ def compose_context_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    memory_read: MemoryReadPort,
+    memory_projection: MemoryProjectionPort,
     relationship_read: RelationshipReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -1265,6 +1318,8 @@ def compose_context_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                    memory_read=memory_read,
+                    memory_projection=memory_projection,
                     relationship_read=relationship_read,
                     web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
@@ -1287,6 +1342,7 @@ def compose_context_embedding_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    memory_projection: MemoryProjectionPort,
 ) -> ContextEmbeddingPipeline:
     database_locator = prepared.effective.config.secret_locators.get(
         RUNTIME_LOCATOR_NAME
@@ -1317,6 +1373,7 @@ def compose_context_embedding_pipeline(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    memories=memory_projection,
                     credential_port=prepared.credential_port,
                     credential_locator=embedding_locator,
                 )
@@ -1487,6 +1544,8 @@ def compose_candidate_validation_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    memory_cognition: MemoryCognitionPort,
+    memory_read: MemoryReadPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_read: RelationshipReadPort,
     wakeups: WorkWakeupBus | None = None,
@@ -1523,6 +1582,8 @@ def compose_candidate_validation_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                    memory_cognition=memory_cognition,
+                    memory_read=memory_read,
                     relationship_cognition=relationship_cognition,
                     relationship_read=relationship_read,
                     web_search_active=prepared.effective.config.web.enabled,
@@ -1539,6 +1600,8 @@ def compose_subject_commit_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    memory_commit: MemoryCommitPort,
+    memory_cognition: MemoryCognitionPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_commit: RelationshipCommitPort,
     relationship_read: RelationshipReadPort,
@@ -1575,6 +1638,8 @@ def compose_subject_commit_pipeline(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    memory_commit=memory_commit,
+                    memory_cognition=memory_cognition,
                     relationship_cognition=relationship_cognition,
                     relationship_commit=relationship_commit,
                     relationship_read=relationship_read,
@@ -1854,6 +1919,7 @@ __all__ = (
     "compose_external_message_input",
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",
+    "compose_memory_module",
     "compose_model_pipeline",
     "compose_other_human_record_query",
     "compose_relationship_module",

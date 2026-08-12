@@ -45,6 +45,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
+from armi_memory.api import MemoryProjectionPort, MemoryReadPort
 from armi_relationship.api import RelationshipReadPort
 
 from armi_runtime.adapters.model.volcengine_embedding import (
@@ -123,6 +124,8 @@ class ContextPipeline(OpportunitySelector):
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        memory_read: MemoryReadPort,
+        memory_projection: MemoryProjectionPort,
         relationship_read: RelationshipReadPort,
         policy_version: str = CONTEXT_POLICY_VERSION,
         web_search_active: bool = False,
@@ -134,7 +137,9 @@ class ContextPipeline(OpportunitySelector):
         self._storage = storage
         self._policy_version = policy_version
         self._web_search_active = web_search_active
-        self._repository = PostgreSQLContextRepository(relationship_read)
+        self._repository = PostgreSQLContextRepository(
+            relationship_read, memories=memory_read
+        )
         self._catalog = ArtifactCatalogRepository()
         self._compiler = DeterministicContextCompiler()
         self._work = PostgreSQLDurableWorkGateway(factory)
@@ -143,7 +148,9 @@ class ContextPipeline(OpportunitySelector):
         self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._embedding = embedding
-        self._embedding_repository = PostgreSQLContextEmbeddingRepository()
+        self._embedding_repository = PostgreSQLContextEmbeddingRepository(
+            memory_projection
+        )
 
     async def open(self) -> None:
         try:
@@ -1289,6 +1296,8 @@ def build_context_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    memory_read: MemoryReadPort,
+    memory_projection: MemoryProjectionPort,
     relationship_read: RelationshipReadPort,
     web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
@@ -1311,6 +1320,8 @@ def build_context_pipeline(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
         ),
+        memory_read=memory_read,
+        memory_projection=memory_projection,
         relationship_read=relationship_read,
         web_search_active=web_search_active,
         wakeups=wakeups,

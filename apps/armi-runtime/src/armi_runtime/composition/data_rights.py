@@ -33,6 +33,7 @@ from armi_kernel.application import (
     RuntimeFence,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose
+from armi_memory.api import MemoryDataRightsParticipant
 from armi_relationship.api import RelationshipDataRightsParticipant
 
 from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
@@ -471,6 +472,7 @@ def build_data_rights_order_service(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    memory_data_rights: MemoryDataRightsParticipant,
     relationship_data_rights: RelationshipDataRightsParticipant,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsOrderService:
@@ -484,7 +486,9 @@ def build_data_rights_order_service(
         authority_admission=authority_admission,
     )
     deletion = LocalDataDeletionExecutor(
-        repository=LocalDataDeletionRepository(relationship_data_rights),
+        repository=LocalDataDeletionRepository(
+            memory_data_rights, relationship_data_rights
+        ),
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),

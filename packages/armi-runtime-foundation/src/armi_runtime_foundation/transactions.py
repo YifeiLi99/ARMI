@@ -9,7 +9,7 @@ from typing import Any, Protocol, runtime_checkable
 class PostgreSQLTransaction(Protocol):
     """The active PostgreSQL transaction made available to owner participants."""
 
-    async def execute(self, query: str, params: object | None = None) -> Any: ...
+    execute: Any
 
 
 @runtime_checkable

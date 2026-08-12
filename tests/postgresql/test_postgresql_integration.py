@@ -128,6 +128,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_memory.bootstrap import bootstrap_memory
 from armi_relationship.bootstrap import bootstrap_relationship
 from armi_runtime.adapters.creator_response_inbox import (
     PostgreSQLLocalInbox,
@@ -1036,8 +1037,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root / "alembic/versions/0003_dialogue_prompt_contracts.py"
             ).unlink()
             (
-                schema_root
-                / "alembic/versions/0004_context_embedding_projections.py"
+                schema_root / "alembic/versions/0004_context_embedding_projections.py"
             ).unlink()
             (
                 schema_root
@@ -1113,7 +1113,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ),
         )
 
-    def test_runtime_composition_columns_are_removed_without_losing_activation(self) -> None:
+    def test_runtime_composition_columns_are_removed_without_losing_activation(
+        self,
+    ) -> None:
         fixture = self.create_database()
         source = Path(
             "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
@@ -2083,7 +2085,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_party_id=creator_party_id,
                 pool_timeout_seconds=2,
             )
+            memory_module = bootstrap_memory(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                environment_id=fixture.environment_id,
+                creator_party_id=creator_party_id,
+                cursor_key=hashlib.sha256(b"p0-s022-life-record-cursor-key").digest(),
+                pool_timeout_seconds=2,
+            )
             await relationship_module.open()
+            await memory_module.open()
             life_records = PostgreSQLLifeRecordQuery(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -2092,6 +2103,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 data_root=root,
                 max_object_bytes=1024 * 1024,
                 pool_timeout_seconds=2,
+                memories=memory_module.read,
                 relationships=relationship_module.read,
             )
             await life_records.open()
@@ -2111,6 +2123,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             finally:
                 await life_records.close()
+                await memory_module.close()
                 await relationship_module.close()
 
             query = PostgreSQLCreatorActivityQuery(
@@ -5500,11 +5513,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_party_id=creator_party_id,
                 pool_timeout_seconds=2,
             )
+            memory_module = bootstrap_memory(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                environment_id=fixture.environment_id,
+                creator_party_id=creator_party_id,
+                cursor_key=hashlib.sha256(b"t03-memory-cursor-key").digest(),
+                pool_timeout_seconds=2,
+            )
             repository = PostgreSQLSubjectCommitRepository(
+                memory_module.commit,
                 relationship_module.commit,
                 relationship_module.read,
                 relationship_module.policy,
             )
+            await memory_module.open()
             await relationship_module.open()
             await factory.open()
             try:
@@ -5532,6 +5555,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 return result.status, result.subject_version or -1
             finally:
                 await factory.close()
+                await memory_module.close()
                 await relationship_module.close()
 
         status, version = asyncio.run(
@@ -7087,7 +7111,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restart_deadline = time.monotonic() + 30
                 while time.monotonic() < restart_deadline:
                     if restarted.poll() is not None:
-                        restart_stdout, restart_stderr = restarted.communicate(timeout=5)
+                        restart_stdout, restart_stderr = restarted.communicate(
+                            timeout=5
+                        )
                         self.fail(
                             "restarted Runtime exited before listening: "
                             f"stdout={restart_stdout!r} stderr={restart_stderr!r}"

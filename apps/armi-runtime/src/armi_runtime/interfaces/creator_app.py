@@ -39,7 +39,6 @@ from armi_kernel.application import (
     CreatorLifeMaterialQueryViolation,
     CreatorMaintenanceQueryPort,
     CreatorMaintenanceViolation,
-    CreatorMemoryQueryPort,
     CreatorOperation,
     CreatorOperationPhase,
     CreatorOperationQueryPort,
@@ -105,6 +104,7 @@ from armi_kernel.contracts import (
     UnknownOutcome,
     WaitingOutcome,
 )
+from armi_memory.api import MemoryReadPort, MemoryViolation
 from armi_relationship.api import (
     CreatorRelationshipRevision,
     RelationshipReadPort,
@@ -893,7 +893,7 @@ def _relationship_revision_response(
                 party_role=item.party_role.value,
                 scope=item.scope,
                 content=item.content,
-                status=cast(Literal["open"], item.status.value),
+                status=item.status.value,
                 last_event_kind=item.last_event_kind.value,
                 last_event_summary=item.last_event_summary,
             )
@@ -905,7 +905,7 @@ def _relationship_revision_response(
                 kind=item.kind.value,
                 commitment_ids=[str(value) for value in item.commitment_ids],
                 summary=item.summary,
-                status=item.status.value,
+                status=cast(Literal["open"], item.status.value),
             )
             for item in revision.open_issues
         ],
@@ -1381,7 +1381,7 @@ def create_runtime_app(
     creator_activity_query: CreatorActivityQueryPort | None = None,
     life_record_query: LifeRecordQueryPort | None = None,
     creator_life_material_query: CreatorLifeMaterialQueryPort | None = None,
-    creator_memory_query: CreatorMemoryQueryPort | None = None,
+    creator_memory_query: MemoryReadPort | None = None,
     creator_maintenance_query: CreatorMaintenanceQueryPort | None = None,
     creator_relationship_query: RelationshipReadPort | None = None,
     other_human_record_query: OtherHumanRecordQueryPort | None = None,
@@ -2797,6 +2797,16 @@ def create_runtime_app(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE"),
             )
+        except MemoryViolation as error:
+            if error.code == "MEMORY-CURSOR":
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_CURSOR_INVALID"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE"),
+            )
         response = CreatorMemoryPageResponse(
             contract_version="1.0",
             projection_version="creator-memory.v1",
@@ -2896,6 +2906,21 @@ def create_runtime_app(
                 return JSONResponse(
                     status_code=409,
                     content=_rejected("CONFLICT_CURSOR_STALE"),
+                )
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE"),
+            )
+        except MemoryViolation as error:
+            if error.code == "MEMORY-QUERY-NOT-FOUND":
+                return JSONResponse(
+                    status_code=404,
+                    content=_rejected("SCOPE_MEMORY_NOT_VISIBLE"),
+                )
+            if error.code == "MEMORY-CURSOR":
+                return JSONResponse(
+                    status_code=400,
+                    content=_rejected("INPUT_CURSOR_INVALID"),
                 )
             return JSONResponse(
                 status_code=503,

@@ -27,8 +27,6 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateLifeMaterialDraft,
     CandidateMaintenanceDecisionDraft,
-    CandidateMemoryDraft,
-    CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
@@ -59,6 +57,11 @@ from armi_kernel.contracts import (
     Purpose,
     SubjectId,
     TraceId,
+)
+from armi_memory.api import (
+    CandidateMemoryDraft,
+    CandidateMemoryRevisionDraft,
+    MemoryReadPort,
 )
 from armi_relationship.api import RelationshipReadPort
 
@@ -150,9 +153,14 @@ class CandidateEpisodeSnapshot:
 class PostgreSQLCandidateValidationRepository:
     """Freeze validation input and atomically preserve its result."""
 
-    __slots__ = ("_relationships",)
+    __slots__ = ("_memories", "_relationships")
 
-    def __init__(self, relationships: RelationshipReadPort) -> None:
+    def __init__(
+        self,
+        relationships: RelationshipReadPort,
+        memories: MemoryReadPort | None = None,
+    ) -> None:
+        self._memories = memories
         self._relationships = relationships
 
     async def snapshot(
@@ -357,32 +365,11 @@ class PostgreSQLCandidateValidationRepository:
                 (row[0],),
             )
         ).fetchone()
-        memory_rows = await (
-            await connection.execute(
-                """
-                SELECT memory.memory_id, memory.current_revision_id,
-                       memory.head_version,
-                       revision.source_fact_class, revision.source_kind,
-                       revision.summary, revision.uncertainty,
-                       revision.accessibility
-                FROM armi.cognitive_context_items AS item
-                JOIN armi.subjective_memories AS memory
-                  ON memory.memory_id = item.source_ref
-                 AND memory.subject_id = %s
-                 AND memory.current_revision_id IS NOT NULL
-                 AND memory.head_version = item.source_version
-                JOIN armi.subjective_memory_revisions AS revision
-                  ON revision.memory_revision_id = memory.current_revision_id
-                WHERE item.cognitive_episode_id = %s
-                  AND item.disposition = 'included'
-                  AND item.section = 'memory'
-                  AND item.item_kind = 'current_memory'
-                  AND item.source_kind = 'subjective_memory'
-                ORDER BY item.ordinal
-                """,
-                (row[2], row[0]),
-            )
-        ).fetchall()
+        if self._memories is None:
+            raise CandidateViolation("CANDIDATE-MEMORY-CONTEXT")
+        memory_rows = await self._memories.candidate_context(
+            connection, subject_id=row[2], episode_id=row[0]
+        )
         subject_party_row = await (
             await connection.execute(
                 """
@@ -529,14 +516,14 @@ class PostgreSQLCandidateValidationRepository:
             None if activity_row is None else str(activity_row[3]),
             tuple(
                 (
-                    item[0],
-                    item[1],
-                    int(item[2]),
-                    str(item[3]),
-                    str(item[4]),
-                    str(item[5]),
-                    None if item[6] is None else str(item[6]),
-                    str(item[7]),
+                    item.memory_id,
+                    item.current_revision_id,
+                    item.head_version,
+                    item.fact_class.value,
+                    item.source_kind.value,
+                    item.summary,
+                    item.uncertainty,
+                    item.accessibility.value,
                 )
                 for item in memory_rows
             ),
@@ -940,8 +927,6 @@ def _validation_drafts(
 ]:
     return (
         *change_set.experiences,
-        *change_set.memories,
-        *change_set.memory_revisions,
         *change_set.owner_drafts,
         *change_set.materials,
         *change_set.prompts,

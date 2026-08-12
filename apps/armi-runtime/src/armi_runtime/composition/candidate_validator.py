@@ -24,8 +24,6 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateLifeMaterialDraft,
     CandidateMaintenanceDecisionDraft,
-    CandidateMemoryDraft,
-    CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
@@ -53,10 +51,6 @@ from armi_kernel.application import (
     LifeRecordKind,
     MaintenancePhase,
     MaintenanceWorkOutcome,
-    MemoryAccessibility,
-    MemoryRelationKind,
-    MemoryRevisionKind,
-    MemorySourceKind,
     ModelViolation,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
@@ -65,6 +59,16 @@ from armi_kernel.application import (
     WebResearchRequestDraft,
 )
 from armi_kernel.contracts import Digest
+from armi_memory.api import (
+    CandidateMemoryDraft,
+    CandidateMemoryRevisionDraft,
+    MemoryAccessibility,
+    MemoryCognitionPort,
+    MemoryRelationKind,
+    MemoryRevisionKind,
+    MemorySourceKind,
+    default_memory_cognition,
+)
 from armi_relationship.api import (
     CandidateRelationshipDraft,
     RelationshipBoundary,
@@ -227,6 +231,7 @@ SLEEP_CHANGE_SET_VERSION = "armi.subject-change-set.v9"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v23"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
@@ -550,14 +555,16 @@ class CandidateValidationContext:
 class DeterministicCandidateValidator:
     """Validate candidate v4 into a canonical, not-yet-effective change set."""
 
-    __slots__ = ("_context", "_relationship_cognition")
+    __slots__ = ("_context", "_memory_cognition", "_relationship_cognition")
 
     def __init__(
         self,
         context: CandidateValidationContext,
+        memory_cognition: MemoryCognitionPort | None = None,
         relationship_cognition: RelationshipCognitionPort | None = None,
     ) -> None:
         self._context = context
+        self._memory_cognition = memory_cognition or default_memory_cognition()
         self._relationship_cognition = relationship_cognition
 
     def _bind_relationship(
@@ -1107,7 +1114,17 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateRelationshipDraft)
         )
-        owner_drafts = tuple(self._bind_relationship(value) for value in relationships)
+        owner_drafts = (
+            *(
+                self._memory_cognition.bind_legacy(value, revision=False)
+                for value in memories
+            ),
+            *(
+                self._memory_cognition.bind_legacy(value, revision=True)
+                for value in memory_revisions
+            ),
+            *(self._bind_relationship(value) for value in relationships),
+        )
         materials = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -1145,19 +1162,13 @@ class DeterministicCandidateValidator:
         )
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
-        change_set_version = (
+        _legacy_change_set_version = (
             EXACT_LIFE_QUERY_CHANGE_SET_VERSION
             if exact_life_queries
             else PROMPT_CHANGE_SET_VERSION
             if prompts
             else MATERIAL_CHANGE_SET_VERSION
             if materials
-            else RELATIONSHIP_CHANGE_SET_VERSION
-            if relationships
-            else MEMORY_REVISION_CHANGE_SET_VERSION
-            if memory_revisions
-            else MEMORY_CHANGE_SET_VERSION
-            if memories
             else WEB_CHANGE_SET_VERSION
             if source_version
             in {
@@ -1198,7 +1209,12 @@ class DeterministicCandidateValidator:
             if source_version == "armi.cognition-candidate.v5"
             else CHANGE_SET_VERSION
         )
-        change_set_value = {
+        change_set_version = (
+            ACTIVE_CHANGE_SET_VERSION
+            if memories or memory_revisions or relationships
+            else _legacy_change_set_version
+        )
+        change_set_value: dict[str, object] = {
             "schema_version": change_set_version,
             "subject_id": str(self._context.subject_id),
             "generation_id": str(self._context.generation_id),
@@ -1219,10 +1235,28 @@ class DeterministicCandidateValidator:
             "action_choices": [_action_wire(item) for item in action_choices],
             "rejections": [_rejection_wire(item) for item in rejections],
         }
+        if change_set_version == ACTIVE_CHANGE_SET_VERSION:
+            change_set_value.update(
+                web_research_requests=[
+                    _web_research_wire(item) for item in web_research_requests
+                ],
+                codex_delegations=[
+                    _codex_delegation_wire(item) for item in codex_delegations
+                ],
+                activities=[],
+                activity_decisions=[],
+                sleep_decisions=[],
+                owner_drafts=[_owner_draft_wire(item) for item in owner_drafts],
+                materials=[_material_wire(item) for item in materials],
+                prompts=[_prompt_wire(item) for item in prompts],
+                exact_life_queries=[
+                    _exact_life_query_wire(item) for item in exact_life_queries
+                ],
+                maintenance_decisions=[],
+            )
         if change_set_version in {
             MEMORY_CHANGE_SET_VERSION,
             MEMORY_REVISION_CHANGE_SET_VERSION,
-            RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
             EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
@@ -1230,7 +1264,6 @@ class DeterministicCandidateValidator:
             change_set_value["memories"] = [_memory_wire(item) for item in memories]
         if change_set_version in {
             MEMORY_REVISION_CHANGE_SET_VERSION,
-            RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
             EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
@@ -1238,11 +1271,7 @@ class DeterministicCandidateValidator:
             change_set_value["memory_revisions"] = [
                 _memory_revision_wire(item) for item in memory_revisions
             ]
-        if change_set_version == RELATIONSHIP_CHANGE_SET_VERSION:
-            change_set_value["owner_drafts"] = [
-                _owner_draft_wire(item) for item in owner_drafts
-            ]
-        elif change_set_version in {
+        if change_set_version in {
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
             EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
@@ -1268,7 +1297,6 @@ class DeterministicCandidateValidator:
         if change_set_version in {
             MEMORY_CHANGE_SET_VERSION,
             MEMORY_REVISION_CHANGE_SET_VERSION,
-            RELATIONSHIP_CHANGE_SET_VERSION,
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
             EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
@@ -1291,7 +1319,6 @@ class DeterministicCandidateValidator:
             in {
                 MEMORY_CHANGE_SET_VERSION,
                 MEMORY_REVISION_CHANGE_SET_VERSION,
-                RELATIONSHIP_CHANGE_SET_VERSION,
                 MATERIAL_CHANGE_SET_VERSION,
                 PROMPT_CHANGE_SET_VERSION,
                 EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
@@ -1327,29 +1354,6 @@ class DeterministicCandidateValidator:
             change_set_value["codex_delegations"] = [
                 _codex_delegation_wire(item) for item in codex_delegations
             ]
-        if change_set_version == RELATIONSHIP_CHANGE_SET_VERSION:
-            v22_arrays: dict[str, list[object]] = {
-                "web_research_requests": [
-                    _web_research_wire(item) for item in web_research_requests
-                ],
-                "codex_delegations": [
-                    _codex_delegation_wire(item) for item in codex_delegations
-                ],
-                "activities": [],
-                "activity_decisions": [],
-                "memories": [_memory_wire(item) for item in memories],
-                "memory_revisions": [
-                    _memory_revision_wire(item) for item in memory_revisions
-                ],
-                "materials": [_material_wire(item) for item in materials],
-                "prompts": [_prompt_wire(item) for item in prompts],
-                "exact_life_queries": [
-                    _exact_life_query_wire(item) for item in exact_life_queries
-                ],
-                "maintenance_decisions": [],
-            }
-            for key, encoded in v22_arrays.items():
-                change_set_value.setdefault(key, encoded)
         canonical = rfc8785.dumps(cast(Any, change_set_value))
         change_set = SubjectChangeSet(
             canonical,
@@ -1369,8 +1373,6 @@ class DeterministicCandidateValidator:
             web_research_requests,
             rejections,
             codex_delegations,
-            memories=memories,
-            memory_revisions=memory_revisions,
             owner_drafts=owner_drafts,
             materials=materials,
             prompts=prompts,
@@ -1510,8 +1512,13 @@ class DeterministicCandidateValidator:
                     self._context.other_party_id,
                 ),
             )
-        value = {
-            "schema_version": OTHER_HUMAN_CHANGE_SET_VERSION,
+        change_set_version = (
+            ACTIVE_CHANGE_SET_VERSION
+            if relationship is not None
+            else OTHER_HUMAN_CHANGE_SET_VERSION
+        )
+        value: dict[str, object] = {
+            "schema_version": change_set_version,
             "subject_id": str(self._context.subject_id),
             "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
@@ -1531,8 +1538,6 @@ class DeterministicCandidateValidator:
             "codex_delegations": [],
             "activities": [],
             "activity_decisions": [],
-            "memories": [],
-            "memory_revisions": [],
             "owner_drafts": (
                 []
                 if relationship is None
@@ -1544,6 +1549,11 @@ class DeterministicCandidateValidator:
             "maintenance_decisions": [],
             "rejections": [],
         }
+        if change_set_version == ACTIVE_CHANGE_SET_VERSION:
+            value["sleep_decisions"] = []
+        else:
+            value["memories"] = []
+            value["memory_revisions"] = []
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
             canonical,
@@ -2116,8 +2126,13 @@ class DeterministicCandidateValidator:
             creator_problem,
             memory_ref,
         )
+        memory_owner_drafts = (
+            ()
+            if memory_revision is None
+            else (self._memory_cognition.bind_legacy(memory_revision, revision=True),)
+        )
         value = {
-            "schema_version": MAINTENANCE_CHANGE_SET_VERSION,
+            "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
             "generation_id": str(context.generation_id),
             "episode_id": str(context.episode_id),
@@ -2137,13 +2152,8 @@ class DeterministicCandidateValidator:
             "codex_delegations": [],
             "activities": [],
             "activity_decisions": [],
-            "memories": [],
-            "memory_revisions": (
-                []
-                if memory_revision is None
-                else [_memory_revision_wire(memory_revision)]
-            ),
-            "relationships": [],
+            "sleep_decisions": [],
+            "owner_drafts": [_owner_draft_wire(item) for item in memory_owner_drafts],
             "materials": [],
             "prompts": [],
             "exact_life_queries": [],
@@ -2168,7 +2178,7 @@ class DeterministicCandidateValidator:
             action_choices=(),
             web_research_requests=(),
             rejections=(),
-            memory_revisions=(() if memory_revision is None else (memory_revision,)),
+            owner_drafts=memory_owner_drafts,
             maintenance_decisions=(decision,),
         )
         return CandidateValidationResult(
@@ -2206,11 +2216,12 @@ def _recover_dialogue_expression(
     context: CandidateValidationContext,
 ) -> tuple[CognitionCandidateV7 | None, DialogueBoundChanges | None]:
     owner = _optional_dialogue_failure_owner(source, error_code)
-    if owner is None or not hasattr(source, "content"):
+    content = getattr(source, "content", None)
+    if owner is None or type(content) is not str:
         return None, None
     try:
         expression = parse_dialogue_candidate(
-            {"kind": "reply", "content": source.content},
+            {"kind": "reply", "content": content},
             version=source.schema_version,
         )
     except ValidationError, ValueError:
@@ -2239,7 +2250,9 @@ def _recover_dialogue_expression(
         owner,
         cast(str, error_code),
     )
-    return candidate, replace(bound, rejections=(rejection,))
+    return cast(CognitionCandidateV7, candidate), replace(
+        bound, rejections=(rejection,)
+    )
 
 
 def _optional_dialogue_failure_owner(

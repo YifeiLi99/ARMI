@@ -26,7 +26,6 @@ from armi_kernel.application import (
     CandidateExactLifeQueryDraft,
     CandidateLifeMaterialDraft,
     CandidateMaintenanceDecisionDraft,
-    CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateSleepDecisionDraft,
     CapabilityRequestDraft,
@@ -58,6 +57,10 @@ from armi_kernel.contracts import (
     Purpose,
     SubjectId,
     TraceId,
+)
+from armi_memory.api import (
+    MemoryCommitPort,
+    MemoryViolation,
 )
 from armi_relationship.api import (
     RelationshipCommitPort,
@@ -108,14 +111,21 @@ class SubjectCommitSnapshot:
 class PostgreSQLSubjectCommitRepository:
     """Read one validated ChangeSet and atomically apply or settle it."""
 
-    __slots__ = ("_relationship_commit", "_relationship_policy", "_relationships")
+    __slots__ = (
+        "_memory_commit",
+        "_relationship_commit",
+        "_relationship_policy",
+        "_relationships",
+    )
 
     def __init__(
         self,
+        memory_commit: MemoryCommitPort,
         relationship_commit: RelationshipCommitPort,
         relationship_read: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
     ) -> None:
+        self._memory_commit = memory_commit
         self._relationship_commit = relationship_commit
         self._relationships = relationship_read
         self._relationship_policy = relationship_policy
@@ -303,19 +313,9 @@ class PostgreSQLSubjectCommitRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         validation_id: UUID,
     ) -> tuple[UUID, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        rows = await (
-            await connection.execute(
-                """
-                SELECT memory_id
-                FROM armi.subjective_memory_revisions
-                WHERE candidate_validation_id = %s
-                ORDER BY memory_id
-                """,
-                (validation_id,),
-            )
-        ).fetchall()
-        return tuple(UUID(str(row[0])) for row in rows)
+        return await self._memory_commit.affected_memory_ids(
+            unit_of_work.transaction, validation_id
+        )
 
     async def affected_material_ids(
         self,
@@ -521,8 +521,10 @@ class PostgreSQLSubjectCommitRepository:
         if subject is None:
             raise SubjectCommitViolation("SUBJECT-IDENTITY")
         heads = await _lock_heads(connection, snapshot.subject_id, change_set)
-        memory_heads = await _lock_memory_heads(
-            connection, snapshot.subject_id, change_set
+        memory_heads_current = await self._memory_commit.heads_match(
+            unit_of_work.transaction,
+            subject_id=snapshot.subject_id,
+            drafts=change_set.owner_drafts,
         )
         material_heads = await _lock_material_heads(connection, change_set)
         prompt_heads = await lock_subject_prompt_heads(
@@ -536,11 +538,7 @@ class PostgreSQLSubjectCommitRepository:
             or subject[2] != change_set.generation_id
             or subject[3] != change_set.bundle_activation_id
             or _component_heads_are_stale(heads, change_set)
-            or any(
-                memory_heads.get(memory.memory_id)
-                != (memory.current_revision_id, memory.expected_head_version)
-                for memory in change_set.memory_revisions
-            )
+            or not memory_heads_current
             or any(
                 material_heads.get(material.material_id)
                 != (
@@ -620,8 +618,6 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.activities
             and not change_set.activity_decisions
             and not change_set.sleep_decisions
-            and not change_set.memories
-            and not change_set.memory_revisions
             and not change_set.owner_drafts
             and not change_set.materials
             and not change_set.prompts
@@ -725,64 +721,22 @@ class PostgreSQLSubjectCommitRepository:
                     (experience_id.value, evidence_id, context_item_id, ordinal),
                 )
 
-        experience_by_ref = {item.proposal_ref: item for item in change_set.experiences}
-        for memory in change_set.memories:
-            source_experience_id = experience_ids.get(memory.source_experience_ref)
-            source_experience = experience_by_ref.get(memory.source_experience_ref)
-            if source_experience_id is None or source_experience is None:
-                raise SubjectCommitViolation("SUBJECT-MEMORY-SOURCE")
-            memory_id = uuid7()
-            revision_id = uuid7()
-            await connection.execute(
-                """
-                INSERT INTO armi.subjective_memories (
-                    memory_id, subject_id, life_generation_id,
-                    current_revision_id, head_version
-                ) VALUES (%s, %s, %s, %s, 1)
-                """,
-                (
-                    memory_id,
-                    snapshot.subject_id,
-                    snapshot.generation_id,
-                    revision_id,
-                ),
+        try:
+            committed_memory_ids = await self._memory_commit.commit(
+                unit_of_work.transaction,
+                subject_id=snapshot.subject_id,
+                generation_id=snapshot.generation_id,
+                commit_id=commit_id.value,
+                validation_id=snapshot.validation_id,
+                drafts=change_set.owner_drafts,
+                experience_ids={
+                    key: value.value for key, value in experience_ids.items()
+                },
             )
-            await connection.execute(
-                """
-                INSERT INTO armi.subjective_memory_revisions (
-                    memory_revision_id, memory_id, revision_no,
-                    previous_revision_id, subject_commit_id,
-                    candidate_validation_id, proposal_ref,
-                    source_experience_id, source_kind, source_fact_class,
-                    summary, uncertainty, revision_kind, accessibility,
-                    mechanism_identity, mechanism_config_identity,
-                    privacy_scope
-                ) VALUES (
-                    %s, %s, 1, NULL, %s, %s, %s, %s, %s, %s,
-                    %s, %s, 'formed', 'available', %s, 'formation-v1', 'private'
-                )
-                """,
-                (
-                    revision_id,
-                    memory_id,
-                    commit_id.value,
-                    snapshot.validation_id,
-                    memory.proposal_ref,
-                    source_experience_id.value,
-                    memory.source_kind.value,
-                    memory.fact_class.value,
-                    memory.summary,
-                    source_experience.uncertainty,
-                    memory.mechanism_identity,
-                ),
-            )
-
-        await _apply_memory_revisions(
-            connection,
-            snapshot=snapshot,
-            commit_id=commit_id,
-            revisions=change_set.memory_revisions,
-        )
+        except MemoryViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code.removeprefix('MEMORY-')}"
+            ) from None
 
         try:
             await self._relationship_commit.commit(
@@ -1010,7 +964,7 @@ class PostgreSQLSubjectCommitRepository:
             application_id=application_id,
             commit_id=commit_id,
             decisions=change_set.maintenance_decisions,
-            memory_revisions=change_set.memory_revisions,
+            committed_memory_ids=committed_memory_ids,
         )
         if snapshot.scene_id is not None:
             timeline_item_id = uuid7()
@@ -1456,33 +1410,6 @@ def _component_heads_are_stale(
     )
 
 
-async def _lock_memory_heads(
-    connection: Any,
-    subject_id: UUID,
-    change_set: SubjectChangeSet,
-) -> dict[UUID, tuple[UUID, int]]:
-    result: dict[UUID, tuple[UUID, int]] = {}
-    for memory_id in sorted(
-        {item.memory_id for item in change_set.memory_revisions},
-        key=str,
-    ):
-        row = await (
-            await connection.execute(
-                """
-                SELECT current_revision_id, head_version
-                FROM armi.subjective_memories
-                WHERE memory_id = %s AND subject_id = %s
-                FOR UPDATE
-                """,
-                (memory_id, subject_id),
-            )
-        ).fetchone()
-        if row is None:
-            raise SubjectCommitViolation("SUBJECT-MEMORY-HEAD-MISSING")
-        result[memory_id] = (row[0], int(row[1]))
-    return result
-
-
 async def _lock_material_heads(
     connection: Any,
     change_set: SubjectChangeSet,
@@ -1541,177 +1468,6 @@ async def _lock_material_heads(
             )
         )
     return result
-
-
-async def _apply_memory_revisions(
-    connection: Any,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    revisions: tuple[CandidateMemoryRevisionDraft, ...],
-) -> None:
-    for revision in revisions:
-        validation = await (
-            await connection.execute(
-                """
-                SELECT 1
-                FROM armi.cognitive_candidate_validation_items
-                WHERE candidate_validation_id = %s
-                  AND proposal_ref = %s
-                  AND owner_kind = 'memory'
-                  AND validation_status = 'accepted'
-                """,
-                (snapshot.validation_id, revision.proposal_ref),
-            )
-        ).fetchone()
-        if validation is None:
-            raise SubjectCommitViolation("SUBJECT-MEMORY-VALIDATION")
-        row = await (
-            await connection.execute(
-                """
-                SELECT memory.current_revision_id, memory.head_version,
-                       current.revision_no, current.source_experience_id,
-                       current.source_kind, current.source_fact_class,
-                       current.accessibility
-                FROM armi.subjective_memories AS memory
-                JOIN armi.subjective_memory_revisions AS current
-                  ON current.memory_revision_id = memory.current_revision_id
-                WHERE memory.memory_id = %s
-                  AND memory.subject_id = %s
-                  AND memory.life_generation_id = %s
-                FOR UPDATE OF memory
-                """,
-                (
-                    revision.memory_id,
-                    snapshot.subject_id,
-                    snapshot.generation_id,
-                ),
-            )
-        ).fetchone()
-        if (
-            row is None
-            or row[0] != revision.current_revision_id
-            or int(row[1]) != revision.expected_head_version
-            or str(row[4]) != revision.source_kind.value
-            or str(row[5]) != revision.fact_class.value
-        ):
-            raise SubjectCommitViolation("SUBJECT-MEMORY-HEAD-STALE")
-        current_accessibility = str(row[6])
-        allowed = {
-            "available": {"recalled", "faded", "forgotten", "reinterpreted"},
-            "faded": {"recalled", "forgotten", "reinterpreted"},
-        }
-        if revision.revision_kind.value not in allowed.get(
-            current_accessibility, set()
-        ):
-            raise SubjectCommitViolation("SUBJECT-MEMORY-TRANSITION")
-        if (
-            revision.revision_kind.value == "reinterpreted"
-            and revision.accessibility.value != current_accessibility
-        ):
-            raise SubjectCommitViolation("SUBJECT-MEMORY-TRANSITION")
-
-        next_revision_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.subjective_memory_revisions (
-                memory_revision_id, memory_id, revision_no,
-                previous_revision_id, subject_commit_id,
-                candidate_validation_id, proposal_ref,
-                source_experience_id, source_kind, source_fact_class,
-                summary, uncertainty, revision_kind, accessibility,
-                mechanism_identity, mechanism_config_identity, privacy_scope
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, 'private'
-            )
-            """,
-            (
-                next_revision_id,
-                revision.memory_id,
-                int(row[2]) + 1,
-                revision.current_revision_id,
-                commit_id.value,
-                snapshot.validation_id,
-                revision.proposal_ref,
-                row[3],
-                revision.source_kind.value,
-                revision.fact_class.value,
-                revision.summary,
-                revision.uncertainty,
-                revision.revision_kind.value,
-                revision.accessibility.value,
-                revision.mechanism_identity,
-                revision.mechanism_config_identity,
-            ),
-        )
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.subjective_memories
-                SET current_revision_id = %s, head_version = head_version + 1
-                WHERE memory_id = %s
-                  AND current_revision_id = %s
-                  AND head_version = %s
-                RETURNING memory_id
-                """,
-                (
-                    next_revision_id,
-                    revision.memory_id,
-                    revision.current_revision_id,
-                    revision.expected_head_version,
-                ),
-            )
-        ).fetchone()
-        if updated is None:
-            raise SubjectCommitViolation("SUBJECT-MEMORY-HEAD-STALE")
-        if revision.accessibility.value == "forgotten":
-            await connection.execute(
-                """
-                DELETE FROM armi.context_embedding_projections
-                WHERE source_kind = 'subjective_memory' AND source_ref = %s
-                """,
-                (revision.memory_id,),
-            )
-
-        if revision.related_memory_id is not None:
-            related = await (
-                await connection.execute(
-                    """
-                    SELECT 1
-                    FROM armi.subjective_memories
-                    WHERE memory_id = %s
-                      AND subject_id = %s
-                      AND life_generation_id = %s
-                    """,
-                    (
-                        revision.related_memory_id,
-                        snapshot.subject_id,
-                        snapshot.generation_id,
-                    ),
-                )
-            ).fetchone()
-            if related is None or revision.relation_kind is None:
-                raise SubjectCommitViolation("SUBJECT-MEMORY-RELATION")
-            await connection.execute(
-                """
-                INSERT INTO armi.memory_relations (
-                    memory_relation_id, from_memory_id,
-                    from_memory_revision_id, to_memory_id, relation_kind,
-                    subject_commit_id, candidate_validation_id, proposal_ref
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    uuid7(),
-                    revision.memory_id,
-                    next_revision_id,
-                    revision.related_memory_id,
-                    revision.relation_kind.value,
-                    commit_id.value,
-                    snapshot.validation_id,
-                    revision.proposal_ref,
-                ),
-            )
 
 
 async def _evidence_links(
@@ -2361,11 +2117,11 @@ async def _insert_maintenance_phase_result(
     application_id: CandidateApplicationId,
     commit_id: SubjectCommitId,
     decisions: tuple[CandidateMaintenanceDecisionDraft, ...],
-    memory_revisions: tuple[CandidateMemoryRevisionDraft, ...],
+    committed_memory_ids: tuple[UUID, ...],
 ) -> None:
     if not decisions:
         return
-    if len(decisions) != 1 or len(memory_revisions) > 1:
+    if len(decisions) != 1 or len(committed_memory_ids) > 1:
         raise SubjectCommitViolation("SUBJECT-MAINTENANCE-SHAPE")
     decision = decisions[0]
     validation = await (
@@ -2385,17 +2141,9 @@ async def _insert_maintenance_phase_result(
         raise SubjectCommitViolation("SUBJECT-MAINTENANCE-VALIDATION")
     memory_id = None
     if decision.memory_proposal_ref is not None:
-        revision = next(
-            (
-                item
-                for item in memory_revisions
-                if item.proposal_ref == decision.memory_proposal_ref
-            ),
-            None,
-        )
-        if revision is None:
+        if len(committed_memory_ids) != 1:
             raise SubjectCommitViolation("SUBJECT-MAINTENANCE-MEMORY")
-        memory_id = revision.memory_id
+        memory_id = committed_memory_ids[0]
     await connection.execute(
         """
         INSERT INTO armi.maintenance_phase_results (

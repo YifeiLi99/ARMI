@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from itertools import pairwise
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -17,6 +18,7 @@ from armi_kernel.application import (
     WorkPayloadRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
+from armi_memory.api import MemoryProjectionPort
 
 from .context import ContextMaterialSource
 from .unit_of_work import PostgreSQLUnitOfWork
@@ -47,44 +49,18 @@ class RecalledContext:
 
 
 class PostgreSQLContextEmbeddingRepository:
+    def __init__(self, memories: MemoryProjectionPort) -> None:
+        self._memories = memories
+
     async def enqueue_one_missing(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
     ) -> bool:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        row = await (
+        raw_row = await (
             await connection.execute(
                 """
                 WITH candidates AS (
-                  SELECT memory.subject_id, memory.life_generation_id,
-                         'subjective_memory'::text AS source_kind,
-                         memory.memory_id AS source_ref,
-                         memory.head_version AS source_version
-                  FROM armi.subjective_memories AS memory
-                  JOIN armi.subjective_memory_revisions AS revision
-                    ON revision.memory_revision_id = memory.current_revision_id
-                  WHERE revision.accessibility IN ('available','faded')
-                    AND NOT EXISTS (
-                      SELECT 1 FROM armi.deletion_items AS deletion_item
-                      WHERE deletion_item.target_kind='memory'
-                        AND deletion_item.target_ref=memory.memory_id
-                        AND deletion_item.result_status IN ('completed','partial')
-                    )
-                    AND NOT EXISTS (
-                      SELECT 1 FROM armi.context_embedding_projections AS projection
-                      WHERE projection.source_kind = 'subjective_memory'
-                        AND projection.source_ref = memory.memory_id
-                        AND projection.source_version = memory.head_version
-                        AND projection.model_binding = %s
-                    )
-                    AND NOT EXISTS (
-                      SELECT 1 FROM armi.durable_work AS work
-                      WHERE work.owner_kind = 'subjective_memory'
-                        AND work.owner_ref = memory.memory_id
-                        AND work.work_kind = %s
-                        AND work.status IN ('ready','leased')
-                    )
-                  UNION ALL
                   SELECT material.subject_id, material.life_generation_id,
                          'life_material'::text, material.life_material_id,
                          material.head_version
@@ -117,11 +93,30 @@ class PostgreSQLContextEmbeddingRepository:
                 (
                     _EMBEDDING_BINDING_ID,
                     _WORK_KIND,
-                    _EMBEDDING_BINDING_ID,
-                    _WORK_KIND,
                 ),
             )
         ).fetchone()
+        row = cast(
+            tuple[UUID, UUID, str, UUID, int, datetime] | None,
+            raw_row,
+        )
+        memory = await self._memories.next_missing_source(
+            unit_of_work.transaction, model_binding=_EMBEDDING_BINDING_ID
+        )
+        if memory is not None:
+            timestamp = await (
+                await connection.execute("SELECT statement_timestamp()")
+            ).fetchone()
+            if timestamp is None:
+                return False
+            row = (
+                memory.subject_id,
+                memory.generation_id,
+                "subjective_memory",
+                memory.memory_id,
+                memory.head_version,
+                cast(datetime, timestamp[0]),
+            )
         if row is None:
             return False
         digest = Digest.from_bytes(
@@ -173,24 +168,16 @@ class PostgreSQLContextEmbeddingRepository:
         if work is None:
             return None
         if work[0] == "subjective_memory":
-            row = await (
-                await connection.execute(
-                    """
-                    SELECT memory.subject_id, memory.life_generation_id,
-                           memory.memory_id, memory.head_version, revision.summary
-                    FROM armi.subjective_memories AS memory
-                    JOIN armi.subjective_memory_revisions AS revision
-                      ON revision.memory_revision_id = memory.current_revision_id
-                    WHERE memory.memory_id = %s
-                      AND revision.accessibility IN ('available','faded')
-                    """,
-                    (work[1],),
-                )
-            ).fetchone()
-            if row is None:
+            memory = await self._memories.load_source(unit_of_work.transaction, work[1])
+            if memory is None:
                 return None
             return EmbeddingProjectionSource(
-                row[0], row[1], "subjective_memory", row[2], int(row[3]), str(row[4])
+                memory.subject_id,
+                memory.generation_id,
+                "subjective_memory",
+                memory.memory_id,
+                memory.head_version,
+                memory.text,
             )
         row = await (
             await connection.execute(
@@ -395,13 +382,7 @@ class PostgreSQLContextEmbeddingRepository:
                        1 - (projection.embedding OPERATOR(armi_extensions.<=>)
                             %s::armi_extensions.vector) AS similarity
                 FROM armi.context_embedding_projections AS projection
-                LEFT JOIN armi.subjective_memories AS memory
-                  ON projection.source_kind='subjective_memory'
-                 AND memory.memory_id=projection.source_ref
-                 AND memory.head_version=projection.source_version
-                LEFT JOIN armi.subjective_memory_revisions AS memory_revision
-                  ON memory_revision.memory_revision_id=memory.current_revision_id
-                LEFT JOIN armi.life_materials AS material
+                JOIN armi.life_materials AS material
                   ON projection.source_kind='life_material'
                  AND material.life_material_id=projection.source_ref
                  AND material.head_version=projection.source_version
@@ -409,17 +390,7 @@ class PostgreSQLContextEmbeddingRepository:
                 WHERE projection.subject_id=%s
                   AND projection.life_generation_id=%s
                   AND projection.model_binding=%s
-                  AND (
-                    (projection.source_kind='subjective_memory'
-                     AND memory_revision.accessibility IN ('available','faded')
-                     AND NOT EXISTS (
-                       SELECT 1 FROM armi.deletion_items AS deletion_item
-                       WHERE deletion_item.target_kind='memory'
-                         AND deletion_item.target_ref=memory.memory_id
-                         AND deletion_item.result_status IN ('completed','partial')))
-                    OR (projection.source_kind='life_material'
-                        AND material.life_material_id IS NOT NULL)
-                  )
+                  AND material.life_material_id IS NOT NULL
                   AND 1 - (projection.embedding OPERATOR(armi_extensions.<=>)
                            %s::armi_extensions.vector) >= %s
                 ORDER BY similarity DESC, projection.source_ref,
@@ -440,23 +411,6 @@ class PostgreSQLContextEmbeddingRepository:
             await connection.execute(
                 """
                 SELECT EXISTS (
-                  SELECT 1 FROM armi.subjective_memories AS memory
-                  JOIN armi.subjective_memory_revisions AS revision
-                    ON revision.memory_revision_id=memory.current_revision_id
-                  WHERE memory.subject_id=%s AND memory.life_generation_id=%s
-                    AND revision.accessibility IN ('available','faded')
-                    AND NOT EXISTS (
-                      SELECT 1 FROM armi.deletion_items AS deletion_item
-                      WHERE deletion_item.target_kind='memory'
-                        AND deletion_item.target_ref=memory.memory_id
-                        AND deletion_item.result_status IN ('completed','partial'))
-                    AND NOT EXISTS (
-                      SELECT 1 FROM armi.context_embedding_projections AS projection
-                      WHERE projection.source_kind='subjective_memory'
-                        AND projection.source_ref=memory.memory_id
-                        AND projection.source_version=memory.head_version
-                        AND projection.model_binding=%s))
-                OR EXISTS (
                   SELECT 1 FROM armi.life_materials AS material
                   WHERE material.subject_id=%s AND material.life_generation_id=%s
                     AND material.deleted_at IS NULL
@@ -471,23 +425,25 @@ class PostgreSQLContextEmbeddingRepository:
                     subject_id,
                     life_generation_id,
                     _EMBEDDING_BINDING_ID,
-                    subject_id,
-                    life_generation_id,
-                    _EMBEDDING_BINDING_ID,
                 ),
             )
         ).fetchone()
-        memory_values: list[tuple[UUID, int, str, float]] = []
+        recalled_memories = await self._memories.recall(
+            unit_of_work.transaction,
+            subject_id=subject_id,
+            generation_id=life_generation_id,
+            model_binding=_EMBEDDING_BINDING_ID,
+            query_vector=query_vector,
+            minimum_similarity=_RECALL_MIN_SIMILARITY,
+            limit=_RECALL_MEMORY_LIMIT,
+        )
+        memory_values = list(recalled_memories.items)
         material_groups: dict[UUID, list[tuple[int, str, float, int]]] = {}
-        for source_kind, source_ref, version, ordinal, text, similarity in rows:
+        for _source_kind, source_ref, version, ordinal, text, similarity in rows:
             score = float(similarity)
-            if source_kind == "subjective_memory":
-                if all(item[0] != source_ref for item in memory_values):
-                    memory_values.append((source_ref, int(version), str(text), score))
-            else:
-                material_groups.setdefault(source_ref, []).append(
-                    (int(ordinal), str(text), score, int(version))
-                )
+            material_groups.setdefault(source_ref, []).append(
+                (int(ordinal), str(text), score, int(version))
+            )
         memory_values = memory_values[:_RECALL_MEMORY_LIMIT]
         material_values: list[tuple[UUID, int, str, float]] = []
         ordered_groups = sorted(
@@ -509,13 +465,13 @@ class PostgreSQLContextEmbeddingRepository:
         if not memory_values and not material_values:
             status = (
                 RecallStatus.PARTIAL
-                if bool(missing and missing[0])
+                if bool(missing and missing[0]) or recalled_memories.missing_projection
                 else RecallStatus.NO_RELEVANT_RESULT
             )
         else:
             status = (
                 RecallStatus.PARTIAL
-                if bool(missing and missing[0])
+                if bool(missing and missing[0]) or recalled_memories.missing_projection
                 else RecallStatus.COMPLETE
             )
         return RecalledContext(status, tuple(memory_values), tuple(material_values))

@@ -46,33 +46,6 @@ class CandidateFactClass(StrEnum):
     UNKNOWN = "unknown"
 
 
-class MemorySourceKind(StrEnum):
-    EXPERIENCED = "experienced"
-    REPORTED = "reported"
-    INFERRED = "inferred"
-    QUERIED = "queried"
-    UNKNOWN = "unknown"
-
-
-class MemoryAccessibility(StrEnum):
-    AVAILABLE = "available"
-    FADED = "faded"
-    FORGOTTEN = "forgotten"
-
-
-class MemoryRevisionKind(StrEnum):
-    RECALLED = "recalled"
-    FADED = "faded"
-    FORGOTTEN = "forgotten"
-    REINTERPRETED = "reinterpreted"
-
-
-class MemoryRelationKind(StrEnum):
-    SUPPORTS = "supports"
-    CONTRADICTS = "contradicts"
-    REINTERPRETS = "reinterprets"
-
-
 class CandidateOwner(StrEnum):
     EXPERIENCE = "experience"
     SELF = "self"
@@ -190,111 +163,6 @@ class CandidateExperienceDraft:
             or self.privacy_scope != "private"
         ):
             raise CandidateViolation("CON-CANDIDATE-EXPERIENCE")
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateMemoryDraft:
-    proposal_ref: str
-    atomic_group_ref: str
-    basis_ordinals: tuple[int, ...]
-    fact_class: CandidateFactClass
-    source_experience_ref: str
-    source_kind: MemorySourceKind
-    summary: str
-    mechanism_identity: str = "armi.memory-formation.contextual-v1"
-    privacy_scope: str = "private"
-
-    def __post_init__(self) -> None:
-        _validate_proposal(
-            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
-        )
-        if (
-            type(self.fact_class) is not CandidateFactClass
-            or type(self.source_experience_ref) is not str
-            or _REF.fullmatch(self.source_experience_ref) is None
-            or self.source_experience_ref == self.proposal_ref
-            or type(self.source_kind) is not MemorySourceKind
-            or type(self.summary) is not str
-            or not 1 <= len(self.summary) <= 512
-            or not _optional_text(self.summary, 2048)
-            or not _memory_source_supported(self.source_kind, self.fact_class)
-            or self.mechanism_identity != "armi.memory-formation.contextual-v1"
-            or self.privacy_scope != "private"
-        ):
-            raise CandidateViolation("CON-CANDIDATE-MEMORY")
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateMemoryRevisionDraft:
-    proposal_ref: str
-    atomic_group_ref: str
-    basis_ordinals: tuple[int, ...]
-    fact_class: CandidateFactClass
-    memory_id: UUID
-    current_revision_id: UUID
-    expected_head_version: int
-    revision_kind: MemoryRevisionKind
-    accessibility: MemoryAccessibility
-    source_kind: MemorySourceKind
-    summary: str
-    uncertainty: str | None
-    related_memory_id: UUID | None = None
-    relation_kind: MemoryRelationKind | None = None
-    mechanism_identity: str = "armi.memory-revision.contextual-v1"
-    mechanism_config_identity: str = "natural-dialogue-v1"
-    privacy_scope: str = "private"
-
-    def __post_init__(self) -> None:
-        _validate_proposal(
-            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
-        )
-        if (
-            type(self.fact_class) is not CandidateFactClass
-            or any(
-                type(value) is not UUID or value.version != 7
-                for value in (self.memory_id, self.current_revision_id)
-            )
-            or type(self.expected_head_version) is not int
-            or self.expected_head_version <= 0
-            or type(self.revision_kind) is not MemoryRevisionKind
-            or type(self.accessibility) is not MemoryAccessibility
-            or type(self.source_kind) is not MemorySourceKind
-            or len(self.summary) > 512
-            or not _optional_text(self.summary, 2048)
-            or (self.uncertainty is not None and len(self.uncertainty) > 512)
-            or not _optional_text(self.uncertainty, 2048)
-            or self.mechanism_identity != "armi.memory-revision.contextual-v1"
-            or self.mechanism_config_identity
-            not in {"natural-dialogue-v1", "sleep-maintenance-v1"}
-            or self.privacy_scope != "private"
-        ):
-            raise CandidateViolation("CON-CANDIDATE-MEMORY-REVISION")
-        if self.revision_kind is MemoryRevisionKind.RECALLED:
-            expected_accessibility = MemoryAccessibility.AVAILABLE
-        elif self.revision_kind is MemoryRevisionKind.FADED:
-            expected_accessibility = MemoryAccessibility.FADED
-        elif self.revision_kind is MemoryRevisionKind.FORGOTTEN:
-            expected_accessibility = MemoryAccessibility.FORGOTTEN
-        else:
-            expected_accessibility = self.accessibility
-        if self.accessibility is not expected_accessibility or (
-            self.revision_kind is MemoryRevisionKind.REINTERPRETED
-            and self.accessibility is MemoryAccessibility.FORGOTTEN
-        ):
-            raise CandidateViolation("CON-CANDIDATE-MEMORY-REVISION-SHAPE")
-        relation_values = (self.related_memory_id, self.relation_kind)
-        if any(value is not None for value in relation_values) and not all(
-            value is not None for value in relation_values
-        ):
-            raise CandidateViolation("CON-CANDIDATE-MEMORY-RELATION")
-        if self.related_memory_id is not None and (
-            type(self.related_memory_id) is not UUID
-            or self.related_memory_id.version != 7
-            or self.related_memory_id == self.memory_id
-            or self.revision_kind is not MemoryRevisionKind.REINTERPRETED
-            or type(self.relation_kind) is not MemoryRelationKind
-        ):
-            raise CandidateViolation("CON-CANDIDATE-MEMORY-RELATION")
 
 
 @dataclass(frozen=True, slots=True)
@@ -698,8 +566,6 @@ class SubjectChangeSet:
     activities: tuple[CandidateActivityDraft, ...] = ()
     activity_decisions: tuple[CandidateActivityDecisionDraft, ...] = ()
     sleep_decisions: tuple[CandidateSleepDecisionDraft, ...] = ()
-    memories: tuple[CandidateMemoryDraft, ...] = ()
-    memory_revisions: tuple[CandidateMemoryRevisionDraft, ...] = ()
     owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
     materials: tuple[CandidateLifeMaterialDraft, ...] = ()
     prompts: tuple[CandidateSubjectPromptDraft, ...] = ()
@@ -805,29 +671,6 @@ def _optional_text(value: str | None, maximum: int) -> bool:
         return False
 
 
-def _memory_source_supported(
-    source_kind: MemorySourceKind,
-    fact_class: CandidateFactClass,
-) -> bool:
-    return (
-        fact_class
-        in {
-            MemorySourceKind.EXPERIENCED: {
-                CandidateFactClass.OBJECTIVE_FACT,
-                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-            },
-            MemorySourceKind.REPORTED: {CandidateFactClass.EXTERNAL_CLAIM},
-            MemorySourceKind.INFERRED: {CandidateFactClass.INFERENCE},
-            MemorySourceKind.QUERIED: {
-                CandidateFactClass.OBJECTIVE_FACT,
-                CandidateFactClass.EXTERNAL_CLAIM,
-                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-            },
-            MemorySourceKind.UNKNOWN: {CandidateFactClass.UNKNOWN},
-        }[source_kind]
-    )
-
-
 __all__ = (
     "CandidateActivityDecisionDraft",
     "CandidateActivityDraft",
@@ -839,8 +682,6 @@ __all__ = (
     "CandidateFactClass",
     "CandidateLifeMaterialDraft",
     "CandidateMaintenanceDecisionDraft",
-    "CandidateMemoryDraft",
-    "CandidateMemoryRevisionDraft",
     "CandidateOwner",
     "CandidateOwnerDraft",
     "CandidateRejection",
@@ -851,9 +692,5 @@ __all__ = (
     "CandidateValidationStatus",
     "CandidateValidator",
     "CandidateViolation",
-    "MemoryAccessibility",
-    "MemoryRelationKind",
-    "MemoryRevisionKind",
-    "MemorySourceKind",
     "SubjectChangeSet",
 )

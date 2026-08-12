@@ -5,8 +5,6 @@ from uuid import uuid7
 
 import pytest
 from armi_kernel.application import (
-    CreatorMemoryItem,
-    CreatorMemoryPage,
     LifeRecordActor,
     LifeRecordItem,
     LifeRecordKind,
@@ -15,11 +13,13 @@ from armi_kernel.application import (
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
 )
-from armi_kernel.application.life_records import (
+from armi_kernel.contracts import Instant, OpaqueCursor
+from armi_memory.api import (
+    CreatorMemoryItem,
+    CreatorMemoryPage,
     MemoryAccessibility,
     MemoryRevisionKind,
 )
-from armi_kernel.contracts import Instant, OpaqueCursor
 from armi_runtime.adapters.persistence.life_records import LifeRecordCursorCodec
 
 

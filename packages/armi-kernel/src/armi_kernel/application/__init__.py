@@ -41,8 +41,6 @@ from .candidates import (
     CandidateExperienceDraft,
     CandidateFactClass,
     CandidateMaintenanceDecisionDraft,
-    CandidateMemoryDraft,
-    CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
@@ -53,10 +51,6 @@ from .candidates import (
     CandidateValidationStatus,
     CandidateValidator,
     CandidateViolation,
-    MemoryAccessibility,
-    MemoryRelationKind,
-    MemoryRevisionKind,
-    MemorySourceKind,
     SubjectChangeSet,
 )
 from .capability import (
@@ -308,13 +302,7 @@ from .life_materials import (
     LifeMaterialStatus,
 )
 from .life_records import (
-    CREATOR_MEMORY_PROJECTION_VERSION,
     LIFE_RECORD_PROJECTION_VERSION,
-    CreatorMemoryItem,
-    CreatorMemoryPage,
-    CreatorMemoryQueryPort,
-    CreatorMemoryTimeline,
-    CreatorMemoryTimelineItem,
     LifeRecordActor,
     LifeRecordItem,
     LifeRecordKind,
@@ -323,15 +311,6 @@ from .life_records import (
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
-)
-from .life_records import (
-    MemoryAccessibility as LifeRecordMemoryAccessibility,
-)
-from .life_records import (
-    MemoryRelationKind as LifeRecordMemoryRelationKind,
-)
-from .life_records import (
-    MemoryRevisionKind as LifeRecordMemoryRevisionKind,
 )
 from .life_scheduler import PostgreSqlFairLifeScheduler
 from .maintenance import (
@@ -484,7 +463,6 @@ from .web_observation import (
 __all__: tuple[str, ...] = (
     "ACTIVITY_PROJECTION_VERSION",
     "CREATOR_LIFE_MATERIAL_PROJECTION_VERSION",
-    "CREATOR_MEMORY_PROJECTION_VERSION",
     "CREATOR_PROMPT_PROJECTION_VERSION",
     "EMBEDDING_DIMENSIONS",
     "LIFE_RECORD_PROJECTION_VERSION",
@@ -535,8 +513,6 @@ __all__: tuple[str, ...] = (
     "CandidateFactClass",
     "CandidateLifeMaterialDraft",
     "CandidateMaintenanceDecisionDraft",
-    "CandidateMemoryDraft",
-    "CandidateMemoryRevisionDraft",
     "CandidateOwner",
     "CandidateOwnerDraft",
     "CandidateRejection",
@@ -631,11 +607,6 @@ __all__: tuple[str, ...] = (
     "CreatorMaintenanceTimeline",
     "CreatorMaintenanceTimelineItem",
     "CreatorMaintenanceViolation",
-    "CreatorMemoryItem",
-    "CreatorMemoryPage",
-    "CreatorMemoryQueryPort",
-    "CreatorMemoryTimeline",
-    "CreatorMemoryTimelineItem",
     "CreatorOperation",
     "CreatorOperationPhase",
     "CreatorOperationQueryPort",
@@ -736,9 +707,6 @@ __all__: tuple[str, ...] = (
     "LifeRecordActor",
     "LifeRecordItem",
     "LifeRecordKind",
-    "LifeRecordMemoryAccessibility",
-    "LifeRecordMemoryRelationKind",
-    "LifeRecordMemoryRevisionKind",
     "LifeRecordPage",
     "LifeRecordQuery",
     "LifeRecordQueryPort",
@@ -757,10 +725,6 @@ __all__: tuple[str, ...] = (
     "MaintenanceTriggerKind",
     "MaintenanceViolation",
     "MaintenanceWorkOutcome",
-    "MemoryAccessibility",
-    "MemoryRelationKind",
-    "MemoryRevisionKind",
-    "MemorySourceKind",
     "ModelAttemptId",
     "ModelBinding",
     "ModelInvocationResult",

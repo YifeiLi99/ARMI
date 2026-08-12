@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -31,10 +31,6 @@ from armi_kernel.application import (
     CreatorMaintenanceTimeline,
     CreatorMaintenanceTimelineItem,
     CreatorMaintenanceViolation,
-    CreatorMemoryItem,
-    CreatorMemoryPage,
-    CreatorMemoryTimeline,
-    CreatorMemoryTimelineItem,
     CreatorOperation,
     CreatorOperationPhase,
     CreatorPromptDeactivateCommand,
@@ -94,13 +90,19 @@ from armi_kernel.application import (
     SceneTimelinePage,
     SceneTimelineQuery,
 )
-from armi_kernel.application.life_records import (
+from armi_kernel.contracts import Digest, Instant
+from armi_memory.api import (
+    CreatorMemoryItem,
+    CreatorMemoryPage,
+    CreatorMemoryTimeline,
+    CreatorMemoryTimelineItem,
+)
+from armi_memory.api import (
     MemoryAccessibility as QueryMemoryAccessibility,
 )
-from armi_kernel.application.life_records import (
+from armi_memory.api import (
     MemoryRevisionKind as QueryMemoryRevisionKind,
 )
-from armi_kernel.contracts import Digest, Instant
 from armi_relationship.api import (
     CreatorRelationshipItem,
     CreatorRelationshipRevision,
@@ -1148,9 +1150,9 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_activity_query=self.activity_query,
             life_record_query=self.life_record_query,
             creator_life_material_query=self.life_record_query,
-            creator_memory_query=self.life_record_query,
+            creator_memory_query=cast(Any, self.life_record_query),
             creator_maintenance_query=self.maintenance_query,
-            creator_relationship_query=self.relationship_query,
+            creator_relationship_query=cast(Any, self.relationship_query),
             creator_emergency_wake=self.emergency_wake,
             creator_events=self.events,
             creator_input=self.creator_input,

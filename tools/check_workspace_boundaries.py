@@ -98,6 +98,19 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-memory",
+        module="armi_memory",
+        project_dir=Path("modules/memory"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -110,6 +123,7 @@ DISTRIBUTIONS = (
             "armi-postgresql-contract==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-relationship==0.0.0",
+            "armi-memory==0.0.0",
             "fastapi==0.140.13",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -618,6 +632,16 @@ def _check_import(
                 "armi-relationship",
             }
         )
+        or (
+            source_distribution == "armi-memory"
+            and target_distribution
+            not in {
+                None,
+                "armi-kernel",
+                "armi-runtime-foundation",
+                "armi-memory",
+            }
+        )
     )
     if reverse_dependency:
         violations.append(
@@ -693,10 +717,14 @@ def _check_import(
                 "armi_relationship.bootstrap",
             }
         ),
+        "armi-memory": frozenset(
+            {"armi_memory", "armi_memory.api", "armi_memory.bootstrap"}
+        ),
     }
     if crosses_distribution and target_distribution in public_modules:
-        if imported_module == "armi_relationship.bootstrap" and not source_module.startswith(
-            "armi_runtime.composition"
+        if (
+            imported_module == "armi_relationship.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
         ):
             violations.append(
                 Violation(
@@ -704,6 +732,17 @@ def _check_import(
                     path,
                     line,
                     "relationship bootstrap is reserved for Runtime composition",
+                )
+            )
+        if imported_module == "armi_memory.bootstrap" and not source_module.startswith(
+            "armi_runtime.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "memory bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -847,6 +886,9 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "modules/relationship/src/armi_relationship/api.py",
         "armi_relationship.bootstrap": root
         / "modules/relationship/src/armi_relationship/bootstrap.py",
+        "armi_memory": root / "modules/memory/src/armi_memory/__init__.py",
+        "armi_memory.api": root / "modules/memory/src/armi_memory/api.py",
+        "armi_memory.bootstrap": root / "modules/memory/src/armi_memory/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -893,6 +935,24 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         relative,
                         1,
                         "relationship table SQL is owned by armi-relationship",
+                    )
+                )
+            if (
+                distribution.name != "armi-memory"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:subjective_memories|subjective_memory_revisions|memory_relations)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-MEMORY-SQL",
+                        relative,
+                        1,
+                        "memory table SQL is owned by armi-memory",
                     )
                 )
     return violations

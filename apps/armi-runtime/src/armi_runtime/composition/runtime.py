@@ -44,6 +44,7 @@ from armi_kernel.application import (
     WebResearchViolation,
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
+from armi_memory.api import MemoryViolation
 from armi_relationship.api import RelationshipViolation
 
 from armi_runtime.adapters.persistence.runtime_observability import (
@@ -88,6 +89,7 @@ from .database import (
     compose_external_message_input,
     compose_life_opportunity_pipeline,
     compose_life_record_query,
+    compose_memory_module,
     compose_model_pipeline,
     compose_other_human_input,
     compose_other_human_record_query,
@@ -189,6 +191,7 @@ async def _serve(
     creator_maintenance_query = None
     creator_relationship_query = None
     relationship_module = None
+    memory_module = None
     creator_prompt_service = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
@@ -324,10 +327,17 @@ async def _serve(
             )
             await relationship_module.open()
             creator_relationship_query = relationship_module.read
+            memory_module = compose_memory_module(
+                prepared,
+                creator_party_id=creator_context.party_id,
+                cursor_key=derive_timeline_cursor_key(prepared),
+            )
+            await memory_module.open()
             life_record_query = compose_life_record_query(
                 prepared,
                 creator_party_id=creator_context.party_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
+                memory_read=memory_module.read,
                 relationship_read=relationship_module.read,
             )
             await life_record_query.open()
@@ -374,6 +384,7 @@ async def _serve(
                 prepared,
                 creator_party_id=creator_context.party_id,
                 authority_admission=authority.require_writable,
+                memory_data_rights=memory_module.data_rights,
                 relationship_data_rights=relationship_module.data_rights,
                 notifier=creator_events,
             )
@@ -445,6 +456,8 @@ async def _serve(
             context_pipeline = compose_context_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                memory_read=memory_module.read,
+                memory_projection=memory_module.projection,
                 relationship_read=relationship_module.read,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
@@ -456,6 +469,8 @@ async def _serve(
             candidate_pipeline = compose_candidate_validation_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                memory_cognition=memory_module.cognition,
+                memory_read=memory_module.read,
                 relationship_cognition=relationship_module.cognition,
                 relationship_read=relationship_module.read,
                 wakeups=work_wakeups,
@@ -468,6 +483,8 @@ async def _serve(
             subject_commit_pipeline = compose_subject_commit_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                memory_commit=memory_module.commit,
+                memory_cognition=memory_module.cognition,
                 relationship_cognition=relationship_module.cognition,
                 relationship_commit=relationship_module.commit,
                 relationship_read=relationship_module.read,
@@ -533,6 +550,7 @@ async def _serve(
                     context_embedding_pipeline = compose_context_embedding_pipeline(
                         prepared,
                         authority_admission=authority.require_writable,
+                        memory_projection=memory_module.projection,
                     )
                     await context_embedding_pipeline.open()
                 except ModelViolation:
@@ -631,6 +649,7 @@ async def _serve(
             CreatorExportViolation,
             DataRightsViolation,
             CreatorPromptViolation,
+            MemoryViolation,
             RelationshipViolation,
             OtherHumanRecordViolation,
             LifeRecordQueryViolation,
@@ -666,6 +685,8 @@ async def _serve(
                 await creator_maintenance_query.close()
             if relationship_module is not None:
                 await relationship_module.close()
+            if memory_module is not None:
+                await memory_module.close()
             if creator_prompt_service is not None:
                 await creator_prompt_service.close()
             if creator_export_service is not None:
@@ -909,6 +930,8 @@ async def _serve(
             await creator_maintenance_query.close()
         if relationship_module is not None:
             await relationship_module.close()
+        if memory_module is not None:
+            await memory_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:
@@ -1111,7 +1134,7 @@ async def _serve(
         life_record_query=life_record_query,
         other_human_record_query=other_human_record_query,
         creator_life_material_query=life_record_query,
-        creator_memory_query=life_record_query,
+        creator_memory_query=(None if memory_module is None else memory_module.read),
         creator_maintenance_query=creator_maintenance_query,
         creator_relationship_query=creator_relationship_query,
         creator_prompt=creator_prompt_service,
@@ -1213,6 +1236,8 @@ async def _serve(
             await creator_maintenance_query.close()
         if relationship_module is not None:
             await relationship_module.close()
+        if memory_module is not None:
+            await memory_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:

@@ -15,6 +15,7 @@
     "packages/armi-adapter-qq/src",
     "packages/armi-runtime-foundation/src",
     "modules/relationship/src",
+    "modules/memory/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -28,6 +29,7 @@
     "packages/armi-adapter-qq/src",
     "packages/armi-runtime-foundation/src",
     "modules/relationship/src",
+    "modules/memory/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

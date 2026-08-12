@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -36,6 +36,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_memory.api import MemoryReadPort
 from armi_relationship.api import RelationshipReadPort
 
 from .artifact_catalog import ArtifactCatalogRepository
@@ -154,10 +155,15 @@ class ContextEpisodeSnapshot:
 class PostgreSQLContextRepository:
     """Own SQL for selecting, freezing and settling one Context episode."""
 
-    __slots__ = ("_catalog", "_relationships")
+    __slots__ = ("_catalog", "_memories", "_relationships")
 
-    def __init__(self, relationships: RelationshipReadPort) -> None:
+    def __init__(
+        self,
+        relationships: RelationshipReadPort,
+        memories: MemoryReadPort | None = None,
+    ) -> None:
         self._catalog = ArtifactCatalogRepository()
+        self._memories = memories
         self._relationships = relationships
 
     async def select_one(
@@ -542,70 +548,30 @@ class PostgreSQLContextRepository:
             )
             for item in components
         )
-        memory_rows = await (
-            await connection.execute(
-                """
-                SELECT memory.memory_id, memory.head_version,
-                       revision.source_kind, revision.source_fact_class,
-                       revision.summary, revision.uncertainty,
-                       revision.accessibility
-                FROM armi.subjective_memories AS memory
-                JOIN armi.subjective_memory_revisions AS revision
-                  ON revision.memory_revision_id = memory.current_revision_id
-                WHERE memory.subject_id = %s
-                  AND memory.life_generation_id = %s
-                  AND %s = 'maintain_subjective_memory'
-                  AND revision.accessibility IN ('available', 'faded')
-                  AND NOT EXISTS (
-                      SELECT 1 FROM armi.deletion_items AS deletion_item
-                      WHERE deletion_item.target_kind = 'memory'
-                        AND deletion_item.target_ref = memory.memory_id
-                        AND deletion_item.result_status IN ('completed', 'partial')
-                  )
-                ORDER BY
-                    CASE revision.accessibility
-                        WHEN 'available' THEN 1 ELSE 2
-                    END,
-                    revision.created_at DESC,
-                    memory.memory_id
-                LIMIT 8
-                """,
-                (row[2], row[27], row[20]),
-            )
-        ).fetchall()
-        memory_exists = await (
-            await connection.execute(
-                """
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM armi.subjective_memories AS memory
-                    WHERE memory.subject_id = %s
-                      AND memory.life_generation_id = %s
-                      AND NOT EXISTS (
-                          SELECT 1 FROM armi.deletion_items AS deletion_item
-                          WHERE deletion_item.target_kind = 'memory'
-                            AND deletion_item.target_ref = memory.memory_id
-                            AND deletion_item.result_status IN ('completed', 'partial')
-                      )
-                )
-                """,
-                (row[2], row[27]),
-            )
-        ).fetchone()
+        if self._memories is None:
+            raise ContextViolation("CTX-MEMORY-OWNER")
+        memory_rows = await self._memories.maintenance_context(
+            connection,
+            subject_id=row[2],
+            generation_id=row[27],
+            enabled=row[20] == "maintain_subjective_memory",
+            limit=8,
+        )
+        memory_exists = (bool(memory_rows),)
         memory_payloads = tuple(
             (
-                item[0],
-                int(item[1]),
+                item.memory_id,
+                item.head_version,
                 rfc8785.dumps(
                     {
-                        "source_kind": str(item[2]),
-                        "fact_class": str(item[3]),
-                        "summary": str(item[4]),
-                        "uncertainty": None if item[5] is None else str(item[5]),
-                        "accessibility": str(item[6]),
+                        "source_kind": item.source_kind.value,
+                        "fact_class": item.fact_class.value,
+                        "summary": item.summary,
+                        "uncertainty": item.uncertainty,
+                        "accessibility": item.accessibility.value,
                     }
                 ),
-                str(item[6]),
+                item.accessibility.value,
             )
             for item in memory_rows
         )
@@ -629,9 +595,7 @@ class PostgreSQLContextRepository:
                 else relationship_party_id
             ),
             scope=(
-                None
-                if row[20] == "perform_subject_self_check"
-                else relationship_scope
+                None if row[20] == "perform_subject_self_check" else relationship_scope
             ),
         )
         relationship_payloads = relationship_bundle.relationships
@@ -1208,20 +1172,6 @@ class PostgreSQLContextRepository:
             )
         except TypeError, ValueError:
             raise ContextViolation("CTX-SOURCE-INVALID") from None
-
-
-def _material_metadata(value: object) -> tuple[tuple[str, str], ...]:
-    if type(value) is not dict:
-        raise ContextViolation("CTX-SOURCE-INVALID")
-    metadata = cast(dict[object, object], value)
-    if len(metadata) > 32 or any(
-        type(key) is not str or type(item) is not str or "\x00" in key or "\x00" in item
-        for key, item in metadata.items()
-    ):
-        raise ContextViolation("CTX-SOURCE-INVALID")
-    return tuple(
-        sorted((cast(str, key), cast(str, item)) for key, item in metadata.items())
-    )
 
 
 __all__ = (

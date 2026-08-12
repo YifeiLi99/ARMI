@@ -10,6 +10,7 @@ dependencies = [
     "armi-postgresql-contract==0.0.0",
     "armi-runtime-foundation==0.0.0",
     "armi-relationship==0.0.0",
+    "armi-memory==0.0.0",
     "fastapi==0.140.13",
     "httpx==0.28.1",
     "openai==2.49.0",
@@ -36,6 +37,7 @@ armi-kernel = { workspace = true }
 armi-postgresql-contract = { workspace = true }
 armi-runtime-foundation = { workspace = true }
 armi-relationship = { workspace = true }
+armi-memory = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.31.0"]

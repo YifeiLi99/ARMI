@@ -40,6 +40,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation, Instant, Purpose, SubjectId
+from armi_memory.api import MemoryCognitionPort, MemoryCommitPort
 from armi_relationship.api import (
     RelationshipCognitionPort,
     RelationshipCommitPort,
@@ -91,6 +92,7 @@ class SubjectCommitPipeline:
         "_factory",
         "_fault_injector",
         "_lease_owner",
+        "_memory_cognition",
         "_notifier",
         "_relationship_cognition",
         "_repository",
@@ -105,6 +107,8 @@ class SubjectCommitPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        memory_commit: MemoryCommitPort,
+        memory_cognition: MemoryCognitionPort,
         relationship_cognition: RelationshipCognitionPort,
         relationship_commit: RelationshipCommitPort,
         relationship_read: RelationshipReadPort,
@@ -118,9 +122,10 @@ class SubjectCommitPipeline:
         self._catalog = ArtifactCatalogRepository()
         self._storage = storage
         self._notifier = notifier
+        self._memory_cognition = memory_cognition
         self._relationship_cognition = relationship_cognition
         self._repository = PostgreSQLSubjectCommitRepository(
-            relationship_commit, relationship_read, relationship_policy
+            memory_commit, relationship_commit, relationship_read, relationship_policy
         )
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
@@ -160,7 +165,9 @@ class SubjectCommitPipeline:
         try:
             snapshot = await self._snapshot(lease)
             change_set = parse_subject_change_set(
-                await self._read(snapshot), self._relationship_cognition
+                await self._read(snapshot),
+                self._relationship_cognition,
+                self._memory_cognition,
             )
             replies = tuple(
                 item
@@ -652,6 +659,8 @@ def build_subject_commit_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    memory_commit: MemoryCommitPort,
+    memory_cognition: MemoryCognitionPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_commit: RelationshipCommitPort,
     relationship_read: RelationshipReadPort,
@@ -675,6 +684,8 @@ def build_subject_commit_pipeline(
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
+        memory_commit=memory_commit,
+        memory_cognition=memory_cognition,
         relationship_cognition=relationship_cognition,
         relationship_commit=relationship_commit,
         relationship_read=relationship_read,

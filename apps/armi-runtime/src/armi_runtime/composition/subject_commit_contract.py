@@ -21,8 +21,6 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateLifeMaterialDraft,
     CandidateMaintenanceDecisionDraft,
-    CandidateMemoryDraft,
-    CandidateMemoryRevisionDraft,
     CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
@@ -46,10 +44,6 @@ from armi_kernel.application import (
     LifeRecordKind,
     MaintenancePhase,
     MaintenanceWorkOutcome,
-    MemoryAccessibility,
-    MemoryRelationKind,
-    MemoryRevisionKind,
-    MemorySourceKind,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
     SleepDecisionKind,
@@ -58,6 +52,17 @@ from armi_kernel.application import (
     WebResearchRequestDraft,
 )
 from armi_kernel.contracts import ContractViolation, Digest
+from armi_memory.api import (
+    CandidateMemoryDraft,
+    CandidateMemoryRevisionDraft,
+    MemoryAccessibility,
+    MemoryCognitionPort,
+    MemoryRelationKind,
+    MemoryRevisionKind,
+    MemorySourceKind,
+    MemoryViolation,
+    default_memory_cognition,
+)
 from armi_relationship.api import (
     RELATIONSHIP_MECHANISM_IDENTITY,
     CandidateRelationshipDraft,
@@ -76,6 +81,7 @@ from armi_relationship.api import (
     RelationshipIssueStatus,
     RelationshipPartyRole,
     RelationshipStatus,
+    RelationshipViolation,
 )
 
 _TOP_KEYS_V1 = {
@@ -109,12 +115,15 @@ _TOP_KEYS_V17 = {*_TOP_KEYS_V16, "exact_life_queries"}
 _TOP_KEYS_V18 = {*_TOP_KEYS_V17, "activities", "activity_decisions"}
 _TOP_KEYS_V19 = {*_TOP_KEYS_V18, "maintenance_decisions"}
 _TOP_KEYS_V22 = (_TOP_KEYS_V19 - {"relationships"}) | {"owner_drafts"}
+_TOP_KEYS_V23 = (_TOP_KEYS_V22 - {"memories", "memory_revisions"}) | {"sleep_decisions"}
 
 
 def parse_subject_change_set(
     value: bytes,
     relationship_cognition: RelationshipCognitionPort | None = None,
+    memory_cognition: MemoryCognitionPort | None = None,
 ) -> SubjectChangeSet:
+    memory_cognition = memory_cognition or default_memory_cognition()
     try:
         raw = json.loads(value)
         if type(raw) is not dict:
@@ -143,11 +152,14 @@ def parse_subject_change_set(
             "armi.subject-change-set.v20",
             "armi.subject-change-set.v21",
             "armi.subject-change-set.v22",
+            "armi.subject-change-set.v23",
         }:
             raise ValueError
         version = document["schema_version"]
         expected_keys = (
-            _TOP_KEYS_V22
+            _TOP_KEYS_V23
+            if version.endswith(".v23")
+            else _TOP_KEYS_V22
             if version.endswith(".v22")
             else _TOP_KEYS_V1
             if version.endswith(".v1")
@@ -260,22 +272,66 @@ def parse_subject_change_set(
             )
             for item in _array(document.get("relationships", []), 1)
         )
-        owner_drafts = (
+        relationship_owner_drafts = (
             tuple(
                 _owner_draft(item)
-                for item in _array(document.get("owner_drafts", []), 1)
+                for item in _array(
+                    document.get("owner_drafts", []),
+                    8 if version.endswith(".v23") else 1,
+                )
             )
-            if version.endswith(".v22")
+            if version.endswith((".v22", ".v23"))
             else tuple(
                 _bind_legacy_relationship(item, relationship_cognition)
                 for item in relationships
             )
         )
+        if version.endswith((".v22", ".v23")):
+            for draft in relationship_owner_drafts:
+                if draft.owner == CandidateOwner.MEMORY.value:
+                    decoded_memory = memory_cognition.decode(draft.canonical_payload)
+                    if (
+                        memory_cognition.bind_legacy(
+                            decoded_memory,
+                            revision=isinstance(
+                                decoded_memory, CandidateMemoryRevisionDraft
+                            ),
+                        )
+                        != draft
+                    ):
+                        raise ValueError
+                elif draft.owner == CandidateOwner.RELATIONSHIP.value:
+                    if (
+                        relationship_cognition is None
+                        or relationship_cognition.bind(
+                            relationship_cognition.decode_change_set(
+                                draft.canonical_payload
+                            )
+                        )
+                        != draft
+                    ):
+                        raise ValueError
+        memory_owner_drafts = (
+            *(memory_cognition.bind_legacy(item, revision=False) for item in memories),
+            *(
+                memory_cognition.bind_legacy(item, revision=True)
+                for item in memory_revisions
+            ),
+        )
+        owner_drafts = (*memory_owner_drafts, *relationship_owner_drafts)
         materials = tuple(
             _material(
                 item,
                 include_mutation=version.endswith(
-                    (".v15", ".v16", ".v17", ".v18", ".v19", ".v22")
+                    (
+                        ".v15",
+                        ".v16",
+                        ".v17",
+                        ".v18",
+                        ".v19",
+                        ".v22",
+                        ".v23",
+                    )
                 ),
             )
             for item in _array(document.get("materials", []), 1)
@@ -315,8 +371,6 @@ def parse_subject_change_set(
             activities,
             activity_decisions,
             sleep_decisions,
-            memories,
-            memory_revisions,
             owner_drafts,
             materials,
             prompts,
@@ -381,8 +435,6 @@ def parse_subject_change_set(
             or result.activities
             or result.activity_decisions
             or result.sleep_decisions
-            or result.memories
-            or result.memory_revisions
             or result.owner_drafts
             or result.materials
             or result.prompts
@@ -396,6 +448,22 @@ def parse_subject_change_set(
         no_action = tuple(
             item for item in action_choices if isinstance(item, FormalNoActionDraft)
         )
+        if version.endswith(".v23") and maintenance_decisions:
+            decision = maintenance_decisions[0]
+            memory_drafts = tuple(
+                item
+                for item in owner_drafts
+                if item.owner == CandidateOwner.MEMORY.value
+            )
+            if decision.memory_proposal_ref is None:
+                if memory_drafts:
+                    raise ValueError
+            elif (
+                len(memory_drafts) != 1
+                or memory_drafts[0].proposal_ref != decision.memory_proposal_ref
+                or memory_drafts[0].atomic_group_ref != decision.atomic_group_ref
+            ):
+                raise ValueError
         if version.endswith((".v20", ".v21")):
             other_actions = tuple(
                 item
@@ -550,6 +618,8 @@ def parse_subject_change_set(
     except (
         CandidateViolation,
         ContractViolation,
+        MemoryViolation,
+        RelationshipViolation,
         KeyError,
         TypeError,
         ValueError,
@@ -741,7 +811,7 @@ def _owner_draft(value: object) -> CandidateOwnerDraft:
         },
     )
     owner = _text(item["owner"])
-    if owner != "relationship":
+    if owner not in {"memory", "relationship"}:
         raise ValueError
     return CandidateOwnerDraft(
         _text(item["proposal_ref"]),
@@ -749,7 +819,7 @@ def _owner_draft(value: object) -> CandidateOwnerDraft:
         _ordinals(item["basis_ordinals"]),
         CandidateFactClass(_text(item["fact_class"])),
         owner,
-        rfc8785.dumps(cast(Any, item["payload"])),
+        rfc8785.dumps(item["payload"]),
     )
 
 
