@@ -44,6 +44,7 @@ from armi_runtime.composition.model_contract import (
     load_active_binding,
     load_purpose_binding,
     parse_candidate,
+    parse_dialogue_candidate_with_independent_expression,
 )
 from armi_runtime.composition.other_human_dialogue_candidate_contract import (
     HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
@@ -1149,6 +1150,59 @@ def test_dialogue_exact_life_query_schema_excludes_logs_and_admin_data() -> None
             allowed_context_refs=frozenset(),
             expected_version=DIALOGUE_CANDIDATE_VERSION,
         )
+
+
+def test_invalid_dialogue_change_cannot_suppress_a_valid_reply() -> None:
+    parsed = parse_dialogue_candidate_with_independent_expression(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "The reply remains available.",
+                "relationship_change": {
+                    "interpretation": "The optional change is incomplete."
+                },
+            },
+            ensure_ascii=False,
+        ).encode(),
+        allowed_context_refs=frozenset(),
+        expected_version=DIALOGUE_CANDIDATE_VERSION,
+    )
+
+    assert parsed.model_dump(mode="json", exclude_none=True) == {
+        "kind": "reply",
+        "content": "The reply remains available.",
+    }
+
+
+def test_dialogue_reply_recovery_does_not_hide_invalid_content() -> None:
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
+        parse_dialogue_candidate_with_independent_expression(
+            b'{"kind":"reply","content":null,"relationship_change":{}}',
+            allowed_context_refs=frozenset(),
+            expected_version=DIALOGUE_CANDIDATE_VERSION,
+        )
+
+
+def test_invalid_dialogue_change_reference_cannot_suppress_a_valid_reply() -> None:
+    parsed = parse_dialogue_candidate_with_independent_expression(
+        json.dumps(
+            {
+                "kind": "reply",
+                "content": "I can still answer.",
+                "memory_change": {
+                    "action": "forget",
+                    "memory_ref": "ctx:99",
+                },
+            }
+        ).encode(),
+        allowed_context_refs=frozenset({"ctx:1"}),
+        expected_version=DIALOGUE_CANDIDATE_VERSION,
+    )
+
+    assert parsed.model_dump(mode="json", exclude_none=True) == {
+        "kind": "reply",
+        "content": "I can still answer.",
+    }
 
 
 def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:

@@ -1152,6 +1152,54 @@ def parse_candidate(
     return candidate
 
 
+def parse_dialogue_candidate_with_independent_expression(
+    value: bytes,
+    *,
+    allowed_context_refs: frozenset[str],
+    expected_version: str,
+) -> CreatorDialogueCandidate:
+    """Keep a valid expression when an optional state proposal is malformed.
+
+    The complete provider response remains the attempt evidence.  This projection only
+    prevents an invalid optional state proposal from turning a valid reply into silence.
+
+    TODO: Evaluate two concurrent LLM calls, one for expression and one for state
+    proposals, if independent latency, quality and cost measurements justify it.  The
+    normal dialogue path deliberately remains one model call until then.
+    """
+    try:
+        candidate = parse_candidate(
+            value,
+            allowed_context_refs=allowed_context_refs,
+            expected_version=expected_version,
+        )
+    except ModelViolation as error:
+        if error.code not in {
+            "MODEL-RESPONSE-SCHEMA",
+            "MODEL-RESPONSE-REFERENCE",
+            "MODEL-RESPONSE-LIMIT",
+        }:
+            raise
+        try:
+            raw = json.loads(value)
+        except UnicodeDecodeError, json.JSONDecodeError:
+            raise error from None
+        if not isinstance(raw, dict) or raw.get("kind") != "reply":
+            raise error from None
+        minimal = {"kind": "reply", "content": raw.get("content")}
+        return cast(
+            CreatorDialogueCandidate,
+            parse_candidate(
+                json.dumps(minimal, ensure_ascii=False, separators=(",", ":")).encode(
+                    "utf-8"
+                ),
+                allowed_context_refs=allowed_context_refs,
+                expected_version=expected_version,
+            ),
+        )
+    return cast(CreatorDialogueCandidate, candidate)
+
+
 def load_active_binding(
     path: Path | None = None,
     *,
@@ -1788,4 +1836,5 @@ __all__ = (
     "load_active_binding",
     "load_purpose_binding",
     "parse_candidate",
+    "parse_dialogue_candidate_with_independent_expression",
 )

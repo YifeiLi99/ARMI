@@ -77,6 +77,7 @@ from .model_contract import (
     load_active_binding,
     load_purpose_binding,
     parse_candidate,
+    parse_dialogue_candidate_with_independent_expression,
 )
 from .other_human_dialogue_candidate_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
@@ -182,7 +183,7 @@ class ModelPipeline:
             *,
             allowed_context_refs: frozenset[str],
         ):
-            return parse_candidate(
+            return parse_dialogue_candidate_with_independent_expression(
                 value,
                 allowed_context_refs=allowed_context_refs,
                 expected_version=dialogue_version,

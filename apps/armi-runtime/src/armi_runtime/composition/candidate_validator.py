@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -162,6 +162,7 @@ from .dialogue_candidate_contract import (
     DialogueWebResearchDecisionV14,
     DialogueWebResearchDecisionV16,
     DialogueWebResearchDecisionV18,
+    parse_dialogue_candidate,
 )
 from .maintenance_work_candidate_contract import (
     MAINTENANCE_WORK_CANDIDATE_VERSION,
@@ -368,6 +369,7 @@ class DialogueBoundChanges:
     material: CandidateLifeMaterialDraft | None = None
     prompt: CandidateSubjectPromptDraft | None = None
     exact_life_query: CandidateExactLifeQueryDraft | None = None
+    rejections: tuple[CandidateRejection, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -662,6 +664,31 @@ class DeterministicCandidateValidator:
                     context=self._context,
                 )
             )
+            if candidate is None and isinstance(
+                parsed_candidate,
+                (
+                    DialogueReplyDecision,
+                    DialogueReplyDecisionV5,
+                    DialogueReplyDecisionV6,
+                    DialogueReplyDecisionV7,
+                    DialogueReplyDecisionV8,
+                    DialogueReplyDecisionV9,
+                    DialogueReplyDecisionV10,
+                    DialogueReplyDecisionV11,
+                    DialogueReplyDecisionV12,
+                    DialogueReplyDecisionV13,
+                    DialogueReplyDecisionV14,
+                    DialogueReplyDecisionV15,
+                    DialogueReplyDecisionV16,
+                    DialogueReplyDecisionV18,
+                ),
+            ):
+                candidate, dialogue_bound_changes = _recover_dialogue_expression(
+                    parsed_candidate,
+                    error_code=expansion_error,
+                    bases=bases,
+                    context=self._context,
+                )
             if candidate is None:
                 return _rejected(expansion_error or "CANDIDATE-CONTRACT")
         else:
@@ -738,6 +765,11 @@ class DeterministicCandidateValidator:
             | CodexDelegationDraft,
         ] = {}
         rejected: dict[str, CandidateRejection] = {}
+        if dialogue_bound_changes is not None:
+            rejected.update(
+                (item.proposal_ref, item)
+                for item in dialogue_bound_changes.rejections
+            )
         group_members: dict[str, list[str]] = defaultdict(list)
         group_experiences: set[str] = set()
 
@@ -2103,6 +2135,69 @@ class DeterministicCandidateValidator:
         )
 
 
+def _recover_dialogue_expression(
+    source: CreatorDialogueCandidate,
+    *,
+    error_code: str | None,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[CognitionCandidateV7 | None, DialogueBoundChanges | None]:
+    owner = _optional_dialogue_failure_owner(source, error_code)
+    if owner is None or not hasattr(source, "content"):
+        return None, None
+    try:
+        expression = parse_dialogue_candidate(
+            {"kind": "reply", "content": source.content},
+            version=source.schema_version,
+        )
+    except ValidationError, ValueError:
+        return None, None
+    candidate, bound, expression_error = _expand_dialogue_candidate(
+        expression,
+        bases=bases,
+        context=context,
+    )
+    evidence = next(
+        (item for item in bases if item.item_kind == "current_evidence"),
+        None,
+    )
+    if candidate is None or bound is None or expression_error is not None or evidence is None:
+        return None, None
+    rejection = CandidateRejection(
+        "proposal:3",
+        "group:2",
+        (evidence.ordinal,),
+        CandidateFactClass.INFERENCE,
+        owner,
+        cast(str, error_code),
+    )
+    return candidate, replace(bound, rejections=(rejection,))
+
+
+def _optional_dialogue_failure_owner(
+    source: CreatorDialogueCandidate,
+    error_code: str | None,
+) -> CandidateOwner | None:
+    if error_code is None:
+        return None
+    if error_code.startswith("CANDIDATE-COMPONENT-"):
+        return (
+            CandidateOwner.SELF
+            if getattr(source, "self_change", None) is not None
+            else CandidateOwner.MIND
+        )
+    for prefix, owner in (
+        ("CANDIDATE-MEMORY-", CandidateOwner.MEMORY),
+        ("CANDIDATE-RELATIONSHIP-", CandidateOwner.RELATIONSHIP),
+        ("CANDIDATE-MATERIAL-", CandidateOwner.MATERIAL),
+        ("CANDIDATE-SUBJECT-PROMPT-", CandidateOwner.PROMPT),
+        ("CANDIDATE-CAPABILITY-", CandidateOwner.CAPABILITY),
+    ):
+        if error_code.startswith(prefix):
+            return owner
+    return None
+
+
 def _expand_dialogue_candidate(
     source: CreatorDialogueCandidate,
     *,
@@ -2297,7 +2392,7 @@ def _expand_dialogue_candidate(
             experiences.append(
                 {
                     "proposal_ref": experience_ref,
-                    "atomic_group_ref": "group:1",
+                    "atomic_group_ref": "group:2",
                     "basis_refs": (evidence_ref,),
                     "payload": {
                         "proposal_kind": "experiences",
@@ -2314,7 +2409,7 @@ def _expand_dialogue_candidate(
                 memory_changes.append(
                     {
                         "proposal_ref": f"proposal:{proposal_no}",
-                        "atomic_group_ref": "group:1",
+                        "atomic_group_ref": "group:2",
                         "basis_refs": (evidence_ref,),
                         "payload": {
                             "proposal_kind": "memory_changes",
@@ -2345,6 +2440,7 @@ def _expand_dialogue_candidate(
                     None,
                     component_error or "CANDIDATE-COMPONENT-CONTEXT",
                 )
+            component_change["atomic_group_ref"] = "group:2"
             component_changes.append(component_change)
             proposal_no += 1
         if decision.memory_change is not None:
@@ -2357,6 +2453,7 @@ def _expand_dialogue_candidate(
             )
             if memory_revision is None:
                 return None, None, memory_error or "CANDIDATE-MEMORY-CONTEXT"
+            memory_revision = replace(memory_revision, atomic_group_ref="group:2")
             proposal_no += 1
         if decision.relationship_change is not None:
             if decision.experience is None:
@@ -2376,6 +2473,7 @@ def _expand_dialogue_candidate(
                     None,
                     relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT",
                 )
+            relationship = replace(relationship, atomic_group_ref="group:2")
             proposal_no += 1
         material_change = getattr(decision, "material_change", None)
         if material_change is not None:
@@ -2388,6 +2486,7 @@ def _expand_dialogue_candidate(
             )
             if material is None:
                 return None, None, material_error or "CANDIDATE-MATERIAL-CONTEXT"
+            material = replace(material, atomic_group_ref="group:2")
             proposal_no += 1
         subject_prompt_change = getattr(decision, "subject_prompt_change", None)
         if subject_prompt_change is not None:
@@ -2400,6 +2499,7 @@ def _expand_dialogue_candidate(
             )
             if prompt is None:
                 return None, None, prompt_error or "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
+            prompt = replace(prompt, atomic_group_ref="group:2")
             proposal_no += 1
         shared_bases = (evidence_ref, scene_ref, catalog_ref)
         capability_requests.append(
@@ -2443,7 +2543,7 @@ def _expand_dialogue_candidate(
             capability_requests.append(
                 {
                     "proposal_ref": f"proposal:{proposal_no}",
-                    "atomic_group_ref": "group:2",
+                    "atomic_group_ref": "group:3",
                     "basis_refs": (*shared_bases, capability_request.capability_ref),
                     "payload": {
                         "proposal_kind": "capability_requests",

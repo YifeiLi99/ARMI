@@ -2375,8 +2375,12 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
     duplicate = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=bases
     )
-    assert duplicate.status is CandidateValidationStatus.REJECTED
-    assert duplicate.error_code == "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
+    assert duplicate.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert duplicate.change_set is not None
+    assert duplicate.change_set.action_choices
+    assert {item.code for item in duplicate.change_set.rejections} == {
+        "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
+    }
 
     current_prompt = context.current_subject_prompt
     assert current_prompt is not None
@@ -2392,8 +2396,11 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
     duplicate = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=(*bases, prompt_basis)
     )
-    assert duplicate.status is CandidateValidationStatus.REJECTED
-    assert duplicate.error_code == "CANDIDATE-SUBJECT-PROMPT-SELF-DUPLICATE"
+    assert duplicate.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert duplicate.change_set is not None
+    assert {item.code for item in duplicate.change_set.rejections} == {
+        "CANDIDATE-SUBJECT-PROMPT-SELF-DUPLICATE"
+    }
 
 
 def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> None:
@@ -2428,8 +2435,12 @@ def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> No
     noop = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=extended
     )
-    assert noop.status is CandidateValidationStatus.REJECTED
-    assert noop.error_code == "CANDIDATE-ATOMIC-GROUP"
+    assert noop.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert noop.change_set is not None and noop.change_set.action_choices
+    assert {item.code for item in noop.change_set.rejections} == {
+        "CANDIDATE-ATOMIC-GROUP",
+        "CANDIDATE-NO-OP",
+    }
 
     stale_components = tuple(
         (owner, 2 if owner is CandidateOwner.SELF else version, canonical)
@@ -2447,8 +2458,11 @@ def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> No
         ),
         bases=extended,
     )
-    assert stale.status is CandidateValidationStatus.REJECTED
-    assert stale.error_code == "CANDIDATE-COMPONENT-CONTEXT"
+    assert stale.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert stale.change_set is not None and stale.change_set.action_choices
+    assert {item.code for item in stale.change_set.rejections} == {
+        "CANDIDATE-COMPONENT-CONTEXT"
+    }
 
 
 def test_compact_dialogue_no_change_does_not_create_component_revision() -> None:
@@ -2515,7 +2529,7 @@ def test_compact_dialogue_capability_request_is_bound_and_deduplicated() -> None
     assert codex_request.operation.value == "execute"
     assert isinstance(codex_request.scope, CodexDelegatedWorkScope)
     assert codex_request.scope.workspace_scope == "isolated_ephemeral"
-    assert codex_request.atomic_group_ref == "group:2"
+    assert codex_request.atomic_group_ref == "group:3"
 
     pending = replace(available, item_kind="capability_state_pending")
     duplicate = DeterministicCandidateValidator(context).validate(
@@ -2534,7 +2548,11 @@ def test_compact_dialogue_capability_request_is_bound_and_deduplicated() -> None
     wrong = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=(*common, wrong_capability)
     )
-    assert wrong.error_code == "CANDIDATE-CAPABILITY-STATE-BASIS"
+    assert wrong.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert wrong.change_set is not None and wrong.change_set.action_choices
+    assert {item.code for item in wrong.change_set.rejections} == {
+        "CANDIDATE-CAPABILITY-STATE-BASIS"
+    }
 
 
 def test_compact_dialogue_creates_runtime_owned_life_material_deterministically() -> (
@@ -2688,7 +2706,11 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
     rejected = DeterministicCandidateValidator(context).validate(
         _bytes(no_op), bases=extended
     )
-    assert rejected.error_code == "CANDIDATE-MATERIAL-NO-OP"
+    assert rejected.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert rejected.change_set is not None and rejected.change_set.action_choices
+    assert {item.code for item in rejected.change_set.rejections} == {
+        "CANDIDATE-MATERIAL-NO-OP"
+    }
 
     stale_context = replace(
         context,
@@ -2697,7 +2719,11 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
     stale = DeterministicCandidateValidator(stale_context).validate(
         _bytes(candidate), bases=extended
     )
-    assert stale.error_code == "CANDIDATE-MATERIAL-STALE"
+    assert stale.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert stale.change_set is not None and stale.change_set.action_choices
+    assert {item.code for item in stale.change_set.rejections} == {
+        "CANDIDATE-MATERIAL-STALE"
+    }
 
 
 @pytest.mark.parametrize(
@@ -2820,7 +2846,11 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
         ),
         bases=extended,
     )
-    assert wrong_owner.error_code == "CANDIDATE-MATERIAL-OWNER"
+    assert wrong_owner.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert wrong_owner.change_set is not None and wrong_owner.change_set.action_choices
+    assert {item.code for item in wrong_owner.change_set.rejections} == {
+        "CANDIDATE-MATERIAL-OWNER"
+    }
 
 
 def test_compact_dialogue_establishes_relationship_from_same_experience() -> None:
@@ -2880,7 +2910,12 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
     assert b"armi.subject-change-set.v13" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
     assert len(result.change_set.relationships) == 1
+    assert {
+        item.atomic_group_ref for item in result.change_set.action_choices
+    } == {"group:1"}
+    assert result.change_set.experiences[0].atomic_group_ref == "group:2"
     relationship = result.change_set.relationships[0]
+    assert relationship.atomic_group_ref == "group:2"
     assert relationship.subject_party_id == subject_party_id
     assert relationship.other_party_id == context.creator_party_id
     assert relationship.source_experience_ref == (
@@ -3575,8 +3610,11 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
         ),
         bases=extended,
     )
-    assert stale.status is CandidateValidationStatus.REJECTED
-    assert stale.error_code == "CANDIDATE-MEMORY-STALE"
+    assert stale.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
+    assert stale.change_set is not None and stale.change_set.action_choices
+    assert {item.code for item in stale.change_set.rejections} == {
+        "CANDIDATE-MEMORY-STALE"
+    }
 
 
 def test_compact_dialogue_fades_and_forgets_without_changing_memory_summary() -> None:
