@@ -58,6 +58,7 @@ from armi_memory.api import (
     CandidateMemoryRevisionDraft,
     MemoryReadPort,
 )
+from armi_mood.api import MoodReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
@@ -140,6 +141,7 @@ class PostgreSQLCandidateValidationRepository:
         "_activities",
         "_materials",
         "_memories",
+        "_mood",
         "_relationships",
         "_sleep",
         "_subject_state",
@@ -151,11 +153,13 @@ class PostgreSQLCandidateValidationRepository:
         sleep: SleepReadPort,
         activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
+        mood: MoodReadPort | None = None,
         materials: MaterialReadPort | None = None,
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
         self._memories = memories
+        self._mood = mood
         self._materials = materials
         self._relationships = relationships
         self._sleep = sleep
@@ -282,6 +286,13 @@ class PostgreSQLCandidateValidationRepository:
                 item.canonical_state,
             )
             for item in component_rows
+        )
+        if self._mood is None:
+            raise CandidateViolation("CANDIDATE-MOOD-CONTEXT")
+        mood = await self._mood.current(unit_of_work.transaction, subject_id=row[2])
+        components = (
+            *components,
+            (CandidateOwner.MOOD, mood.version, mood.canonical_state),
         )
         codex_rows = await (
             await connection.execute(

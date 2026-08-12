@@ -50,6 +50,7 @@ from armi_memory.api import (
     MemoryReadPort,
     MemorySourceKind,
 )
+from armi_mood.api import MoodCognitionPort, MoodReadPort
 from armi_relationship.api import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
@@ -121,6 +122,7 @@ class CandidateValidationPipeline:
         "_lease_owner",
         "_material_cognition",
         "_memory_cognition",
+        "_mood_cognition",
         "_relationship_cognition",
         "_repository",
         "_sleep_cognition",
@@ -141,6 +143,8 @@ class CandidateValidationPipeline:
         activity_read: ActivityReadPort,
         memory_cognition: MemoryCognitionPort,
         memory_read: MemoryReadPort,
+        mood_cognition: MoodCognitionPort,
+        mood_read: MoodReadPort,
         material_cognition: MaterialCognitionPort,
         material_read: MaterialReadPort,
         relationship_cognition: RelationshipCognitionPort,
@@ -157,6 +161,7 @@ class CandidateValidationPipeline:
         self._activity_cognition = activity_cognition
         self._storage = storage
         self._memory_cognition = memory_cognition
+        self._mood_cognition = mood_cognition
         self._material_cognition = material_cognition
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
@@ -168,6 +173,7 @@ class CandidateValidationPipeline:
             sleep_read,
             activity_read,
             memories=memory_read,
+            mood=mood_read,
             materials=material_read,
             subject_state=subject_state_read,
         )
@@ -331,6 +337,7 @@ class CandidateValidationPipeline:
                 activity_cognition=self._activity_cognition,
                 material_cognition=self._material_cognition,
                 memory_cognition=self._memory_cognition,
+                mood_cognition=self._mood_cognition,
                 relationship_cognition=self._relationship_cognition,
                 sleep_cognition=self._sleep_cognition,
                 subject_state_cognition=self._subject_state_cognition,
@@ -534,6 +541,8 @@ def build_candidate_validation_pipeline(
     activity_read: ActivityReadPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
+    mood_cognition: MoodCognitionPort,
+    mood_read: MoodReadPort,
     material_cognition: MaterialCognitionPort,
     material_read: MaterialReadPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -565,6 +574,8 @@ def build_candidate_validation_pipeline(
         activity_read=activity_read,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
+        mood_cognition=mood_cognition,
+        mood_read=mood_read,
         material_cognition=material_cognition,
         material_read=material_read,
         relationship_cognition=relationship_cognition,

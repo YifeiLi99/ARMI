@@ -55,6 +55,8 @@ from armi_memory.api import (
     MemoryViolation,
 )
 from armi_memory.bootstrap import MemoryModule, bootstrap_memory
+from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
+from armi_mood.bootstrap import MoodModule, bootstrap_mood
 from armi_relationship.api import (
     RelationshipCognitionPort,
     RelationshipCommitPort,
@@ -570,6 +572,12 @@ def compose_subject_state_module() -> SubjectStateModule:
     """Bind the sole active Self, Mind, and life-mode owner."""
 
     return bootstrap_subject_state()
+
+
+def compose_mood_module() -> MoodModule:
+    """Build the one active in-process mood owner."""
+
+    return bootstrap_mood()
 
 
 def compose_life_record_query(
@@ -1363,6 +1371,7 @@ def compose_context_pipeline(
     activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
+    mood_read: MoodReadPort,
     material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
@@ -1419,6 +1428,7 @@ def compose_context_pipeline(
                     activity_read=activity_read,
                     memory_read=memory_read,
                     memory_projection=memory_projection,
+                    mood_read=mood_read,
                     material_projection=material_projection,
                     relationship_read=relationship_read,
                     sleep_read=sleep_read,
@@ -1652,6 +1662,8 @@ def compose_candidate_validation_pipeline(
     activity_read: ActivityReadPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
+    mood_cognition: MoodCognitionPort,
+    mood_read: MoodReadPort,
     material_cognition: MaterialCognitionPort,
     material_read: MaterialReadPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -1698,6 +1710,8 @@ def compose_candidate_validation_pipeline(
                     activity_read=activity_read,
                     memory_cognition=memory_cognition,
                     memory_read=memory_read,
+                    mood_cognition=mood_cognition,
+                    mood_read=mood_read,
                     material_cognition=material_cognition,
                     material_read=material_read,
                     relationship_cognition=relationship_cognition,
@@ -1724,6 +1738,8 @@ def compose_subject_commit_pipeline(
     activity_commit: ActivityCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
+    mood_commit: MoodCommitPort,
+    mood_cognition: MoodCognitionPort,
     material_cognition: MaterialCognitionPort,
     material_commit: MaterialCommitPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -1770,6 +1786,8 @@ def compose_subject_commit_pipeline(
                     activity_commit=activity_commit,
                     memory_commit=memory_commit,
                     memory_cognition=memory_cognition,
+                    mood_commit=mood_commit,
+                    mood_cognition=mood_cognition,
                     material_cognition=material_cognition,
                     material_commit=material_commit,
                     relationship_cognition=relationship_cognition,
@@ -1877,6 +1895,7 @@ def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    mood_read: MoodReadPort,
     subject_state_read: SubjectStateReadPort,
 ) -> PostgreSQLRuntimeRecovery:
     """Resolve the Runtime credential for the fenced startup recovery gateway."""
@@ -1913,6 +1932,7 @@ def compose_runtime_recovery(
                     max_object_bytes=config.artifacts.max_object_bytes,
                     pool_timeout_seconds=(config.database.pool_acquire_timeout_seconds),
                     authority_admission=authority_admission,
+                    mood=mood_read,
                     subject_state=subject_state_read,
                 )
 
@@ -2059,6 +2079,7 @@ __all__ = (
     "compose_material_module",
     "compose_memory_module",
     "compose_model_pipeline",
+    "compose_mood_module",
     "compose_other_human_record_query",
     "compose_relationship_module",
     "compose_response_admission_pipeline",

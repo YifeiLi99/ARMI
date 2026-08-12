@@ -130,6 +130,7 @@ from armi_kernel.contracts import (
 )
 from armi_material.bootstrap import bootstrap_material, bootstrap_material_admin_read
 from armi_memory.bootstrap import bootstrap_memory
+from armi_mood.bootstrap import bootstrap_mood_admin_read
 from armi_relationship.bootstrap import bootstrap_relationship
 from armi_runtime.adapters.creator_response_inbox import (
     PostgreSQLLocalInbox,
@@ -1045,6 +1046,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 / "alembic/versions/0005_remove_runtime_composition_manifest.py"
             ).unlink()
             (schema_root / "alembic/versions/0006_relationship_lifecycle.py").unlink()
+            (schema_root / "alembic/versions/0007_mood_owner.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1054,7 +1056,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0006")
+        self.assertEqual(migrated.current_revision, "0007")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1129,6 +1131,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 / "alembic/versions/0005_remove_runtime_composition_manifest.py"
             ).unlink()
             (schema_root / "alembic/versions/0006_relationship_lifecycle.py").unlink()
+            (schema_root / "alembic/versions/0007_mood_owner.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1147,7 +1150,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     %s, %s, '0.0.0',
                     'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                     %s,
-                    'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    'sha256:deba3fecb2391c4d24852b9fba27ae3492c261bc559a26058a349611c7522c6b',
                     'current', %s
                 )
                 """,
@@ -1158,7 +1161,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0006")
+        self.assertEqual(migrated.current_revision, "0007")
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             activation = connection.execute(
                 """
@@ -1226,10 +1229,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0007_probe.py").write_text(
+            (schema_root / "alembic/versions/0008_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0007'\n"
-                "down_revision = '0006'\n"
+                "revision = '0008'\n"
+                "down_revision = '0007'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1284,8 +1287,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0007")
-            self.assertEqual(migrated.head_revision, "0007")
+            self.assertEqual(migrated.current_revision, "0008")
+            self.assertEqual(migrated.head_revision, "0008")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1306,10 +1309,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0007_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0008_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0007'\n"
-                "down_revision = '0006'\n"
+                "revision = '0008'\n"
+                "down_revision = '0007'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1334,7 +1337,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0006",)])
+            self.assertEqual(history, [("0007",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -2521,6 +2524,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 expected_role=fixture.admin_role,
                 artifact_root=Path.cwd() / "data" / "artifacts",
             ),
+            mood=bootstrap_mood_admin_read(
+                fixture.admin_role_dsn,
+                expected_role=fixture.admin_role,
+            ),
             subject_state=bootstrap_subject_state_admin_read(
                 fixture.admin_role_dsn,
                 expected_role=fixture.admin_role,
@@ -2914,14 +2921,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             service = new_service()
             service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
             replacement = {
-                "schema_version": "armi.mind.v1",
+                "schema_version": "armi.mind.v2",
                 "understanding": ["我知道这次变化来自隔离管理纠正"],
                 "attention": [],
-                "emotions": [],
                 "thoughts": [],
                 "wishes": [],
                 "motivations": [],
-                "mood": None,
             }
             preview = service.mutate(
                 "preview_correction",
@@ -2935,7 +2940,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "spec": {
                                 "correction_kind": "replace_subject_component",
                                 "component_kind": "mind",
-                                "expected_component_version": 1,
+                                "expected_component_version": 2,
                                 "replacement": replacement,
                             },
                         }
@@ -2963,7 +2968,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "spec": {
                                 "correction_kind": "replace_subject_component",
                                 "component_kind": "mind",
-                                "expected_component_version": 1,
+                                "expected_component_version": 2,
                                 "replacement": replacement,
                             },
                         }
@@ -3006,7 +3011,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "WHERE head.component_kind = 'mind'"
                 ).fetchone()
                 assert head is not None
-                self.assertEqual(head[0:2], (2, "admin_correction"))
+                self.assertEqual(head[0:2], (3, "admin_correction"))
                 self.assertEqual(head[2], replacement)
                 bootstrap_revision_id = str(head[3])
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
@@ -3027,7 +3032,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "spec": {
                             "correction_kind": "repair_subject_component_head",
                             "component_kind": "mind",
-                            "expected_component_version": 2,
+                            "expected_component_version": 3,
                             "target_revision_id": bootstrap_revision_id,
                         },
                     }
@@ -3047,7 +3052,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "spec": {
                             "correction_kind": "repair_subject_component_head",
                             "component_kind": "mind",
-                            "expected_component_version": 2,
+                            "expected_component_version": 3,
                             "target_revision_id": bootstrap_revision_id,
                         },
                     }
@@ -6553,7 +6558,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0006",)])
+            self.assertEqual(restored, [("0007",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

@@ -48,6 +48,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
+from armi_mood.api import MoodReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
@@ -131,6 +132,7 @@ class ContextPipeline(OpportunitySelector):
         activity_read: ActivityReadPort,
         memory_read: MemoryReadPort,
         memory_projection: MemoryProjectionPort,
+        mood_read: MoodReadPort,
         material_projection: MaterialProjectionPort,
         relationship_read: RelationshipReadPort,
         sleep_read: SleepReadPort,
@@ -150,6 +152,7 @@ class ContextPipeline(OpportunitySelector):
             sleep_read,
             activity_read,
             memories=memory_read,
+            mood=mood_read,
             subject_state=subject_state_read,
         )
         self._catalog = ArtifactCatalogRepository()
@@ -605,6 +608,7 @@ def _context_request(
     section_by_component = {
         "self": ContextSection.SELF,
         "mind": ContextSection.MIND,
+        "mood": ContextSection.MOOD,
         "life_mode": ContextSection.LIFE_MODE,
     }
     for kind, source_id, version, payload in snapshot.component_payloads:
@@ -1311,6 +1315,7 @@ def build_context_pipeline(
     activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
+    mood_read: MoodReadPort,
     material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
@@ -1339,6 +1344,7 @@ def build_context_pipeline(
         activity_read=activity_read,
         memory_read=memory_read,
         memory_projection=memory_projection,
+        mood_read=mood_read,
         material_projection=material_projection,
         relationship_read=relationship_read,
         sleep_read=sleep_read,

@@ -61,6 +61,7 @@ from armi_memory.api import (
     MemoryCommitPort,
     MemoryViolation,
 )
+from armi_mood.api import MoodCommitPort, MoodViolation
 from armi_relationship.api import (
     RelationshipCommitPort,
     RelationshipPolicyPort,
@@ -152,6 +153,7 @@ class PostgreSQLSubjectCommitRepository:
         "_activity_commit",
         "_material_commit",
         "_memory_commit",
+        "_mood_commit",
         "_relationship_commit",
         "_relationship_policy",
         "_relationships",
@@ -163,6 +165,7 @@ class PostgreSQLSubjectCommitRepository:
         self,
         activity_commit: ActivityCommitPort,
         memory_commit: MemoryCommitPort,
+        mood_commit: MoodCommitPort,
         material_commit: MaterialCommitPort,
         relationship_commit: RelationshipCommitPort,
         relationship_read: RelationshipReadPort,
@@ -172,6 +175,7 @@ class PostgreSQLSubjectCommitRepository:
     ) -> None:
         self._activity_commit = activity_commit
         self._memory_commit = memory_commit
+        self._mood_commit = mood_commit
         self._material_commit = material_commit
         self._relationship_commit = relationship_commit
         self._relationships = relationship_read
@@ -549,6 +553,11 @@ class PostgreSQLSubjectCommitRepository:
             subject_id=snapshot.subject_id,
             drafts=change_set.owner_drafts,
         )
+        mood_heads_current = await self._mood_commit.heads_match(
+            unit_of_work.transaction,
+            subject_id=snapshot.subject_id,
+            drafts=change_set.owner_drafts,
+        )
         try:
             material_heads_current = await self._material_commit.heads_match(
                 unit_of_work.transaction,
@@ -583,6 +592,7 @@ class PostgreSQLSubjectCommitRepository:
             or not subject_state_heads_current
             or not activity_heads_current
             or not memory_heads_current
+            or not mood_heads_current
             or not material_heads_current
             or subject_prompt_heads_are_stale(prompt_heads, change_set.prompts)
             or not sleep_heads_current
@@ -814,6 +824,18 @@ class PostgreSQLSubjectCommitRepository:
         except SubjectStateViolation as error:
             raise SubjectCommitViolation(
                 f"SUBJECT-{error.code.removeprefix('SUBJECT-STATE-')}"
+            ) from None
+
+        try:
+            await self._mood_commit.commit(
+                unit_of_work.transaction,
+                subject_id=snapshot.subject_id,
+                commit_id=commit_id.value,
+                drafts=change_set.owner_drafts,
+            )
+        except MoodViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code.removeprefix('MOOD-')}"
             ) from None
 
         await apply_subject_prompts(

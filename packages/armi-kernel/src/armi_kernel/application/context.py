@@ -41,6 +41,7 @@ class ContextSection(StrEnum):
     PURPOSE = "purpose"
     SELF = "self"
     MIND = "mind"
+    MOOD = "mood"
     LIFE_MODE = "life_mode"
     SCENE = "scene"
     RELATIONSHIP = "relationship"

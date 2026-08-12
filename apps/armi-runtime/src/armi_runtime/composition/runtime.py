@@ -91,6 +91,7 @@ from .database import (
     compose_material_module,
     compose_memory_module,
     compose_model_pipeline,
+    compose_mood_module,
     compose_other_human_input,
     compose_other_human_record_query,
     compose_relationship_module,
@@ -196,6 +197,7 @@ async def _serve(
     material_module = None
     sleep_module = None
     subject_state_module = None
+    mood_module = None
     creator_prompt_service = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
@@ -228,6 +230,8 @@ async def _serve(
         try:
             subject_state_module = compose_subject_state_module()
             await subject_state_module.open()
+            mood_module = compose_mood_module()
+            await mood_module.open()
             authority_port = compose_runtime_authority(prepared)
             await authority_port.open()
             authority = RuntimeAuthorityController(
@@ -250,6 +254,7 @@ async def _serve(
             recovery_port = compose_runtime_recovery(
                 prepared,
                 authority_admission=authority.require_writable,
+                mood_read=mood_module.read,
                 subject_state_read=subject_state_module.read,
             )
             await recovery_port.open()
@@ -481,6 +486,7 @@ async def _serve(
                 activity_read=activity_module.read,
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
+                mood_read=mood_module.read,
                 material_projection=material_module.projection,
                 relationship_read=relationship_module.read,
                 sleep_read=sleep_module.read,
@@ -499,6 +505,8 @@ async def _serve(
                 activity_read=activity_module.read,
                 memory_cognition=memory_module.cognition,
                 memory_read=memory_module.read,
+                mood_cognition=mood_module.cognition,
+                mood_read=mood_module.read,
                 material_cognition=material_module.cognition,
                 material_read=material_module.read,
                 relationship_cognition=relationship_module.cognition,
@@ -521,6 +529,8 @@ async def _serve(
                 activity_commit=activity_module.commit,
                 memory_commit=memory_module.commit,
                 memory_cognition=memory_module.cognition,
+                mood_commit=mood_module.commit,
+                mood_cognition=mood_module.cognition,
                 material_cognition=material_module.cognition,
                 material_commit=material_module.commit,
                 relationship_cognition=relationship_module.cognition,
@@ -735,6 +745,8 @@ async def _serve(
                 await material_module.close()
             if subject_state_module is not None:
                 await subject_state_module.close()
+            if mood_module is not None:
+                await mood_module.close()
             if creator_prompt_service is not None:
                 await creator_prompt_service.close()
             if creator_export_service is not None:
@@ -984,6 +996,8 @@ async def _serve(
             await material_module.close()
         if subject_state_module is not None:
             await subject_state_module.close()
+        if mood_module is not None:
+            await mood_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:
@@ -1298,6 +1312,8 @@ async def _serve(
             await material_module.close()
         if subject_state_module is not None:
             await subject_state_module.close()
+        if mood_module is not None:
+            await mood_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:

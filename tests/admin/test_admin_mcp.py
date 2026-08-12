@@ -400,6 +400,27 @@ class AdminProtocolTests(unittest.TestCase):
                 }
             )
 
+        mood = PreviewCorrectionRequest.model_validate(
+            {
+                "environment_id": ENVIRONMENT_ID,
+                "environment_incarnation": 1,
+                "idempotency_key": "preview-mood-1",
+                "purpose": "admin.preview_correction",
+                "spec": {
+                    "correction_kind": "replace_subject_component",
+                    "component_kind": "mood",
+                    "expected_component_version": 1,
+                    "replacement": {
+                        "schema_version": "armi.mood.v1",
+                        "emotions": ("平静",),
+                        "mood": "专注",
+                    },
+                },
+            }
+        )
+        assert isinstance(mood.spec, ReplaceSubjectComponentSpec)
+        self.assertEqual(mood.spec.component_kind, "mood")
+
         correction_specs = (
             spec.model_dump(),
             {

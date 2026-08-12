@@ -2632,7 +2632,7 @@ export interface components {
        * Schema Version
        * @enum {string}
        */
-      schema_version: "armi.self.v1" | "armi.mind.v1" | "armi.life-mode.v1";
+      schema_version: "armi.self.v1" | "armi.mind.v2" | "armi.life-mode.v1";
       /** Version */
       version: number;
     };

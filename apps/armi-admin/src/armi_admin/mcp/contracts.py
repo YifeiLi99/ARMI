@@ -200,19 +200,16 @@ class SelfState(_ComponentState):
 
 
 class MindState(_ComponentState):
-    schema_version: Literal["armi.mind.v1"]
+    schema_version: Literal["armi.mind.v2"]
     understanding: tuple[str, ...] = Field(max_length=32)
     attention: tuple[str, ...] = Field(max_length=32)
-    emotions: tuple[str, ...] = Field(max_length=32)
     thoughts: tuple[str, ...] = Field(max_length=32)
     wishes: tuple[str, ...] = Field(max_length=32)
     motivations: tuple[str, ...] = Field(max_length=32)
-    mood: str | None = Field(default=None, max_length=256)
 
     @field_validator(
         "understanding",
         "attention",
-        "emotions",
         "thoughts",
         "wishes",
         "motivations",
@@ -222,6 +219,21 @@ class MindState(_ComponentState):
         if any(
             "\x00" in value or not value.strip() or len(value) > 1024
             for value in values
+        ):
+            raise ValueError("ADMIN-CORRECTION-COMPONENT-PAYLOAD")
+        return values
+
+
+class MoodState(_ComponentState):
+    schema_version: Literal["armi.mood.v1"]
+    emotions: tuple[str, ...] = Field(max_length=16)
+    mood: str | None = Field(default=None, max_length=128)
+
+    @field_validator("emotions")
+    @classmethod
+    def _text_list(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(
+            "\x00" in value or not value.strip() or len(value) > 512 for value in values
         ):
             raise ValueError("ADMIN-CORRECTION-COMPONENT-PAYLOAD")
         return values
@@ -241,14 +253,14 @@ class LifeModeState(_ComponentState):
 
 
 ComponentState = Annotated[
-    SelfState | MindState | LifeModeState,
+    SelfState | MindState | MoodState | LifeModeState,
     Field(discriminator="schema_version"),
 ]
 
 
 class ReplaceSubjectComponentSpec(_StrictModel):
     correction_kind: Literal["replace_subject_component"]
-    component_kind: Literal["self", "mind", "life_mode"]
+    component_kind: Literal["self", "mind", "mood", "life_mode"]
     expected_component_version: int = Field(ge=1)
     replacement: ComponentState
 
@@ -256,7 +268,8 @@ class ReplaceSubjectComponentSpec(_StrictModel):
     def _matching_component(self) -> Self:
         expected = {
             "self": "armi.self.v1",
-            "mind": "armi.mind.v1",
+            "mind": "armi.mind.v2",
+            "mood": "armi.mood.v1",
             "life_mode": "armi.life-mode.v1",
         }[self.component_kind]
         if self.replacement.schema_version != expected:
@@ -266,7 +279,7 @@ class ReplaceSubjectComponentSpec(_StrictModel):
 
 class RepairSubjectComponentHeadSpec(_StrictModel):
     correction_kind: Literal["repair_subject_component_head"]
-    component_kind: Literal["self", "mind", "life_mode"]
+    component_kind: Literal["self", "mind", "mood", "life_mode"]
     expected_component_version: int = Field(ge=1)
     target_revision_id: str
 

@@ -5008,7 +5008,7 @@
           "schema_version": {
             "enum": [
               "armi.self.v1",
-              "armi.mind.v1",
+              "armi.mind.v2",
               "armi.life-mode.v1"
             ],
             "title": "Schema Version",

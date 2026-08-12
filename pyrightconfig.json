@@ -20,6 +20,7 @@
     "modules/activity/src",
     "modules/material/src",
     "modules/subject-state/src",
+    "modules/mood/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -38,6 +39,7 @@
     "modules/activity/src",
     "modules/material/src",
     "modules/subject-state/src",
+    "modules/mood/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

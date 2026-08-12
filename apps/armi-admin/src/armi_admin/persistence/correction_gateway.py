@@ -14,6 +14,7 @@ from uuid import UUID
 
 import psycopg
 import rfc8785
+from armi_mood.api import MoodAdminCorrectionPort
 from armi_subject_state.api import SubjectStateAdminCorrectionPort
 from psycopg_pool import PoolTimeout
 
@@ -46,6 +47,7 @@ class AdminCorrectionGateway:
         "_environment_id",
         "_expected_role",
         "_incarnation",
+        "_mood",
         "_subject_state",
     )
 
@@ -56,13 +58,20 @@ class AdminCorrectionGateway:
         expected_role: str,
         environment_id: str,
         incarnation: int,
+        mood: MoodAdminCorrectionPort,
         subject_state: SubjectStateAdminCorrectionPort,
     ) -> None:
         self._conninfo = conninfo
         self._expected_role = expected_role
         self._environment_id = environment_id
         self._incarnation = incarnation
+        self._mood = mood
         self._subject_state = subject_state
+
+    def _component_owner(
+        self, kind: str
+    ) -> SubjectStateAdminCorrectionPort | MoodAdminCorrectionPort:
+        return self._mood if kind == "mood" else self._subject_state
 
     def preview(
         self,
@@ -420,7 +429,8 @@ class AdminCorrectionGateway:
         result_id: str,
         for_update: bool,
     ) -> dict[str, Any]:
-        head = self._subject_state.current_head(
+        owner = self._component_owner(str(spec["component_kind"]))
+        head = owner.current_head(
             connection,
             subject_id=subject_id,
             kind=str(spec["component_kind"]),
@@ -450,7 +460,7 @@ class AdminCorrectionGateway:
                 "next_version": next_version,
             }
         else:
-            target_row = self._subject_state.revision(
+            target_row = owner.revision(
                 connection,
                 revision_id=str(spec["target_revision_id"]),
                 subject_id=subject_id,
@@ -710,7 +720,8 @@ class AdminCorrectionGateway:
         kind = cast(CorrectionKind, spec["correction_kind"])
         handler = cast(dict[str, Any], snapshot["handler"])
         if kind == "replace_subject_component":
-            if not self._subject_state.replace(
+            owner = self._component_owner(str(spec["component_kind"]))
+            if not owner.replace(
                 connection,
                 revision_id=str(snapshot["result_id"]),
                 subject_id=str(snapshot["subject_id"]),
@@ -721,7 +732,8 @@ class AdminCorrectionGateway:
             ):
                 raise AdminCorrectionGatewayError("ADMIN-CORRECTION-COMPONENT-CAS")
         elif kind == "repair_subject_component_head":
-            if not self._subject_state.repair_head(
+            owner = self._component_owner(str(spec["component_kind"]))
+            if not owner.repair_head(
                 connection,
                 subject_id=str(snapshot["subject_id"]),
                 kind=str(spec["component_kind"]),
@@ -893,7 +905,8 @@ class AdminCorrectionGateway:
     ) -> str:
         kind = status_spec["correction_kind"]
         if kind in {"replace_subject_component", "repair_subject_component_head"}:
-            row = self._subject_state.find_current(
+            owner = self._component_owner(str(status_spec["component_kind"]))
+            row = owner.find_current(
                 connection, kind=str(status_spec["component_kind"])
             )
             if row is None:

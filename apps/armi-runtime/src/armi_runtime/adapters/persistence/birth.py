@@ -9,6 +9,7 @@ from uuid import UUID, uuid7
 import psycopg
 from armi_kernel.application import BirthManifest, BirthResult, BirthViolation
 from armi_kernel.contracts import Digest
+from armi_mood.api import MoodBirthPort, default_mood_birth
 from armi_subject_state.api import SubjectStateBirthPort, default_subject_state_birth
 
 from .unit_of_work import PostgreSQLUnitOfWork
@@ -109,10 +110,15 @@ class BirthArtifacts:
 class BirthRepository:
     """Write all birth facts through the caller's active SERIALIZABLE UoW."""
 
-    __slots__ = ("_subject_state",)
+    __slots__ = ("_mood", "_subject_state")
 
-    def __init__(self, subject_state: SubjectStateBirthPort | None = None) -> None:
+    def __init__(
+        self,
+        subject_state: SubjectStateBirthPort | None = None,
+        mood: MoodBirthPort | None = None,
+    ) -> None:
         self._subject_state = subject_state or default_subject_state_birth()
+        self._mood = mood or default_mood_birth()
 
     async def lock_environment(
         self,
@@ -293,6 +299,7 @@ class BirthRepository:
         await self._subject_state.initialize(
             unit_of_work.transaction, subject_id=subject_id
         )
+        await self._mood.initialize(unit_of_work.transaction, subject_id=subject_id)
         return BirthResult(
             subject_id=subject_id,
             life_generation_id=generation_id,

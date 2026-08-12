@@ -58,11 +58,7 @@ class ContextAssemblyProfile:
         return ContextItemPolicy(requirement, _layer_for(item_kind))
 
     def validate(self, candidates: tuple[ContextItemCandidate, ...]) -> None:
-        present = {
-            item.item_kind
-            for item in candidates
-            if item.content is not None
-        }
+        present = {item.item_kind for item in candidates if item.content is not None}
         if not self.required_kinds.issubset(present):
             raise ContextViolation("CTX-SOURCE-MISSING")
 
@@ -76,6 +72,7 @@ _STABLE_KINDS = frozenset(
         "subject_prompt",
         "self",
         "mind",
+        "mood",
     }
 )
 _SCOPE_KINDS = frozenset({"current_scene"})
@@ -92,7 +89,9 @@ def _layer_for(item_kind: str) -> ContextLayer:
     return ContextLayer.TURN_TAIL
 
 
-_SUBJECT_SKELETON = frozenset({"runtime_identity", "current_purpose", "fixed_prompt", "self", "mind"})
+_SUBJECT_SKELETON = frozenset(
+    {"runtime_identity", "current_purpose", "fixed_prompt", "self", "mind", "mood"}
+)
 _PRIVATE_RECALL = frozenset({"current_memory", "current_material", "recall_status"})
 _PRIVATE_LIFE = frozenset(
     {
@@ -143,19 +142,21 @@ _PROFILES = {
     ),
     "consider_codex_task": _profile(
         "consider_codex_task",
-        required=frozenset({"current_scene", "codex_task_source", "capability_catalog"}),
+        required=frozenset(
+            {"current_scene", "codex_task_source", "capability_catalog"}
+        ),
         forbidden=_PRIVATE_RECALL,
     ),
     "consider_codex_result": _profile(
         "consider_codex_result",
-        required=frozenset(
-            {"current_scene", "current_evidence", "capability_catalog"}
-        ),
+        required=frozenset({"current_scene", "current_evidence", "capability_catalog"}),
         forbidden=_PRIVATE_RECALL,
     ),
     "consider_autonomous_life": _profile(
         "consider_autonomous_life",
-        required=frozenset({"current_life_opportunity", "life_mode", "current_activities"}),
+        required=frozenset(
+            {"current_life_opportunity", "life_mode", "current_activities"}
+        ),
         retrieval=frozenset({"current_memory", "current_material"}),
     ),
     "consider_activity_attention": _profile(
@@ -170,7 +171,9 @@ _PROFILES = {
     ),
     "consider_sleep": _profile(
         "consider_sleep",
-        required=frozenset({"current_maintenance_window", "life_mode", "current_activities"}),
+        required=frozenset(
+            {"current_maintenance_window", "life_mode", "current_activities"}
+        ),
         forbidden=_PRIVATE_RECALL,
     ),
     "consider_life_query_result": _profile(

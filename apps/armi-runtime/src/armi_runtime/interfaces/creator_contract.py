@@ -843,7 +843,7 @@ type OperationOutcomeResponse = Annotated[
 class SubjectComponentSummaryResponse(_StrictWireModel):
     kind: Literal["self", "mind", "life_mode"]
     version: Annotated[int, Field(ge=1)]
-    schema_version: Literal["armi.self.v1", "armi.mind.v1", "armi.life-mode.v1"]
+    schema_version: Literal["armi.self.v1", "armi.mind.v2", "armi.life-mode.v1"]
     content_visibility: Literal["private"]
 
 

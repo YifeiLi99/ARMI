@@ -74,6 +74,11 @@ from armi_memory.api import (
     MemorySourceKind,
     default_memory_cognition,
 )
+from armi_mood.api import (
+    CandidateMoodDraft,
+    MoodCognitionPort,
+    default_mood_cognition,
+)
 from armi_relationship.api import (
     CandidateRelationshipDraft,
     RelationshipBoundary,
@@ -223,6 +228,7 @@ from .model_contract import (
     FormalNoActionPayload,
     MemoryChangeProposal,
     MindState,
+    MoodState,
     RuntimeBoundCreatorReplyPayload,
     SelfState,
     WebResearchRequestProposal,
@@ -250,7 +256,7 @@ ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v27"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v28"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
@@ -524,6 +530,7 @@ class DeterministicCandidateValidator:
         "_context",
         "_material_cognition",
         "_memory_cognition",
+        "_mood_cognition",
         "_relationship_cognition",
         "_sleep_cognition",
         "_subject_state_cognition",
@@ -535,6 +542,7 @@ class DeterministicCandidateValidator:
         activity_cognition: ActivityCognitionPort | None = None,
         material_cognition: MaterialCognitionPort | None = None,
         memory_cognition: MemoryCognitionPort | None = None,
+        mood_cognition: MoodCognitionPort | None = None,
         relationship_cognition: RelationshipCognitionPort | None = None,
         sleep_cognition: SleepCognitionPort | None = None,
         subject_state_cognition: SubjectStateCognitionPort | None = None,
@@ -543,6 +551,7 @@ class DeterministicCandidateValidator:
         self._activity_cognition = activity_cognition or default_activity_cognition()
         self._material_cognition = material_cognition or default_material_cognition()
         self._memory_cognition = memory_cognition or default_memory_cognition()
+        self._mood_cognition = mood_cognition or default_mood_cognition()
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition or default_sleep_cognition()
         self._subject_state_cognition = (
@@ -870,6 +879,24 @@ class DeterministicCandidateValidator:
                         )
                     )
                     continue
+            if failure is None and owner is CandidateOwner.MOOD:
+                component = cast(ComponentChangeProposal, proposal)
+                failure = _component_failure(component, proposal_bases, component_state)
+                if failure is None:
+                    next_bytes = rfc8785.dumps(
+                        cast(Any, component.payload.next_state.model_dump(mode="json"))
+                    )
+                    accepted[proposal.proposal_ref] = self._mood_cognition.bind(
+                        CandidateMoodDraft(
+                            proposal.proposal_ref,
+                            proposal.atomic_group_ref,
+                            tuple(basis.ordinal for basis in proposal_bases),
+                            CandidateFactClass(component.payload.fact_class),
+                            component.payload.expected_version,
+                            next_bytes,
+                        )
+                    )
+                    continue
             if failure is None and owner is CandidateOwner.CAPABILITY:
                 capability = proposal
                 failure = _capability_failure(
@@ -1022,7 +1049,7 @@ class DeterministicCandidateValidator:
                 isinstance(draft, CandidateSubjectPromptDraft)
                 or (
                     isinstance(draft, CandidateOwnerDraft)
-                    and draft.owner in {"self", "mind", "life_mode"}
+                    and draft.owner in {"self", "mind", "mood", "life_mode"}
                 )
             ) and draft.atomic_group_ref not in group_experiences:
                 rejected[proposal_ref] = CandidateRejection(
@@ -2212,11 +2239,21 @@ def _optional_dialogue_failure_owner(
     if error_code is None:
         return None
     if error_code.startswith("CANDIDATE-COMPONENT-"):
-        return (
-            CandidateOwner.SELF
-            if getattr(source, "self_change", None) is not None
-            else CandidateOwner.MIND
-        )
+        if getattr(source, "self_change", None) is not None:
+            return CandidateOwner.SELF
+        mind_change = getattr(source, "mind_change", None)
+        if mind_change is not None and all(
+            getattr(mind_change, field, None) is None
+            for field in (
+                "understanding",
+                "attention",
+                "thoughts",
+                "wishes",
+                "motivations",
+            )
+        ):
+            return CandidateOwner.MOOD
+        return CandidateOwner.MIND
     for prefix, owner in (
         ("CANDIDATE-MEMORY-", CandidateOwner.MEMORY),
         ("CANDIDATE-RELATIONSHIP-", CandidateOwner.RELATIONSHIP),
@@ -2468,10 +2505,45 @@ def _expand_dialogue_candidate(
                     }
                 )
                 proposal_no += 1
-        for owner, change, state_type in (
-            (CandidateOwner.SELF, getattr(decision, "self_change", None), SelfState),
-            (CandidateOwner.MIND, getattr(decision, "mind_change", None), MindState),
-        ):
+        self_change = getattr(decision, "self_change", None)
+        mind_change = getattr(decision, "mind_change", None)
+        component_inputs: tuple[
+            tuple[
+                CandidateOwner, Any, type[SelfState] | type[MindState] | type[MoodState]
+            ],
+            ...,
+        ] = (
+            (CandidateOwner.SELF, self_change, SelfState),
+            (
+                CandidateOwner.MIND,
+                mind_change
+                if mind_change is not None
+                and any(
+                    getattr(mind_change, field, None) is not None
+                    for field in (
+                        "understanding",
+                        "attention",
+                        "thoughts",
+                        "wishes",
+                        "motivations",
+                    )
+                )
+                else None,
+                MindState,
+            ),
+            (
+                CandidateOwner.MOOD,
+                mind_change
+                if mind_change is not None
+                and any(
+                    getattr(mind_change, field, None) is not None
+                    for field in ("emotions", "mood")
+                )
+                else None,
+                MoodState,
+            ),
+        )
+        for owner, change, state_type in component_inputs:
             if change is None:
                 continue
             component_change, component_error = _bind_dialogue_component_change(
@@ -2837,7 +2909,7 @@ def _bind_dialogue_component_change(
     *,
     owner: CandidateOwner,
     change: Any,
-    state_type: type[SelfState] | type[MindState],
+    state_type: type[SelfState] | type[MindState] | type[MoodState],
     proposal_ref: str,
     evidence_ref: str,
     bases: tuple[CandidateBasis, ...],
@@ -2880,12 +2952,12 @@ def _bind_dialogue_component_change(
             else (
                 "understanding",
                 "attention",
-                "emotions",
                 "thoughts",
                 "wishes",
                 "motivations",
-                "mood",
             )
+            if owner is CandidateOwner.MIND
+            else ("emotions", "mood")
         )
         for field_name in field_names:
             replacement = getattr(change, field_name, None)
@@ -3959,10 +4031,20 @@ def _component_failure(
     schema_owner = {
         "armi.self.v1": CandidateOwner.SELF,
         "armi.mind.v1": CandidateOwner.MIND,
+        "armi.mind.v2": CandidateOwner.MIND,
+        "armi.mood.v1": CandidateOwner.MOOD,
         "armi.life-mode.v1": CandidateOwner.LIFE_MODE,
     }.get(str(next_state.get("schema_version")))
     if schema_owner is not owner:
         return "CANDIDATE-OWNER-MISMATCH"
+    try:
+        current_schema = cast(dict[str, object], json.loads(current_bytes)).get(
+            "schema_version"
+        )
+    except UnicodeDecodeError, json.JSONDecodeError, TypeError:
+        return "CANDIDATE-COMPONENT-STATE"
+    if current_schema != next_state.get("schema_version"):
+        return "CANDIDATE-COMPONENT-STATE"
     next_bytes = rfc8785.dumps(cast(Any, next_state))
     if next_bytes == current_bytes:
         return "CANDIDATE-NO-OP"

@@ -108,9 +108,8 @@ def _self(value: dict[str, object]) -> None:
 
 
 def _mind(value: dict[str, object]) -> None:
-    if (
-        set(value)
-        != {
+    if value.get("schema_version") == "armi.mind.v1":
+        if set(value) != {
             "schema_version",
             "understanding",
             "attention",
@@ -119,8 +118,32 @@ def _mind(value: dict[str, object]) -> None:
             "wishes",
             "motivations",
             "mood",
+        }:
+            raise ValueError
+        if not all(
+            _texts(value[key])
+            for key in (
+                "understanding",
+                "attention",
+                "emotions",
+                "thoughts",
+                "wishes",
+                "motivations",
+            )
+        ) or not _text_or_none(value["mood"], 128):
+            raise ValueError
+        return
+    if (
+        set(value)
+        != {
+            "schema_version",
+            "understanding",
+            "attention",
+            "thoughts",
+            "wishes",
+            "motivations",
         }
-        or value["schema_version"] != "armi.mind.v1"
+        or value["schema_version"] != "armi.mind.v2"
     ):
         raise ValueError
     if not all(
@@ -128,12 +151,11 @@ def _mind(value: dict[str, object]) -> None:
         for key in (
             "understanding",
             "attention",
-            "emotions",
             "thoughts",
             "wishes",
             "motivations",
         )
-    ) or not _text_or_none(value["mood"], 128):
+    ):
         raise ValueError
 
 

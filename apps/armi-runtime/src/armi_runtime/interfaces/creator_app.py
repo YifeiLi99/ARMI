@@ -1610,7 +1610,7 @@ def create_runtime_app(
                         schema_version=cast(
                             Literal[
                                 "armi.self.v1",
-                                "armi.mind.v1",
+                                "armi.mind.v2",
                                 "armi.life-mode.v1",
                             ],
                             item.schema_version,

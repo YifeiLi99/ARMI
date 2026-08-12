@@ -38,6 +38,7 @@ from armi_kernel.contracts import (
     TraceId,
 )
 from armi_memory.api import MemoryReadPort
+from armi_mood.api import MoodReadPort, MoodViolation
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import MaintenancePhase, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
@@ -162,6 +163,7 @@ class PostgreSQLContextRepository:
         "_activities",
         "_catalog",
         "_memories",
+        "_mood",
         "_relationships",
         "_sleep",
         "_subject_state",
@@ -173,11 +175,13 @@ class PostgreSQLContextRepository:
         sleep: SleepReadPort,
         activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
+        mood: MoodReadPort | None = None,
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
         self._catalog = ArtifactCatalogRepository()
         self._memories = memories
+        self._mood = mood
         self._relationships = relationships
         self._sleep = sleep
         self._subject_state = subject_state
@@ -546,6 +550,16 @@ class PostgreSQLContextRepository:
                 item.canonical_state,
             )
             for item in components
+        )
+        if self._mood is None:
+            raise ContextViolation("CTX-MOOD-OWNER")
+        try:
+            mood = await self._mood.current(unit_of_work.transaction, subject_id=row[2])
+        except MoodViolation:
+            raise ContextViolation("CTX-SOURCE-MISSING") from None
+        component_payloads = (
+            *component_payloads,
+            ("mood", mood.current_revision_id, mood.version, mood.canonical_state),
         )
         if self._memories is None:
             raise ContextViolation("CTX-MEMORY-OWNER")

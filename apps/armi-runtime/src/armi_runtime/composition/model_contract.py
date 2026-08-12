@@ -296,7 +296,7 @@ class SelfState(_StrictModel):
     tensions: tuple[Summary, ...] = Field(max_length=16)
 
 
-class MindState(_StrictModel):
+class LegacyMindState(_StrictModel):
     schema_version: Literal["armi.mind.v1"]
     understanding: tuple[Summary, ...] = Field(max_length=16)
     attention: tuple[Summary, ...] = Field(max_length=16)
@@ -304,6 +304,21 @@ class MindState(_StrictModel):
     thoughts: tuple[Summary, ...] = Field(max_length=16)
     wishes: tuple[Summary, ...] = Field(max_length=16)
     motivations: tuple[Summary, ...] = Field(max_length=16)
+    mood: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None
+
+
+class MindState(_StrictModel):
+    schema_version: Literal["armi.mind.v2"]
+    understanding: tuple[Summary, ...] = Field(max_length=16)
+    attention: tuple[Summary, ...] = Field(max_length=16)
+    thoughts: tuple[Summary, ...] = Field(max_length=16)
+    wishes: tuple[Summary, ...] = Field(max_length=16)
+    motivations: tuple[Summary, ...] = Field(max_length=16)
+
+
+class MoodState(_StrictModel):
+    schema_version: Literal["armi.mood.v1"]
+    emotions: tuple[Summary, ...] = Field(max_length=16)
     mood: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None
 
 
@@ -325,9 +340,9 @@ class ExperiencePayload(_StrictModel):
 class ComponentChangePayload(_StrictModel):
     proposal_kind: Literal["component_changes"]
     fact_class: FactClass
-    owner: Literal["self", "mind", "life_mode"]
+    owner: Literal["self", "mind", "mood", "life_mode"]
     expected_version: Annotated[int, Field(gt=0)]
-    next_state: SelfState | MindState | LifeModeState
+    next_state: SelfState | LegacyMindState | MindState | MoodState | LifeModeState
 
 
 class MemoryChangePayload(_StrictModel):
@@ -1366,6 +1381,7 @@ _DIALOGUE_GROUP_ORDER = (
     "guidance",
     "self",
     "mind",
+    "mood",
     "relationship",
     "memories",
     "recent_dialogue",
@@ -1379,6 +1395,7 @@ _DIALOGUE_GROUP_TITLES = {
     "guidance": "表达与认知指导",
     "self": "当前 Self",
     "mind": "当前 Mind",
+    "mood": "当前心情",
     "relationship": "当前关系",
     "memories": "自然可访问的记忆",
     "scene": "当前场合",
@@ -1397,6 +1414,7 @@ _DIALOGUE_SECTION_GROUP = {
     "prompt": "guidance",
     "self": "self",
     "mind": "mind",
+    "mood": "mood",
     "life_mode": "mind",
     "relationship": "relationship",
     "memory": "memories",
@@ -1572,6 +1590,7 @@ def _dialogue_segment_text(item_kind: str, content: object) -> str:
     if item_kind in {
         "self",
         "mind",
+        "mood",
         "fixed_prompt",
         "creator_prompt",
         "subject_prompt",

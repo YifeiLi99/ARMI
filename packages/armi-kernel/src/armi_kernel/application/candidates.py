@@ -43,6 +43,7 @@ class CandidateOwner(StrEnum):
     EXPERIENCE = "experience"
     SELF = "self"
     MIND = "mind"
+    MOOD = "mood"
     LIFE_MODE = "life_mode"
     MEMORY = "memory"
     RELATIONSHIP = "relationship"

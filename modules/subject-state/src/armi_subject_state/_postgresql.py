@@ -37,14 +37,12 @@ _INITIAL: dict[SubjectStateKind, dict[str, object]] = {
         "tensions": [],
     },
     SubjectStateKind.MIND: {
-        "schema_version": "armi.mind.v1",
+        "schema_version": "armi.mind.v2",
         "understanding": [],
         "attention": [],
-        "emotions": [],
         "thoughts": [],
         "wishes": [],
         "motivations": [],
-        "mood": None,
     },
     SubjectStateKind.LIFE_MODE: {
         "schema_version": "armi.life-mode.v1",
@@ -202,7 +200,7 @@ class PostgreSQLSubjectStateOwner:
             raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
         schema = {
             SubjectStateKind.SELF: "armi.self.v1",
-            SubjectStateKind.MIND: "armi.mind.v1",
+            SubjectStateKind.MIND: "armi.mind.v2",
             SubjectStateKind.LIFE_MODE: "armi.life-mode.v1",
         }
         kinds = tuple(SubjectStateKind(str(row[1])) for row in rows)

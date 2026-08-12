@@ -262,7 +262,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                         {
                             "kind": "mind",
                             "version": 1,
-                            "schema_version": "armi.mind.v1",
+                            "schema_version": "armi.mind.v2",
                             "content_visibility": "private",
                         },
                         {

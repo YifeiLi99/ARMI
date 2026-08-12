@@ -43,6 +43,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import ContractViolation, Instant, Purpose, SubjectId
 from armi_material.api import MaterialCognitionPort, MaterialCommitPort
 from armi_memory.api import MemoryCognitionPort, MemoryCommitPort
+from armi_mood.api import MoodCognitionPort, MoodCommitPort
 from armi_relationship.api import (
     RelationshipCognitionPort,
     RelationshipCommitPort,
@@ -99,6 +100,7 @@ class SubjectCommitPipeline:
         "_lease_owner",
         "_material_cognition",
         "_memory_cognition",
+        "_mood_cognition",
         "_notifier",
         "_relationship_cognition",
         "_repository",
@@ -119,6 +121,8 @@ class SubjectCommitPipeline:
         activity_commit: ActivityCommitPort,
         memory_commit: MemoryCommitPort,
         memory_cognition: MemoryCognitionPort,
+        mood_commit: MoodCommitPort,
+        mood_cognition: MoodCognitionPort,
         material_cognition: MaterialCognitionPort,
         material_commit: MaterialCommitPort,
         relationship_cognition: RelationshipCognitionPort,
@@ -140,6 +144,7 @@ class SubjectCommitPipeline:
         self._storage = storage
         self._notifier = notifier
         self._memory_cognition = memory_cognition
+        self._mood_cognition = mood_cognition
         self._material_cognition = material_cognition
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
@@ -147,6 +152,7 @@ class SubjectCommitPipeline:
         self._repository = PostgreSQLSubjectCommitRepository(
             activity_commit,
             memory_commit,
+            mood_commit,
             material_commit,
             relationship_commit,
             relationship_read,
@@ -199,6 +205,7 @@ class SubjectCommitPipeline:
                 self._activity_cognition,
                 self._material_cognition,
                 self._subject_state_cognition,
+                self._mood_cognition,
             )
             replies = tuple(
                 item
@@ -699,6 +706,8 @@ def build_subject_commit_pipeline(
     activity_commit: ActivityCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
+    mood_commit: MoodCommitPort,
+    mood_cognition: MoodCognitionPort,
     material_cognition: MaterialCognitionPort,
     material_commit: MaterialCommitPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -732,6 +741,8 @@ def build_subject_commit_pipeline(
         activity_commit=activity_commit,
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,
+        mood_commit=mood_commit,
+        mood_cognition=mood_cognition,
         material_cognition=material_cognition,
         material_commit=material_commit,
         relationship_cognition=relationship_cognition,

@@ -164,6 +164,19 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-mood",
+        module="armi_mood",
+        project_dir=Path("modules/mood"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -181,6 +194,7 @@ DISTRIBUTIONS = (
             "armi-activity==0.0.0",
             "armi-material==0.0.0",
             "armi-subject-state==0.0.0",
+            "armi-mood==0.0.0",
             "fastapi==0.140.13",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -205,6 +219,7 @@ DISTRIBUTIONS = (
             "armi-artifact-store==0.0.0",
             "armi-kernel==0.0.0",
             "armi-material==0.0.0",
+            "armi-mood==0.0.0",
             "armi-subject-state==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "mcp==2.0.0",
@@ -830,6 +845,7 @@ def _check_import(
                 "armi_subject_state.bootstrap",
             }
         ),
+        "armi-mood": frozenset({"armi_mood", "armi_mood.api", "armi_mood.bootstrap"}),
     }
     if crosses_distribution and target_distribution in public_modules:
         if (
@@ -903,6 +919,20 @@ def _check_import(
                     path,
                     line,
                     "subject-state bootstrap is reserved for Runtime/Admin composition",
+                )
+            )
+        if imported_module == "armi_mood.bootstrap" and not (
+            source_module.startswith("armi_runtime.composition")
+            or source_module == "armi_admin.application.control_plane"
+            or source_module == "armi_admin.application.corrections"
+            or source_module == "armi_admin.mcp.service"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "mood bootstrap is reserved for Runtime/Admin composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1066,6 +1096,9 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "modules/subject-state/src/armi_subject_state/api.py",
         "armi_subject_state.bootstrap": root
         / "modules/subject-state/src/armi_subject_state/bootstrap.py",
+        "armi_mood": root / "modules/mood/src/armi_mood/__init__.py",
+        "armi_mood.api": root / "modules/mood/src/armi_mood/api.py",
+        "armi_mood.bootstrap": root / "modules/mood/src/armi_mood/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1205,6 +1238,24 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "subject-state table SQL is owned by armi-subject-state",
                     )
                 )
+            if (
+                distribution.name != "armi-mood"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:mood_heads|mood_revisions)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-MOOD-SQL",
+                        relative,
+                        1,
+                        "mood table SQL is owned by armi-mood",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1243,6 +1294,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "subject_state_module.read",
             "subject_state_module.cognition",
             "subject_state_module.commit",
+        ),
+        "mood": (
+            "mood_module = compose_mood_module()",
+            "mood_module.read",
+            "mood_module.cognition",
+            "mood_module.commit",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

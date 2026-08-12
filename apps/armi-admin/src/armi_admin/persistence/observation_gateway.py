@@ -9,6 +9,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
+from armi_mood.api import MoodAdminReadPort
 from armi_postgresql_contract.catalog_fingerprint import (
     database_catalog_digest,
 )
@@ -32,7 +33,7 @@ def _safe(value: Any) -> Any:
 class AdminObservationGateway:
     """Execute only static, bounded SELECT and environment registration statements."""
 
-    __slots__ = ("_conninfo", "_expected_role", "_materials", "_subject_state")
+    __slots__ = ("_conninfo", "_expected_role", "_materials", "_mood", "_subject_state")
 
     def __init__(
         self,
@@ -40,11 +41,13 @@ class AdminObservationGateway:
         *,
         expected_role: str,
         materials: MaterialAdminReadPort,
+        mood: MoodAdminReadPort,
         subject_state: SubjectStateAdminReadPort,
     ) -> None:
         self._conninfo = conninfo
         self._expected_role = expected_role
         self._materials = materials
+        self._mood = mood
         self._subject_state = subject_state
 
     def environment(self) -> dict[str, Any] | None:
@@ -143,14 +146,16 @@ class AdminObservationGateway:
             "current_generation_id",
             "current_bundle_activation_id",
         )
-        components = self._subject_state.current_components(private=private)
+        subject_components = self._subject_state.current_components(private=private)
+        mood = self._mood.current_component(private=private)
+        components = subject_components if mood is None else (*subject_components, mood)
         result = {
             "subject": dict(
                 zip(columns, (_safe(value) for value in subject), strict=True)
             ),
             "components": [
                 {
-                    "component_kind": item.kind.value,
+                    "component_kind": str(item.kind),
                     "component_version": item.version,
                     "privacy_scope": item.privacy_scope,
                     **({"payload": _safe(item.payload)} if private else {}),

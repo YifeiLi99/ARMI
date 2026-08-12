@@ -11,13 +11,16 @@
     },
     "mind": {
       "attention": [],
-      "emotions": [],
-      "mood": null,
       "motivations": [],
-      "schema_version": "armi.mind.v1",
+      "schema_version": "armi.mind.v2",
       "thoughts": [],
       "understanding": [],
       "wishes": []
+    },
+    "mood": {
+      "emotions": [],
+      "mood": null,
+      "schema_version": "armi.mood.v1"
     },
     "self": {
       "creator_role_awareness": "unique_primary_creator",

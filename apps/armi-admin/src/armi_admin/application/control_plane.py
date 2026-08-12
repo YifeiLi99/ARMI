@@ -21,6 +21,7 @@ from uuid import uuid7
 
 from armi_kernel.application import CredentialPurpose
 from armi_material.bootstrap import bootstrap_material_admin_read
+from armi_mood.bootstrap import bootstrap_mood_admin_read
 from armi_subject_state.bootstrap import bootstrap_subject_state_admin_read
 from psycopg.conninfo import conninfo_to_dict
 
@@ -363,6 +364,9 @@ class AdminControlPlane:
                 conninfo,
                 expected_role=self._config.expected_role,
                 artifact_root=self._config.environment_root / "data" / "artifacts",
+            ),
+            mood=bootstrap_mood_admin_read(
+                conninfo, expected_role=self._config.expected_role
             ),
             subject_state=bootstrap_subject_state_admin_read(
                 conninfo, expected_role=self._config.expected_role

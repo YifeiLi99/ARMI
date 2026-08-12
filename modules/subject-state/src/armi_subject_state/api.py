@@ -80,7 +80,7 @@ class SubjectComponentSummary:
     def __post_init__(self) -> None:
         expected = {
             SubjectStateKind.SELF: "armi.self.v1",
-            SubjectStateKind.MIND: "armi.mind.v1",
+            SubjectStateKind.MIND: "armi.mind.v2",
             SubjectStateKind.LIFE_MODE: "armi.life-mode.v1",
         }
         if (
