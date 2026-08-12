@@ -32,8 +32,6 @@ from .birth import (
     PersonalityAnchor,
 )
 from .candidates import (
-    CandidateActivityDecisionDraft,
-    CandidateActivityDraft,
     CandidateBasis,
     CandidateComponentDraft,
     CandidateDisposition,
@@ -124,16 +122,6 @@ from .context_embedding import (
     EmbeddingBinding,
     EmbeddingResponse,
     RecallStatus,
-)
-from .creator_activities import (
-    ACTIVITY_PROJECTION_VERSION,
-    ActivityTimelineKind,
-    CreatorActivityItem,
-    CreatorActivityPage,
-    CreatorActivityQueryPort,
-    CreatorActivityTimeline,
-    CreatorActivityTimelineItem,
-    CreatorActivityViolation,
 )
 from .creator_events import (
     CreatorEventResourceKind,
@@ -260,19 +248,10 @@ from .external_message import (
     ObservedExternalMessage,
 )
 from .life import (
-    ActivityAttentionDecisionKind,
-    ActivityHeadSnapshot,
-    ActivityStatus,
-    ActivityTransition,
-    ActivityWaitingKind,
     CreatorOutreachPolicy,
     LifeOpportunitySourceKind,
     LifeOpportunitySourcePort,
     LifeOpportunitySourceSnapshot,
-    LifeScheduler,
-    LifeSchedulingDecision,
-    LifeSchedulingDisposition,
-    LifeSchedulingSnapshot,
     LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
@@ -299,7 +278,6 @@ from .life_records import (
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
 )
-from .life_scheduler import PostgreSqlFairLifeScheduler
 from .model import (
     ModelAttemptId,
     ModelBinding,
@@ -436,7 +414,6 @@ from .web_observation import (
 )
 
 __all__: tuple[str, ...] = (
-    "ACTIVITY_PROJECTION_VERSION",
     "CREATOR_LIFE_MATERIAL_PROJECTION_VERSION",
     "CREATOR_PROMPT_PROJECTION_VERSION",
     "EMBEDDING_DIMENSIONS",
@@ -447,12 +424,6 @@ __all__: tuple[str, ...] = (
     "SCENE_COLLECTION_PROJECTION_VERSION",
     "ActionAdapterPort",
     "ActionIntentId",
-    "ActivityAttentionDecisionKind",
-    "ActivityHeadSnapshot",
-    "ActivityStatus",
-    "ActivityTimelineKind",
-    "ActivityTransition",
-    "ActivityWaitingKind",
     "ArtifactId",
     "ArtifactIntegrityStatus",
     "ArtifactPolicy",
@@ -475,8 +446,6 @@ __all__: tuple[str, ...] = (
     "BirthPort",
     "BirthResult",
     "BirthViolation",
-    "CandidateActivityDecisionDraft",
-    "CandidateActivityDraft",
     "CandidateApplicationId",
     "CandidateApplicationStatus",
     "CandidateBasis",
@@ -545,12 +514,6 @@ __all__: tuple[str, ...] = (
     "ContextSourceIdentity",
     "ContextTrustClass",
     "ContextViolation",
-    "CreatorActivityItem",
-    "CreatorActivityPage",
-    "CreatorActivityQueryPort",
-    "CreatorActivityTimeline",
-    "CreatorActivityTimelineItem",
-    "CreatorActivityViolation",
     "CreatorCodexTaskAdmissionPort",
     "CreatorCodexTaskCommand",
     "CreatorEventResourceKind",
@@ -677,10 +640,6 @@ __all__: tuple[str, ...] = (
     "LifeRecordQueryPort",
     "LifeRecordQueryViolation",
     "LifeRecordRetrievalKind",
-    "LifeScheduler",
-    "LifeSchedulingDecision",
-    "LifeSchedulingDisposition",
-    "LifeSchedulingSnapshot",
     "LifeViolation",
     "ModelAttemptId",
     "ModelBinding",
@@ -721,7 +680,6 @@ __all__: tuple[str, ...] = (
     "PolicyDecisionId",
     "PolicyDecisionOutcome",
     "PostCommitAction",
-    "PostgreSqlFairLifeScheduler",
     "PromptDocumentStatus",
     "PromptKind",
     "PromptRevisionKind",

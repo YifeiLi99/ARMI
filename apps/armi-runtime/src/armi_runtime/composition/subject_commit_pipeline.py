@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid7
 
+from armi_activity.api import ActivityCognitionPort, ActivityCommitPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
@@ -88,6 +89,7 @@ class SubjectCommitPipeline:
     """Apply validated ChangeSets through the sole T-03 coordinator."""
 
     __slots__ = (
+        "_activity_cognition",
         "_catalog",
         "_diagnostic",
         "_factory",
@@ -109,6 +111,8 @@ class SubjectCommitPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        activity_cognition: ActivityCognitionPort,
+        activity_commit: ActivityCommitPort,
         memory_commit: MemoryCommitPort,
         memory_cognition: MemoryCognitionPort,
         relationship_cognition: RelationshipCognitionPort,
@@ -123,6 +127,7 @@ class SubjectCommitPipeline:
         fault_injector: FaultInjector | None = None,
     ) -> None:
         self._factory = factory
+        self._activity_cognition = activity_cognition
         self._catalog = ArtifactCatalogRepository()
         self._storage = storage
         self._notifier = notifier
@@ -130,6 +135,7 @@ class SubjectCommitPipeline:
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
         self._repository = PostgreSQLSubjectCommitRepository(
+            activity_commit,
             memory_commit,
             relationship_commit,
             relationship_read,
@@ -178,6 +184,7 @@ class SubjectCommitPipeline:
                 self._relationship_cognition,
                 self._memory_cognition,
                 self._sleep_cognition,
+                self._activity_cognition,
             )
             replies = tuple(
                 item
@@ -669,6 +676,8 @@ def build_subject_commit_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    activity_cognition: ActivityCognitionPort,
+    activity_commit: ActivityCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -696,6 +705,8 @@ def build_subject_commit_pipeline(
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
+        activity_cognition=activity_cognition,
+        activity_commit=activity_commit,
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,
         relationship_cognition=relationship_cognition,

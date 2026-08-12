@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import UUID
 
+from armi_activity.api import ActivityReadPort
 from armi_kernel.application import (
     CreatorEventResourceKind,
     CreatorEventViolation,
@@ -145,6 +146,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         self,
         *,
         factory: PostgreSQLUnitOfWorkFactory,
+        activity_read: ActivityReadPort,
         relationship_read: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
         sleep_maintenance: SleepMaintenancePort,
@@ -159,7 +161,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
     ) -> None:
         self._factory = factory
         self._repository = PostgreSQLLifeOpportunityRepository(
-            relationship_read, relationship_policy, sleep_read
+            relationship_read, relationship_policy, sleep_read, activity_read
         )
         self._stop = asyncio.Event()
         self._wakeups = wakeups or WorkWakeupBus()
@@ -240,9 +242,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         except LifeViolation:
             raise
         except SleepViolation as error:
-            raise LifeViolation(
-                f"LIFE-{error.code.removeprefix('SLEEP-')}"
-            ) from None
+            raise LifeViolation(f"LIFE-{error.code.removeprefix('SLEEP-')}") from None
         except DatabaseTransactionError:
             raise LifeViolation("LIFE-DATABASE") from None
 
@@ -280,9 +280,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         except LifeViolation:
             raise
         except SleepViolation as error:
-            raise LifeViolation(
-                f"LIFE-{error.code.removeprefix('SLEEP-')}"
-            ) from None
+            raise LifeViolation(f"LIFE-{error.code.removeprefix('SLEEP-')}") from None
         except DatabaseTransactionError:
             raise LifeViolation("LIFE-DATABASE") from None
 
@@ -314,6 +312,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
 def compose_life_opportunity_pipeline(
     *,
     factory: PostgreSQLUnitOfWorkFactory,
+    activity_read: ActivityReadPort,
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
@@ -328,6 +327,7 @@ def compose_life_opportunity_pipeline(
 ) -> LifeOpportunityPipeline:
     return LifeOpportunityPipeline(
         factory=factory,
+        activity_read=activity_read,
         relationship_read=relationship_read,
         relationship_policy=relationship_policy,
         sleep_maintenance=sleep_maintenance,
@@ -353,6 +353,7 @@ def build_life_opportunity_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    activity_read: ActivityReadPort,
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
@@ -376,6 +377,7 @@ def build_life_opportunity_pipeline(
     )
     return LifeOpportunityPipeline(
         factory=factory,
+        activity_read=activity_read,
         relationship_read=relationship_read,
         relationship_policy=relationship_policy,
         sleep_maintenance=sleep_maintenance,

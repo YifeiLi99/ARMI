@@ -6,14 +6,14 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_activity.api import (
     ActivityStatus,
     ActivityTransition,
+    ActivityViolation,
     ActivityWaitingKind,
     CreatorActivityItem,
     CreatorActivityPage,
     CreatorActivityTimelineItem,
-    CreatorActivityViolation,
 )
 
 
@@ -41,7 +41,7 @@ def test_waiting_activity_exposes_only_formal_creator_projection() -> None:
 
 def test_activity_page_is_bounded_and_marks_truncation() -> None:
     assert CreatorActivityPage((), False).items == ()
-    with pytest.raises(CreatorActivityViolation, match="ACTIVITY-QUERY-PAGE"):
+    with pytest.raises(ActivityViolation, match="ACTIVITY-QUERY-PAGE"):
         CreatorActivityPage(tuple(object() for _ in range(101)), True)  # type: ignore[arg-type]
 
 
@@ -56,7 +56,7 @@ def test_decision_only_timeline_shape_is_strict() -> None:
         occurred_at=now,
     )
     assert item.event_kind == "defer"
-    with pytest.raises(CreatorActivityViolation, match="ACTIVITY-QUERY-TIMELINE"):
+    with pytest.raises(ActivityViolation, match="ACTIVITY-QUERY-TIMELINE"):
         CreatorActivityTimelineItem(
             event_id=uuid7(),
             event_kind="no_action",

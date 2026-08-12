@@ -10,12 +10,16 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_kernel.application import (
+from armi_activity.api import (
     ActivityAttentionDecisionKind,
+    ActivityCognitionPort,
     ActivityStatus,
     ActivityWaitingKind,
     CandidateActivityDecisionDraft,
     CandidateActivityDraft,
+    default_activity_cognition,
+)
+from armi_kernel.application import (
     CandidateBasis,
     CandidateComponentDraft,
     CandidateDisposition,
@@ -234,7 +238,7 @@ ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v24"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v25"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
@@ -559,6 +563,7 @@ class DeterministicCandidateValidator:
     """Validate candidate v4 into a canonical, not-yet-effective change set."""
 
     __slots__ = (
+        "_activity_cognition",
         "_context",
         "_memory_cognition",
         "_relationship_cognition",
@@ -568,11 +573,13 @@ class DeterministicCandidateValidator:
     def __init__(
         self,
         context: CandidateValidationContext,
+        activity_cognition: ActivityCognitionPort | None = None,
         memory_cognition: MemoryCognitionPort | None = None,
         relationship_cognition: RelationshipCognitionPort | None = None,
         sleep_cognition: SleepCognitionPort | None = None,
     ) -> None:
         self._context = context
+        self._activity_cognition = activity_cognition or default_activity_cognition()
         self._memory_cognition = memory_cognition or default_memory_cognition()
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition or default_sleep_cognition()
@@ -1253,8 +1260,6 @@ class DeterministicCandidateValidator:
                 codex_delegations=[
                     _codex_delegation_wire(item) for item in codex_delegations
                 ],
-                activities=[],
-                activity_decisions=[],
                 owner_drafts=[_owner_draft_wire(item) for item in owner_drafts],
                 materials=[_material_wire(item) for item in materials],
                 prompts=[_prompt_wire(item) for item in prompts],
@@ -1544,8 +1549,6 @@ class DeterministicCandidateValidator:
             "action_choices": [_action_wire(item) for item in action_choices],
             "web_research_requests": [],
             "codex_delegations": [],
-            "activities": [],
-            "activity_decisions": [],
             "owner_drafts": (
                 []
                 if relationship is None
@@ -1559,6 +1562,8 @@ class DeterministicCandidateValidator:
         if change_set_version != ACTIVE_CHANGE_SET_VERSION:
             value["memories"] = []
             value["memory_revisions"] = []
+            value["activities"] = []
+            value["activity_decisions"] = []
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
             canonical,
@@ -1637,8 +1642,11 @@ class DeterministicCandidateValidator:
                     ActivityStatus.READY,
                 ),
             )
+        owner_drafts = tuple(
+            self._activity_cognition.bind_create(item) for item in activities
+        )
         value = {
-            "schema_version": ACTIVITY_CHANGE_SET_VERSION,
+            "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
             "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
@@ -1654,8 +1662,12 @@ class DeterministicCandidateValidator:
             "components": [],
             "capability_requests": [],
             "action_choices": [],
+            "web_research_requests": [],
             "codex_delegations": [],
-            "activities": [_activity_wire(item) for item in activities],
+            "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
+            "materials": [],
+            "prompts": [],
+            "exact_life_queries": [],
             "rejections": [],
         }
         canonical = rfc8785.dumps(cast(Any, value))
@@ -1676,8 +1688,7 @@ class DeterministicCandidateValidator:
             (),
             (),
             (),
-            (),
-            activities,
+            owner_drafts=owner_drafts,
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
@@ -1747,8 +1758,6 @@ class DeterministicCandidateValidator:
             "action_choices": [],
             "web_research_requests": [],
             "codex_delegations": [],
-            "activities": [],
-            "activity_decisions": [],
             "owner_drafts": [_owner_draft_wire(owner_draft)],
             "materials": [],
             "prompts": [],
@@ -1840,8 +1849,9 @@ class DeterministicCandidateValidator:
             if kind is ActivityAttentionDecisionKind.DEFER
             else CandidateDisposition.NEED_INFORMATION
         )
+        owner_draft = self._activity_cognition.bind_decision(decision)
         value = {
-            "schema_version": ACTIVITY_ATTENTION_CHANGE_SET_VERSION,
+            "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
             "generation_id": str(context.generation_id),
             "episode_id": str(context.episode_id),
@@ -1857,9 +1867,12 @@ class DeterministicCandidateValidator:
             "components": [],
             "capability_requests": [],
             "action_choices": [],
+            "web_research_requests": [],
             "codex_delegations": [],
-            "activities": [],
-            "activity_decisions": [_activity_decision_wire(decision)],
+            "owner_drafts": [_owner_draft_wire(owner_draft)],
+            "materials": [],
+            "prompts": [],
+            "exact_life_queries": [],
             "rejections": [],
         }
         canonical = rfc8785.dumps(cast(Any, value))
@@ -1880,9 +1893,7 @@ class DeterministicCandidateValidator:
             (),
             (),
             (),
-            (),
-            (),
-            (decision,),
+            owner_drafts=(owner_draft,),
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
@@ -1980,8 +1991,9 @@ class DeterministicCandidateValidator:
             if material is None:
                 return _rejected(error or "CANDIDATE-ACTIVITY-WORK-MATERIAL")
 
+        owner_draft = self._activity_cognition.bind_decision(decision)
         value = {
-            "schema_version": "armi.subject-change-set.v18",
+            "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
             "generation_id": str(context.generation_id),
             "episode_id": str(context.episode_id),
@@ -1999,11 +2011,7 @@ class DeterministicCandidateValidator:
             "action_choices": [],
             "web_research_requests": [],
             "codex_delegations": [],
-            "activities": [],
-            "activity_decisions": [_activity_decision_wire(decision)],
-            "memories": [],
-            "memory_revisions": [],
-            "relationships": [],
+            "owner_drafts": [_owner_draft_wire(owner_draft)],
             "materials": [] if material is None else [_material_wire(material)],
             "prompts": [],
             "exact_life_queries": [],
@@ -2027,7 +2035,7 @@ class DeterministicCandidateValidator:
             action_choices=(),
             web_research_requests=(),
             rejections=(),
-            activity_decisions=(decision,),
+            owner_drafts=(owner_draft,),
             materials=() if material is None else (material,),
         )
         return CandidateValidationResult(
@@ -2159,8 +2167,6 @@ class DeterministicCandidateValidator:
             "action_choices": [],
             "web_research_requests": [],
             "codex_delegations": [],
-            "activities": [],
-            "activity_decisions": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "materials": [],
             "prompts": [],
@@ -4519,44 +4525,6 @@ def _memory_source_kind(
     if fact_class is CandidateFactClass.EXTERNAL_CLAIM:
         return MemorySourceKind.REPORTED
     return MemorySourceKind.EXPERIENCED
-
-
-def _activity_wire(value: CandidateActivityDraft) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "fact_class": value.fact_class.value,
-        "activity_id": str(value.activity_id),
-        "activity_kind": value.activity_kind,
-        "goal": value.goal,
-        "next_safe_step": value.next_safe_step,
-        "status": value.status.value,
-        "privacy_scope": value.privacy_scope,
-    }
-
-
-def _activity_decision_wire(
-    value: CandidateActivityDecisionDraft,
-) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "activity_id": str(value.activity_id),
-        "current_revision_id": str(value.current_revision_id),
-        "expected_head_version": value.expected_head_version,
-        "decision_kind": value.decision_kind.value,
-        "progress_summary": value.progress_summary,
-        "next_safe_step": value.next_safe_step,
-        "waiting_summary": value.waiting_summary,
-        "resumption_cue": value.resumption_cue,
-        "waiting_kind": (
-            None if value.waiting_kind is None else value.waiting_kind.value
-        ),
-        "delay_seconds": value.delay_seconds,
-        "terminal_reason": value.terminal_reason,
-    }
 
 
 def _web_research_wire(value: WebResearchRequestDraft) -> dict[str, object]:

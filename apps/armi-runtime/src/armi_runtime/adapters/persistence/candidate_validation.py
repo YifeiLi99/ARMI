@@ -8,6 +8,7 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_activity.api import ActivityReadPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -18,8 +19,6 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CandidateActivityDecisionDraft,
-    CandidateActivityDraft,
     CandidateBasis,
     CandidateComponentDraft,
     CandidateExactLifeQueryDraft,
@@ -152,14 +151,16 @@ class CandidateEpisodeSnapshot:
 class PostgreSQLCandidateValidationRepository:
     """Freeze validation input and atomically preserve its result."""
 
-    __slots__ = ("_memories", "_relationships", "_sleep")
+    __slots__ = ("_activities", "_memories", "_relationships", "_sleep")
 
     def __init__(
         self,
         relationships: RelationshipReadPort,
         sleep: SleepReadPort,
+        activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
     ) -> None:
+        self._activities = activities
         self._memories = memories
         self._relationships = relationships
         self._sleep = sleep
@@ -315,28 +316,9 @@ class PostgreSQLCandidateValidationRepository:
                 (row[0],),
             )
         ).fetchall()
-        activity_row = await (
-            await connection.execute(
-                """
-                SELECT opportunity.activity_id, activity.current_revision_id,
-                       activity.head_version, revision.status
-                FROM armi.cognitive_episodes AS episode
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.opportunity_id = episode.opportunity_id
-                JOIN armi.activities AS activity
-                  ON activity.activity_id = opportunity.activity_id
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                WHERE episode.cognitive_episode_id = %s
-                  AND episode.purpose IN (
-                      'consider_activity_attention',
-                      'consider_activity_internal_work'
-                  )
-                  AND opportunity.source_ref = activity.current_revision_id
-                """,
-                (row[0],),
-            )
-        ).fetchone()
+        activity_row = await self._activities.candidate_head(
+            unit_of_work.transaction, episode_id=row[0]
+        )
         maintenance = await self._sleep.candidate_maintenance(
             connection, episode_id=row[0]
         )
@@ -485,10 +467,10 @@ class PostgreSQLCandidateValidationRepository:
             str(row[13]),
             tuple((item[0], Digest(str(item[1])), str(item[2])) for item in codex_rows),
             row[14],
-            None if activity_row is None else activity_row[0],
-            None if activity_row is None else activity_row[1],
-            None if activity_row is None else int(activity_row[2]),
-            None if activity_row is None else str(activity_row[3]),
+            None if activity_row is None else activity_row.activity_id,
+            None if activity_row is None else activity_row.current_revision_id,
+            None if activity_row is None else activity_row.head_version,
+            None if activity_row is None else activity_row.status.value,
             tuple(
                 (
                     item.memory_id,
@@ -893,8 +875,6 @@ def _validation_drafts(
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
-    | CandidateActivityDraft
-    | CandidateActivityDecisionDraft
     | CandidateRejection,
     ...,
 ]:
@@ -909,8 +889,6 @@ def _validation_drafts(
         *change_set.action_choices,
         *change_set.web_research_requests,
         *change_set.codex_delegations,
-        *change_set.activities,
-        *change_set.activity_decisions,
         *change_set.rejections,
     )
 
@@ -931,12 +909,8 @@ def _owner(
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
-    | CandidateActivityDraft
-    | CandidateActivityDecisionDraft
     | CandidateRejection,
 ) -> CandidateOwner:
-    if isinstance(value, (CandidateActivityDraft, CandidateActivityDecisionDraft)):
-        return CandidateOwner.ACTIVITY
     if isinstance(value, CandidateExperienceDraft):
         return CandidateOwner.EXPERIENCE
     if isinstance(value, (CandidateMemoryDraft, CandidateMemoryRevisionDraft)):
@@ -984,8 +958,6 @@ def _implicit_fact_class(
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | CodexDelegationDraft
-    | CandidateActivityDraft
-    | CandidateActivityDecisionDraft
     | CandidateRejection,
 ) -> CandidateFactClass:
     if isinstance(
@@ -998,15 +970,12 @@ def _implicit_fact_class(
             CandidateComponentDraft,
             CandidateSubjectPromptDraft,
             CandidateExactLifeQueryDraft,
-            CandidateActivityDraft,
             CandidateRejection,
         ),
     ):
         return value.fact_class
     if isinstance(value, CandidateLifeMaterialDraft):
         return CandidateFactClass.SUBJECTIVE_UNDERSTANDING
-    if isinstance(value, CandidateActivityDecisionDraft):
-        return CandidateFactClass.INFERENCE
     return CandidateFactClass.INFERENCE
 
 

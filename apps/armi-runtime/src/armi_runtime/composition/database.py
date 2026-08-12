@@ -6,13 +6,19 @@ from collections.abc import Callable
 from typing import Final
 from uuid import UUID
 
+from armi_activity.api import (
+    ActivityCognitionPort,
+    ActivityCommitPort,
+    ActivityReadPort,
+    ActivityViolation,
+)
+from armi_activity.bootstrap import ActivityModule, bootstrap_activity
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     ActionAdapterPort,
     CandidateViolation,
     CapabilityViolation,
     CodexDelegationViolation,
-    CreatorActivityViolation,
     CreatorExportViolation,
     CreatorProjectionNotifier,
     CreatorPromptViolation,
@@ -71,9 +77,6 @@ from armi_runtime.adapters.persistence.birth import (
 )
 from armi_runtime.adapters.persistence.capability_policy import (
     PostgreSQLCreatorGrantPolicy,
-)
-from armi_runtime.adapters.persistence.creator_activities import (
-    PostgreSQLCreatorActivityQuery,
 )
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.other_human_records import (
@@ -502,40 +505,40 @@ def compose_creator_scene_service(
         raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
 
 
-def compose_creator_activity_query(
+def compose_activity_module(
     prepared: PreparedEnvironment,
     *,
     creator_party_id: UUID,
-) -> PostgreSQLCreatorActivityQuery:
-    """Resolve the Runtime credential for the bounded Activity projection."""
+) -> ActivityModule:
+    """Resolve and bind the one active Activity owner implementation."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
-        raise CreatorActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
+        raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
     try:
         with prepared.credential_port.resolve(
             locator,
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> PostgreSQLCreatorActivityQuery:
+            def create(value: memoryview) -> ActivityModule:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
-                    raise CreatorActivityViolation(
-                        "ACTIVITY-QUERY-UNAVAILABLE"
-                    ) from None
+                    raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
                 config = prepared.effective.config
-                return PostgreSQLCreatorActivityQuery(
+                return bootstrap_activity(
                     conninfo,
-                    environment_id=config.environment.environment_id,
+                    expected_role=physical_role_name(
+                        config.environment.environment_id, "runtime"
+                    ),
                     creator_party_id=creator_party_id,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                 )
 
             return handle.consume(create)
     except ConfigurationViolation:
-        raise CreatorActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
+        raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
 
 
 def compose_life_record_query(
@@ -543,6 +546,7 @@ def compose_life_record_query(
     *,
     creator_party_id: UUID,
     cursor_key: bytes,
+    activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
     relationship_read: RelationshipReadPort,
 ) -> PostgreSQLLifeRecordQuery:
@@ -571,6 +575,7 @@ def compose_life_record_query(
                     data_root=prepared.data_root,
                     max_object_bytes=config.artifacts.max_object_bytes,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    activities=activity_read,
                     memories=memory_read,
                     relationships=relationship_read,
                 )
@@ -1216,6 +1221,7 @@ def compose_life_opportunity_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    activity_read: ActivityReadPort,
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
@@ -1252,6 +1258,7 @@ def compose_life_opportunity_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                    activity_read=activity_read,
                     relationship_read=relationship_read,
                     relationship_policy=relationship_policy,
                     sleep_maintenance=sleep_maintenance,
@@ -1276,6 +1283,7 @@ def compose_context_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     relationship_read: RelationshipReadPort,
@@ -1329,6 +1337,7 @@ def compose_context_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                    activity_read=activity_read,
                     memory_read=memory_read,
                     memory_projection=memory_projection,
                     relationship_read=relationship_read,
@@ -1556,6 +1565,8 @@ def compose_candidate_validation_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    activity_cognition: ActivityCognitionPort,
+    activity_read: ActivityReadPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -1596,6 +1607,8 @@ def compose_candidate_validation_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                    activity_cognition=activity_cognition,
+                    activity_read=activity_read,
                     memory_cognition=memory_cognition,
                     memory_read=memory_read,
                     relationship_cognition=relationship_cognition,
@@ -1616,6 +1629,8 @@ def compose_subject_commit_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    activity_cognition: ActivityCognitionPort,
+    activity_commit: ActivityCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -1656,6 +1671,8 @@ def compose_subject_commit_pipeline(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    activity_cognition=activity_cognition,
+                    activity_commit=activity_commit,
                     memory_commit=memory_commit,
                     memory_cognition=memory_cognition,
                     relationship_cognition=relationship_cognition,
@@ -1922,11 +1939,11 @@ __all__ = (
     "RUNTIME_LOCATOR_NAME",
     "ContinuityState",
     "DatabaseViolation",
+    "compose_activity_module",
     "compose_candidate_validation_pipeline",
     "compose_capability_policy",
     "compose_codex_pipeline",
     "compose_context_pipeline",
-    "compose_creator_activity_query",
     "compose_creator_export_service",
     "compose_creator_input",
     "compose_creator_prompt_service",

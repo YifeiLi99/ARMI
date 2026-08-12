@@ -124,6 +124,19 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-activity",
+        module="armi_activity",
+        project_dir=Path("modules/activity"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -138,6 +151,7 @@ DISTRIBUTIONS = (
             "armi-relationship==0.0.0",
             "armi-memory==0.0.0",
             "armi-sleep==0.0.0",
+            "armi-activity==0.0.0",
             "fastapi==0.140.13",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -670,6 +684,16 @@ def _check_import(
                 "armi-sleep",
             }
         )
+        or (
+            source_distribution == "armi-activity"
+            and target_distribution
+            not in {
+                None,
+                "armi-kernel",
+                "armi-runtime-foundation",
+                "armi-activity",
+            }
+        )
     )
     if reverse_dependency:
         violations.append(
@@ -751,6 +775,9 @@ def _check_import(
         "armi-sleep": frozenset(
             {"armi_sleep", "armi_sleep.api", "armi_sleep.bootstrap"}
         ),
+        "armi-activity": frozenset(
+            {"armi_activity", "armi_activity.api", "armi_activity.bootstrap"}
+        ),
     }
     if crosses_distribution and target_distribution in public_modules:
         if (
@@ -785,6 +812,18 @@ def _check_import(
                     path,
                     line,
                     "sleep bootstrap is reserved for Runtime composition",
+                )
+            )
+        if (
+            imported_module == "armi_activity.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "Activity bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -934,6 +973,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_sleep": root / "modules/sleep/src/armi_sleep/__init__.py",
         "armi_sleep.api": root / "modules/sleep/src/armi_sleep/api.py",
         "armi_sleep.bootstrap": root / "modules/sleep/src/armi_sleep/bootstrap.py",
+        "armi_activity": root / "modules/activity/src/armi_activity/__init__.py",
+        "armi_activity.api": root / "modules/activity/src/armi_activity/api.py",
+        "armi_activity.bootstrap": root
+        / "modules/activity/src/armi_activity/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1019,6 +1062,24 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "sleep table SQL is owned by armi-sleep",
                     )
                 )
+            if (
+                distribution.name != "armi-activity"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:activities|activity_revisions|activity_decisions)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-ACTIVITY-SQL",
+                        relative,
+                        1,
+                        "Activity table SQL is owned by armi-activity",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1038,6 +1099,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "sleep_module.cognition",
             "sleep_module.commit",
             "sleep_module.maintenance",
+        ),
+        "Activity": (
+            "activity_module = compose_activity_module(",
+            "activity_module.read",
+            "activity_module.cognition",
+            "activity_module.commit",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

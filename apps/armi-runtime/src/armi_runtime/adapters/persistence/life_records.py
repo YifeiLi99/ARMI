@@ -14,6 +14,7 @@ from uuid import UUID
 
 import psycopg
 import rfc8785
+from armi_activity.api import ActivityReadPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import (
     parse_life_material_artifact,
@@ -161,6 +162,7 @@ class PostgreSQLLifeRecordQuery:
     """Read current life facts without changing memory or subject state."""
 
     __slots__ = (
+        "_activities",
         "_codec",
         "_creator_party_id",
         "_expected_role",
@@ -181,10 +183,12 @@ class PostgreSQLLifeRecordQuery:
         data_root: Path,
         max_object_bytes: int,
         pool_timeout_seconds: int,
+        activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
         relationships: RelationshipReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
+        self._activities = activities
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
         self._memories = memories
@@ -291,6 +295,19 @@ class PostgreSQLLifeRecordQuery:
                     subject_id=subject_id,
                     generation_id=generation_row[0],
                 )
+                activity_rows = (
+                    await self._activities.life_record_branch(
+                        connection,
+                        subject_id=subject_id,
+                        query_text=request.query_text,
+                        before=None
+                        if boundary is None
+                        else (boundary[0].value, boundary[1], boundary[2]),
+                        limit=request.limit + 1,
+                    )
+                    if request.record_kind in {None, LifeRecordKind.ACTIVITY}
+                    else ()
+                )
                 rows = await (
                     await connection.execute(
                         """
@@ -304,32 +321,6 @@ class PostgreSQLLifeRecordQuery:
                                    %s::uuid AS before_id,
                                    %s::integer AS branch_limit
                         ), records AS (
-                            (
-                            SELECT activity.activity_id AS record_ref,
-                                   'activity'::text AS record_kind,
-                                   left(
-                                       revision.goal ||
-                                       CASE WHEN revision.progress_summary IS NULL
-                                           THEN '' ELSE ' — ' || revision.progress_summary
-                                       END,
-                                       4096
-                                   ) AS summary,
-                                   'activity_current'::text AS source_kind,
-                                   revision.created_at AS occurred_at,
-                                   NULL::boolean AS naturally_recallable
-                            FROM armi.activities AS activity
-                            JOIN armi.activity_revisions AS revision
-                              ON revision.activity_revision_id =
-                                 activity.current_revision_id
-                            CROSS JOIN query_input AS query
-                            WHERE activity.subject_id = query.subject_id
-                              AND (query.record_kind IS NULL OR query.record_kind = 'activity')
-                              AND (query.query_text IS NULL OR left(revision.goal || CASE WHEN revision.progress_summary IS NULL THEN '' ELSE ' — ' || revision.progress_summary END, 4096) ILIKE '%%' || query.query_text || '%%')
-                              AND (query.before_at IS NULL OR (revision.created_at, 'activity'::text, activity.activity_id) < (query.before_at, query.before_kind, query.before_id))
-                            ORDER BY revision.created_at DESC, activity.activity_id DESC
-                            LIMIT (SELECT branch_limit FROM query_input)
-                            )
-                            UNION ALL
                             (
                             SELECT experience.experience_id,
                                    'conversation'::text,
@@ -466,6 +457,17 @@ class PostgreSQLLifeRecordQuery:
         ]
         combined_rows: list[tuple[UUID, str, str, str, datetime, bool | None]] = [
             *rows,
+            *(
+                (
+                    item.activity_id,
+                    "activity",
+                    item.summary,
+                    "activity_current",
+                    item.occurred_at,
+                    None,
+                )
+                for item in activity_rows
+            ),
             *relationship_rows,
             *(
                 (

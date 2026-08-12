@@ -10,6 +10,7 @@ from typing import cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_activity.api import ActivityReadPort
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -125,6 +126,7 @@ class ContextPipeline(OpportunitySelector):
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        activity_read: ActivityReadPort,
         memory_read: MemoryReadPort,
         memory_projection: MemoryProjectionPort,
         relationship_read: RelationshipReadPort,
@@ -140,7 +142,7 @@ class ContextPipeline(OpportunitySelector):
         self._policy_version = policy_version
         self._web_search_active = web_search_active
         self._repository = PostgreSQLContextRepository(
-            relationship_read, sleep_read, memories=memory_read
+            relationship_read, sleep_read, activity_read, memories=memory_read
         )
         self._catalog = ArtifactCatalogRepository()
         self._compiler = DeterministicContextCompiler()
@@ -1298,6 +1300,7 @@ def build_context_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     relationship_read: RelationshipReadPort,
@@ -1323,6 +1326,7 @@ def build_context_pipeline(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
         ),
+        activity_read=activity_read,
         memory_read=memory_read,
         memory_projection=memory_projection,
         relationship_read=relationship_read,

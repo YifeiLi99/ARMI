@@ -17,6 +17,7 @@
     "modules/relationship/src",
     "modules/memory/src",
     "modules/sleep/src",
+    "modules/activity/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -32,6 +33,7 @@
     "modules/relationship/src",
     "modules/memory/src",
     "modules/sleep/src",
+    "modules/activity/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

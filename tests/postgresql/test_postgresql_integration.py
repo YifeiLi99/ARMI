@@ -27,6 +27,8 @@ from uuid import UUID
 
 import psycopg
 import rfc8785
+from armi_activity.api import ActivityViolation
+from armi_activity.bootstrap import bootstrap_activity
 from armi_admin.application import AdminConfig, AdminCredentialPort
 from armi_admin.mcp.contracts import (
     ApplyCorrectionRequest,
@@ -65,7 +67,6 @@ from armi_kernel.application import (
     CasStatus,
     CodexDelegatedWorkScope,
     ConfigureExternalCreatorCommand,
-    CreatorActivityViolation,
     CreatorCodexTaskCommand,
     CreatorGrantCommand,
     CreatorGrantDecision,
@@ -145,9 +146,6 @@ from armi_runtime.adapters.persistence.birth import (
 )
 from armi_runtime.adapters.persistence.capability_policy import (
     PostgreSQLCreatorGrantPolicy,
-)
-from armi_runtime.adapters.persistence.creator_activities import (
-    PostgreSQLCreatorActivityQuery,
 )
 from armi_runtime.adapters.persistence.creator_input import CreatorInputRepository
 from armi_runtime.adapters.persistence.durable_work import (
@@ -1966,6 +1964,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             await relationship_module.open()
+            activity_module = bootstrap_activity(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=manifest.creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            await activity_module.open()
             sleep_module = bootstrap_sleep(
                 fixture.runtime_dsn,
                 expected_role=physical_role_name(fixture.environment_id, "runtime"),
@@ -1976,6 +1981,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             pipelines = tuple(
                 LifeOpportunityPipeline(
                     factory=factory,
+                    activity_read=activity_module.read,
                     relationship_read=relationship_module.read,
                     relationship_policy=relationship_module.policy,
                     sleep_maintenance=sleep_module.maintenance,
@@ -1999,6 +2005,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 for pipeline in pipelines:
                     await pipeline.close()
+                await activity_module.close()
                 await relationship_module.close()
                 await sleep_module.close()
                 await authority.release(record.fence)
@@ -2101,8 +2108,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 cursor_key=hashlib.sha256(b"p0-s022-life-record-cursor-key").digest(),
                 pool_timeout_seconds=2,
             )
+            activity_module = bootstrap_activity(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
             await relationship_module.open()
             await memory_module.open()
+            await activity_module.open()
             life_records = PostgreSQLLifeRecordQuery(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -2111,6 +2125,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 data_root=root,
                 max_object_bytes=1024 * 1024,
                 pool_timeout_seconds=2,
+                activities=activity_module.read,
                 memories=memory_module.read,
                 relationships=relationship_module.read,
             )
@@ -2134,24 +2149,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await memory_module.close()
                 await relationship_module.close()
 
-            query = PostgreSQLCreatorActivityQuery(
-                fixture.runtime_dsn,
-                environment_id=fixture.environment_id,
-                creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
-            )
-            await query.open()
             try:
-                page = await query.list_current()
+                page = await activity_module.read.list_current()
                 self.assertEqual(page.items, ())
                 self.assertFalse(page.truncated)
                 with self.assertRaisesRegex(
-                    CreatorActivityViolation,
+                    ActivityViolation,
                     "ACTIVITY-QUERY-NOT-FOUND",
                 ):
-                    await query.timeline(_uuid7())
+                    await activity_module.read.timeline(_uuid7())
             finally:
-                await query.close()
+                await activity_module.close()
 
             session_id, revision_id = _uuid7(), _uuid7()
             with psycopg.connect(fixture.provisioner_dsn) as connection:
@@ -2235,6 +2243,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             await relationship_module.open()
+            activity_module = bootstrap_activity(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            await activity_module.open()
             sleep_module = bootstrap_sleep(
                 fixture.runtime_dsn,
                 expected_role=physical_role_name(fixture.environment_id, "runtime"),
@@ -2244,6 +2259,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await sleep_module.open()
             pipeline = LifeOpportunityPipeline(
                 factory=maintenance_factory,
+                activity_read=activity_module.read,
                 relationship_read=relationship_module.read,
                 relationship_policy=relationship_module.policy,
                 sleep_maintenance=sleep_module.maintenance,
@@ -2275,6 +2291,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     await sleep_module.read.timeline(_uuid7())
             finally:
                 await sleep_module.close()
+                await activity_module.close()
                 await relationship_module.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
@@ -5537,7 +5554,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_party_id=creator_party_id,
                 pool_timeout_seconds=2,
             )
+            activity_module = bootstrap_activity(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
             repository = PostgreSQLSubjectCommitRepository(
+                activity_module.commit,
                 memory_module.commit,
                 relationship_module.commit,
                 relationship_module.read,
@@ -5547,6 +5571,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await memory_module.open()
             await relationship_module.open()
             await sleep_module.open()
+            await activity_module.open()
             await factory.open()
             try:
                 async with factory.unit_of_work() as unit_of_work:
@@ -5576,6 +5601,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await memory_module.close()
                 await relationship_module.close()
                 await sleep_module.close()
+                await activity_module.close()
 
         status, version = asyncio.run(
             settle(),

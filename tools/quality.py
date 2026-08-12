@@ -125,20 +125,25 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             path.name for path in python_dist.glob("*") if path.is_file()
         )
         expected = (
+            "armi_activity",
             "armi_adapter_qq",
             "armi_admin",
             "armi_artifact_store",
             "armi_channel_napcat",
             "armi_kernel",
+            "armi_memory",
             "armi_postgresql_contract",
+            "armi_relationship",
             "armi_runtime",
+            "armi_runtime_foundation",
+            "armi_sleep",
         )
         wheels = [name for name in artifacts if name.endswith(".whl")]
         source_distributions = [name for name in artifacts if name.endswith(".tar.gz")]
         valid = (
-            len(artifacts) == 14
-            and len(wheels) == 7
-            and len(source_distributions) == 7
+            len(artifacts) == 24
+            and len(wheels) == 12
+            and len(source_distributions) == 12
             and all(
                 any(name.startswith(prefix) for name in wheels) for prefix in expected
             )

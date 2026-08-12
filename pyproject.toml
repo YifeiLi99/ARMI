@@ -28,6 +28,7 @@ members = [
     "modules/relationship",
     "modules/memory",
     "modules/sleep",
+    "modules/activity",
     "apps/armi-runtime",
     "apps/armi-admin",
 ]
@@ -40,6 +41,7 @@ testpaths = [
     "modules/relationship/tests",
     "modules/memory/tests",
     "modules/sleep/tests",
+    "modules/activity/tests",
 ]
 
 [tool.ruff]

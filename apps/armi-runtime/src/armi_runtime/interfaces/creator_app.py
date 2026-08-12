@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, TypedDict, assert_never, cast
 from uuid import UUID, uuid7
 
+from armi_activity.api import ActivityReadPort, ActivityViolation
 from armi_kernel.application import (
     CapabilityDecisionId,
     CapabilityRequestId,
@@ -18,8 +19,6 @@ from armi_kernel.application import (
     CodexDelegationViolation,
     CodexModel,
     CodexReasoningEffort,
-    CreatorActivityQueryPort,
-    CreatorActivityViolation,
     CreatorCodexTaskAdmissionPort,
     CreatorCodexTaskCommand,
     CreatorEventResourceKind,
@@ -1380,7 +1379,7 @@ def create_runtime_app(
     on_stopping: AsyncCallback,
     creator_scenes: CreatorScenePort | None = None,
     scene_timeline_query: SceneTimelineQueryPort | None = None,
-    creator_activity_query: CreatorActivityQueryPort | None = None,
+    creator_activity_query: ActivityReadPort | None = None,
     life_record_query: LifeRecordQueryPort | None = None,
     creator_life_material_query: CreatorLifeMaterialQueryPort | None = None,
     creator_memory_query: MemoryReadPort | None = None,
@@ -2260,7 +2259,7 @@ def create_runtime_app(
             )
         try:
             page = await creator_activity_query.list_current()
-        except CreatorActivityViolation:
+        except ActivityViolation:
             return JSONResponse(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_ACTIVITY_QUERY_UNAVAILABLE"),
@@ -2341,7 +2340,7 @@ def create_runtime_app(
             )
         try:
             timeline = await creator_activity_query.timeline(parsed)
-        except CreatorActivityViolation as error:
+        except ActivityViolation as error:
             if error.code == "ACTIVITY-QUERY-NOT-FOUND":
                 return JSONResponse(
                     status_code=404,

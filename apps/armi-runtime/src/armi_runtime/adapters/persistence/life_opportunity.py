@@ -6,10 +6,13 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid7
 
+from armi_activity.api import (
+    ActivityReadPort,
+    ActivityScheduler,
+    ActivitySchedulingDisposition,
+    ActivitySchedulingSnapshot,
+)
 from armi_kernel.application import (
-    ActivityHeadSnapshot,
-    ActivityStatus,
-    ActivityWaitingKind,
     AuditDraft,
     AuditEventId,
     AuditReference,
@@ -17,12 +20,9 @@ from armi_kernel.application import (
     AuditSensitivity,
     CreatorOutreachPolicy,
     LifeOpportunitySourceKind,
-    LifeSchedulingDisposition,
-    LifeSchedulingSnapshot,
     LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
-    PostgreSqlFairLifeScheduler,
 )
 from armi_kernel.contracts import (
     ActivityId,
@@ -40,14 +40,16 @@ from .unit_of_work import PostgreSQLUnitOfWork
 class PostgreSQLLifeOpportunityRepository:
     """Admit one source-backed root opportunity under the active Runtime fence."""
 
-    __slots__ = ("_relationship_policy", "_relationships", "_sleep")
+    __slots__ = ("_activities", "_relationship_policy", "_relationships", "_sleep")
 
     def __init__(
         self,
         relationships: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
         sleep: SleepReadPort,
+        activities: ActivityReadPort,
     ) -> None:
+        self._activities = activities
         self._relationships = relationships
         self._relationship_policy = relationship_policy
         self._sleep = sleep
@@ -315,112 +317,11 @@ class PostgreSQLLifeOpportunityRepository:
             active_ids = tuple(ActivityId.from_wire(value) for value in active_list)
         except ContractViolation:
             raise LifeViolation("LIFE-SCHEDULER-FOCUS") from None
-        rows = await (
-            await connection.execute(
-                """
-                SELECT activity.activity_id, revision.activity_revision_id,
-                       revision.revision_no, revision.status, revision.created_at,
-                       max(previous.available_after) AS last_considered_at,
-                       revision.waiting_condition_kind,
-                       revision.resume_not_before,
-                       CASE
-                         WHEN revision.waiting_condition_kind = 'creator_input' THEN EXISTS (
-                           SELECT 1 FROM armi.party_input_interactions AS input
-                           WHERE input.received_at > revision.created_at
-                         )
-                         WHEN revision.waiting_condition_kind = 'external_evidence' THEN EXISTS (
-                           SELECT 1 FROM armi.external_evidence AS evidence
-                           WHERE evidence.subject_id = activity.subject_id
-                             AND evidence.received_at > revision.created_at
-                         )
-                         ELSE false
-                       END AS waiting_signal_available,
-                       revision.goal, revision.progress_summary,
-                       revision.next_safe_step, revision.resumption_cue,
-                       revision.terminal_reason
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                LEFT JOIN armi.opportunities AS previous
-                  ON previous.source_kind = 'activity_revision'
-                 AND previous.source_ref = revision.activity_revision_id
-                 AND previous.purpose = 'consider_activity_attention'
-                WHERE activity.subject_id = %s
-                  AND (
-                    NOT EXISTS (
-                        SELECT 1 FROM armi.opportunities AS candidate_root
-                        WHERE candidate_root.subject_id = activity.subject_id
-                          AND candidate_root.source_kind = 'activity_revision'
-                          AND candidate_root.source_ref = revision.activity_revision_id
-                          AND candidate_root.source_version = revision.revision_no
-                          AND candidate_root.purpose = 'consider_activity_attention'
-                          AND candidate_root.reconsideration_no = 0
-                    )
-                    OR EXISTS (
-                        SELECT 1
-                        FROM armi.opportunities AS candidate_root
-                        WHERE candidate_root.subject_id = activity.subject_id
-                          AND candidate_root.source_kind = 'activity_revision'
-                          AND candidate_root.source_ref = revision.activity_revision_id
-                          AND candidate_root.source_version = revision.revision_no
-                          AND candidate_root.purpose = 'consider_activity_attention'
-                          AND candidate_root.reconsideration_no = 0
-                          AND candidate_root.current_disposition = 'resolved'
-                          AND (
-                            EXISTS (
-                              SELECT 1 FROM armi.cognitive_episodes AS failed_episode
-                              WHERE failed_episode.opportunity_id =
-                                    candidate_root.opportunity_id
-                                AND failed_episode.status IN (
-                                    'failed', 'candidate_rejected'
-                                )
-                                AND candidate_root.resolved_at + interval '60 seconds'
-                                    <= statement_timestamp()
-                            )
-                            OR EXISTS (
-                              SELECT 1
-                              FROM armi.cognitive_episodes AS waiting_episode
-                              JOIN armi.activity_decisions AS decision
-                                USING (cognitive_episode_id)
-                              WHERE waiting_episode.opportunity_id =
-                                    candidate_root.opportunity_id
-                                AND waiting_episode.status = 'completed'
-                                AND decision.decision_kind = 'need_information'
-                                AND EXISTS (
-                                  SELECT 1 FROM armi.party_input_interactions AS input
-                                  WHERE input.received_at > decision.decided_at
-                                )
-                            )
-                          )
-                          AND NOT EXISTS (
-                              SELECT 1
-                              FROM armi.opportunities AS candidate_successor
-                              WHERE candidate_successor.predecessor_opportunity_id =
-                                    candidate_root.opportunity_id
-                          )
-                    )
-                  )
-                GROUP BY activity.activity_id, revision.activity_revision_id
-                """,
-                (fence.subject_id,),
-            )
-        ).fetchall()
-        heads = tuple(
-            ActivityHeadSnapshot(
-                ActivityId(row[0]),
-                row[1],
-                int(row[2]),
-                ActivityStatus(str(row[3])),
-                row[4],
-                row[5],
-                None if row[6] is None else ActivityWaitingKind(str(row[6])),
-                row[7],
-                bool(row[8]),
-            )
-            for row in rows
+        heads = await self._activities.scheduling_heads(
+            unit_of_work.transaction, subject_id=fence.subject_id
         )
-        decision = PostgreSqlFairLifeScheduler().select(
-            LifeSchedulingSnapshot(
+        decision = ActivityScheduler().select(
+            ActivitySchedulingSnapshot(
                 datetime.now(UTC),
                 heads,
                 active_ids,
@@ -429,13 +330,15 @@ class PostgreSQLLifeOpportunityRepository:
                 int(state[2]),
             )
         )
-        if decision.disposition is not LifeSchedulingDisposition.ADMIT:
+        if decision.disposition is not ActivitySchedulingDisposition.ADMIT:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
                 decision.reason_code or "LIFE-SCHEDULER-IDLE",
             )
-        selected = next(row for row in rows if row[1] == decision.activity_revision_id)
+        selected = next(
+            item for item in heads if item.revision_id == decision.activity_revision_id
+        )
         opportunity_id = uuid7()
         inserted = await (
             await connection.execute(
@@ -458,61 +361,26 @@ class PostgreSQLLifeOpportunityRepository:
                     opportunity_id,
                     fence.subject_id,
                     opportunity_id,
-                    selected[1],
-                    int(selected[2]),
-                    selected[0],
+                    selected.revision_id,
+                    selected.revision_no,
+                    selected.activity_id.value,
                 ),
             )
         ).fetchone()
         if inserted is None:
-            existing = await (
-                await connection.execute(
-                    """
-                    SELECT root.opportunity_id, root.current_disposition,
-                           (
-                             EXISTS (
-                               SELECT 1 FROM armi.cognitive_episodes AS failed_episode
-                               WHERE failed_episode.opportunity_id = root.opportunity_id
-                                 AND failed_episode.status IN (
-                                     'failed', 'candidate_rejected'
-                                 )
-                                 AND root.resolved_at + interval '60 seconds'
-                                     <= statement_timestamp()
-                             )
-                             OR EXISTS (
-                               SELECT 1
-                               FROM armi.cognitive_episodes AS waiting_episode
-                               JOIN armi.activity_decisions AS decision
-                                 USING (cognitive_episode_id)
-                               WHERE waiting_episode.opportunity_id = root.opportunity_id
-                                 AND waiting_episode.status = 'completed'
-                                 AND decision.decision_kind = 'need_information'
-                                 AND EXISTS (
-                                   SELECT 1 FROM armi.party_input_interactions AS input
-                                   WHERE input.received_at > decision.decided_at
-                                 )
-                             )
-                           ),
-                           successor.opportunity_id
-                    FROM armi.opportunities AS root
-                    LEFT JOIN armi.opportunities AS successor
-                      ON successor.predecessor_opportunity_id = root.opportunity_id
-                    WHERE root.subject_id = %s
-                      AND root.source_kind = 'activity_revision'
-                      AND root.source_ref = %s AND root.source_version = %s
-                      AND root.purpose = 'consider_activity_attention'
-                      AND root.reconsideration_no = 0
-                    """,
-                    (fence.subject_id, selected[1], int(selected[2])),
-                )
-            ).fetchone()
+            existing = await self._activities.attention_root_state(
+                unit_of_work.transaction,
+                subject_id=fence.subject_id,
+                revision_id=selected.revision_id,
+                revision_no=selected.revision_no,
+            )
             if existing is None:
                 raise LifeViolation("LIFE-SOURCE-STALE")
-            if existing[3] is not None:
+            if existing.successor_id is not None:
                 return OpportunityAdmissionOutcome(
-                    OpportunityAdmissionStatus.DUPLICATE, existing[3]
+                    OpportunityAdmissionStatus.DUPLICATE, existing.successor_id
                 )
-            if str(existing[1]) == "resolved" and bool(existing[2]):
+            if existing.disposition == "resolved" and existing.retry_ready:
                 retry_id = uuid7()
                 retried = await (
                     await connection.execute(
@@ -533,11 +401,11 @@ class PostgreSQLLifeOpportunityRepository:
                         (
                             retry_id,
                             fence.subject_id,
-                            existing[0],
-                            existing[0],
-                            selected[1],
-                            int(selected[2]),
-                            selected[0],
+                            existing.opportunity_id,
+                            existing.opportunity_id,
+                            selected.revision_id,
+                            selected.revision_no,
+                            selected.activity_id.value,
                         ),
                     )
                 ).fetchone()
@@ -553,14 +421,16 @@ class PostgreSQLLifeOpportunityRepository:
                             TraceId(retry_id.hex),
                             AuditSensitivity.PRIVATE,
                             subject_id=SubjectId(fence.subject_id),
-                            request=AuditReference("activity_revision", selected[1]),
+                            request=AuditReference(
+                                "activity_revision", selected.revision_id
+                            ),
                         )
                     )
                     return OpportunityAdmissionOutcome(
                         OpportunityAdmissionStatus.ADMITTED, retry_id
                     )
             return OpportunityAdmissionOutcome(
-                OpportunityAdmissionStatus.DUPLICATE, existing[0]
+                OpportunityAdmissionStatus.DUPLICATE, existing.opportunity_id
             )
         await unit_of_work.audit.append(
             AuditDraft(
@@ -573,7 +443,7 @@ class PostgreSQLLifeOpportunityRepository:
                 TraceId(opportunity_id.hex),
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(fence.subject_id),
-                request=AuditReference("activity_revision", selected[1]),
+                request=AuditReference("activity_revision", selected.revision_id),
             )
         )
         return OpportunityAdmissionOutcome(
@@ -658,21 +528,11 @@ class PostgreSQLLifeOpportunityRepository:
             activity_id = ActivityId.from_wire(active_list[0])
         except ContractViolation:
             raise LifeViolation("LIFE-SCHEDULER-FOCUS") from None
-        row = await (
-            await connection.execute(
-                """
-                SELECT activity.activity_id, revision.activity_revision_id,
-                       revision.revision_no, revision.status, revision.goal,
-                       revision.progress_summary, revision.next_safe_step
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                WHERE activity.subject_id = %s AND activity.activity_id = %s
-                  AND revision.status = 'in_progress'
-                """,
-                (fence.subject_id, activity_id.value),
-            )
-        ).fetchone()
+        row = await self._activities.focused_work_head(
+            unit_of_work.transaction,
+            subject_id=fence.subject_id,
+            activity_id=activity_id.value,
+        )
         if row is None:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
@@ -701,9 +561,9 @@ class PostgreSQLLifeOpportunityRepository:
                     opportunity_id,
                     fence.subject_id,
                     opportunity_id,
-                    row[1],
-                    int(row[2]),
-                    row[0],
+                    row.revision_id,
+                    row.revision_no,
+                    row.activity_id,
                 ),
             )
         ).fetchone()
@@ -718,7 +578,7 @@ class PostgreSQLLifeOpportunityRepository:
                       AND purpose = 'consider_activity_internal_work'
                       AND reconsideration_no = 0
                     """,
-                    (fence.subject_id, row[1], int(row[2])),
+                    (fence.subject_id, row.revision_id, row.revision_no),
                 )
             ).fetchone()
             if existing is None:
@@ -737,7 +597,7 @@ class PostgreSQLLifeOpportunityRepository:
                 TraceId(opportunity_id.hex),
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(fence.subject_id),
-                request=AuditReference("activity_revision", row[1]),
+                request=AuditReference("activity_revision", row.revision_id),
             )
         )
         return OpportunityAdmissionOutcome(
@@ -825,8 +685,9 @@ class PostgreSQLLifeOpportunityRepository:
             other_party_id=creator_party_id,
             scope="creator_social",
         )
-        if relationship is not None and not self._relationship_policy.allows_snapshot_outreach(
-            relationship
+        if (
+            relationship is not None
+            and not self._relationship_policy.allows_snapshot_outreach(relationship)
         ):
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
@@ -943,37 +804,19 @@ class PostgreSQLLifeOpportunityRepository:
                     relationship.revision.occurred_at,
                 )
         if source is None:
-            source = await (
-                await connection.execute(
-                    """
-                    SELECT 'creator_outreach_activity',
-                           revision.activity_revision_id,
-                           activity.head_version, activity.activity_id,
-                           revision.created_at
-                    FROM armi.activities AS activity
-                    JOIN armi.activity_revisions AS revision
-                      ON revision.activity_revision_id =
-                         activity.current_revision_id
-                    WHERE activity.subject_id = %s
-                      AND revision.status = 'completed'
-                      AND revision.created_at > %s
-                      AND NOT EXISTS (
-                          SELECT 1 FROM armi.opportunities AS existing
-                          WHERE existing.subject_id = activity.subject_id
-                            AND existing.source_kind =
-                                'creator_outreach_activity'
-                            AND existing.source_ref =
-                                revision.activity_revision_id
-                            AND existing.source_version = activity.head_version
-                            AND existing.purpose = 'consider_creator_outreach'
-                      )
-                    ORDER BY revision.created_at DESC,
-                             revision.activity_revision_id DESC
-                    LIMIT 1
-                    """,
-                    (fence.subject_id, latest_input_at or scene[6]),
+            activity_source = await self._activities.completed_outreach_source(
+                unit_of_work.transaction,
+                subject_id=fence.subject_id,
+                after=latest_input_at or scene[6],
+            )
+            if activity_source is not None:
+                source = (
+                    "creator_outreach_activity",
+                    activity_source.revision_id,
+                    activity_source.head_version,
+                    activity_source.activity_id,
+                    activity_source.occurred_at,
                 )
-            ).fetchone()
         if source is None:
             anchor_at = latest_input_at or scene[6]
             available_after = anchor_at + timedelta(

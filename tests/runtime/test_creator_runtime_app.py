@@ -5,16 +5,18 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
 
-from armi_kernel.application import (
+from armi_activity.api import (
     ActivityStatus,
     ActivityTransition,
-    CapabilityRequestStatus,
-    CodexModel,
+    ActivityViolation,
     CreatorActivityItem,
     CreatorActivityPage,
     CreatorActivityTimeline,
     CreatorActivityTimelineItem,
-    CreatorActivityViolation,
+)
+from armi_kernel.application import (
+    CapabilityRequestStatus,
+    CodexModel,
     CreatorCodexTaskCommand,
     CreatorExportCommand,
     CreatorExportResult,
@@ -346,7 +348,7 @@ class _CreatorActivityQuery:
 
     async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline:
         if activity_id != self.activity_id:
-            raise CreatorActivityViolation("ACTIVITY-QUERY-NOT-FOUND")
+            raise ActivityViolation("ACTIVITY-QUERY-NOT-FOUND")
         return CreatorActivityTimeline(
             activity_id,
             (
@@ -1149,7 +1151,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             on_stopping=stopping,
             creator_scenes=self.creator_scenes,
             scene_timeline_query=_SceneTimelineQuery(),
-            creator_activity_query=self.activity_query,
+            creator_activity_query=cast(Any, self.activity_query),
             life_record_query=self.life_record_query,
             creator_life_material_query=self.life_record_query,
             creator_memory_query=cast(Any, self.life_record_query),

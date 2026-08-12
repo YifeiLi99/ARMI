@@ -15,12 +15,12 @@ from typing import cast
 from uuid import uuid7
 
 import uvicorn
+from armi_activity.api import ActivityViolation
 from armi_kernel.application import (
     CandidateViolation,
     CapabilityViolation,
     CodexDelegationViolation,
     ContextViolation,
-    CreatorActivityViolation,
     CreatorExportViolation,
     CreatorInputCommand,
     CreatorInputViolation,
@@ -71,12 +71,12 @@ from .creator_session import compose_browser_sessions, derive_timeline_cursor_ke
 from .database import (
     ContinuityState,
     DatabaseViolation,
+    compose_activity_module,
     compose_candidate_validation_pipeline,
     compose_capability_policy,
     compose_codex_pipeline,
     compose_context_embedding_pipeline,
     compose_context_pipeline,
-    compose_creator_activity_query,
     compose_creator_export_service,
     compose_creator_input,
     compose_creator_prompt_service,
@@ -183,7 +183,7 @@ async def _serve(
     browser_sessions: BrowserSessionStore | None = None
     scene_timeline_query = None
     creator_scenes = None
-    creator_activity_query = None
+    activity_module = None
     creator_export_service = None
     data_rights_order_service = None
     life_record_query = None
@@ -316,11 +316,11 @@ async def _serve(
                 authority_admission=authority.require_writable,
             )
             await creator_scenes.open()
-            creator_activity_query = compose_creator_activity_query(
+            activity_module = compose_activity_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
             )
-            await creator_activity_query.open()
+            await activity_module.open()
             relationship_module = compose_relationship_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -337,6 +337,7 @@ async def _serve(
                 prepared,
                 creator_party_id=creator_context.party_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
+                activity_read=activity_module.read,
                 memory_read=memory_module.read,
                 relationship_read=relationship_module.read,
             )
@@ -447,6 +448,7 @@ async def _serve(
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                activity_read=activity_module.read,
                 relationship_read=relationship_module.read,
                 relationship_policy=relationship_module.policy,
                 sleep_maintenance=sleep_module.maintenance,
@@ -458,6 +460,7 @@ async def _serve(
             context_pipeline = compose_context_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                activity_read=activity_module.read,
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
                 relationship_read=relationship_module.read,
@@ -472,6 +475,8 @@ async def _serve(
             candidate_pipeline = compose_candidate_validation_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                activity_cognition=activity_module.cognition,
+                activity_read=activity_module.read,
                 memory_cognition=memory_module.cognition,
                 memory_read=memory_module.read,
                 relationship_cognition=relationship_module.cognition,
@@ -488,6 +493,8 @@ async def _serve(
             subject_commit_pipeline = compose_subject_commit_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                activity_cognition=activity_module.cognition,
+                activity_commit=activity_module.commit,
                 memory_commit=memory_module.commit,
                 memory_cognition=memory_module.cognition,
                 relationship_cognition=relationship_module.cognition,
@@ -651,7 +658,7 @@ async def _serve(
             CapabilityViolation,
             ContextViolation,
             CreatorInputViolation,
-            CreatorActivityViolation,
+            ActivityViolation,
             CreatorMaintenanceViolation,
             CreatorExportViolation,
             DataRightsViolation,
@@ -681,8 +688,8 @@ async def _serve(
                 await scene_timeline_query.close()
             if creator_scenes is not None:
                 await creator_scenes.close()
-            if creator_activity_query is not None:
-                await creator_activity_query.close()
+            if activity_module is not None:
+                await activity_module.close()
             if exact_life_query_pipeline is not None:
                 await exact_life_query_pipeline.close()
             if life_record_query is not None:
@@ -930,8 +937,8 @@ async def _serve(
             await scene_timeline_query.close()
         if creator_scenes is not None:
             await creator_scenes.close()
-        if creator_activity_query is not None:
-            await creator_activity_query.close()
+        if activity_module is not None:
+            await activity_module.close()
         if other_human_record_query is not None:
             await other_human_record_query.close()
         if sleep_module is not None:
@@ -1138,7 +1145,9 @@ async def _serve(
         browser_sessions=browser_sessions,
         creator_scenes=creator_scenes,
         scene_timeline_query=scene_timeline_query,
-        creator_activity_query=creator_activity_query,
+        creator_activity_query=(
+            None if activity_module is None else activity_module.read
+        ),
         life_record_query=life_record_query,
         other_human_record_query=other_human_record_query,
         creator_life_material_query=life_record_query,
@@ -1232,8 +1241,8 @@ async def _serve(
             await scene_timeline_query.close()
         if creator_scenes is not None:
             await creator_scenes.close()
-        if creator_activity_query is not None:
-            await creator_activity_query.close()
+        if activity_module is not None:
+            await activity_module.close()
         if exact_life_query_pipeline is not None:
             await exact_life_query_pipeline.close()
         if life_record_query is not None:

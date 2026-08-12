@@ -6,6 +6,7 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import pytest
+from armi_activity.bootstrap import bootstrap_activity
 from armi_kernel.application import (
     CreatorOutreachPolicy,
     OpportunityAdmissionStatus,
@@ -22,7 +23,9 @@ class _Relationships:
     def __init__(self, *, boundary: bool = False) -> None:
         self._boundary = boundary
 
-    async def current_for_party(self, *_args: object, **_kwargs: object) -> object | None:
+    async def current_for_party(
+        self, *_args: object, **_kwargs: object
+    ) -> object | None:
         return object() if self._boundary else None
 
 
@@ -37,10 +40,17 @@ class _SleepRead:
 
 
 def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepository:
+    activity = bootstrap_activity(
+        "postgresql://unused",
+        expected_role="unused",
+        creator_party_id=uuid7(),
+        pool_timeout_seconds=1,
+    )
     return PostgreSQLLifeOpportunityRepository(
         cast(Any, _Relationships(boundary=boundary)),
         cast(Any, _RelationshipPolicy()),
         cast(Any, _SleepRead()),
+        activity.read,
     )
 
 
@@ -328,7 +338,10 @@ class _OutreachConnection:
             return _Cursor((self.awaiting, None, self.now - timedelta(days=4)))
         if "SELECT 'creator_outreach_relationship'" in statement:
             return _Cursor(None)
-        if "SELECT 'creator_outreach_activity'" in statement:
+        if (
+            "SELECT 'creator_outreach_activity'" in statement
+            or "FROM armi.activities AS activity" in statement
+        ):
             return _Cursor(None)
         if "INSERT INTO armi.opportunities" in statement:
             if self._opportunity_id is None:

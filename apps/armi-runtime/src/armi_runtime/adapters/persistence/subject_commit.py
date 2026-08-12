@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_activity.api import (
+    ActivityCommitContext,
+    ActivityCommitPort,
+    ActivityViolation,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -18,13 +23,10 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CandidateActivityDecisionDraft,
-    CandidateActivityDraft,
     CandidateApplicationId,
     CandidateApplicationStatus,
     CandidateDisposition,
     CandidateExactLifeQueryDraft,
-    CandidateLifeMaterialDraft,
     CandidateOwner,
     CapabilityRequestDraft,
     CodexDelegationDraft,
@@ -127,10 +129,27 @@ def _sleep_commit_context(snapshot: SubjectCommitSnapshot) -> SleepCommitContext
     )
 
 
+def _activity_commit_context(snapshot: SubjectCommitSnapshot) -> ActivityCommitContext:
+    return ActivityCommitContext(
+        snapshot.validation_id,
+        snapshot.episode_id,
+        snapshot.opportunity_id,
+        snapshot.root_opportunity_id,
+        snapshot.reconsideration_no,
+        snapshot.subject_id,
+        snapshot.scene_id,
+        snapshot.opportunity_purpose,
+        snapshot.source_ref,
+        snapshot.source_version,
+        snapshot.source_activity_id,
+    )
+
+
 class PostgreSQLSubjectCommitRepository:
     """Read one validated ChangeSet and atomically apply or settle it."""
 
     __slots__ = (
+        "_activity_commit",
         "_memory_commit",
         "_relationship_commit",
         "_relationship_policy",
@@ -140,12 +159,14 @@ class PostgreSQLSubjectCommitRepository:
 
     def __init__(
         self,
+        activity_commit: ActivityCommitPort,
         memory_commit: MemoryCommitPort,
         relationship_commit: RelationshipCommitPort,
         relationship_read: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
         sleep_commit: SleepCommitPort,
     ) -> None:
+        self._activity_commit = activity_commit
         self._memory_commit = memory_commit
         self._relationship_commit = relationship_commit
         self._relationships = relationship_read
@@ -287,23 +308,9 @@ class PostgreSQLSubjectCommitRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         validation_id: UUID,
     ) -> tuple[UUID, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        rows = await (
-            await connection.execute(
-                """
-                SELECT activity_id
-                FROM armi.activity_revisions
-                WHERE candidate_validation_id = %s
-                UNION
-                SELECT activity_id
-                FROM armi.activity_decisions
-                WHERE candidate_validation_id = %s
-                ORDER BY activity_id
-                """,
-                (validation_id, validation_id),
-            )
-        ).fetchall()
-        return tuple(UUID(str(row[0])) for row in rows)
+        return await self._activity_commit.affected_activity_ids(
+            unit_of_work.transaction, validation_id
+        )
 
     async def affected_maintenance_session_ids(
         self,
@@ -527,6 +534,16 @@ class PostgreSQLSubjectCommitRepository:
         if subject is None:
             raise SubjectCommitViolation("SUBJECT-IDENTITY")
         heads = await _lock_heads(connection, snapshot.subject_id, change_set)
+        try:
+            activity_heads_current = await self._activity_commit.heads_match(
+                unit_of_work.transaction,
+                context=_activity_commit_context(snapshot),
+                drafts=change_set.owner_drafts,
+            )
+        except ActivityViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code.removeprefix('ACTIVITY-')}"
+            ) from None
         memory_heads_current = await self._memory_commit.heads_match(
             unit_of_work.transaction,
             subject_id=snapshot.subject_id,
@@ -554,6 +571,7 @@ class PostgreSQLSubjectCommitRepository:
             or subject[2] != change_set.generation_id
             or subject[3] != change_set.bundle_activation_id
             or _component_heads_are_stale(heads, change_set)
+            or not activity_heads_current
             or not memory_heads_current
             or any(
                 material_heads.get(material.material_id)
@@ -617,6 +635,7 @@ class PostgreSQLSubjectCommitRepository:
             status = disposition_map[change_set.disposition]
             return await _settle_without_commit(
                 unit_of_work,
+                activity_commit=self._activity_commit,
                 sleep_commit=self._sleep_commit,
                 lease=lease,
                 snapshot=snapshot,
@@ -631,8 +650,6 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.action_choices
             and not change_set.web_research_requests
             and not change_set.codex_delegations
-            and not change_set.activities
-            and not change_set.activity_decisions
             and not change_set.owner_drafts
             and not change_set.materials
             and not change_set.prompts
@@ -872,18 +889,25 @@ class PostgreSQLSubjectCommitRepository:
                 )
             )
 
-        await _insert_activities(
-            connection,
-            snapshot=snapshot,
-            commit_id=commit_id,
-            activities=change_set.activities,
-        )
-        activity_result_revision = await _apply_activity_transition(
-            connection,
-            snapshot=snapshot,
-            commit_id=commit_id,
-            decisions=change_set.activity_decisions,
-        )
+        try:
+            activity_result = await self._activity_commit.commit(
+                unit_of_work.transaction,
+                context=_activity_commit_context(snapshot),
+                commit_id=commit_id.value,
+                drafts=change_set.owner_drafts,
+            )
+        except ActivityViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code.removeprefix('ACTIVITY-')}"
+            ) from None
+        if activity_result.update_focus:
+            await _update_life_focus(
+                connection,
+                snapshot=snapshot,
+                commit_id=commit_id,
+                activity_id=activity_result.focus_activity_id,
+                proposal_ref=activity_result.focus_proposal_ref,
+            )
 
         await _insert_capability_requests(
             unit_of_work,
@@ -950,21 +974,21 @@ class PostgreSQLSubjectCommitRepository:
             observed_version=new_version,
             commit_id=commit_id,
         )
-        await _insert_activity_attention_decision(
-            connection,
-            snapshot=snapshot,
-            application_id=application_id,
-            decisions=change_set.activity_decisions,
-            result_revision_id=activity_result_revision,
-        )
-        await _insert_activity_internal_work_decision(
-            connection,
-            snapshot=snapshot,
-            application_id=application_id,
-            decisions=change_set.activity_decisions,
-            materials=change_set.materials,
-            result_revision_id=activity_result_revision,
-        )
+        try:
+            await self._activity_commit.record_decision(
+                unit_of_work.transaction,
+                context=_activity_commit_context(snapshot),
+                application_id=application_id.value,
+                drafts=change_set.owner_drafts,
+                result_revision_id=activity_result.result_revision_id,
+                output_material_ids=tuple(
+                    item.material_id for item in change_set.materials
+                ),
+            )
+        except ActivityViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code.removeprefix('ACTIVITY-')}"
+            ) from None
         try:
             await self._sleep_commit.commit(
                 unit_of_work.transaction,
@@ -1109,6 +1133,7 @@ class PostgreSQLSubjectCommitRepository:
 async def _settle_without_commit(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
+    activity_commit: ActivityCommitPort,
     sleep_commit: SleepCommitPort,
     lease: WorkLease,
     snapshot: SubjectCommitSnapshot,
@@ -1118,11 +1143,16 @@ async def _settle_without_commit(
 ) -> SubjectCommitResult:
     connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
     application_id = CandidateApplicationId(uuid7())
-    successor_id = await _insert_attention_reconsideration(
-        connection,
-        snapshot=snapshot,
-        decisions=change_set.activity_decisions,
-    )
+    try:
+        successor_id = await activity_commit.reconsideration(
+            unit_of_work.transaction,
+            context=_activity_commit_context(snapshot),
+            drafts=change_set.owner_drafts,
+        )
+    except ActivityViolation as error:
+        raise SubjectCommitViolation(
+            f"SUBJECT-{error.code.removeprefix('ACTIVITY-')}"
+        ) from None
     try:
         sleep_successor = await sleep_commit.reconsideration(
             unit_of_work.transaction,
@@ -1153,13 +1183,18 @@ async def _settle_without_commit(
             application_id=application_id,
             status=status,
         )
-    await _insert_activity_attention_decision(
-        connection,
-        snapshot=snapshot,
-        application_id=application_id,
-        decisions=change_set.activity_decisions,
-        result_revision_id=None,
-    )
+    try:
+        await activity_commit.record_decision(
+            unit_of_work.transaction,
+            context=_activity_commit_context(snapshot),
+            application_id=application_id.value,
+            drafts=change_set.owner_drafts,
+            result_revision_id=None,
+        )
+    except ActivityViolation as error:
+        raise SubjectCommitViolation(
+            f"SUBJECT-{error.code.removeprefix('ACTIVITY-')}"
+        ) from None
     try:
         await sleep_commit.commit(
             unit_of_work.transaction,
@@ -1175,7 +1210,7 @@ async def _settle_without_commit(
         ) from None
     if (
         snapshot.opportunity_purpose != "consider_other_human_input"
-        and not change_set.activity_decisions
+        and not any(item.owner == "activity" for item in change_set.owner_drafts)
         and status
         in {
             CandidateApplicationStatus.DECLINED,
@@ -1531,239 +1566,16 @@ async def _evidence_links(
     return [(row[0], row[1], row[2]) for row in rows]
 
 
-async def _insert_activities(
-    connection: Any,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    activities: tuple[CandidateActivityDraft, ...],
-) -> None:
-    for activity in activities:
-        validation = await (
-            await connection.execute(
-                """
-                SELECT 1
-                FROM armi.cognitive_candidate_validation_items
-                WHERE candidate_validation_id = %s
-                  AND proposal_ref = %s
-                  AND owner_kind = 'activity'
-                  AND validation_status = 'accepted'
-                """,
-                (snapshot.validation_id, activity.proposal_ref),
-            )
-        ).fetchone()
-        if validation is None:
-            raise SubjectCommitViolation("SUBJECT-ACTIVITY-VALIDATION")
-        await connection.execute(
-            """
-            INSERT INTO armi.activities (
-                activity_id, subject_id, activity_kind,
-                origin_opportunity_id, current_revision_id, head_version,
-                privacy_scope) VALUES (%s, %s, %s, %s, NULL, 0, %s)
-            """,
-            (
-                activity.activity_id,
-                snapshot.subject_id,
-                activity.activity_kind,
-                snapshot.opportunity_id,
-                activity.privacy_scope,
-            ),
-        )
-        revision_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.activity_revisions (
-                activity_revision_id, activity_id, revision_no,
-                previous_revision_id, subject_commit_id,
-                candidate_validation_id, proposal_ref, goal,
-                progress_summary, waiting_condition, resumption_cue,
-                next_safe_step, status, terminal_reason,
-                related_scene_id, transition_kind,
-                waiting_condition_kind, resume_not_before) VALUES (
-                %s, %s, 1, NULL, %s, %s, %s, %s,
-                NULL, NULL, NULL, %s, %s, NULL, %s, 'created', NULL, NULL)
-            """,
-            (
-                revision_id,
-                activity.activity_id,
-                commit_id.value,
-                snapshot.validation_id,
-                activity.proposal_ref,
-                activity.goal,
-                activity.next_safe_step,
-                activity.status.value,
-                snapshot.scene_id,
-            ),
-        )
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.activities
-                SET current_revision_id = %s, head_version = 1
-                WHERE activity_id = %s
-                  AND current_revision_id IS NULL
-                  AND head_version = 0
-                RETURNING activity_id
-                """,
-                (revision_id, activity.activity_id),
-            )
-        ).fetchone()
-        if updated is None:
-            raise SubjectCommitViolation("SUBJECT-ACTIVITY-HEAD-STALE")
-
-
-async def _apply_activity_transition(
-    connection: Any,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    decisions: tuple[CandidateActivityDecisionDraft, ...],
-) -> UUID | None:
-    if not decisions:
-        return None
-    if len(decisions) != 1:
-        raise SubjectCommitViolation("SUBJECT-ACTIVITY-DECISION-COUNT")
-    decision = decisions[0]
-    row = await (
-        await connection.execute(
-            """
-            SELECT activity.current_revision_id, activity.head_version,
-                   revision.revision_no, revision.goal, revision.progress_summary,
-                   revision.next_safe_step, revision.status
-            FROM armi.activities AS activity
-            JOIN armi.activity_revisions AS revision
-              ON revision.activity_revision_id = activity.current_revision_id
-            WHERE activity.activity_id = %s AND activity.subject_id = %s
-            FOR UPDATE OF activity
-            """,
-            (decision.activity_id, snapshot.subject_id),
-        )
-    ).fetchone()
-    if (
-        row is None
-        or row[0] != decision.current_revision_id
-        or int(row[1]) != decision.expected_head_version
-        or snapshot.source_activity_id != decision.activity_id
-        or snapshot.source_ref != decision.current_revision_id
-    ):
-        raise SubjectCommitViolation("SUBJECT-ACTIVITY-HEAD-STALE")
-    validation = await (
-        await connection.execute(
-            """
-            SELECT 1 FROM armi.cognitive_candidate_validation_items
-            WHERE candidate_validation_id = %s AND proposal_ref = %s
-              AND owner_kind = 'activity' AND validation_status = 'accepted'
-            """,
-            (snapshot.validation_id, decision.proposal_ref),
-        )
-    ).fetchone()
-    if validation is None:
-        raise SubjectCommitViolation("SUBJECT-ACTIVITY-VALIDATION")
-
-    kind = decision.decision_kind.value
-    target = {
-        "engage": "in_progress",
-        "progress": "in_progress",
-        "wait": "waiting",
-        "pause": "paused",
-        "resume": "resuming",
-        "complete": "completed",
-        "abandon": "abandoned",
-    }.get(kind)
-    if target is None:
-        raise SubjectCommitViolation("SUBJECT-ACTIVITY-TRANSITION")
-    current_status = str(row[6])
-    allowed = {
-        "ready": {"engage"},
-        "in_progress": {"engage", "progress", "wait", "pause", "complete", "abandon"},
-        "waiting": {"resume"},
-        "paused": {"resume"},
-        "resuming": {"engage"},
-    }
-    if kind not in allowed.get(current_status, set()):
-        raise SubjectCommitViolation("SUBJECT-ACTIVITY-TRANSITION")
-
-    revision_id = uuid7()
-    resume_not_before = (
-        None
-        if decision.delay_seconds is None
-        else datetime.now(UTC) + timedelta(seconds=decision.delay_seconds)
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.activity_revisions (
-            activity_revision_id, activity_id, revision_no,
-            previous_revision_id, subject_commit_id, candidate_validation_id,
-            proposal_ref, goal, progress_summary, waiting_condition,
-            resumption_cue, next_safe_step, status, terminal_reason,
-            related_scene_id, transition_kind, waiting_condition_kind,
-            resume_not_before) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, NULL, %s, %s, %s)
-        """,
-        (
-            revision_id,
-            decision.activity_id,
-            int(row[2]) + 1,
-            decision.current_revision_id,
-            commit_id.value,
-            snapshot.validation_id,
-            decision.proposal_ref,
-            str(row[3]),
-            decision.progress_summary
-            if decision.progress_summary is not None
-            else row[4],
-            decision.waiting_summary,
-            decision.resumption_cue,
-            decision.next_safe_step
-            if decision.next_safe_step is not None
-            else None
-            if target in {"completed", "abandoned"}
-            else row[5],
-            target,
-            decision.terminal_reason,
-            kind,
-            None if decision.waiting_kind is None else decision.waiting_kind.value,
-            resume_not_before,
-        ),
-    )
-    updated = await (
-        await connection.execute(
-            """
-            UPDATE armi.activities
-            SET current_revision_id = %s, head_version = head_version + 1
-            WHERE activity_id = %s AND current_revision_id = %s
-              AND head_version = %s
-            RETURNING activity_id
-            """,
-            (
-                revision_id,
-                decision.activity_id,
-                decision.current_revision_id,
-                decision.expected_head_version,
-            ),
-        )
-    ).fetchone()
-    if updated is None:
-        raise SubjectCommitViolation("SUBJECT-ACTIVITY-HEAD-STALE")
-    await _update_life_focus(
-        connection,
-        snapshot=snapshot,
-        commit_id=commit_id,
-        decision=decision,
-        engage=kind == "engage",
-    )
-    return revision_id
-
-
 async def _update_life_focus(
     connection: Any,
     *,
     snapshot: SubjectCommitSnapshot,
     commit_id: SubjectCommitId,
-    decision: CandidateActivityDecisionDraft,
-    engage: bool,
+    activity_id: UUID | None,
+    proposal_ref: str | None,
 ) -> None:
+    if proposal_ref is None:
+        raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
     head = await (
         await connection.execute(
             """
@@ -1787,7 +1599,7 @@ async def _update_life_focus(
     active_values = cast(list[object], active)
     if len(active_values) > 1:
         raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
-    payload["active_activities"] = [str(decision.activity_id)] if engage else []
+    payload["active_activities"] = [] if activity_id is None else [str(activity_id)]
     canonical = rfc8785.dumps(cast(Any, payload))
     revision_id = uuid7()
     await connection.execute(
@@ -1808,7 +1620,7 @@ async def _update_life_focus(
             head[0],
             commit_id.value,
             commit_id.value,
-            decision.proposal_ref,
+            proposal_ref,
             canonical.decode("utf-8"),
         ),
     )
@@ -1826,144 +1638,6 @@ async def _update_life_focus(
     ).fetchone()
     if updated is None:
         raise SubjectCommitViolation("SUBJECT-LIFE-MODE-STALE")
-
-
-async def _insert_attention_reconsideration(
-    connection: Any,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    decisions: tuple[CandidateActivityDecisionDraft, ...],
-) -> UUID | None:
-    if (
-        snapshot.opportunity_purpose != "consider_activity_attention"
-        or len(decisions) != 1
-        or decisions[0].decision_kind.value != "defer"
-        or snapshot.reconsideration_no != 0
-    ):
-        return None
-    successor_id = uuid7()
-    inserted = await (
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, eligibility_status,
-                current_disposition, available_after, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no, source_kind,
-                source_ref, source_version, activity_id) VALUES (
-                %s, NULL, %s, NULL, NULL, 'consider_activity_attention',
-                'eligible', 'open', statement_timestamp() + interval '60 seconds',
-                %s, %s, 1, 'activity_revision', %s, %s, %s)
-            ON CONFLICT (predecessor_opportunity_id) DO NOTHING
-            RETURNING opportunity_id
-            """,
-            (
-                successor_id,
-                snapshot.subject_id,
-                snapshot.root_opportunity_id,
-                snapshot.opportunity_id,
-                snapshot.source_ref,
-                snapshot.source_version,
-                snapshot.source_activity_id,
-            ),
-        )
-    ).fetchone()
-    return None if inserted is None else inserted[0]
-
-
-async def _insert_activity_attention_decision(
-    connection: Any,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    application_id: CandidateApplicationId,
-    decisions: tuple[CandidateActivityDecisionDraft, ...],
-    result_revision_id: UUID | None,
-) -> None:
-    if snapshot.opportunity_purpose != "consider_activity_attention":
-        return
-    if not decisions:
-        return
-    if len(decisions) != 1:
-        raise SubjectCommitViolation("SUBJECT-ACTIVITY-DECISION-COUNT")
-    decision = decisions[0]
-    review_not_before = (
-        datetime.now(UTC) + timedelta(seconds=60)
-        if decision.decision_kind.value == "defer"
-        else None
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.activity_decisions (
-            activity_decision_id, decision_source, opportunity_id, cognitive_episode_id,
-            candidate_validation_id, candidate_application_id, activity_id,
-            expected_revision_id, expected_head_version,
-            decision_kind, result_revision_id,
-            review_not_before) VALUES (
-            %s, 'attention', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            uuid7(),
-            snapshot.opportunity_id,
-            snapshot.episode_id,
-            snapshot.validation_id,
-            application_id.value,
-            decision.activity_id,
-            decision.current_revision_id,
-            decision.expected_head_version,
-            decision.decision_kind.value,
-            result_revision_id,
-            review_not_before,
-        ),
-    )
-
-
-async def _insert_activity_internal_work_decision(
-    connection: Any,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    application_id: CandidateApplicationId,
-    decisions: tuple[CandidateActivityDecisionDraft, ...],
-    materials: tuple[CandidateLifeMaterialDraft, ...],
-    result_revision_id: UUID | None,
-) -> None:
-    if snapshot.opportunity_purpose != "consider_activity_internal_work":
-        return
-    if len(decisions) != 1 or result_revision_id is None or len(materials) > 1:
-        raise SubjectCommitViolation("SUBJECT-ACTIVITY-WORK-SHAPE")
-    decision = decisions[0]
-    outcome = {
-        "progress": "progress",
-        "complete": "complete",
-        "wait": "need_information",
-        "abandon": "abandon",
-        "pause": "no_result",
-    }.get(decision.decision_kind.value)
-    if outcome is None:
-        raise SubjectCommitViolation("SUBJECT-ACTIVITY-WORK-SHAPE")
-    await connection.execute(
-        """
-        INSERT INTO armi.activity_decisions (
-            activity_decision_id, decision_source, opportunity_id, cognitive_episode_id,
-            candidate_validation_id, candidate_application_id, activity_id,
-            expected_revision_id, expected_head_version,
-            decision_kind, result_revision_id,
-            output_material_id) VALUES (
-            %s, 'internal_work', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            uuid7(),
-            snapshot.opportunity_id,
-            snapshot.episode_id,
-            snapshot.validation_id,
-            application_id.value,
-            decision.activity_id,
-            decision.current_revision_id,
-            decision.expected_head_version,
-            outcome,
-            result_revision_id,
-            None if not materials else materials[0].material_id,
-        ),
-    )
 
 
 async def _insert_capability_requests(

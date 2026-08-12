@@ -6,19 +6,21 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_activity.api import (
     ActivityHeadSnapshot,
+    ActivityScheduler,
+    ActivitySchedulingDisposition,
+    ActivitySchedulingSnapshot,
     ActivityStatus,
     ActivityWaitingKind,
+)
+from armi_kernel.application import (
     CreatorOutreachPolicy,
     LifeOpportunitySourceKind,
     LifeOpportunitySourceSnapshot,
-    LifeSchedulingDisposition,
-    LifeSchedulingSnapshot,
     LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
-    PostgreSqlFairLifeScheduler,
 )
 from armi_kernel.contracts import ActivityId, Digest
 
@@ -146,32 +148,43 @@ def _head(
 
 def test_scheduler_preserves_one_cognition_slot_and_single_focus() -> None:
     now = datetime.now(UTC)
-    scheduler = PostgreSqlFairLifeScheduler()
+    scheduler = ActivityScheduler()
     ready = _head(status=ActivityStatus.READY, created_at=now)
-    snapshot = LifeSchedulingSnapshot(now, (ready,), (), False, 2, 0)
+    snapshot = ActivitySchedulingSnapshot(now, (ready,), (), False, 2, 0)
     assert scheduler.select(snapshot).activity_revision_id == ready.revision_id
 
     for constrained, code in (
-        (LifeSchedulingSnapshot(now, (ready,), (), False, 1, 0), "MODEL-CONCURRENCY"),
         (
-            LifeSchedulingSnapshot(now, (ready,), (), True, 2, 0),
+            ActivitySchedulingSnapshot(now, (ready,), (), False, 1, 0),
+            "MODEL-CONCURRENCY",
+        ),
+        (
+            ActivitySchedulingSnapshot(now, (ready,), (), True, 2, 0),
             "ATTENTION-OUTSTANDING",
         ),
         (
-            LifeSchedulingSnapshot(now, (ready,), (ready.activity_id,), False, 2, 0),
+            ActivitySchedulingSnapshot(
+                now, (ready,), (ready.activity_id,), False, 2, 0
+            ),
             "FOCUS-HELD",
         ),
-        (LifeSchedulingSnapshot(now, (ready,), (), False, 2, 1), "COGNITION-CAPACITY"),
-        (LifeSchedulingSnapshot(now, (ready,), (), False, 2, 3), "COGNITION-CAPACITY"),
+        (
+            ActivitySchedulingSnapshot(now, (ready,), (), False, 2, 1),
+            "COGNITION-CAPACITY",
+        ),
+        (
+            ActivitySchedulingSnapshot(now, (ready,), (), False, 2, 3),
+            "COGNITION-CAPACITY",
+        ),
     ):
         decision = scheduler.select(constrained)
-        assert decision.disposition is LifeSchedulingDisposition.BACKPRESSURE
+        assert decision.disposition is ActivitySchedulingDisposition.BACKPRESSURE
         assert decision.reason_code is not None and code in decision.reason_code
 
 
 def test_scheduler_applies_cooldown_wait_signals_terminal_filter_and_fairness() -> None:
     now = datetime.now(UTC)
-    scheduler = PostgreSqlFairLifeScheduler()
+    scheduler = ActivityScheduler()
     cooling = _head(status=ActivityStatus.IN_PROGRESS, created_at=now)
     timed = _head(
         status=ActivityStatus.WAITING,
@@ -190,7 +203,7 @@ def test_scheduler_applies_cooldown_wait_signals_terminal_filter_and_fairness() 
         created_at=now - timedelta(days=1),
     )
     decision = scheduler.select(
-        LifeSchedulingSnapshot(
+        ActivitySchedulingSnapshot(
             now,
             (cooling, signalled, terminal, timed),
             (),
@@ -202,7 +215,7 @@ def test_scheduler_applies_cooldown_wait_signals_terminal_filter_and_fairness() 
     assert decision.activity_revision_id == timed.revision_id
 
     deferred = scheduler.select(
-        LifeSchedulingSnapshot(now, (cooling,), (), False, 2, 0)
+        ActivitySchedulingSnapshot(now, (cooling,), (), False, 2, 0)
     )
-    assert deferred.disposition is LifeSchedulingDisposition.DEFER
+    assert deferred.disposition is ActivitySchedulingDisposition.DEFER
     assert deferred.available_after == now + timedelta(seconds=60)

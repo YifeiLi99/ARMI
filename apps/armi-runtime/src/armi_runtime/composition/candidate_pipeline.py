@@ -10,6 +10,7 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_activity.api import ActivityCognitionPort, ActivityReadPort, ActivityStatus
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -17,7 +18,6 @@ from armi_artifact_store.life_material_codec import (
     parse_life_material_artifact,
 )
 from armi_kernel.application import (
-    ActivityStatus,
     ArtifactId,
     ArtifactIntegrityStatus,
     ArtifactPolicy,
@@ -109,6 +109,7 @@ class CandidateValidationPipeline:
     """Claim validation work without authority to apply subject changes."""
 
     __slots__ = (
+        "_activity_cognition",
         "_catalog",
         "_diagnostic",
         "_factory",
@@ -129,6 +130,8 @@ class CandidateValidationPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        activity_cognition: ActivityCognitionPort,
+        activity_read: ActivityReadPort,
         memory_cognition: MemoryCognitionPort,
         memory_read: MemoryReadPort,
         relationship_cognition: RelationshipCognitionPort,
@@ -140,6 +143,7 @@ class CandidateValidationPipeline:
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
+        self._activity_cognition = activity_cognition
         self._storage = storage
         self._memory_cognition = memory_cognition
         self._relationship_cognition = relationship_cognition
@@ -147,7 +151,7 @@ class CandidateValidationPipeline:
         self._web_search_active = web_search_active
         self._catalog = ArtifactCatalogRepository()
         self._repository = PostgreSQLCandidateValidationRepository(
-            relationship_read, sleep_read, memories=memory_read
+            relationship_read, sleep_read, activity_read, memories=memory_read
         )
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
@@ -306,6 +310,7 @@ class CandidateValidationPipeline:
                     scene_kind=snapshot.scene_kind,
                     sender_party_kind=snapshot.sender_party_kind,
                 ),
+                activity_cognition=self._activity_cognition,
                 memory_cognition=self._memory_cognition,
                 relationship_cognition=self._relationship_cognition,
                 sleep_cognition=self._sleep_cognition,
@@ -519,6 +524,8 @@ def build_candidate_validation_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    activity_cognition: ActivityCognitionPort,
+    activity_read: ActivityReadPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
     relationship_cognition: RelationshipCognitionPort,
@@ -544,6 +551,8 @@ def build_candidate_validation_pipeline(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
         ),
+        activity_cognition=activity_cognition,
+        activity_read=activity_read,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
         relationship_cognition=relationship_cognition,

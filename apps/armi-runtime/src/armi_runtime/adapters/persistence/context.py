@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_activity.api import ActivityReadPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -156,14 +157,16 @@ class ContextEpisodeSnapshot:
 class PostgreSQLContextRepository:
     """Own SQL for selecting, freezing and settling one Context episode."""
 
-    __slots__ = ("_catalog", "_memories", "_relationships", "_sleep")
+    __slots__ = ("_activities", "_catalog", "_memories", "_relationships", "_sleep")
 
     def __init__(
         self,
         relationships: RelationshipReadPort,
         sleep: SleepReadPort,
+        activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
     ) -> None:
+        self._activities = activities
         self._catalog = ArtifactCatalogRepository()
         self._memories = memories
         self._relationships = relationships
@@ -604,44 +607,10 @@ class PostgreSQLContextRepository:
         relationship_commitment_payloads = relationship_bundle.commitments
         relationship_issue_payloads = relationship_bundle.open_issues
         material_sources: tuple[ContextMaterialSource, ...] = ()
-        activity_rows = await (
-            await connection.execute(
-                """
-                SELECT activity.activity_id, activity.head_version,
-                       revision.revision_no, revision.status,
-                       revision.goal, revision.next_safe_step,
-                       revision.progress_summary, revision.waiting_condition,
-                       revision.resumption_cue
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                WHERE activity.subject_id = %s
-                  AND %s <> 'consider_other_human_input'
-                ORDER BY activity.activity_id
-                """,
-                (row[2], row[20]),
-            )
-        ).fetchall()
-        activity_summary_bytes = rfc8785.dumps(
-            {
-                "schema_version": "armi.activity-context-summary.v1",
-                "activities": [
-                    {
-                        "activity_id": str(item[0]),
-                        "head_version": int(item[1]),
-                        "revision_no": int(item[2]),
-                        "status": str(item[3]),
-                        "goal": str(item[4]),
-                        "next_safe_step": str(item[5]),
-                        "progress_summary": (None if item[6] is None else str(item[6])),
-                        "waiting_condition": (
-                            None if item[7] is None else str(item[7])
-                        ),
-                        "resumption_cue": (None if item[8] is None else str(item[8])),
-                    }
-                    for item in activity_rows
-                ],
-            }
+        activity_summary_bytes = await self._activities.context_summary(
+            unit_of_work.transaction,
+            subject_id=row[2],
+            enabled=row[20] != "consider_other_human_input",
         )
         capability_state_payloads = (
             ()
