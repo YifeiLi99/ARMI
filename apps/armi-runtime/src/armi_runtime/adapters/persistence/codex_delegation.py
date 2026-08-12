@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_effect.api import EffectDispatchBoundaryPort
 from armi_evidence.api import (
     EvidenceDraft,
     EvidenceId,
@@ -39,7 +40,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 
-from .effect_grant_coordination import coordinate_dispatch_boundary
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _BINDING = "armi.codex-runner.openai-python-sdk-v1"
@@ -69,10 +69,15 @@ class CodexDispatchSnapshot:
 
 
 class PostgreSQLCodexDelegationRepository:
-    __slots__ = ("_evidence",)
+    __slots__ = ("_dispatch_boundary", "_evidence")
 
-    def __init__(self, evidence: EvidenceWritePort) -> None:
+    def __init__(
+        self,
+        evidence: EvidenceWritePort,
+        dispatch_boundary: EffectDispatchBoundaryPort,
+    ) -> None:
         self._evidence = evidence
+        self._dispatch_boundary = dispatch_boundary
 
     async def admit_task_source(
         self,
@@ -492,7 +497,7 @@ class PostgreSQLCodexDelegationRepository:
         self, uow: PostgreSQLUnitOfWork, snapshot: CodexDispatchSnapshot
     ) -> bool:
         connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        boundary = await coordinate_dispatch_boundary(
+        boundary = await self._dispatch_boundary.coordinate(
             uow,
             effect_id=snapshot.effect_id,
             attempt_id=snapshot.attempt_id,

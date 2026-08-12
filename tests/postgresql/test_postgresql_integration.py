@@ -70,6 +70,24 @@ from armi_cognition._validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
+from armi_effect._admission import (
+    PostgreSQLResponseAdmissionRepository,
+)
+from armi_effect._dispatch import (
+    PostgreSQLEffectDispatchRepository,
+)
+from armi_effect._inbox import (
+    PostgreSQLLocalInbox,
+)
+from armi_effect._ledger import (
+    PostgreSQLEffectLedgerRepository,
+)
+from armi_effect.api import EffectStatus
+from armi_effect.bootstrap import (
+    bootstrap_effect_dispatch_boundary,
+    bootstrap_effect_grant_cancellation,
+    bootstrap_expression_effect_registration,
+)
 from armi_evidence.bootstrap import bootstrap_evidence
 from armi_expression.api import CreatorReplyDraft, ResponseAdmissionStatus
 from armi_expression.bootstrap import bootstrap_expression
@@ -111,7 +129,6 @@ from armi_kernel.application import (
     CasStatus,
     CreatorCodexTaskCommand,
     CredentialLocator,
-    EffectStatus,
     LifeRecordActor,
     LifeRecordKind,
     LifeRecordQuery,
@@ -159,9 +176,6 @@ from armi_perception.api import (
 )
 from armi_prompt.bootstrap import bootstrap_prompt
 from armi_relationship.bootstrap import bootstrap_relationship
-from armi_runtime.adapters.creator_response_inbox import (
-    PostgreSQLLocalInbox,
-)
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.adapters.model.web_search_custody import normalize_full_response
 from armi_runtime.adapters.persistence.artifact_catalog import (
@@ -177,18 +191,9 @@ from armi_runtime.adapters.persistence.data_rights import DataRightsOrderReposit
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
 )
-from armi_runtime.adapters.persistence.effect_dispatch import (
-    PostgreSQLEffectDispatchRepository,
-)
-from armi_runtime.adapters.persistence.effect_ledger import (
-    PostgreSQLEffectLedgerRepository,
-)
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
-)
-from armi_runtime.adapters.persistence.response_admission import (
-    PostgreSQLResponseAdmissionRepository,
 )
 from armi_runtime.adapters.persistence.role_policy import (
     RoleBoundConnectionPool,
@@ -2407,6 +2412,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     creator_party_id=creator_party_id,
                     input_repository=CreatorInputRepository(bootstrap_evidence().write),
                     evidence=bootstrap_evidence().write,
+                    dispatch_boundary=bootstrap_effect_dispatch_boundary(),
                     notifier=None,
                     diagnostic=lambda _event: None,
                 )
@@ -5681,11 +5687,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             expression_module = bootstrap_expression(
                 relationship_module.read,
                 relationship_module.policy,
+                bootstrap_expression_effect_registration(),
             )
             capability_module = bootstrap_capability(
                 factory,
                 environment_id=fixture.environment_id,
                 cursor_key=hashlib.sha256(b"t03-capability-cursor-key").digest(),
+                effect_cancellation=bootstrap_effect_grant_cancellation(),
             )
             repository = PostgreSQLSubjectCommitRepository(
                 activity_commit=activity_module.commit,
@@ -5941,6 +5949,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
                 environment_id=fixture.environment_id,
                 cursor_key=b"s027-capability-policy-cursor-key",
+                effect_cancellation=bootstrap_effect_grant_cancellation(),
             )
             await policy.open()
             try:
@@ -6040,7 +6049,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(len(effect_claimed), 1)
                     effect_lease = effect_claimed[0].lease
                     assert effect_lease is not None
-                    effect_repository = PostgreSQLEffectLedgerRepository()
+                    effect_repository = PostgreSQLEffectLedgerRepository(
+                        policy.consumption
+                    )
                     async with response_factory.unit_of_work() as unit_of_work:
                         effect_snapshot = await effect_repository.snapshot(
                             unit_of_work, effect_lease

@@ -72,6 +72,7 @@ DISTRIBUTIONS = (
         layers=(),
         dependencies=(
             "armi-channel-napcat==0.0.0",
+            "armi-effect==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "armi-perception==0.0.0",
@@ -274,6 +275,20 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-effect",
+        module="armi_effect",
+        project_dir=Path("modules/effect"),
+        layers=(),
+        dependencies=(
+            "armi-capability==0.0.0",
+            "armi-expression==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-cognition",
         module="armi_cognition",
         project_dir=Path("modules/cognition"),
@@ -326,6 +341,7 @@ DISTRIBUTIONS = (
             "armi-cognition==0.0.0",
             "armi-context==0.0.0",
             "armi-evidence==0.0.0",
+            "armi-effect==0.0.0",
             "armi-expression==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
@@ -834,6 +850,7 @@ def _check_import(
                 "armi-kernel",
                 "armi-channel-napcat",
                 "armi-adapter-qq",
+                "armi-effect",
                 "armi-interaction",
                 "armi-perception",
             }
@@ -983,6 +1000,18 @@ def _check_import(
                 "armi-expression",
                 "armi-kernel",
                 "armi-relationship",
+                "armi-runtime-foundation",
+            }
+        )
+        or (
+            source_distribution == "armi-effect"
+            and target_distribution
+            not in {
+                None,
+                "armi-capability",
+                "armi-effect",
+                "armi-expression",
+                "armi-kernel",
                 "armi-runtime-foundation",
             }
         )
@@ -1139,6 +1168,9 @@ def _check_import(
         ),
         "armi-expression": frozenset(
             {"armi_expression", "armi_expression.api", "armi_expression.bootstrap"}
+        ),
+        "armi-effect": frozenset(
+            {"armi_effect", "armi_effect.api", "armi_effect.bootstrap"}
         ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
@@ -1342,6 +1374,17 @@ def _check_import(
                     "expression bootstrap is reserved for Runtime composition",
                 )
             )
+        if imported_module == "armi_effect.bootstrap" and not source_module.startswith(
+            "armi_runtime.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "effect bootstrap is reserved for Runtime composition",
+                )
+            )
         if imported_module not in public_modules[target_distribution]:
             violations.append(
                 Violation(
@@ -1477,10 +1520,8 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "packages/armi-adapter-qq/src/armi_adapter_qq/__init__.py",
         "armi_runtime_foundation": root
         / "packages/armi-runtime-foundation/src/armi_runtime_foundation/__init__.py",
-        "armi_capability": root
-        / "modules/capability/src/armi_capability/__init__.py",
-        "armi_capability.api": root
-        / "modules/capability/src/armi_capability/api.py",
+        "armi_capability": root / "modules/capability/src/armi_capability/__init__.py",
+        "armi_capability.api": root / "modules/capability/src/armi_capability/api.py",
         "armi_capability.bootstrap": root
         / "modules/capability/src/armi_capability/bootstrap.py",
         "armi_relationship": root
@@ -1547,6 +1588,9 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_expression.api": root / "modules/expression/src/armi_expression/api.py",
         "armi_expression.bootstrap": root
         / "modules/expression/src/armi_expression/bootstrap.py",
+        "armi_effect": root / "modules/effect/src/armi_effect/__init__.py",
+        "armi_effect.api": root / "modules/effect/src/armi_effect/api.py",
+        "armi_effect.bootstrap": root / "modules/effect/src/armi_effect/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1840,7 +1884,6 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             if (
                 distribution.name != "armi-capability"
                 and ".runtime_resources.schema.alembic." not in module
-                and "armi_runtime.adapters.persistence.effect_ledger" not in module
                 and re.search(
                     r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
                     r"(?:capability_requests|capability_request_decisions|"
@@ -1855,6 +1898,28 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         relative,
                         1,
                         "capability and permission writes are owned by armi-capability",
+                    )
+                )
+            if (
+                distribution.name != "armi-effect"
+                and ".runtime_resources.schema.alembic." not in module
+                and "armi_runtime.adapters.persistence.codex_delegation" not in module
+                and "armi_runtime.adapters.persistence.data_deletion" not in module
+                and not module.startswith("armi_admin.persistence.")
+                and re.search(
+                    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:effects|effect_outbox_items|effect_attempts|"
+                    r"effect_observations|external_effect_receipts)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-EFFECT-SQL",
+                        relative,
+                        1,
+                        "effect ledger writes are owned by armi-effect",
                     )
                 )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
@@ -1937,6 +2002,11 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "model_pipeline = compose_model_pipeline(",
             "candidate_pipeline = compose_candidate_validation_pipeline(",
         ),
+        "effect": (
+            "effect_pipeline = compose_effect_registration_pipeline(",
+            "response_pipeline = compose_response_admission_pipeline(",
+            "effect_ledger=effect_pipeline",
+        ),
     }.items():
         if any(item not in runtime_source for item in required):
             violations.append(
@@ -1965,6 +2035,15 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                 _relative(database_path, root),
                 1,
                 "default Runtime composition must bind the capability module",
+            )
+        )
+    if "return bootstrap_effect_runtime(" not in database_source:
+        violations.append(
+            Violation(
+                "ARC-ACTIVE-MODULE",
+                _relative(database_path, root),
+                1,
+                "default Runtime composition must bind the effect module",
             )
         )
     return violations

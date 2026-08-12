@@ -18,6 +18,7 @@ import uvicorn
 from armi_activity.api import ActivityViolation
 from armi_capability.api import CapabilityViolation
 from armi_context.api import ContextViolation
+from armi_effect.api import EffectViolation
 from armi_expression.api import ResponseViolation
 from armi_interaction.api import (
     CreatorInputCommand,
@@ -30,7 +31,6 @@ from armi_kernel.application import (
     CodexDelegationViolation,
     CreatorExportViolation,
     DataRightsViolation,
-    EffectViolation,
     LifeRecordQueryViolation,
     ModelViolation,
     OtherHumanRecordViolation,
@@ -81,6 +81,7 @@ from .database import (
     compose_context_pipeline,
     compose_creator_export_service,
     compose_data_rights_order_service,
+    compose_effect_grant_cancellation,
     compose_effect_registration_pipeline,
     compose_evidence_module,
     compose_exact_life_query_pipeline,
@@ -423,10 +424,12 @@ async def _serve(
                 notifier=creator_events,
             )
             await data_rights_order_service.open()
+            effect_grant_cancellation = compose_effect_grant_cancellation()
             capability_policy = compose_capability_policy(
                 prepared,
                 authority_admission=authority.require_writable,
                 cursor_key=derive_timeline_cursor_key(prepared),
+                effect_cancellation=effect_grant_cancellation,
                 notifier=creator_events,
             )
             await capability_policy.open()
@@ -557,6 +560,7 @@ async def _serve(
             effect_pipeline = compose_effect_registration_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                capability_consumption=capability_policy.consumption,
                 notifier=creator_events,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(

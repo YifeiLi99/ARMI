@@ -30,6 +30,7 @@
     "modules/context/src",
     "modules/cognition/src",
     "modules/expression/src",
+    "modules/effect/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -58,6 +59,7 @@
     "modules/context/src",
     "modules/cognition/src",
     "modules/expression/src",
+    "modules/effect/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

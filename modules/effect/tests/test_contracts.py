@@ -4,10 +4,11 @@ import unittest
 from datetime import UTC, datetime
 from uuid import uuid4, uuid7
 
-from armi_kernel.application import (
+from armi_effect.api import (
     EffectAdapterReceipt,
     EffectAttemptId,
     EffectDeliveryId,
+    EffectDispatchBoundaryResult,
     EffectId,
     EffectObservation,
     EffectObservationId,
@@ -64,6 +65,12 @@ class EffectContractTests(unittest.TestCase):
                 "creator.scene.reply",
             )
         self.assertEqual(state.exception.code, "CON-EFFECT-STATE")
+
+    def test_dispatch_boundary_result_requires_stable_grant_identity(self) -> None:
+        result = EffectDispatchBoundaryResult(True, uuid7())
+        self.assertTrue(result.allowed)
+        with self.assertRaises(EffectViolation):
+            EffectDispatchBoundaryResult(False, uuid4(), "POLICY-GRANT-NOT-CURRENT")
 
     def test_error_is_redacted(self) -> None:
         error = EffectViolation("EFFECT-DATABASE")

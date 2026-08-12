@@ -14,19 +14,21 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+)
+from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from ._grant import (
+    coordinate_dispatch_boundary,
+    supersede_effect_policy,
+)
+from .api import (
     EffectAdapterReceipt,
     EffectAttemptId,
     EffectId,
     EffectViolation,
     FrozenEffectRequest,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
-
-from .effect_grant_coordination import (
-    coordinate_dispatch_boundary,
-    supersede_effect_policy,
-)
-from .unit_of_work import PostgreSQLUnitOfWork
 
 _LOCAL_ADAPTER_BINDING = "armi.local-inbox-adapter.postgresql-v1"
 _EXTERNAL_MESSAGE_ADAPTER_BINDING = "armi.external-message-adapter.v1"
@@ -57,9 +59,9 @@ class PostgreSQLEffectDispatchRepository:
     __slots__ = ()
 
     async def claim(
-        self, uow: PostgreSQLUnitOfWork, *, claim_owner: UUID
+        self, uow: PostgreSQLRuntimeUnitOfWork, *, claim_owner: UUID
     ) -> EffectDispatchSnapshot | None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -169,8 +171,10 @@ class PostgreSQLEffectDispatchRepository:
             row[0], claim_owner, claim_token, attempt_no, row[5], str(row[9]), request
         )
 
-    async def expired(self, uow: PostgreSQLUnitOfWork) -> EffectDispatchSnapshot | None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    async def expired(
+        self, uow: PostgreSQLRuntimeUnitOfWork
+    ) -> EffectDispatchSnapshot | None:
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -238,8 +242,10 @@ class PostgreSQLEffectDispatchRepository:
             ),
         )
 
-    async def unknown(self, uow: PostgreSQLUnitOfWork) -> EffectDispatchSnapshot | None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    async def unknown(
+        self, uow: PostgreSQLRuntimeUnitOfWork
+    ) -> EffectDispatchSnapshot | None:
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -308,11 +314,11 @@ class PostgreSQLEffectDispatchRepository:
         )
 
     async def mark_dispatching(
-        self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
     ) -> bool:
         if snapshot.claim_owner is None:
             raise EffectViolation("EFFECT-CLAIM-STALE")
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         authorization = await (
             await connection.execute(
                 """
@@ -384,11 +390,11 @@ class PostgreSQLEffectDispatchRepository:
         return True
 
     async def renew_claim(
-        self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
     ) -> None:
         if snapshot.claim_owner is None:
             raise EffectViolation("EFFECT-CLAIM-STALE")
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -417,7 +423,7 @@ class PostgreSQLEffectDispatchRepository:
 
     async def settle_receipt(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         snapshot: EffectDispatchSnapshot,
         receipt: EffectAdapterReceipt,
     ) -> None:
@@ -438,7 +444,7 @@ class PostgreSQLEffectDispatchRepository:
         )
 
     async def settle_rejection(
-        self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
     ) -> None:
         await self._settle(
             uow,
@@ -459,9 +465,9 @@ class PostgreSQLEffectDispatchRepository:
         )
 
     async def settle_absent(
-        self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
     ) -> bool:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         disposition, grant_id, attempt_state = await self._absent_disposition(
             connection, snapshot
         )
@@ -643,7 +649,7 @@ class PostgreSQLEffectDispatchRepository:
         )
 
     async def settle_unknown(
-        self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
     ) -> None:
         await self._settle(
             uow,
@@ -663,7 +669,7 @@ class PostgreSQLEffectDispatchRepository:
 
     async def resolve_unknown_receipt(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         snapshot: EffectDispatchSnapshot,
         receipt: EffectAdapterReceipt,
     ) -> None:
@@ -682,7 +688,7 @@ class PostgreSQLEffectDispatchRepository:
         )
 
     async def resolve_unknown_absent(
-        self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
     ) -> None:
         await self._resolve_unknown(
             uow,
@@ -701,7 +707,7 @@ class PostgreSQLEffectDispatchRepository:
         )
 
     async def settle_integrity_failure(
-        self, uow: PostgreSQLUnitOfWork, snapshot: EffectDispatchSnapshot
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
     ) -> None:
         await self._settle(
             uow,
@@ -723,13 +729,13 @@ class PostgreSQLEffectDispatchRepository:
 
     async def _record_retry(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         snapshot: EffectDispatchSnapshot,
         observation_digest: Digest,
         *,
         was_dispatched: bool,
     ) -> None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         observation_id = uuid7()
         await self._insert_observation(
             connection,
@@ -789,14 +795,14 @@ class PostgreSQLEffectDispatchRepository:
 
     async def _settle_cancelled(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         snapshot: EffectDispatchSnapshot,
         *,
         observation_digest: Digest,
         grant_id: UUID,
         reason_code: str,
     ) -> None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         observation_id = uuid7()
         await self._insert_observation(
             connection,
@@ -901,7 +907,7 @@ class PostgreSQLEffectDispatchRepository:
 
     async def _settle(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         snapshot: EffectDispatchSnapshot,
         *,
         observation_kind: str,
@@ -916,7 +922,7 @@ class PostgreSQLEffectDispatchRepository:
         attempt_result: str,
         error_code: str | None,
     ) -> None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         observation_id = uuid7()
         await self._insert_observation(
             connection,
@@ -1015,7 +1021,7 @@ class PostgreSQLEffectDispatchRepository:
 
     async def _resolve_unknown(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         snapshot: EffectDispatchSnapshot,
         *,
         observation_kind: str,
@@ -1028,7 +1034,7 @@ class PostgreSQLEffectDispatchRepository:
         operation_status: str,
         error_code: str | None,
     ) -> None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         observation_id = uuid7()
         await self._insert_observation(
             connection,

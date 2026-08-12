@@ -1,10 +1,15 @@
 """ARMI capability and permission module public surface."""
 
 from .api import (
+    CapabilityAuthorizationOutcome,
     CapabilityAvailability,
     CapabilityCommitContext,
     CapabilityCommitPort,
+    CapabilityConsumptionRequest,
+    CapabilityConsumptionResult,
     CapabilityDecisionId,
+    CapabilityEffectCancellationPort,
+    CapabilityGrantConsumptionPort,
     CapabilityId,
     CapabilityKind,
     CapabilityOperation,
@@ -28,10 +33,15 @@ from .api import (
 )
 
 __all__ = (
+    "CapabilityAuthorizationOutcome",
     "CapabilityAvailability",
     "CapabilityCommitContext",
     "CapabilityCommitPort",
+    "CapabilityConsumptionRequest",
+    "CapabilityConsumptionResult",
     "CapabilityDecisionId",
+    "CapabilityEffectCancellationPort",
+    "CapabilityGrantConsumptionPort",
     "CapabilityId",
     "CapabilityKind",
     "CapabilityOperation",

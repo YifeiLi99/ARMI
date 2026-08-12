@@ -103,6 +103,7 @@ version = "0.0.0"
 source = { editable = "packages/armi-adapter-qq" }
 dependencies = [
     { name = "armi-channel-napcat" },
+    { name = "armi-effect" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-perception" },
@@ -112,6 +113,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-channel-napcat", editable = "packages/armi-channel-napcat" },
+    { name = "armi-effect", editable = "modules/effect" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-perception", editable = "modules/perception" },
@@ -285,6 +287,29 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+]
+
+[[package]]
+name = "armi-effect"
+version = "0.0.0"
+source = { editable = "modules/effect" }
+dependencies = [
+    { name = "armi-capability" },
+    { name = "armi-expression" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-capability", editable = "modules/capability" },
+    { name = "armi-expression", editable = "modules/expression" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
+    { name = "rfc8785", specifier = "==0.1.4" },
 ]
 
 [[package]]
@@ -525,6 +550,7 @@ dependencies = [
     { name = "armi-cognition" },
     { name = "armi-context" },
     { name = "armi-evidence" },
+    { name = "armi-effect" },
     { name = "armi-expression" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
@@ -560,6 +586,7 @@ requires-dist = [
     { name = "armi-cognition", editable = "modules/cognition" },
     { name = "armi-context", editable = "modules/context" },
     { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-effect", editable = "modules/effect" },
     { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },

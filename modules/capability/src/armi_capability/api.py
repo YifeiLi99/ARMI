@@ -55,6 +55,12 @@ class GrantStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class CapabilityAuthorizationOutcome(StrEnum):
+    ALLOWED = "allowed"
+    DENIED = "denied"
+    UNAVAILABLE = "unavailable"
+
+
 class CapabilityViolation(RuntimeError):
     __slots__ = ("code",)
 
@@ -117,6 +123,56 @@ class CapabilityCommitContext:
                 _uuid7(value, "CON-CAPABILITY-COMMIT-CONTEXT")
         if type(self.trace_id) is not TraceId:
             raise CapabilityViolation("CON-CAPABILITY-COMMIT-CONTEXT")
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityConsumptionRequest:
+    capability_kind: str
+    operation_class: str
+    subject_id: UUID
+    scene_id: UUID
+    creator_party_id: UUID
+    purpose: str
+    effect_kind: str
+    payload_bytes: int
+
+    def __post_init__(self) -> None:
+        for value in (self.subject_id, self.scene_id, self.creator_party_id):
+            _uuid7(value, "CON-CAPABILITY-CONSUMPTION")
+        if (
+            type(self.capability_kind) is not str
+            or not self.capability_kind
+            or self.operation_class not in {"send", "execute"}
+            or type(self.purpose) is not str
+            or not self.purpose
+            or self.effect_kind not in {"creator_response", "codex_delegation"}
+            or type(self.payload_bytes) is not int
+            or self.payload_bytes < 0
+        ):
+            raise CapabilityViolation("CON-CAPABILITY-CONSUMPTION")
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityConsumptionResult:
+    outcome: CapabilityAuthorizationOutcome
+    reason_code: str
+    grant_id: UUID | None = None
+    valid_until: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.outcome) is not CapabilityAuthorizationOutcome
+            or type(self.reason_code) is not str
+            or _CODE.fullmatch(self.reason_code) is None
+            or (self.grant_id is None) != (self.valid_until is None)
+        ):
+            raise CapabilityViolation("CON-CAPABILITY-CONSUMPTION")
+        if self.grant_id is not None:
+            _uuid7(self.grant_id, "CON-CAPABILITY-CONSUMPTION")
+        if (self.outcome is CapabilityAuthorizationOutcome.ALLOWED) != (
+            self.grant_id is not None
+        ):
+            raise CapabilityViolation("CON-CAPABILITY-CONSUMPTION")
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,16 +495,41 @@ class CapabilityReadPort(Protocol):
     ) -> tuple[UUID, ...]: ...
 
 
+@runtime_checkable
+class CapabilityGrantConsumptionPort(Protocol):
+    async def authorize_and_consume(
+        self,
+        transaction: PostgreSQLTransaction,
+        request: CapabilityConsumptionRequest,
+    ) -> CapabilityConsumptionResult: ...
+
+
+@runtime_checkable
+class CapabilityEffectCancellationPort(Protocol):
+    async def cancel_registered(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        grant_id: UUID,
+        reason_code: str,
+    ) -> tuple[tuple[UUID, UUID, UUID], ...]: ...
+
+
 def _uuid7(value: UUID, code: str) -> None:
     if type(value) is not UUID or value.version != 7:
         raise CapabilityViolation(code)
 
 
 __all__ = (
+    "CapabilityAuthorizationOutcome",
     "CapabilityAvailability",
     "CapabilityCommitContext",
     "CapabilityCommitPort",
+    "CapabilityConsumptionRequest",
+    "CapabilityConsumptionResult",
     "CapabilityDecisionId",
+    "CapabilityEffectCancellationPort",
+    "CapabilityGrantConsumptionPort",
     "CapabilityId",
     "CapabilityKind",
     "CapabilityOperation",

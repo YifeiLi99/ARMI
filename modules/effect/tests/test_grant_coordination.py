@@ -5,11 +5,11 @@ from typing import Any, cast
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import AuditDraft
-from armi_runtime.adapters.persistence.effect_grant_coordination import (
+from armi_effect._grant import (
     coordinate_dispatch_boundary,
 )
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWork
+from armi_kernel.application import AuditDraft
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 
 class _Cursor:
@@ -79,7 +79,8 @@ class _UnitOfWork:
         self.audit = _Audit()
         self._connection = connection
 
-    def _connection_for_repository(self) -> _Connection:
+    @property
+    def transaction(self) -> _Connection:
         return self._connection
 
 
@@ -114,7 +115,7 @@ async def test_revoked_grant_cancels_prepared_attempt_before_dispatch() -> None:
 
 async def _coordinate(uow: _UnitOfWork):
     return await coordinate_dispatch_boundary(
-        cast(PostgreSQLUnitOfWork, cast(Any, uow)),
+        cast(PostgreSQLRuntimeUnitOfWork, cast(Any, uow)),
         effect_id=uuid7(),
         attempt_id=uuid7(),
         outbox_id=uuid7(),

@@ -7,21 +7,21 @@ from uuid import uuid7
 
 import rfc8785
 from armi_kernel.application import (
-    ActionAdapterPort,
     AuditDraft,
     AuditEventId,
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+)
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+
+from .api import (
+    ActionAdapterPort,
     EffectAdapterReceipt,
     EffectDeliveryId,
     EffectViolation,
     FrozenEffectRequest,
-)
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
-
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWorkFactory,
 )
 
 
@@ -30,7 +30,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
 
     __slots__ = ("_factory",)
 
-    def __init__(self, factory: PostgreSQLUnitOfWorkFactory) -> None:
+    def __init__(self, factory: PostgreSQLRuntimeUnitOfWorkFactory) -> None:
         self._factory = factory
 
     async def dispatch(
@@ -41,7 +41,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
         delivery_id = uuid7()
         receipt_digest = _receipt_digest(request, delivery_id)
         async with self._factory.unit_of_work() as uow:
-            connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+            connection = uow.transaction
             row = await (
                 await connection.execute(
                     """
@@ -132,7 +132,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
         self, request: FrozenEffectRequest
     ) -> EffectAdapterReceipt | None:
         async with self._factory.unit_of_work(read_only=True) as uow:
-            connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+            connection = uow.transaction
             row = await self._read(connection, request)
             if row is None:
                 return None

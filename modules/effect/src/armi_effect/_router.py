@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from armi_kernel.application import (
+from .api import (
     ActionAdapterPort,
     EffectAdapterReceipt,
     EffectViolation,

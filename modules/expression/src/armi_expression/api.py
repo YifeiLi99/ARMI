@@ -9,8 +9,11 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import ArtifactRef
-from armi_kernel.contracts import TraceId
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_kernel.contracts import Digest, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 
 _CODE = re.compile(
     r"^(?:CON|RESPONSE|ACTION|POLICY|SCOPE|SUBJECT)-[A-Z0-9-]+$", re.ASCII
@@ -239,6 +242,66 @@ type ResponseChoiceDraft = (
 
 
 @dataclass(frozen=True, slots=True)
+class DeclaredResponseEffectDraft:
+    """Effect-registration facts frozen by the expression owner."""
+
+    action_intent_revision_id: UUID
+    action_intent_id: UUID
+    operation_id: UUID
+    subject_id: UUID
+    scene_id: UUID
+    context_party_id: UUID
+    payload_artifact_id: UUID
+    payload_digest: Digest
+    payload_bytes: int
+    effect_kind: str
+    capability_kind: str
+    audience_scope: str
+    authorization_basis: str
+    destination_kind: str
+    destination_party_id: UUID
+    destination_binding_id: UUID | None
+    trace_id: TraceId
+    max_attempts: int
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.action_intent_revision_id,
+            self.action_intent_id,
+            self.operation_id,
+            self.subject_id,
+            self.scene_id,
+            self.context_party_id,
+            self.payload_artifact_id,
+            self.destination_party_id,
+        ):
+            _uuid7(value, "CON-RESPONSE-EFFECT")
+        if self.destination_binding_id is not None:
+            _uuid7(self.destination_binding_id, "CON-RESPONSE-EFFECT")
+        if (
+            type(self.payload_digest) is not Digest
+            or type(self.trace_id) is not TraceId
+            or type(self.payload_bytes) is not int
+            or not 1 <= self.payload_bytes <= 65536
+            or self.effect_kind
+            not in {
+                "external_group_delivery",
+                "external_private_delivery",
+                "local_inbox_delivery",
+            }
+            or type(self.capability_kind) is not str
+            or not self.capability_kind
+            or self.audience_scope not in {"social_group", "other_human"}
+            or self.authorization_basis
+            not in {"runtime_configuration", "runtime_builtin"}
+            or self.destination_kind
+            not in {"external_group", "external_private", "other_human_inbox"}
+            or self.max_attempts not in {1, 2}
+        ):
+            raise ResponseViolation("CON-RESPONSE-EFFECT")
+
+
+@dataclass(frozen=True, slots=True)
 class ResponseAdmissionResult:
     operation_id: CreatorResponseOperationId
     status: ResponseAdmissionStatus
@@ -276,6 +339,17 @@ class ResponseAdmissionResult:
 class ResponseAdmissionPort(Protocol):
     async def admit_once(self) -> bool:
         """Claim and settle at most one durable response admission."""
+        ...
+
+
+@runtime_checkable
+class ExpressionEffectRegistrationPort(Protocol):
+    async def register_declared_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: DeclaredResponseEffectDraft,
+    ) -> UUID:
+        """Register an effect inside the expression owner's transaction."""
         ...
 
 
@@ -330,8 +404,10 @@ __all__ = (
     "ActionIntentId",
     "CreatorReplyDraft",
     "CreatorResponseOperationId",
+    "DeclaredResponseEffectDraft",
     "ExpressionCommitContext",
     "ExpressionCommitPort",
+    "ExpressionEffectRegistrationPort",
     "FormalNoActionDraft",
     "FormalNoActionId",
     "FormalNoActionKind",

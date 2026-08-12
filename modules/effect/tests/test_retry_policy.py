@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from armi_runtime.adapters.persistence.effect_dispatch import (
+from armi_effect._dispatch import (
     _AbsentDisposition,
     _classify_absent_effect,
 )
-from armi_runtime.adapters.persistence.effect_grant_coordination import (
+from armi_effect._grant import (
     _dispatch_cancellation_reason,
 )
 

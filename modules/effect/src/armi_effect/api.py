@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import re
+from asyncio import Event
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Protocol, cast, runtime_checkable
 from uuid import UUID
 
+from armi_expression.api import ResponseAdmissionPort
+from armi_kernel.application import ArtifactPort
 from armi_kernel.contracts import Digest, Instant, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 
 
 class PolicyDecisionOutcome(StrEnum):
@@ -80,6 +87,22 @@ class EffectArtifactContent:
             raise EffectViolation("CON-EFFECT-ARTIFACT")
         if not self.content or len(self.content) > 20 * 1024 * 1024:
             raise EffectViolation("CON-EFFECT-ARTIFACT")
+
+
+@dataclass(frozen=True, slots=True)
+class EffectDispatchBoundaryResult:
+    allowed: bool
+    grant_id: UUID
+    reason_code: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.allowed) is not bool:
+            raise EffectViolation("CON-EFFECT-DISPATCH-BOUNDARY")
+        _uuid7(self.grant_id)
+        if self.reason_code is not None and (
+            type(self.reason_code) is not str or not self.reason_code
+        ):
+            raise EffectViolation("CON-EFFECT-DISPATCH-BOUNDARY")
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,6 +418,71 @@ class EffectLedgerPort(Protocol):
 
 
 @runtime_checkable
+class EffectRuntimePort(EffectLedgerPort, Protocol):
+    async def open(self) -> None: ...
+    async def close(self) -> None: ...
+    def stop(self) -> None: ...
+    async def run(self) -> None: ...
+    async def dispatch_once(self) -> bool: ...
+    async def recover_once(self) -> bool: ...
+
+
+@runtime_checkable
+class EffectArtifactStorePort(ArtifactPort, Protocol):
+    async def prepare(self) -> None: ...
+
+
+@runtime_checkable
+class EffectGrantCancellationPort(Protocol):
+    async def cancel_registered(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        grant_id: UUID,
+        reason_code: str,
+    ) -> tuple[tuple[UUID, UUID, UUID], ...]: ...
+
+
+@runtime_checkable
+class EffectDispatchBoundaryPort(Protocol):
+    async def coordinate(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        effect_id: UUID,
+        attempt_id: UUID,
+        outbox_id: UUID,
+        claim_owner: UUID,
+        claim_token: int,
+        expected_operation_status: str,
+        cancelled_operation_status: str,
+    ) -> EffectDispatchBoundaryResult | None: ...
+
+
+@runtime_checkable
+class EffectWakeupPort(Protocol):
+    def version(self, channel: str) -> int: ...
+    def notify(self, channel: str) -> None: ...
+
+    async def wait(
+        self,
+        channel: str,
+        after_version: int,
+        *,
+        stop: Event,
+        timeout_seconds: float,
+    ) -> int: ...
+
+
+@runtime_checkable
+class ResponseAdmissionRuntimePort(ResponseAdmissionPort, Protocol):
+    async def open(self) -> None: ...
+    async def close(self) -> None: ...
+    def stop(self) -> None: ...
+    async def run_worker(self) -> None: ...
+
+
+@runtime_checkable
 class ActionAdapterPort(Protocol):
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes
@@ -415,10 +503,14 @@ __all__ = (
     "EffectAdapterReceipt",
     "EffectArtifactContent",
     "EffectArtifactKind",
+    "EffectArtifactStorePort",
     "EffectAttemptId",
     "EffectAttemptResult",
     "EffectAttemptState",
     "EffectDeliveryId",
+    "EffectDispatchBoundaryPort",
+    "EffectDispatchBoundaryResult",
+    "EffectGrantCancellationPort",
     "EffectId",
     "EffectLedgerPort",
     "EffectObservation",
@@ -426,12 +518,15 @@ __all__ = (
     "EffectObservationKind",
     "EffectObservationReliability",
     "EffectRegistrationResult",
+    "EffectRuntimePort",
     "EffectSettlement",
     "EffectStatus",
     "EffectVerificationStatus",
     "EffectView",
     "EffectViolation",
+    "EffectWakeupPort",
     "FrozenEffectRequest",
     "PolicyDecisionId",
     "PolicyDecisionOutcome",
+    "ResponseAdmissionRuntimePort",
 )

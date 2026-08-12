@@ -11,6 +11,8 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 from ._postgresql import PostgreSQLCreatorGrantPolicy
 from .api import (
     CapabilityCommitPort,
+    CapabilityEffectCancellationPort,
+    CapabilityGrantConsumptionPort,
     CapabilityPolicyPort,
     CapabilityReadPort,
     CreatorGrantCommand,
@@ -23,6 +25,7 @@ class CapabilityModule:
     policy: CapabilityPolicyPort
     read: CapabilityReadPort
     commit: CapabilityCommitPort
+    consumption: CapabilityGrantConsumptionPort
     _owner: PostgreSQLCreatorGrantPolicy
 
     async def open(self) -> None:
@@ -62,15 +65,17 @@ def bootstrap_capability(
     *,
     environment_id: UUID,
     cursor_key: bytes,
+    effect_cancellation: CapabilityEffectCancellationPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> CapabilityModule:
     owner = PostgreSQLCreatorGrantPolicy(
         factory,
         environment_id=environment_id,
         cursor_key=cursor_key,
+        effect_cancellation=effect_cancellation,
         notifier=notifier,
     )
-    return CapabilityModule(owner, owner, owner, owner)
+    return CapabilityModule(owner, owner, owner, owner, owner)
 
 
 __all__ = ("CapabilityModule", "bootstrap_capability")

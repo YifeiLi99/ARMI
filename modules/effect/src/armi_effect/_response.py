@@ -4,32 +4,32 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from pathlib import Path
 from typing import cast
-from uuid import UUID, uuid7
+from uuid import uuid7
 
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_expression.api import ResponseViolation
 from armi_kernel.application import (
     ArtifactViolation,
-    RuntimeFence,
+    DurableWorkPort,
     WorkLease,
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 
-from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
-from armi_runtime.adapters.persistence.response_admission import (
+from ._admission import (
     PostgreSQLResponseAdmissionRepository,
     ResponseAdmissionSnapshot,
 )
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .work_wakeup import EFFECT_REGISTER, RESPONSE_ADMIT, WorkWakeupBus
+from .api import EffectArtifactStorePort, EffectWakeupPort
 
 _WORK_KIND = "cognition.response.admit"
 _LEASE_SECONDS = 30
+_EFFECT_REGISTER = "effect.register"
+_RESPONSE_ADMIT = "cognition.response.admit"
 Diagnostic = Callable[[str], None]
 
 
@@ -52,18 +52,19 @@ class ResponseAdmissionPipeline:
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
-        storage: ContentAddressedArtifactStore,
-        wakeups: WorkWakeupBus | None = None,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        storage: EffectArtifactStorePort,
+        work: DurableWorkPort,
+        wakeups: EffectWakeupPort,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
         self._repository = PostgreSQLResponseAdmissionRepository()
-        self._work = PostgreSQLDurableWorkGateway(factory)
+        self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
-        self._wakeups = wakeups or WorkWakeupBus()
+        self._wakeups = wakeups
         self._diagnostic: Diagnostic = diagnostic or _ignore_diagnostic
 
     async def open(self) -> None:
@@ -102,7 +103,7 @@ class ResponseAdmissionPipeline:
                     snapshot=snapshot,
                     integrity_ok=integrity_ok,
                 )
-            self._wakeups.notify(EFFECT_REGISTER)
+            self._wakeups.notify(_EFFECT_REGISTER)
             return True
         except ResponseViolation as error:
             if error.code == "RESPONSE-WORK-STALE":
@@ -110,7 +111,7 @@ class ResponseAdmissionPipeline:
                 return True
             await self._fail_current_work(lease, error.code)
             return True
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("response.admission.transient_failure")
             return True
 
@@ -118,7 +119,7 @@ class ResponseAdmissionPipeline:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.settle_current_work(unit_of_work, lease)
-        except DatabaseTransactionError, ResponseViolation, WorkViolation:
+        except RuntimeTransactionFailure, ResponseViolation, WorkViolation:
             self._diagnostic("response.admission.settlement_deferred")
 
     async def _fail_current_work(self, lease: WorkLease, code: str) -> None:
@@ -129,7 +130,7 @@ class ResponseAdmissionPipeline:
                     lease,
                     code=code,
                 )
-        except DatabaseTransactionError, ResponseViolation, WorkViolation:
+        except RuntimeTransactionFailure, ResponseViolation, WorkViolation:
             self._diagnostic("response.admission.settlement_deferred")
 
     async def _verify(self, snapshot: ResponseAdmissionSnapshot) -> bool:
@@ -143,7 +144,7 @@ class ResponseAdmissionPipeline:
         return len(value) == snapshot.content_bytes
 
     async def run_worker(self) -> None:
-        observed = self._wakeups.version(RESPONSE_ADMIT)
+        observed = self._wakeups.version(_RESPONSE_ADMIT)
         while not self._stop.is_set():
             try:
                 worked = await self.admit_once()
@@ -153,44 +154,11 @@ class ResponseAdmissionPipeline:
                 await asyncio.sleep(0)
                 continue
             observed = await self._wakeups.wait(
-                RESPONSE_ADMIT,
+                _RESPONSE_ADMIT,
                 observed,
                 stop=self._stop,
                 timeout_seconds=1,
             )
 
 
-def build_response_admission_pipeline(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    wakeups: WorkWakeupBus | None = None,
-    diagnostic: Diagnostic | None = None,
-) -> ResponseAdmissionPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    return ResponseAdmissionPipeline(
-        factory=factory,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts", max_object_bytes=max_object_bytes
-        ),
-        wakeups=wakeups,
-        diagnostic=diagnostic,
-    )
-
-
-__all__ = ("ResponseAdmissionPipeline", "build_response_admission_pipeline")
+__all__ = ("ResponseAdmissionPipeline",)

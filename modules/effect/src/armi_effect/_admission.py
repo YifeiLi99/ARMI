@@ -40,8 +40,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-
-from .unit_of_work import PostgreSQLUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 _WORK_KIND = "cognition.response.admit"
 
@@ -66,10 +65,10 @@ class PostgreSQLResponseAdmissionRepository:
 
     async def settle_current_work(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -111,12 +110,12 @@ class PostgreSQLResponseAdmissionRepository:
 
     async def fail_current_work(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
         *,
         code: str,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -153,12 +152,12 @@ class PostgreSQLResponseAdmissionRepository:
 
     async def _fail_locked(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
         operation_id: UUID,
         code: str,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await connection.execute(
             """
             UPDATE armi.action_operations
@@ -173,10 +172,10 @@ class PostgreSQLResponseAdmissionRepository:
 
     async def snapshot(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
     ) -> ResponseAdmissionSnapshot:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -227,13 +226,13 @@ class PostgreSQLResponseAdmissionRepository:
 
     async def settle(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: ResponseAdmissionSnapshot,
         integrity_ok: bool,
     ) -> ResponseAdmissionResult:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise ResponseViolation("RESPONSE-FENCE")

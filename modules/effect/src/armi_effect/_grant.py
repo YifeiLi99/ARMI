@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -15,19 +14,199 @@ from armi_kernel.application import (
     AuditSensitivity,
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 
-from .unit_of_work import PostgreSQLUnitOfWork
+from .api import EffectDispatchBoundaryResult
 
 
-@dataclass(frozen=True, slots=True)
-class DispatchBoundaryResult:
-    allowed: bool
-    grant_id: UUID
-    reason_code: str | None = None
+class PostgreSQLEffectGrantCancellation:
+    """Cancel registered effects when their owning capability grant is lost."""
+
+    __slots__ = ()
+
+    async def cancel_registered(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        grant_id: UUID,
+        reason_code: str,
+    ) -> tuple[tuple[UUID, UUID, UUID], ...]:
+        rows = await (
+            await transaction.execute(
+                """
+                SELECT effect.effect_id, effect.subject_id,
+                       effect.action_intent_revision_id,
+                       effect.operation_id,
+                       effect.policy_decision_id,
+                       response.root_opportunity_id,
+                       effect.destination_kind
+                FROM armi.effects AS effect
+                JOIN armi.action_operations AS response
+                  ON response.operation_id = effect.operation_id
+                JOIN armi.policy_decisions AS policy
+                  ON policy.policy_decision_id = effect.policy_decision_id
+                 AND policy.is_current
+                JOIN armi.effect_outbox_items AS effect_outbox
+                  ON effect_outbox.effect_id = effect.effect_id
+                WHERE policy.matched_grant_id = %s
+                  AND effect.status = 'registered'
+                  AND effect_outbox.status = 'ready'
+                ORDER BY effect.effect_id
+                FOR UPDATE OF effect, policy, effect_outbox
+                """,
+                (grant_id,),
+            )
+        ).fetchall()
+        cancelled: list[tuple[UUID, UUID, UUID]] = []
+        for row in rows:
+            effect_id = UUID(str(row[0]))
+            subject_id = UUID(str(row[1]))
+            action_revision_id = UUID(str(row[2]))
+            operation_id = UUID(str(row[3]))
+            prior_decision_id = UUID(str(row[4]))
+            root_operation_id = UUID(str(row[5]))
+            destination_kind = str(row[6])
+            decision_id = uuid7()
+            cancellation_digest = Digest.from_bytes(
+                rfc8785.dumps(
+                    cast(
+                        Any,
+                        {
+                            "schema_version": "armi.effect-cancellation.v1",
+                            "effect_id": str(effect_id),
+                            "grant_id": str(grant_id),
+                            "reason_code": reason_code,
+                        },
+                    )
+                )
+            )
+            await transaction.execute(
+                "UPDATE armi.policy_decisions SET is_current=false "
+                "WHERE policy_decision_id=%s AND is_current",
+                (prior_decision_id,),
+            )
+            await transaction.execute(
+                """
+                INSERT INTO armi.policy_decisions (
+                    policy_decision_id, action_intent_revision_id,
+                    operation_id, decision_outcome,
+                    policy_identity, reason_code,
+                    supersedes_policy_decision_id) VALUES (
+                    %s, %s, %s, 'denied', 'armi.policy-engine.deterministic-v1',
+                    %s, %s)
+                """,
+                (
+                    decision_id,
+                    action_revision_id,
+                    operation_id,
+                    reason_code,
+                    prior_decision_id,
+                ),
+            )
+            attempt_id = uuid7()
+            await transaction.execute(
+                """
+                INSERT INTO armi.effect_attempts (
+                    effect_attempt_id, effect_id, attempt_no, adapter_binding,
+                    claim_token, dispatch_state, result_status,
+                    error_code, settled_at
+                ) VALUES (
+                    %s, %s, 1, %s, 1, 'settled', 'cancelled', NULL,
+                    statement_timestamp()
+                )
+                """,
+                (
+                    attempt_id,
+                    effect_id,
+                    (
+                        "armi.codex-runner.openai-python-sdk-v1"
+                        if destination_kind == "codex_workspace"
+                        else "armi.local-inbox-adapter.postgresql-v1"
+                    ),
+                ),
+            )
+            observation_id = uuid7()
+            await transaction.execute(
+                """
+                INSERT INTO armi.effect_observations (
+                    effect_observation_id, effect_id, effect_attempt_id,
+                    observation_kind, reliability, receiver_ref,
+                    observation_digest
+                ) VALUES (%s, %s, %s, 'runner_cancelled', 'reliable', NULL, %s)
+                """,
+                (
+                    observation_id,
+                    effect_id,
+                    attempt_id,
+                    cancellation_digest.value,
+                ),
+            )
+            await transaction.execute(
+                """
+                UPDATE armi.effects
+                SET status='cancelled', verification_status='verified',
+                    current_attempt_id=%s, current_observation_id=%s,
+                    settled_at=statement_timestamp(),
+                    cancelled_at=statement_timestamp()
+                WHERE effect_id=%s AND status='registered'
+                """,
+                (attempt_id, observation_id, effect_id),
+            )
+            await transaction.execute(
+                """
+                UPDATE armi.effect_outbox_items
+                SET status='cancelled', cancelled_at=statement_timestamp()
+                WHERE effect_id=%s AND status='ready'
+                """,
+                (effect_id,),
+            )
+            await transaction.execute(
+                """
+                UPDATE armi.action_operations
+                SET phase='terminal', outcome='cancelled',
+                    current_policy_decision_id=%s,
+                    completed_at=statement_timestamp()
+                WHERE operation_id=%s
+                  AND phase='effect_registered' AND outcome IS NULL
+                """,
+                (decision_id, operation_id),
+            )
+            cancelled.append((effect_id, subject_id, root_operation_id))
+        return tuple(cancelled)
+
+
+class PostgreSQLEffectDispatchBoundary:
+    __slots__ = ()
+
+    async def coordinate(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        effect_id: UUID,
+        attempt_id: UUID,
+        outbox_id: UUID,
+        claim_owner: UUID,
+        claim_token: int,
+        expected_operation_status: str,
+        cancelled_operation_status: str,
+    ) -> EffectDispatchBoundaryResult | None:
+        return await coordinate_dispatch_boundary(
+            unit_of_work,
+            effect_id=effect_id,
+            attempt_id=attempt_id,
+            outbox_id=outbox_id,
+            claim_owner=claim_owner,
+            claim_token=claim_token,
+            expected_operation_status=expected_operation_status,
+            cancelled_operation_status=cancelled_operation_status,
+        )
 
 
 async def coordinate_dispatch_boundary(
-    uow: PostgreSQLUnitOfWork,
+    uow: PostgreSQLRuntimeUnitOfWork,
     *,
     effect_id: UUID,
     attempt_id: UUID,
@@ -36,11 +215,11 @@ async def coordinate_dispatch_boundary(
     claim_token: int,
     expected_operation_status: str,
     cancelled_operation_status: str,
-) -> DispatchBoundaryResult | None:
+) -> EffectDispatchBoundaryResult | None:
     """Serialize dispatch with grant revoke/expiry and cancel before I/O."""
 
     del cancelled_operation_status
-    connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    connection = uow.transaction
     expected_phase = {
         "effect_dispatching": "dispatching",
         "codex_dispatching": "dispatching",
@@ -122,7 +301,7 @@ async def coordinate_dispatch_boundary(
         grant_time_valid=bool(grant[1]),
     )
     if reason_code is None:
-        return DispatchBoundaryResult(True, grant_id)
+        return EffectDispatchBoundaryResult(True, grant_id)
 
     cancellation_digest = Digest.from_bytes(
         rfc8785.dumps(
@@ -240,7 +419,7 @@ async def coordinate_dispatch_boundary(
             grant=AuditReference("permission_grant", grant_id),
         )
     )
-    return DispatchBoundaryResult(False, grant_id, reason_code)
+    return EffectDispatchBoundaryResult(False, grant_id, reason_code)
 
 
 async def supersede_effect_policy(
@@ -319,7 +498,9 @@ def _dispatch_cancellation_reason(
 
 
 __all__ = (
-    "DispatchBoundaryResult",
+    "EffectDispatchBoundaryResult",
+    "PostgreSQLEffectDispatchBoundary",
+    "PostgreSQLEffectGrantCancellation",
     "coordinate_dispatch_boundary",
     "supersede_effect_policy",
 )

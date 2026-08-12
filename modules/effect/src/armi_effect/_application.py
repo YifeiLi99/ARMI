@@ -8,53 +8,51 @@ import json
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid7
 
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_interaction.api import (
-    SceneKey,
-)
+from armi_capability.api import CapabilityGrantConsumptionPort
 from armi_kernel.application import (
-    ActionAdapterPort,
     ArtifactViolation,
     CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
-    EffectAdapterReceipt,
-    EffectArtifactContent,
-    EffectArtifactKind,
-    EffectId,
-    EffectRegistrationResult,
-    EffectView,
-    EffectViolation,
-    RuntimeFence,
+    DurableWorkPort,
     WorkLease,
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation
-
-from armi_runtime.adapters.creator_response_inbox import (
-    PostgreSQLLocalInbox,
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
 )
-from armi_runtime.adapters.effect_router import RoutedActionAdapter
-from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
-from armi_runtime.adapters.persistence.effect_dispatch import (
+
+from ._dispatch import (
     EffectDispatchSnapshot,
     PostgreSQLEffectDispatchRepository,
 )
-from armi_runtime.adapters.persistence.effect_ledger import (
+from ._inbox import PostgreSQLLocalInbox
+from ._ledger import (
     EffectRegistrationSnapshot,
     PostgreSQLEffectLedgerRepository,
 )
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .work_wakeup import EFFECT_REGISTER, WorkWakeupBus
+from ._router import RoutedActionAdapter
+from .api import (
+    ActionAdapterPort,
+    EffectAdapterReceipt,
+    EffectArtifactContent,
+    EffectArtifactKind,
+    EffectArtifactStorePort,
+    EffectId,
+    EffectRegistrationResult,
+    EffectView,
+    EffectViolation,
+    EffectWakeupPort,
+)
 
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
+EFFECT_REGISTER = "effect.register"
 
 
 def _ignore_diagnostic(event: str) -> None:
@@ -80,18 +78,20 @@ class EffectRegistrationPipeline:
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
-        storage: ContentAddressedArtifactStore,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        storage: EffectArtifactStorePort,
+        work: DurableWorkPort,
+        capability_consumption: CapabilityGrantConsumptionPort,
         notifier: CreatorProjectionNotifier | None = None,
         adapter: ActionAdapterPort | None = None,
         external_message_adapter: ActionAdapterPort | None = None,
-        wakeups: WorkWakeupBus | None = None,
+        wakeups: EffectWakeupPort,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
-        self._repository = PostgreSQLEffectLedgerRepository()
+        self._repository = PostgreSQLEffectLedgerRepository(capability_consumption)
         self._dispatcher = PostgreSQLEffectDispatchRepository()
         if adapter is not None and external_message_adapter is not None:
             raise ValueError("whole-effect and external-message adapters are exclusive")
@@ -107,10 +107,10 @@ class EffectRegistrationPipeline:
                 routes["external_group"] = external_message_adapter
                 routes["external_private"] = external_message_adapter
             self._adapter = RoutedActionAdapter(routes)
-        self._work = PostgreSQLDurableWorkGateway(factory)
+        self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
-        self._wakeups = wakeups or WorkWakeupBus()
+        self._wakeups = wakeups
         self._diagnostic: Diagnostic = diagnostic or _ignore_diagnostic
         self._notifier = notifier
         self._fault_injector = fault_injector or _ignore_diagnostic
@@ -163,7 +163,7 @@ class EffectRegistrationPipeline:
             else:
                 await self._fail_registration_work(lease, error.code)
             return True
-        except DatabaseTransactionError, WorkViolation:
+        except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("effect.registration.transient_failure")
             return True
 
@@ -171,7 +171,7 @@ class EffectRegistrationPipeline:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.settle_current_work(unit_of_work, lease)
-        except DatabaseTransactionError, EffectViolation, WorkViolation:
+        except RuntimeTransactionFailure, EffectViolation, WorkViolation:
             self._diagnostic("effect.registration.settlement_deferred")
 
     async def _fail_registration_work(self, lease: WorkLease, code: str) -> None:
@@ -182,7 +182,7 @@ class EffectRegistrationPipeline:
                     lease,
                     code=code,
                 )
-        except DatabaseTransactionError, EffectViolation, WorkViolation:
+        except RuntimeTransactionFailure, EffectViolation, WorkViolation:
             self._diagnostic("effect.registration.settlement_deferred")
 
     async def get_effect(
@@ -310,7 +310,7 @@ class EffectRegistrationPipeline:
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
             await self._notify_dispatch(snapshot, include_scene=True)
             return True
-        except DatabaseTransactionError, EffectViolation:
+        except RuntimeTransactionFailure, EffectViolation:
             self._diagnostic("effect.dispatch.transient_failure")
             return True
 
@@ -327,7 +327,7 @@ class EffectRegistrationPipeline:
                 return False
             try:
                 receipt = await self._adapter.observe(unknown.request)
-            except DatabaseTransactionError, EffectViolation:
+            except RuntimeTransactionFailure, EffectViolation:
                 self._diagnostic("effect.unknown_verification.unavailable")
                 return False
             async with self._factory.unit_of_work() as uow:
@@ -342,7 +342,7 @@ class EffectRegistrationPipeline:
             else:
                 await self._notify_dispatch(unknown, include_scene=False)
             return True
-        except DatabaseTransactionError, EffectViolation:
+        except RuntimeTransactionFailure, EffectViolation:
             if self._stop.is_set():
                 return False
             self._diagnostic("effect.recovery.failed")
@@ -351,7 +351,7 @@ class EffectRegistrationPipeline:
     async def _reconcile(self, snapshot: EffectDispatchSnapshot) -> bool:
         try:
             receipt = await self._adapter.observe(snapshot.request)
-        except DatabaseTransactionError, EffectViolation:
+        except RuntimeTransactionFailure, EffectViolation:
             async with self._factory.unit_of_work() as uow:
                 await self._dispatcher.settle_unknown(uow, snapshot)
             await self._notify_dispatch(snapshot, include_scene=False)
@@ -417,7 +417,7 @@ class EffectRegistrationPipeline:
                     snapshot.request.effect_id,
                     creator_party_id=snapshot.request.destination_party_id,
                 )
-        except DatabaseTransactionError, EffectViolation:
+        except RuntimeTransactionFailure, EffectViolation:
             self._diagnostic("effect.notification.lookup_failed")
             return
         invalidations = [
@@ -437,7 +437,7 @@ class EffectRegistrationPipeline:
                 0,
                 (
                     CreatorEventResourceKind.SCENE_TIMELINE,
-                    SceneKey(snapshot.scene_key).value,
+                    snapshot.scene_key,
                     "scene-timeline.v5",
                 ),
             )
@@ -521,43 +521,4 @@ class EffectRegistrationPipeline:
             )
 
 
-def build_effect_registration_pipeline(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    notifier: CreatorProjectionNotifier | None = None,
-    wakeups: WorkWakeupBus | None = None,
-    diagnostic: Diagnostic | None = None,
-    fault_injector: FaultInjector | None = None,
-    external_message_adapter: ActionAdapterPort | None = None,
-) -> EffectRegistrationPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    return EffectRegistrationPipeline(
-        factory=factory,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts", max_object_bytes=max_object_bytes
-        ),
-        notifier=notifier,
-        wakeups=wakeups,
-        diagnostic=diagnostic,
-        fault_injector=fault_injector,
-        external_message_adapter=external_message_adapter,
-    )
-
-
-__all__ = ("EffectRegistrationPipeline", "build_effect_registration_pipeline")
+__all__ = ("EffectRegistrationPipeline",)

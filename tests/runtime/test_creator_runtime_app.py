@@ -19,6 +19,7 @@ from armi_capability.api import (
     CreatorGrantCommand,
     CreatorGrantResult,
 )
+from armi_effect.api import EffectArtifactKind
 from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
     CreatorInputAcceptance,
@@ -60,7 +61,6 @@ from armi_kernel.application import (
     DataRightsRequesterKind,
     DataRightsScopeKind,
     DataRightsViolation,
-    EffectArtifactKind,
     LifeRecordActor,
     LifeRecordItem,
     LifeRecordKind,

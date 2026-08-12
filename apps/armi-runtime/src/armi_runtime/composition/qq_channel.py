@@ -10,6 +10,7 @@ from armi_adapter_qq import (
     create_qq_napcat_binding,
     load_qq_napcat_config,
 )
+from armi_effect.api import EffectViolation
 from armi_interaction.api import (
     ConfigureExternalCreatorCommand,
     ExternalAccountKey,
@@ -17,10 +18,7 @@ from armi_interaction.api import (
     ExternalMessageInputPort,
     ExternalPartyKey,
 )
-from armi_kernel.application import (
-    CredentialPurpose,
-    EffectViolation,
-)
+from armi_kernel.application import CredentialPurpose
 from armi_kernel.contracts import TraceId
 
 from .configuration import ConfigurationViolation

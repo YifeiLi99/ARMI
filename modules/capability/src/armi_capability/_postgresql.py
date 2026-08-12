@@ -38,11 +38,16 @@ from armi_kernel.contracts import (
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
     RuntimeTransactionFailure,
 )
 
 from .api import (
+    CapabilityAuthorizationOutcome,
     CapabilityCommitContext,
+    CapabilityConsumptionRequest,
+    CapabilityConsumptionResult,
+    CapabilityEffectCancellationPort,
     CapabilityKind,
     CapabilityOperation,
     CapabilityRequestDraft,
@@ -63,7 +68,14 @@ from .api import (
 class PostgreSQLCreatorGrantPolicy:
     """Apply exact Creator decisions; never dispatch or execute the capability."""
 
-    __slots__ = ("_cursor_key", "_environment_id", "_factory", "_notifier", "_stop")
+    __slots__ = (
+        "_cursor_key",
+        "_effect_cancellation",
+        "_environment_id",
+        "_factory",
+        "_notifier",
+        "_stop",
+    )
 
     def __init__(
         self,
@@ -71,6 +83,7 @@ class PostgreSQLCreatorGrantPolicy:
         *,
         environment_id: UUID,
         cursor_key: bytes,
+        effect_cancellation: CapabilityEffectCancellationPort,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._factory = factory
@@ -80,6 +93,7 @@ class PostgreSQLCreatorGrantPolicy:
             cursor_key, b"armi.creator.capability-request.cursor-key.v4", hashlib.sha256
         ).digest()
         self._environment_id = environment_id
+        self._effect_cancellation = effect_cancellation
         self._notifier = notifier
         self._stop = asyncio.Event()
 
@@ -97,6 +111,91 @@ class PostgreSQLCreatorGrantPolicy:
             await self.expire_once()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=1.0)
+
+    async def authorize_and_consume(
+        self,
+        transaction: PostgreSQLTransaction,
+        request: CapabilityConsumptionRequest,
+    ) -> CapabilityConsumptionResult:
+        capability = await (
+            await transaction.execute(
+                """
+                SELECT capability_id, availability_status
+                FROM armi.capabilities
+                WHERE capability_kind = %s AND operation_class = %s
+                """,
+                (request.capability_kind, request.operation_class),
+            )
+        ).fetchone()
+        if capability is None or str(capability[1]) != "available":
+            return CapabilityConsumptionResult(
+                CapabilityAuthorizationOutcome.UNAVAILABLE,
+                "POLICY-CAPABILITY-UNAVAILABLE",
+            )
+        grant = await (
+            await transaction.execute(
+                """
+                SELECT grant_id, valid_until FROM armi.permission_grants
+                WHERE capability_id = %s
+                  AND subject_id = %s AND interaction_scene_id = %s
+                  AND creator_party_id = %s
+                  AND operation_class = %s AND purpose = %s
+                  AND status = 'active' AND valid_from <= statement_timestamp()
+                  AND statement_timestamp() < valid_until
+                  AND consumed_uses < max_uses
+                  AND (
+                    (%s = 'creator_response' AND audience_scope = 'creator'
+                      AND data_scope = 'creator_visible_response'
+                      AND %s <= max_payload_bytes)
+                    OR (%s = 'codex_delegation'
+                      AND workspace_scope = 'isolated_ephemeral'
+                      AND artifact_scope = 'explicit_only'
+                      AND network_access = false AND max_uses = 1)
+                  )
+                ORDER BY valid_until, grant_id LIMIT 1 FOR UPDATE
+                """,
+                (
+                    capability[0],
+                    request.subject_id,
+                    request.scene_id,
+                    request.creator_party_id,
+                    request.operation_class,
+                    request.purpose,
+                    request.effect_kind,
+                    request.payload_bytes,
+                    request.effect_kind,
+                ),
+            )
+        ).fetchone()
+        if grant is None:
+            return CapabilityConsumptionResult(
+                CapabilityAuthorizationOutcome.DENIED,
+                "POLICY-GRANT-NOT-CURRENT",
+            )
+        consumed = await (
+            await transaction.execute(
+                """
+                UPDATE armi.permission_grants
+                SET consumed_uses = consumed_uses + 1
+                WHERE grant_id = %s AND status = 'active'
+                  AND statement_timestamp() < valid_until
+                  AND consumed_uses < max_uses
+                RETURNING consumed_uses
+                """,
+                (grant[0],),
+            )
+        ).fetchone()
+        if consumed is None:
+            return CapabilityConsumptionResult(
+                CapabilityAuthorizationOutcome.DENIED,
+                "POLICY-GRANT-NOT-CURRENT",
+            )
+        return CapabilityConsumptionResult(
+            CapabilityAuthorizationOutcome.ALLOWED,
+            "POLICY-GRANT-ALLOWED",
+            grant_id=grant[0],
+            valid_until=grant[1],
+        )
 
     async def list_requests(
         self,
@@ -475,10 +574,12 @@ class PostgreSQLCreatorGrantPolicy:
                     if revoked is None:
                         raise CapabilityViolation("POLICY-GRANT-NOT-ACTIVE")
                     cancellation_grant_id = UUID(str(revoked[0]))
-                    cancelled_effects = await _cancel_registered_effects(
-                        connection,
-                        grant_id=cancellation_grant_id,
-                        reason_code="POLICY-GRANT-REVOKED",
+                    cancelled_effects = (
+                        await self._effect_cancellation.cancel_registered(
+                            connection,
+                            grant_id=cancellation_grant_id,
+                            reason_code="POLICY-GRANT-REVOKED",
+                        )
                     )
 
                 updated = await (
@@ -875,7 +976,7 @@ class PostgreSQLCreatorGrantPolicy:
                     "UPDATE armi.capability_requests SET current_status='expired', request_version=request_version+1, resolved_at=statement_timestamp() WHERE capability_request_id=%s",
                     (row[1],),
                 )
-                cancelled_effects = await _cancel_registered_effects(
+                cancelled_effects = await self._effect_cancellation.cancel_registered(
                     connection,
                     grant_id=UUID(str(row[0])),
                     reason_code="POLICY-GRANT-EXPIRED",
@@ -995,158 +1096,6 @@ def _commit_audit(
         subject_id=SubjectId(context.subject_id),
         request=AuditReference("cognitive_episode", context.episode_id),
     )
-
-
-async def _cancel_registered_effects(
-    connection: Any,
-    *,
-    grant_id: UUID,
-    reason_code: str,
-) -> tuple[tuple[UUID, UUID, UUID], ...]:
-    rows = await (
-        await connection.execute(
-            """
-            SELECT effect.effect_id, effect.subject_id,
-                   effect.action_intent_revision_id,
-                   effect.operation_id,
-                   effect.policy_decision_id,
-                   response.root_opportunity_id,
-                   effect.destination_kind
-            FROM armi.effects AS effect
-            JOIN armi.action_operations AS response
-              ON response.operation_id
-               = effect.operation_id
-            JOIN armi.policy_decisions AS policy
-              ON policy.policy_decision_id = effect.policy_decision_id
-             AND policy.is_current
-            JOIN armi.effect_outbox_items AS effect_outbox
-              ON effect_outbox.effect_id = effect.effect_id
-            WHERE policy.matched_grant_id = %s
-              AND effect.status = 'registered'
-              AND effect_outbox.status = 'ready'
-            ORDER BY effect.effect_id
-            FOR UPDATE OF effect, policy, effect_outbox
-            """,
-            (grant_id,),
-        )
-    ).fetchall()
-    cancelled: list[tuple[UUID, UUID, UUID]] = []
-    for row in rows:
-        effect_id = UUID(str(row[0]))
-        subject_id = UUID(str(row[1]))
-        action_revision_id = UUID(str(row[2]))
-        operation_id = UUID(str(row[3]))
-        prior_decision_id = UUID(str(row[4]))
-        root_operation_id = UUID(str(row[5]))
-        destination_kind = str(row[6])
-        decision_id = uuid7()
-        cancellation_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                cast(
-                    Any,
-                    {
-                        "schema_version": "armi.effect-cancellation.v1",
-                        "effect_id": str(effect_id),
-                        "grant_id": str(grant_id),
-                        "reason_code": reason_code,
-                    },
-                )
-            )
-        )
-        await connection.execute(
-            "UPDATE armi.policy_decisions SET is_current=false WHERE policy_decision_id=%s AND is_current",
-            (prior_decision_id,),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.policy_decisions (
-                policy_decision_id, action_intent_revision_id,
-                operation_id, decision_outcome,
-                policy_identity, reason_code,
-                supersedes_policy_decision_id) VALUES (
-                %s, %s, %s, 'denied', 'armi.policy-engine.deterministic-v1',
-                %s, %s)
-            """,
-            (
-                decision_id,
-                action_revision_id,
-                operation_id,
-                reason_code,
-                prior_decision_id,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.effect_attempts (
-                effect_attempt_id, effect_id, attempt_no, adapter_binding,
-                claim_token, dispatch_state, result_status,
-                error_code, settled_at
-            ) VALUES (
-                %s, %s, 1, %s, 1, 'settled', 'cancelled', NULL,
-                statement_timestamp()
-            )
-            """,
-            (
-                attempt_id := uuid7(),
-                effect_id,
-                (
-                    "armi.codex-runner.openai-python-sdk-v1"
-                    if destination_kind == "codex_workspace"
-                    else "armi.local-inbox-adapter.postgresql-v1"
-                ),
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.effect_observations (
-                effect_observation_id, effect_id, effect_attempt_id,
-                observation_kind, reliability, receiver_ref,
-                observation_digest
-            ) VALUES (%s, %s, %s, 'runner_cancelled', 'reliable', NULL, %s)
-            """,
-            (
-                observation_id := uuid7(),
-                effect_id,
-                attempt_id,
-                cancellation_digest.value,
-            ),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.effects
-            SET status='cancelled', verification_status='verified',
-                current_attempt_id=%s, current_observation_id=%s,
-                settled_at=statement_timestamp(),
-                cancelled_at=statement_timestamp()
-            WHERE effect_id=%s AND status='registered'
-            """,
-            (
-                attempt_id,
-                observation_id,
-                effect_id,
-            ),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.effect_outbox_items
-            SET status='cancelled', cancelled_at=statement_timestamp()
-            WHERE effect_id=%s AND status='ready'
-            """,
-            (effect_id,),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.action_operations
-            SET phase='terminal', outcome='cancelled',
-                current_policy_decision_id=%s,
-                completed_at=statement_timestamp()
-            WHERE operation_id=%s
-              AND phase='effect_registered' AND outcome IS NULL
-            """,
-            (decision_id, operation_id),
-        )
-        cancelled.append((effect_id, subject_id, root_operation_id))
-    return tuple(cancelled)
 
 
 def _validate_transition(

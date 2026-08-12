@@ -12,7 +12,6 @@ from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, Tr
 
 from .artifacts import ArtifactId
 from .codex_runner import CodexModel, CodexReasoningEffort
-from .effects import EffectId
 
 _CODE = re.compile(
     r"^(?:CON-)?CODEX-(?:TASK|DELEGATION|VERIFICATION|RESULT)-[A-Z0-9-]+$"
@@ -199,7 +198,7 @@ class CodexDelegationDraft:
 @dataclass(frozen=True, slots=True)
 class CodexVerificationResult:
     verification_id: CodexVerificationId
-    effect_id: EffectId
+    effect_id: UUID
     status: CodexVerificationStatus
     cleanup_status: CodexCleanupStatus
     source_tree_digest: Digest
@@ -219,7 +218,8 @@ class CodexVerificationResult:
     def __post_init__(self) -> None:
         if (
             type(self.verification_id) is not CodexVerificationId
-            or type(self.effect_id) is not EffectId
+            or type(self.effect_id) is not UUID
+            or self.effect_id.version != 7
             or type(self.status) is not CodexVerificationStatus
             or type(self.cleanup_status) is not CodexCleanupStatus
             or type(self.source_tree_digest) is not Digest
@@ -246,7 +246,7 @@ class CodexVerificationResult:
 class CodexResultEvidence:
     result_source_id: CodexResultSourceId
     verification_id: CodexVerificationId
-    effect_id: EffectId
+    effect_id: UUID
     evidence_id: UUID
     opportunity_id: UUID
     kind: CodexResultEvidenceKind
@@ -256,7 +256,8 @@ class CodexResultEvidence:
         if (
             type(self.result_source_id) is not CodexResultSourceId
             or type(self.verification_id) is not CodexVerificationId
-            or type(self.effect_id) is not EffectId
+            or type(self.effect_id) is not UUID
+            or self.effect_id.version != 7
             or type(self.kind) is not CodexResultEvidenceKind
             or type(self.evidence_artifact_id) is not ArtifactId
         ):

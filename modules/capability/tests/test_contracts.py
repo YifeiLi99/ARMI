@@ -5,6 +5,9 @@ from uuid import uuid7
 
 import pytest
 from armi_capability.api import (
+    CapabilityAuthorizationOutcome,
+    CapabilityConsumptionRequest,
+    CapabilityConsumptionResult,
     CapabilityDecisionId,
     CapabilityKind,
     CapabilityOperation,
@@ -179,3 +182,31 @@ def test_limit_requires_an_explicit_narrowing_field() -> None:
         max_uses=1,
     )
     assert command.max_uses == 1
+
+
+def test_effect_consumption_contract_keeps_authorization_owner_explicit() -> None:
+    request = CapabilityConsumptionRequest(
+        "creator.scene.reply",
+        "send",
+        uuid7(),
+        uuid7(),
+        uuid7(),
+        "respond_to_creator",
+        "creator_response",
+        64,
+    )
+    result = CapabilityConsumptionResult(
+        CapabilityAuthorizationOutcome.ALLOWED,
+        "POLICY-GRANT-ALLOWED",
+        uuid7(),
+        datetime.now(UTC),
+    )
+    assert request.payload_bytes == 64
+    assert result.grant_id is not None
+    with pytest.raises(CapabilityViolation, match="CON-CAPABILITY-CONSUMPTION"):
+        CapabilityConsumptionResult(
+            CapabilityAuthorizationOutcome.DENIED,
+            "POLICY-GRANT-NOT-CURRENT",
+            uuid7(),
+            datetime.now(UTC),
+        )

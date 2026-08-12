@@ -7,12 +7,29 @@ from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_capability.api import (
+    CapabilityAuthorizationOutcome,
+    CapabilityConsumptionRequest,
+    CapabilityGrantConsumptionPort,
+)
+from armi_expression.api import DeclaredResponseEffectDraft
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    WorkLease,
+    WorkResultRef,
+)
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
+from psycopg import sql
+
+from .api import (
     EffectId,
     EffectObservationKind,
     EffectObservationReliability,
@@ -22,13 +39,7 @@ from armi_kernel.application import (
     EffectView,
     EffectViolation,
     PolicyDecisionId,
-    WorkLease,
-    WorkResultRef,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
-from psycopg import sql
-
-from .unit_of_work import PostgreSQLUnitOfWork
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,15 +62,100 @@ class EffectRegistrationSnapshot:
     destination_binding_id: UUID | None
 
 
-class PostgreSQLEffectLedgerRepository:
+class PostgreSQLDeclaredResponseEffectRegistration:
+    """Own immediate effect registration for already-admitted social responses."""
+
     __slots__ = ()
+
+    async def register_declared_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: DeclaredResponseEffectDraft,
+    ) -> UUID:
+        effect_id = uuid7()
+        registration_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                {
+                    "effect_id": str(effect_id),
+                    "revision_id": str(draft.action_intent_revision_id),
+                    "scene_id": str(draft.scene_id),
+                    "other_party_id": str(draft.context_party_id),
+                    "destination_party_id": str(draft.destination_party_id),
+                    "destination_binding_id": (
+                        None
+                        if draft.destination_binding_id is None
+                        else str(draft.destination_binding_id)
+                    ),
+                    "response_digest": draft.payload_digest.value,
+                }
+            )
+        )
+        await transaction.execute(
+            """
+            INSERT INTO armi.effects (
+                effect_id, action_intent_revision_id, action_intent_id,
+                operation_id, subject_id, scene_id,
+                context_party_id, payload_artifact_id, payload_digest, payload_bytes,
+                effect_kind, capability_kind, operation_class, audience_scope,
+                data_scope, purpose, authorization_basis, destination_kind,
+                destination_party_id, destination_binding_id,
+                status, verification_status,
+                registration_digest, trace_id) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, 'send', %s, 'declared_party_response',
+                'respond_to_other_human', %s, %s, %s, %s,
+                'registered', 'not_started', %s, %s)
+            """,
+            (
+                effect_id,
+                draft.action_intent_revision_id,
+                draft.action_intent_id,
+                draft.operation_id,
+                draft.subject_id,
+                draft.scene_id,
+                draft.context_party_id,
+                draft.payload_artifact_id,
+                draft.payload_digest.value,
+                draft.payload_bytes,
+                draft.effect_kind,
+                draft.capability_kind,
+                draft.audience_scope,
+                draft.authorization_basis,
+                draft.destination_kind,
+                draft.destination_party_id,
+                draft.destination_binding_id,
+                registration_digest.value,
+                draft.trace_id.value,
+            ),
+        )
+        await transaction.execute(
+            """
+            INSERT INTO armi.effect_outbox_items (
+                effect_outbox_item_id, effect_id, message_kind,
+                status, dispatch_deadline, max_attempts) VALUES (
+                %s, %s, 'effect.dispatch', 'ready',
+                statement_timestamp() + interval '1 hour', %s)
+            """,
+            (uuid7(), effect_id, draft.max_attempts),
+        )
+        return effect_id
+
+
+class PostgreSQLEffectLedgerRepository:
+    __slots__ = ("_capability_consumption",)
+
+    def __init__(
+        self,
+        capability_consumption: CapabilityGrantConsumptionPort,
+    ) -> None:
+        self._capability_consumption = capability_consumption
 
     async def settle_current_work(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -109,12 +205,12 @@ class PostgreSQLEffectLedgerRepository:
 
     async def fail_current_work(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
         *,
         code: str,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -159,12 +255,12 @@ class PostgreSQLEffectLedgerRepository:
 
     async def _fail_locked(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
         operation_id: UUID,
         code: str,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await connection.execute(
             """
             UPDATE armi.action_operations
@@ -178,9 +274,9 @@ class PostgreSQLEffectLedgerRepository:
         await unit_of_work.work.fail(lease, error_code=code)
 
     async def snapshot(
-        self, uow: PostgreSQLUnitOfWork, lease: WorkLease
+        self, uow: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
     ) -> EffectRegistrationSnapshot:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -246,13 +342,13 @@ class PostgreSQLEffectLedgerRepository:
 
     async def settle(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: EffectRegistrationSnapshot,
         integrity_ok: bool,
     ) -> EffectRegistrationResult | None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         if uow.runtime_fence is None:
             raise EffectViolation("EFFECT-FENCE")
         locked = await (
@@ -271,75 +367,30 @@ class PostgreSQLEffectLedgerRepository:
             )
             return existing
 
-        outcome = "denied"
-        reason = "POLICY-GRANT-NOT-CURRENT"
+        outcome = "unavailable"
+        reason = "POLICY-PAYLOAD-UNAVAILABLE"
         grant_id: UUID | None = None
         valid_until = None
-        if not integrity_ok:
-            outcome, reason = "unavailable", "POLICY-PAYLOAD-UNAVAILABLE"
-        else:
-            capability = await (
-                await connection.execute(
-                    """
-                    SELECT capability_id, availability_status
-                    FROM armi.capabilities
-                    WHERE capability_kind = %s AND operation_class = %s
-                    """,
-                    (snapshot.capability_kind, snapshot.operation_class),
-                )
-            ).fetchone()
-            if capability is None or str(capability[1]) != "available":
-                outcome, reason = "unavailable", "POLICY-CAPABILITY-UNAVAILABLE"
-            else:
-                grant = await (
-                    await connection.execute(
-                        """
-                    SELECT grant_id, valid_until FROM armi.permission_grants
-                    WHERE capability_id = %s
-                      AND subject_id = %s AND interaction_scene_id = %s AND creator_party_id = %s
-                      AND operation_class = %s AND purpose = %s
-                      AND status = 'active' AND valid_from <= statement_timestamp()
-                      AND statement_timestamp() < valid_until AND consumed_uses < max_uses
-                      AND (
-                        (%s = 'creator_response' AND audience_scope = 'creator'
-                          AND data_scope = 'creator_visible_response'
-                          AND %s <= max_payload_bytes)
-                        OR (%s = 'codex_delegation' AND workspace_scope = 'isolated_ephemeral'
-                          AND artifact_scope = 'explicit_only' AND network_access = false
-                          AND max_uses = 1)
-                      )
-                    ORDER BY valid_until, grant_id LIMIT 1 FOR UPDATE
-                    """,
-                        (
-                            capability[0],
-                            snapshot.subject_id,
-                            snapshot.scene_id,
-                            snapshot.creator_party_id,
-                            snapshot.operation_class,
-                            snapshot.purpose,
-                            snapshot.effect_kind,
-                            snapshot.payload_bytes,
-                            snapshot.effect_kind,
-                        ),
-                    )
-                ).fetchone()
-                if grant is not None:
-                    grant_id, valid_until = grant[0], grant[1]
-                    consumed = await (
-                        await connection.execute(
-                            """
-                        UPDATE armi.permission_grants SET consumed_uses = consumed_uses + 1
-                        WHERE grant_id = %s AND status = 'active'
-                          AND statement_timestamp() < valid_until AND consumed_uses < max_uses
-                        RETURNING consumed_uses
-                        """,
-                            (grant_id,),
-                        )
-                    ).fetchone()
-                    if consumed is not None:
-                        outcome, reason = "allowed", "POLICY-GRANT-ALLOWED"
-                    else:
-                        grant_id, valid_until = None, None
+        if integrity_ok:
+            authorization = await self._capability_consumption.authorize_and_consume(
+                connection,
+                CapabilityConsumptionRequest(
+                    capability_kind=snapshot.capability_kind,
+                    operation_class=snapshot.operation_class,
+                    subject_id=snapshot.subject_id,
+                    scene_id=snapshot.scene_id,
+                    creator_party_id=snapshot.creator_party_id,
+                    purpose=snapshot.purpose,
+                    effect_kind=snapshot.effect_kind,
+                    payload_bytes=snapshot.payload_bytes,
+                ),
+            )
+            outcome = authorization.outcome.value
+            reason = authorization.reason_code
+            grant_id = authorization.grant_id
+            valid_until = authorization.valid_until
+            if authorization.outcome is CapabilityAuthorizationOutcome.ALLOWED:
+                assert grant_id is not None and valid_until is not None
 
         decision_id = uuid7()
         await connection.execute(
@@ -499,9 +550,12 @@ class PostgreSQLEffectLedgerRepository:
         return result
 
     async def get_effect(
-        self, uow: PostgreSQLUnitOfWork, effect_id: EffectId, creator_party_id: UUID
+        self,
+        uow: PostgreSQLRuntimeUnitOfWork,
+        effect_id: EffectId,
+        creator_party_id: UUID,
     ) -> EffectView:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -614,9 +668,9 @@ class PostgreSQLEffectLedgerRepository:
         )
 
     async def payload_reference(
-        self, uow: PostgreSQLUnitOfWork, effect_id: EffectId
+        self, uow: PostgreSQLRuntimeUnitOfWork, effect_id: EffectId
     ) -> tuple[UUID, Digest, int]:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 "SELECT payload_artifact_id, payload_digest, payload_bytes FROM armi.effects WHERE effect_id=%s AND status='completed'",
@@ -629,10 +683,10 @@ class PostgreSQLEffectLedgerRepository:
 
     async def codex_manifest_reference(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         effect_id: EffectId,
     ) -> tuple[UUID, Digest, int]:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -658,7 +712,7 @@ class PostgreSQLEffectLedgerRepository:
 
     async def codex_artifact_reference(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         effect_id: EffectId,
         creator_party_id: UUID,
         kind: str,
@@ -670,7 +724,7 @@ class PostgreSQLEffectLedgerRepository:
         }.get(kind)
         if column is None:
             raise EffectViolation("EFFECT-ARTIFACT-KIND")
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 sql.SQL(
@@ -748,4 +802,8 @@ def _registration_digest(snapshot: EffectRegistrationSnapshot) -> Digest:
     )
 
 
-__all__ = ("EffectRegistrationSnapshot", "PostgreSQLEffectLedgerRepository")
+__all__ = (
+    "EffectRegistrationSnapshot",
+    "PostgreSQLDeclaredResponseEffectRegistration",
+    "PostgreSQLEffectLedgerRepository",
+)
