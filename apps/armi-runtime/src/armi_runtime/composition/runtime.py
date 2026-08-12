@@ -551,7 +551,7 @@ async def _serve(
                         result_code="MODEL_UNAVAILABLE",
                         reason_codes=("RUNTIME_MODEL_UNAVAILABLE",),
                     )
-                if prepared.composition.web_search_active:
+                if config.web.enabled:
                     try:
                         web_search_pipeline = compose_web_search_pipeline(
                             prepared,

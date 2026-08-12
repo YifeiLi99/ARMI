@@ -45,6 +45,7 @@ from .recovery_responsibilities import (
 )
 
 _SEARCH_PATH = "pg_catalog, armi"
+_EXPECTED_CRITICAL_ARTIFACT_COUNT = 1
 _RECOVERY_METRIC_KINDS = (
     "requeued_work_count",
     "terminal_work_count",
@@ -330,7 +331,6 @@ class PostgreSQLRuntimeRecovery:
                     subject.subject_id,
                     subject.current_generation_id,
                     subject.current_bundle_activation_id,
-                    activation.manifest_artifact_id,
                     prompt_revision.content_artifact_id,
                     (
                         SELECT count(*)
@@ -374,8 +374,8 @@ class PostgreSQLRuntimeRecovery:
             or row[0] != fence.subject_id
             or row[1] != fence.life_generation_id
             or row[2] != fence.bundle_activation_id
-            or int(row[5]) != 3
-            or int(row[6]) != 1
+            or int(row[4]) != 3
+            or int(row[5]) != 1
         ):
             findings.append(
                 RecoveryFinding(
@@ -386,7 +386,7 @@ class PostgreSQLRuntimeRecovery:
             )
             return tuple(findings), ()
         refs: list[ArtifactRef] = []
-        for artifact_id in (row[3], row[4]):
+        for artifact_id in (row[3],):
             artifact_row = await (
                 await connection.execute(
                     """
@@ -1693,10 +1693,10 @@ class PostgreSQLRuntimeRecovery:
                 )
             status = (
                 RecoveryStatus.SAFE
-                if blockers == 0 and critical == 2
+                if blockers == 0 and critical == _EXPECTED_CRITICAL_ARTIFACT_COUNT
                 else RecoveryStatus.BLOCKED
             )
-            if critical != 2 and blockers == 0:
+            if critical != _EXPECTED_CRITICAL_ARTIFACT_COUNT and blockers == 0:
                 blockers = 1
                 sorted_findings = (
                     *sorted_findings,

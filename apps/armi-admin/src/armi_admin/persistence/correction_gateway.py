@@ -1031,8 +1031,7 @@ class AdminCorrectionGateway:
         excluded_evidence_id: str,
     ) -> bool:
         row = connection.execute(
-            "SELECT EXISTS (SELECT 1 FROM armi.runtime_bundle_activations WHERE manifest_artifact_id = %s) "
-            "OR EXISTS (SELECT 1 FROM armi.prompt_revisions WHERE content_artifact_id = %s) "
+            "SELECT EXISTS (SELECT 1 FROM armi.prompt_revisions WHERE content_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.external_evidence WHERE artifact_id = %s AND evidence_id <> %s) "
             "OR EXISTS (SELECT 1 FROM armi.cognitive_episodes WHERE context_manifest_artifact_id = %s OR compiled_context_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.cognitive_attempts WHERE request_artifact_id = %s OR response_artifact_id = %s) "
@@ -1045,7 +1044,6 @@ class AdminCorrectionGateway:
             "OR EXISTS (SELECT 1 FROM armi.web_research_intents WHERE query_artifact_id = %s) "
             "OR EXISTS (SELECT 1 FROM armi.web_evidence_sources WHERE source_artifact_id = %s)",
             (
-                artifact_id,
                 artifact_id,
                 artifact_id,
                 excluded_evidence_id,

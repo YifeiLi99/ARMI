@@ -20,7 +20,6 @@ from .configuration import (
 )
 from .configuration.paths import canonical_absolute, has_reparse_point
 from .credential_scope import ScopedCredentialPort
-from .manifest import VerifiedComposition, verify_packaged_composition
 from .runtime_errors import RuntimeViolation
 
 _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
@@ -32,7 +31,6 @@ class PreparedEnvironment:
     data_root: Path
     secrets_root: Path
     effective: EffectiveConfig
-    composition: VerifiedComposition
     credential_port: CredentialPort
 
 
@@ -93,7 +91,6 @@ def prepare_environment(
         requirements=PreflightRequirements(),
         environment=current_environment,
     )
-    composition = verify_packaged_composition()
     credential_delegate = EnvironmentFileCredentialPort(
         environment=current_environment,
         secret_roots=profile.allowed_secret_roots,
@@ -118,7 +115,6 @@ def prepare_environment(
         data_root=data_root,
         secrets_root=secrets_root,
         effective=effective,
-        composition=composition,
         credential_port=credential_port,
     )
 

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from importlib.resources import files
-from typing import Final
 from uuid import uuid7
 
 import rfc8785
@@ -43,8 +41,6 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 from .environment import PreparedEnvironment
 
-_RESOURCE_PACKAGE: Final = "armi_runtime.composition.runtime_resources"
-
 
 async def _bytes(value: bytes) -> AsyncIterator[bytes]:
     yield value
@@ -75,11 +71,6 @@ class BirthTransaction:
                 "traits": list(manifest.personality_anchor.traits),
             }
         )
-        composition_bytes = (
-            files(_RESOURCE_PACKAGE)
-            .joinpath("runtime-composition.manifest.json")
-            .read_bytes()
-        )
         trace_id = TraceId(manifest.birth_request_id.hex)
         try:
             staged_anchor = await self._storage.stage(
@@ -92,41 +83,26 @@ class BirthTransaction:
                     privacy_scope=ArtifactPrivacyScope.RESTRICTED,
                 ),
             )
-            staged_activation = await self._storage.stage(
-                _bytes(composition_bytes),
-                ArtifactPolicy(
-                    media_type="application/json",
-                    logical_kind="birth.bootstrap_activation",
-                    producer_kind="bootstrap",
-                    producer_trace_id=trace_id,
-                    privacy_scope=ArtifactPrivacyScope.RESTRICTED,
-                ),
-            )
-        except ArtifactViolation, OSError:
+        except ArtifactViolation:
             raise BirthViolation("BIRTH-ARTIFACT") from None
         try:
             existing = await self._recover_existing(manifest)
         except DatabaseTransactionError:
             await self._storage.discard(staged_anchor)
-            await self._storage.discard(staged_activation)
             raise BirthViolation("BIRTH-DATABASE") from None
         if existing is not None:
             await self._storage.discard(staged_anchor)
-            await self._storage.discard(staged_activation)
             return existing
         try:
             anchor = await self._storage.publish(staged_anchor)
-            activation = await self._storage.publish(staged_activation)
         except ArtifactViolation:
             await self._storage.discard(staged_anchor)
-            await self._storage.discard(staged_activation)
             raise BirthViolation("BIRTH-ARTIFACT") from None
         for attempt in range(3):
             try:
                 return await self._attempt(
                     manifest,
                     anchor,
-                    activation,
                     trace_id,
                 )
             except DatabaseTransactionError as error:
@@ -156,7 +132,6 @@ class BirthTransaction:
         self,
         manifest: BirthManifest,
         anchor: PublishedArtifact,
-        activation: PublishedArtifact,
         trace_id: TraceId,
     ) -> BirthResult:
         async with self._uow_factory.bootstrap_birth_unit_of_work(
@@ -175,19 +150,12 @@ class BirthTransaction:
                 manifest,
                 trace_id,
             )
-            activation_registration = await self._register_artifact(
-                unit_of_work,
-                activation,
-                manifest,
-                trace_id,
-            )
             result = await self._repository.create(
                 unit_of_work,
                 manifest,
                 BirthArtifacts(
                     anchor_registration.ref.artifact_id.value,
                     anchor_registration.ref.content_digest,
-                    activation_registration.ref.artifact_id.value,
                 ),
             )
             await unit_of_work.audit.append(

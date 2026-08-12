@@ -41,7 +41,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
     assert not (RESOURCE / "migrations").exists()
     assert not list(RESOURCE.glob("**/manifest.json"))
     script = _script()
-    assert script.get_heads() == ["0004"]
+    assert script.get_heads() == ["0005"]
     revisions = list(script.walk_revisions(base="base", head="heads"))
     assert [revision.revision for revision in reversed(revisions)] == [
         "0000",
@@ -49,6 +49,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
         "0002",
         "0003",
         "0004",
+        "0005",
     ]
 
 

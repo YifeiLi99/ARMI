@@ -63,7 +63,6 @@ class BirthManifest:
     creator_party_id: UUID
     idempotency_key: str
     personality_anchor: PersonalityAnchor
-    composition_digest: Digest
     birth_contract_digest: Digest
     request_digest: Digest
 
@@ -81,7 +80,6 @@ class BirthManifest:
         if type(self.personality_anchor) is not PersonalityAnchor:
             raise BirthViolation("BIRTH-ANCHOR")
         for digest in (
-            self.composition_digest,
             self.birth_contract_digest,
             self.request_digest,
         ):

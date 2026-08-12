@@ -25,6 +25,7 @@ attempt_timeout_seconds = 180
 semantic_recall_enabled = false
 
 [web]
+enabled = false
 concurrency = 1
 step_timeout_seconds = 30
 total_timeout_seconds = 90

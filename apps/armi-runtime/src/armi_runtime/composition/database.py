@@ -300,7 +300,6 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
                     return ContinuityState.INVALID
                 return probe_continuity(
                     conninfo,
-                    composition_digest=digests["composition_digest"],
                     birth_contract_digest=digests["birth_contract_digest"],
                 )
 
@@ -750,7 +749,6 @@ def compose_runtime_authority(
                 return PostgreSQLRuntimeAuthority(
                     conninfo,
                     environment_id=config.environment.environment_id,
-                    expected_bundle_digest=prepared.composition.digest,
                     pool_timeout_seconds=(config.database.pool_acquire_timeout_seconds),
                 )
 
@@ -1252,7 +1250,7 @@ def compose_context_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
-                    web_search_active=prepared.composition.web_search_active,
+                    web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                     credential_port=prepared.credential_port,
@@ -1355,7 +1353,7 @@ def compose_model_pipeline(
                     authority_admission=authority_admission,
                     credential_port=prepared.credential_port,
                     credential_locator=model_locator,
-                    web_search_active=prepared.composition.web_search_active,
+                    web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                 )
@@ -1511,7 +1509,7 @@ def compose_candidate_validation_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
-                    web_search_active=prepared.composition.web_search_active,
+                    web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                 )

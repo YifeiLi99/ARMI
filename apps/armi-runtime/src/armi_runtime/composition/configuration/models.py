@@ -148,6 +148,7 @@ class ModelConfig(_FrozenModel):
 
 
 class WebConfig(_FrozenModel):
+    enabled: bool = False
     concurrency: PositiveInt = 1
     step_timeout_seconds: PositiveInt = 30
     total_timeout_seconds: PositiveInt = 90

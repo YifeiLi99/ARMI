@@ -52,7 +52,6 @@ class ContinuityState(StrEnum):
 def probe_continuity(
     conninfo: str,
     *,
-    composition_digest: Digest,
     birth_contract_digest: Digest,
 ) -> ContinuityState:
     try:
@@ -61,7 +60,6 @@ def probe_continuity(
                 """
                 SELECT
                     subject.subject_id,
-                    activation.bundle_digest,
                     activation.fixed_policy_digest,
                     (
                         SELECT count(*) FROM armi.life_generations
@@ -133,10 +131,9 @@ def probe_continuity(
     if len(rows) != 1:
         return ContinuityState.INVALID
     row = rows[0]
-    expected = (composition_digest.value, birth_contract_digest.value)
-    if tuple(str(value) for value in row[1:3]) != expected:
+    if str(row[1]) != birth_contract_digest.value:
         return ContinuityState.INVALID
-    counts = tuple(int(value) for value in row[3:])
+    counts = tuple(int(value) for value in row[2:])
     if (
         counts[0:3] != (1, 2, 3)
         or counts[3] < 1
@@ -152,7 +149,6 @@ def probe_continuity(
 class BirthArtifacts:
     anchor_artifact_id: UUID
     anchor_content_digest: Digest
-    activation_artifact_id: UUID
 
 
 class BirthRepository:
@@ -270,18 +266,16 @@ class BirthRepository:
         await connection.execute(
             """
             INSERT INTO armi.runtime_bundle_activations (
-                bundle_activation_id, subject_id, bundle_version, bundle_digest,
-                manifest_artifact_id, fixed_policy_digest,
+                bundle_activation_id, subject_id, bundle_version,
+                fixed_policy_digest,
                 status, activated_by_party_id
             ) VALUES (
-                %s, %s, '0.0.0', %s, %s, %s, 'current', %s
+                %s, %s, '0.0.0', %s, 'current', %s
             )
             """,
             (
                 activation_id,
                 subject_id,
-                manifest.composition_digest.value,
-                artifacts.activation_artifact_id,
                 manifest.birth_contract_digest.value,
                 manifest.creator_party_id,
             ),

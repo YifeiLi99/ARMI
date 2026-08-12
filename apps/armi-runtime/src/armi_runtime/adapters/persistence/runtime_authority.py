@@ -54,7 +54,6 @@ class PostgreSQLRuntimeAuthority:
 
     __slots__ = (
         "_environment_id",
-        "_expected_bundle_digest",
         "_expected_role",
         "_pool",
         "_pool_timeout_seconds",
@@ -65,11 +64,9 @@ class PostgreSQLRuntimeAuthority:
         conninfo: str,
         *,
         environment_id: UUID,
-        expected_bundle_digest: str,
         pool_timeout_seconds: int,
     ) -> None:
         self._environment_id = environment_id
-        self._expected_bundle_digest = expected_bundle_digest
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
 
@@ -124,7 +121,7 @@ class PostgreSQLRuntimeAuthority:
                     (_AUTHORITY_KEY_PREFIX + str(self._environment_id),),
                 )
                 current = await self._current_subject(connection)
-                subject_id, generation_id, activation_id, bundle_digest = current
+                subject_id, generation_id, activation_id = current
                 for kind, value in (
                     ("subject", subject_id),
                     ("generation", generation_id),
@@ -140,8 +137,6 @@ class PostgreSQLRuntimeAuthority:
                     )
                 if await self._current_subject(connection) != current:
                     raise RuntimeAuthorityViolation("AUTH-SUBJECT-STATE")
-                if str(bundle_digest) != self._expected_bundle_digest:
-                    raise RuntimeAuthorityViolation("AUTH-PACKAGE-DRIFT")
                 active = await (
                     await connection.execute(
                         """
@@ -380,15 +375,14 @@ class PostgreSQLRuntimeAuthority:
     async def _current_subject(
         self,
         connection: psycopg.AsyncConnection[tuple[Any, ...]],
-    ) -> tuple[UUID, UUID, UUID, str]:
+    ) -> tuple[UUID, UUID, UUID]:
         row = await (
             await connection.execute(
                 """
                 SELECT
                     subject.subject_id,
                     generation.life_generation_id,
-                    activation.bundle_activation_id,
-                    activation.bundle_digest
+                    activation.bundle_activation_id
                 FROM armi.subjects AS subject
                 JOIN armi.life_generations AS generation
                   ON generation.life_generation_id
@@ -407,7 +401,7 @@ class PostgreSQLRuntimeAuthority:
         ).fetchone()
         if row is None:
             raise RuntimeAuthorityViolation("AUTH-SUBJECT-STATE")
-        return row[0], row[1], row[2], str(row[3])
+        return row[0], row[1], row[2]
 
     async def _stale_or_expired(
         self,

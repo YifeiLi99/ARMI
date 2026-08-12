@@ -112,7 +112,7 @@ class BirthContractTests(unittest.TestCase):
         finally:
             loop.close()
 
-    def test_private_manifest_loads_and_runtime_binds_package_identity(self) -> None:
+    def test_private_manifest_loads_and_binds_birth_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             write_manifest(root, manifest_value())
@@ -125,8 +125,8 @@ class BirthContractTests(unittest.TestCase):
         self.assertEqual(manifest.personality_anchor.traits, ("好奇", "坦率"))
         self.assertTrue(manifest.request_digest.value.startswith("sha256:"))
         self.assertEqual(
-            manifest.composition_digest,
-            packaged_birth_digests()["composition_digest"],
+            manifest.birth_contract_digest,
+            packaged_birth_digests()["birth_contract_digest"],
         )
 
     def test_forbidden_acquired_content_is_rejected_without_echo(self) -> None:

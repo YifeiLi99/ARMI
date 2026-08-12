@@ -56,9 +56,6 @@ def packaged_birth_digests() -> dict[str, Digest]:
     resources = files(_RESOURCE_PACKAGE)
     try:
         return {
-            "composition_digest": _digest(
-                resources.joinpath("runtime-composition.manifest.json").read_bytes()
-            ),
             "birth_contract_digest": _digest(
                 resources.joinpath("birth-contract.manifest.json").read_bytes()
             ),

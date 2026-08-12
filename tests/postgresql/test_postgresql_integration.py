@@ -588,7 +588,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="qq-group-input-birth",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"qq-group-input-birth"),
         )
@@ -1039,6 +1038,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root
                 / "alembic/versions/0004_context_embedding_projections.py"
             ).unlink()
+            (
+                schema_root
+                / "alembic/versions/0005_remove_runtime_composition_manifest.py"
+            ).unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1048,7 +1051,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0004")
+        self.assertEqual(migrated.current_revision, "0005")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1076,6 +1079,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                          current_user,
                          'armi.context_embedding_projections',
                          'SELECT,INSERT,DELETE'
+                       ),
+                       NOT EXISTS (
+                         SELECT 1 FROM information_schema.columns
+                         WHERE table_schema = 'armi'
+                           AND table_name = 'runtime_bundle_activations'
+                           AND column_name = 'bundle_digest'
+                       ),
+                       NOT EXISTS (
+                         SELECT 1 FROM information_schema.columns
+                         WHERE table_schema = 'armi'
+                           AND table_name = 'runtime_bundle_activations'
+                           AND column_name = 'manifest_artifact_id'
                        )
                 """
             ).fetchone()
@@ -1091,8 +1106,71 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "context_embedding_attempts",
                 "context_model_cache_hit_ratios",
                 True,
+                True,
+                True,
             ),
         )
+
+    def test_runtime_composition_columns_are_removed_without_losing_activation(self) -> None:
+        fixture = self.create_database()
+        source = Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            schema_root = Path(temporary) / "schema"
+            shutil.copytree(source, schema_root)
+            (
+                schema_root
+                / "alembic/versions/0005_remove_runtime_composition_manifest.py"
+            ).unlink()
+            installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            )
+        self.assertEqual(installed.current_revision, "0004")
+        activation_id = _uuid7()
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute("SET session_replication_role = replica")
+            connection.execute(
+                """
+                INSERT INTO armi.runtime_bundle_activations (
+                    bundle_activation_id, subject_id, bundle_version,
+                    bundle_digest, manifest_artifact_id, fixed_policy_digest,
+                    status, activated_by_party_id
+                ) VALUES (
+                    %s, %s, '0.0.0',
+                    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    %s,
+                    'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    'current', %s
+                )
+                """,
+                (activation_id, _uuid7(), _uuid7(), _uuid7()),
+            )
+            connection.execute("SET session_replication_role = origin")
+        migrated = PostgreSQLSchemaGateway().migrate(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        self.assertEqual(migrated.current_revision, "0005")
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            activation = connection.execute(
+                """
+                SELECT bundle_activation_id, status
+                FROM armi.runtime_bundle_activations
+                """
+            ).fetchone()
+            removed = connection.execute(
+                """
+                SELECT count(*)
+                FROM information_schema.columns
+                WHERE table_schema = 'armi'
+                  AND table_name = 'runtime_bundle_activations'
+                  AND column_name IN ('bundle_digest', 'manifest_artifact_id')
+                """
+            ).fetchone()
+        self.assertEqual(activation, (activation_id, "current"))
+        self.assertEqual(removed, (0,))
 
     def test_missing_and_unknown_alembic_revisions_are_rejected(self) -> None:
         missing_fixture = self.create_database()
@@ -1142,10 +1220,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0005_probe.py").write_text(
+            (schema_root / "alembic/versions/0006_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0005'\n"
-                "down_revision = '0004'\n"
+                "revision = '0006'\n"
+                "down_revision = '0005'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1200,8 +1278,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0005")
-            self.assertEqual(migrated.head_revision, "0005")
+            self.assertEqual(migrated.current_revision, "0006")
+            self.assertEqual(migrated.head_revision, "0006")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1222,10 +1300,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0005_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0006_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0005'\n"
-                "down_revision = '0004'\n"
+                "revision = '0006'\n"
+                "down_revision = '0005'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1250,7 +1328,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0004",)])
+            self.assertEqual(history, [("0005",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -1826,7 +1904,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="p0-s001-life-source-birth",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"p0-s001-life-source-birth"),
         )
@@ -1863,7 +1940,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             authority = PostgreSQLRuntimeAuthority(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                expected_bundle_digest=packaged["composition_digest"].to_wire(),
                 pool_timeout_seconds=2,
             )
             await authority.open()
@@ -1967,7 +2043,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=creator_party_id,
             idempotency_key="p0-s003-creator-activity-query",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"p0-s003-creator-activity-query"),
         )
@@ -2097,7 +2172,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             authority = PostgreSQLRuntimeAuthority(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                expected_bundle_digest=packaged["composition_digest"].to_wire(),
                 pool_timeout_seconds=2,
             )
             await authority.open()
@@ -2178,7 +2252,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=creator_party_id,
             idempotency_key="s039-creator-codex-intake-birth",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"s039-creator-codex-intake-birth"),
         )
@@ -2547,7 +2620,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s037-admin-correction-birth",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"s037-admin-correction-birth"),
         )
@@ -3141,7 +3213,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s033-web-observation-birth",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"s033-web-observation-birth"),
         )
@@ -3171,7 +3242,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             authority = PostgreSQLRuntimeAuthority(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                expected_bundle_digest=packaged["composition_digest"].to_wire(),
                 pool_timeout_seconds=2,
             )
             await authority.open()
@@ -4219,7 +4289,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s015-concurrent-birth",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"s015-birth-request"),
         )
@@ -4305,7 +4374,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.audit_events)
                 """
             ).fetchone()
-            self.assertEqual(counts, (1, 1, 1, 2, 3, 1, 3, 3, 1, 2, 3))
+            self.assertEqual(counts, (1, 1, 1, 2, 3, 1, 3, 3, 1, 1, 2))
             self_payload = connection.execute(
                 """
                 SELECT semantic_payload
@@ -4325,7 +4394,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(
             probe_continuity(
                 fixture.runtime_dsn,
-                composition_digest=packaged["composition_digest"],
                 birth_contract_digest=packaged["birth_contract_digest"],
             ),
             ContinuityState.BORN,
@@ -4527,7 +4595,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s026-subject-commit",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"s026-birth-request"),
         )
@@ -5964,7 +6031,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s016-authority-birth",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"s016-authority-birth"),
         )
@@ -5994,7 +6060,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 PostgreSQLRuntimeAuthority(
                     fixture.runtime_dsn,
                     environment_id=fixture.environment_id,
-                    expected_bundle_digest=packaged["composition_digest"].to_wire(),
                     pool_timeout_seconds=2,
                 )
                 for _ in range(3)
@@ -6283,7 +6348,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0004",)])
+            self.assertEqual(restored, [("0005",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()
@@ -6337,7 +6402,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_party_id=_uuid7(),
             idempotency_key="s017-recovery-birth",
             personality_anchor=anchor,
-            composition_digest=packaged["composition_digest"],
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"s017-recovery-birth"),
         )
@@ -6369,7 +6433,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 PostgreSQLRuntimeAuthority(
                     fixture.runtime_dsn,
                     environment_id=fixture.environment_id,
-                    expected_bundle_digest=packaged["composition_digest"].to_wire(),
                     pool_timeout_seconds=2,
                 )
                 for _ in range(2)
@@ -6610,6 +6673,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(
                         (runtime_status["runtime_state"], runtime_status["readiness"]),
                         ("degraded", "ready"),
+                        runtime_status,
                     )
                     self.assertEqual(
                         runtime_status["reason_codes"],
@@ -6993,7 +7057,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restart_deadline = time.monotonic() + 30
                 while time.monotonic() < restart_deadline:
                     if restarted.poll() is not None:
-                        self.fail("restarted Runtime exited before listening")
+                        restart_stdout, restart_stderr = restarted.communicate(timeout=5)
+                        self.fail(
+                            "restarted Runtime exited before listening: "
+                            f"stdout={restart_stdout!r} stderr={restart_stderr!r}"
+                        )
                     try:
                         with socket.create_connection(
                             ("127.0.0.1", runtime_port),
@@ -7068,7 +7136,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (1,),
                 )
         self.assertEqual(status, RecoveryStatus.SAFE.value)
-        self.assertEqual(critical_count, 2)
+        self.assertEqual(critical_count, 1)
         self.assertEqual(requeued_work, 1)
         self.assertEqual(
             operations,
