@@ -101,8 +101,6 @@ from armi_kernel.application import (
     LifeRecordQuery,
     LifeRecordRetrievalKind,
     ModelResultStatus,
-    OpportunityAdmissionOutcome,
-    OpportunityAdmissionStatus,
     PersonalityAnchor,
     PostCommitAction,
     RecoveryStatus,
@@ -136,6 +134,8 @@ from armi_kernel.contracts import (
 from armi_material.bootstrap import bootstrap_material, bootstrap_material_admin_read
 from armi_memory.bootstrap import bootstrap_memory
 from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_admin_read
+from armi_opportunity.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
+from armi_opportunity.bootstrap import bootstrap_opportunity
 from armi_perception._application import ExternalContentPipeline
 from armi_perception.api import (
     ExternalContentRecognitionResult,
@@ -209,7 +209,6 @@ from armi_runtime.composition.candidate_validator import (
 )
 from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
-from armi_runtime.composition.life_opportunity import LifeOpportunityPipeline
 from armi_runtime.composition.model_contract import (
     build_request_bytes,
     candidate_schema,
@@ -2002,7 +2001,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await sleep_module.open()
             pipelines = tuple(
-                LifeOpportunityPipeline(
+                bootstrap_opportunity(
                     factory=factory,
                     activity_read=activity_module.read,
                     material_read=material_module.read,
@@ -2304,7 +2303,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             await sleep_module.open()
-            pipeline = LifeOpportunityPipeline(
+            pipeline = bootstrap_opportunity(
                 factory=maintenance_factory,
                 activity_read=activity_module.read,
                 material_read=material_module.read,

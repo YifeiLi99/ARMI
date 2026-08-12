@@ -198,6 +198,7 @@ dependencies = [
     { name = "armi-artifact-store" },
     { name = "armi-evidence" },
     { name = "armi-kernel" },
+    { name = "armi-opportunity" },
     { name = "armi-runtime-foundation" },
     { name = "armi-subject-state" },
     { name = "psycopg", extra = ["binary"] },
@@ -210,6 +211,7 @@ requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-opportunity", editable = "modules/opportunity" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "armi-subject-state", editable = "modules/subject-state" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -291,6 +293,31 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
     { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
+name = "armi-opportunity"
+version = "0.0.0"
+source = { editable = "modules/opportunity" }
+dependencies = [
+    { name = "armi-activity" },
+    { name = "armi-kernel" },
+    { name = "armi-material" },
+    { name = "armi-relationship" },
+    { name = "armi-runtime-foundation" },
+    { name = "armi-sleep" },
+    { name = "armi-subject-state" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-activity", editable = "modules/activity" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-material", editable = "modules/material" },
+    { name = "armi-relationship", editable = "modules/relationship" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "armi-sleep", editable = "modules/sleep" },
+    { name = "armi-subject-state", editable = "modules/subject-state" },
 ]
 
 [[package]]
@@ -384,6 +411,7 @@ dependencies = [
     { name = "armi-material" },
     { name = "armi-memory" },
     { name = "armi-mood" },
+    { name = "armi-opportunity" },
     { name = "armi-perception" },
     { name = "armi-postgresql-contract" },
     { name = "armi-prompt" },
@@ -414,6 +442,7 @@ requires-dist = [
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
     { name = "armi-mood", editable = "modules/mood" },
+    { name = "armi-opportunity", editable = "modules/opportunity" },
     { name = "armi-perception", editable = "modules/perception" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "armi-prompt", editable = "modules/prompt" },

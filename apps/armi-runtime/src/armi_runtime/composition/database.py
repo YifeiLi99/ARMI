@@ -30,7 +30,6 @@ from armi_kernel.application import (
     DataRightsViolation,
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
-    LifeViolation,
     ModelViolation,
     OtherHumanRecordViolation,
     ResponseViolation,
@@ -58,6 +57,8 @@ from armi_memory.api import (
 from armi_memory.bootstrap import MemoryModule, bootstrap_memory
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
+from armi_opportunity.api import LifeViolation, OpportunityRuntimePort
+from armi_opportunity.bootstrap import bootstrap_opportunity
 from armi_perception.api import ExternalMediaFetchPort
 from armi_perception.bootstrap import PerceptionModule, bootstrap_perception
 from armi_prompt.api import (
@@ -155,10 +156,6 @@ from .environment import PreparedEnvironment
 from .exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
     build_exact_life_query_pipeline,
-)
-from .life_opportunity import (
-    LifeOpportunityPipeline,
-    build_life_opportunity_pipeline,
 )
 from .model_pipeline import ModelPipeline, build_model_pipeline
 from .response_pipeline import (
@@ -1122,7 +1119,7 @@ def compose_life_opportunity_pipeline(
     subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     notifier: CreatorProjectionNotifier | None = None,
-) -> LifeOpportunityPipeline:
+) -> OpportunityRuntimePort:
     """Resolve the Runtime credential for the P0-S001 source owner."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
@@ -1134,13 +1131,13 @@ def compose_life_opportunity_pipeline(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> LifeOpportunityPipeline:
+            def create(value: memoryview) -> OpportunityRuntimePort:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     raise LifeViolation("LIFE-DATABASE") from None
                 config = prepared.effective.config
-                return build_life_opportunity_pipeline(
+                factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
                     pool_min=config.database.pool_min,
@@ -1152,6 +1149,9 @@ def compose_life_opportunity_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                )
+                return bootstrap_opportunity(
+                    factory=factory,
                     activity_read=activity_read,
                     relationship_read=relationship_read,
                     relationship_policy=relationship_policy,

@@ -12,8 +12,6 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    OpportunityAdmissionOutcome,
-    OpportunityAdmissionStatus,
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -24,7 +22,12 @@ from ._domain import (
     MaintenanceResultStatus,
     plan_maintenance_checkpoint,
 )
-from .api import MaintenanceProgress, SleepViolation
+from .api import (
+    MaintenanceOpportunityOutcome,
+    MaintenanceOpportunityStatus,
+    MaintenanceProgress,
+    SleepViolation,
+)
 
 
 class PostgreSQLMaintenanceRepository:
@@ -36,7 +39,7 @@ class PostgreSQLMaintenanceRepository:
         *,
         consideration_after_seconds: int,
         deadline_after_seconds: int,
-    ) -> OpportunityAdmissionOutcome:
+    ) -> MaintenanceOpportunityOutcome:
         """Admit the current sleep window or force its objective deadline."""
 
         fence = unit_of_work.runtime_fence
@@ -137,14 +140,14 @@ class PostgreSQLMaintenanceRepository:
                 """,
                 (fence.subject_id, anchor[1]),
             )
-            return OpportunityAdmissionOutcome(
-                OpportunityAdmissionStatus.REJECTED,
+            return MaintenanceOpportunityOutcome(
+                MaintenanceOpportunityStatus.REJECTED,
                 None,
                 "LIFE-MAINTENANCE-DEADLINE",
             )
         if now < consideration_at:
-            return OpportunityAdmissionOutcome(
-                OpportunityAdmissionStatus.REJECTED,
+            return MaintenanceOpportunityOutcome(
+                MaintenanceOpportunityStatus.REJECTED,
                 None,
                 "LIFE-MAINTENANCE-NOT-DUE",
             )
@@ -189,11 +192,11 @@ class PostgreSQLMaintenanceRepository:
             ).fetchone()
             if existing is None:
                 raise SleepViolation("SLEEP-SOURCE-STALE")
-            return OpportunityAdmissionOutcome(
-                OpportunityAdmissionStatus.DUPLICATE, existing[0]
+            return MaintenanceOpportunityOutcome(
+                MaintenanceOpportunityStatus.DUPLICATE, existing[0]
             )
-        return OpportunityAdmissionOutcome(
-            OpportunityAdmissionStatus.ADMITTED, opportunity_id
+        return MaintenanceOpportunityOutcome(
+            MaintenanceOpportunityStatus.ADMITTED, opportunity_id
         )
 
     async def maintain_active_session(

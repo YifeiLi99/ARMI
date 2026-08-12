@@ -35,6 +35,7 @@ members = [
     "modules/prompt",
     "modules/evidence",
     "modules/interaction",
+    "modules/opportunity",
     "modules/perception",
     "apps/armi-runtime",
     "apps/armi-admin",
@@ -54,6 +55,7 @@ testpaths = [
     "modules/mood/tests",
     "modules/prompt/tests",
     "modules/evidence/tests",
+    "modules/opportunity/tests",
     "modules/interaction/tests",
     "modules/perception/tests",
 ]

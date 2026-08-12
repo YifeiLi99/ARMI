@@ -31,7 +31,6 @@ from armi_kernel.application import (
     DataRightsViolation,
     EffectViolation,
     LifeRecordQueryViolation,
-    LifeViolation,
     ModelViolation,
     OtherHumanRecordViolation,
     RecoveryStatus,
@@ -45,6 +44,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
 from armi_memory.api import MemoryViolation
+from armi_opportunity.api import LifeViolation
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
 from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation

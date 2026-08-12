@@ -17,11 +17,6 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CreatorOutreachPolicy,
-    LifeOpportunitySourceKind,
-    LifeViolation,
-    OpportunityAdmissionOutcome,
-    OpportunityAdmissionStatus,
 )
 from armi_kernel.contracts import (
     ActivityId,
@@ -32,10 +27,17 @@ from armi_kernel.contracts import (
 )
 from armi_material.api import MaterialReadPort
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
 
-from .unit_of_work import PostgreSQLUnitOfWork
+from .api import (
+    CreatorOutreachPolicy,
+    LifeOpportunitySourceKind,
+    LifeViolation,
+    OpportunityAdmissionOutcome,
+    OpportunityAdmissionStatus,
+)
 
 
 class PostgreSQLLifeOpportunityRepository:
@@ -68,12 +70,12 @@ class PostgreSQLLifeOpportunityRepository:
 
     async def admit_generation_available(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ) -> OpportunityAdmissionOutcome:
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -161,14 +163,14 @@ class PostgreSQLLifeOpportunityRepository:
 
     async def admit_life_material_revision(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ) -> OpportunityAdmissionOutcome:
         """Offer one current active ARMI-owned material for autonomous consideration."""
 
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         source = await self._materials.next_opportunity_source(
             unit_of_work.transaction,
             subject_id=fence.subject_id,
@@ -250,14 +252,14 @@ class PostgreSQLLifeOpportunityRepository:
 
     async def admit_activity_attention(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         model_concurrency: int,
     ) -> OpportunityAdmissionOutcome:
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         maintenance = await self._sleep.active_maintenance(
             connection, subject_id=fence.subject_id
         )
@@ -431,7 +433,7 @@ class PostgreSQLLifeOpportunityRepository:
 
     async def admit_activity_internal_work(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         model_concurrency: int,
     ) -> OpportunityAdmissionOutcome:
@@ -446,7 +448,7 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-BACKPRESSURE-MODEL-CONCURRENCY",
             )
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         maintenance = await self._sleep.active_maintenance(
             connection, subject_id=fence.subject_id
         )
@@ -582,7 +584,7 @@ class PostgreSQLLifeOpportunityRepository:
 
     async def admit_creator_outreach(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         policy: CreatorOutreachPolicy,
     ) -> OpportunityAdmissionOutcome:
@@ -593,7 +595,7 @@ class PostgreSQLLifeOpportunityRepository:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
         if type(policy) is not CreatorOutreachPolicy:
             raise LifeViolation("LIFE-OUTREACH-POLICY")
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         scene = await (
             await connection.execute(
                 """

@@ -9,6 +9,7 @@ dependencies = [
     "armi-evidence==0.0.0",
     "armi-interaction==0.0.0",
     "armi-kernel==0.0.0",
+    "armi-opportunity==0.0.0",
     "armi-perception==0.0.0",
     "armi-postgresql-contract==0.0.0",
     "armi-runtime-foundation==0.0.0",
@@ -40,6 +41,7 @@ armi-adapter-qq = { workspace = true }
 armi-artifact-store = { workspace = true }
 armi-evidence = { workspace = true }
 armi-kernel = { workspace = true }
+armi-opportunity = { workspace = true }
 armi-postgresql-contract = { workspace = true }
 armi-runtime-foundation = { workspace = true }
 armi-relationship = { workspace = true }

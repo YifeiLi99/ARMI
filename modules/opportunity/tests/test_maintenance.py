@@ -6,12 +6,13 @@ from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
-    OpportunityAdmissionOutcome,
+from armi_opportunity._application import MaintenanceCoordinator
+from armi_opportunity.api import (
     OpportunityAdmissionStatus,
 )
-from armi_runtime.composition.life_opportunity import MaintenanceCoordinator
 from armi_sleep.api import (
+    MaintenanceOpportunityOutcome,
+    MaintenanceOpportunityStatus,
     MaintenancePhase,
     MaintenanceProgress,
     MaintenanceResultStatus,
@@ -95,13 +96,14 @@ async def test_maintenance_phase_work_reports_first_admission_then_pending() -> 
 async def test_no_active_session_scans_the_objective_window() -> None:
     repository = AsyncMock()
     repository.maintain_active_session.return_value = None
-    repository.maintain_window.return_value = OpportunityAdmissionOutcome(
-        OpportunityAdmissionStatus.REJECTED,
+    repository.maintain_window.return_value = MaintenanceOpportunityOutcome(
+        MaintenanceOpportunityStatus.REJECTED,
         None,
         "LIFE-MAINTENANCE-NOT-DUE",
     )
     outcome = await _coordinator(repository).maintain_once()
-    assert outcome is repository.maintain_window.return_value
+    assert outcome.status is OpportunityAdmissionStatus.REJECTED
+    assert outcome.reason_code == "LIFE-MAINTENANCE-NOT-DUE"
     repository.maintain_window.assert_awaited_once()
 
 

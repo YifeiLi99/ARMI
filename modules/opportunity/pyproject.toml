@@ -1,25 +1,24 @@
 [project]
-name = "armi-interaction"
+name = "armi-opportunity"
 version = "0.0.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
-    "armi-artifact-store==0.0.0",
-    "armi-evidence==0.0.0",
+    "armi-activity==0.0.0",
     "armi-kernel==0.0.0",
-    "armi-opportunity==0.0.0",
+    "armi-material==0.0.0",
+    "armi-relationship==0.0.0",
     "armi-runtime-foundation==0.0.0",
+    "armi-sleep==0.0.0",
     "armi-subject-state==0.0.0",
-    "psycopg[binary]==3.3.4",
-    "psycopg-pool==3.3.1",
-    "rfc8785==0.1.4",
 ]
 
 [tool.uv.sources]
-armi-artifact-store = { workspace = true }
-armi-evidence = { workspace = true }
+armi-activity = { workspace = true }
 armi-kernel = { workspace = true }
-armi-opportunity = { workspace = true }
+armi-material = { workspace = true }
+armi-relationship = { workspace = true }
 armi-runtime-foundation = { workspace = true }
+armi-sleep = { workspace = true }
 armi-subject-state = { workspace = true }
 
 [build-system]

@@ -1,4 +1,4 @@
-"""Technology-neutral autonomous opportunity and Activity contracts."""
+"""Public contracts for autonomous opportunities and attention."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_kernel.application import CognitiveEpisodeId
 from armi_kernel.contracts import ActivityId, Digest
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
@@ -43,6 +44,18 @@ class OpportunityAdmissionStatus(StrEnum):
     ADMITTED = "admitted"
     DUPLICATE = "duplicate"
     REJECTED = "rejected"
+
+
+@dataclass(frozen=True, slots=True)
+class OpportunityId:
+    value: UUID
+
+    def __post_init__(self) -> None:
+        if type(self.value) is not UUID or self.value.version != 7:
+            raise LifeViolation("LIFE-OPPORTUNITY-ID")
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,10 +145,39 @@ class OpportunityAdmissionOutcome:
 
 
 @runtime_checkable
+class OpportunityWakeupPort(Protocol):
+    def notify(self, channel: str) -> None: ...
+
+
+@runtime_checkable
 class LifeOpportunitySourcePort(Protocol):
     async def admit_once(self) -> OpportunityAdmissionOutcome:
         """Admit at most one source-backed autonomous opportunity."""
         ...
+
+
+@runtime_checkable
+class OpportunitySelector(Protocol):
+    async def select_once(self) -> CognitiveEpisodeId | None:
+        """Select at most one durable opportunity through the authoritative owner."""
+        ...
+
+
+@runtime_checkable
+class OpportunityRuntimePort(LifeOpportunitySourcePort, Protocol):
+    async def open(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    async def run(self) -> None: ...
+
+    async def request_emergency_wake(
+        self,
+        session_id: UUID,
+        request_id: UUID,
+    ) -> UUID: ...
 
 
 def require_life_token(value: str) -> None:
@@ -151,4 +193,8 @@ __all__ = (
     "LifeViolation",
     "OpportunityAdmissionOutcome",
     "OpportunityAdmissionStatus",
+    "OpportunityId",
+    "OpportunityRuntimePort",
+    "OpportunitySelector",
+    "OpportunityWakeupPort",
 )

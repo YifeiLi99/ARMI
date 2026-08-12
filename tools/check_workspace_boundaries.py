@@ -206,11 +206,27 @@ DISTRIBUTIONS = (
             "armi-artifact-store==0.0.0",
             "armi-evidence==0.0.0",
             "armi-kernel==0.0.0",
+            "armi-opportunity==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-subject-state==0.0.0",
             "psycopg[binary]==3.3.4",
             "psycopg-pool==3.3.1",
             "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
+        name="armi-opportunity",
+        module="armi_opportunity",
+        project_dir=Path("modules/opportunity"),
+        layers=(),
+        dependencies=(
+            "armi-activity==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-material==0.0.0",
+            "armi-relationship==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "armi-sleep==0.0.0",
+            "armi-subject-state==0.0.0",
         ),
     ),
     Distribution(
@@ -242,6 +258,7 @@ DISTRIBUTIONS = (
             "armi-evidence==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
+            "armi-opportunity==0.0.0",
             "armi-perception==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "armi-runtime-foundation==0.0.0",
@@ -836,9 +853,25 @@ def _check_import(
                 "armi-artifact-store",
                 "armi-evidence",
                 "armi-kernel",
+                "armi-opportunity",
                 "armi-runtime-foundation",
                 "armi-subject-state",
                 "armi-interaction",
+            }
+        )
+        or (
+            source_distribution == "armi-opportunity"
+            and target_distribution
+            not in {
+                None,
+                "armi-activity",
+                "armi-kernel",
+                "armi-material",
+                "armi-opportunity",
+                "armi-relationship",
+                "armi-runtime-foundation",
+                "armi-sleep",
+                "armi-subject-state",
             }
         )
         or (
@@ -954,6 +987,13 @@ def _check_import(
         ),
         "armi-evidence": frozenset(
             {"armi_evidence", "armi_evidence.api", "armi_evidence.bootstrap"}
+        ),
+        "armi-opportunity": frozenset(
+            {
+                "armi_opportunity",
+                "armi_opportunity.api",
+                "armi_opportunity.bootstrap",
+            }
         ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
@@ -1093,6 +1133,18 @@ def _check_import(
                     path,
                     line,
                     "evidence bootstrap is reserved for Runtime composition",
+                )
+            )
+        if (
+            imported_module == "armi_opportunity.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "opportunity bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1277,6 +1329,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_evidence.api": root / "modules/evidence/src/armi_evidence/api.py",
         "armi_evidence.bootstrap": root
         / "modules/evidence/src/armi_evidence/bootstrap.py",
+        "armi_opportunity": root
+        / "modules/opportunity/src/armi_opportunity/__init__.py",
+        "armi_opportunity.api": root
+        / "modules/opportunity/src/armi_opportunity/api.py",
+        "armi_opportunity.bootstrap": root
+        / "modules/opportunity/src/armi_opportunity/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1555,6 +1613,11 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "evidence": (
             "evidence_module = compose_evidence_module()",
             "evidence=evidence_module.write",
+        ),
+        "opportunity": (
+            "life_opportunity_pipeline = compose_life_opportunity_pipeline(",
+            "sleep_maintenance=sleep_module.maintenance",
+            "activity_read=activity_module.read",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

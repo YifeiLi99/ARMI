@@ -8,16 +8,12 @@ from uuid import UUID, uuid7
 
 import pytest
 from armi_activity.bootstrap import bootstrap_activity
-from armi_kernel.application import (
-    CreatorOutreachPolicy,
-    OpportunityAdmissionStatus,
-    RuntimeFence,
-    RuntimeInstanceId,
-)
+from armi_kernel.application import RuntimeFence, RuntimeInstanceId
 from armi_material.bootstrap import bootstrap_material
-from armi_runtime.adapters.persistence.life_opportunity import (
+from armi_opportunity._postgresql import (
     PostgreSQLLifeOpportunityRepository,
 )
+from armi_opportunity.api import CreatorOutreachPolicy, OpportunityAdmissionStatus
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWork
 from armi_subject_state.api import LifeModeHead
 

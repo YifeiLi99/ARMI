@@ -40,7 +40,6 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     ModelViolation,
-    OpportunitySelector,
     RuntimeFence,
     WorkLease,
     WorkViolation,
@@ -49,6 +48,7 @@ from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
 from armi_mood.api import MoodReadPort
+from armi_opportunity.api import OpportunitySelector
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import SleepReadPort

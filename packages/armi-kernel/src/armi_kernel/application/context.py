@@ -257,13 +257,6 @@ class ContextCompiler(Protocol):
         ...
 
 
-@runtime_checkable
-class OpportunitySelector(Protocol):
-    async def select_once(self) -> CognitiveEpisodeId | None:
-        """Select at most one durable opportunity through the authoritative owner."""
-        ...
-
-
 def _require_uuid7(value: object) -> None:
     if type(value) is not UUID or value.version != 7:
         raise ContextViolation("CTX-ID")
@@ -290,5 +283,4 @@ __all__ = (
     "ContextSourceIdentity",
     "ContextTrustClass",
     "ContextViolation",
-    "OpportunitySelector",
 )

@@ -10,6 +10,7 @@ from uuid import UUID
 
 from armi_evidence.api import EvidenceId
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
+from armi_opportunity.api import OpportunityId
 
 _CODE = re.compile(
     r"^(?:CON-INPUT|INPUT|IDEMPOTENCY|SCOPE|AUTHORITY|ART|DB)-[A-Z0-9-]+$",
@@ -44,17 +45,6 @@ class CreatorInteractionId:
 
     def __post_init__(self) -> None:
         _require_uuid7(self.value, "CON-INPUT-INTERACTION-ID")
-
-    def __str__(self) -> str:
-        return str(self.value)
-
-
-@dataclass(frozen=True, slots=True)
-class OpportunityId:
-    value: UUID
-
-    def __post_init__(self) -> None:
-        _require_uuid7(self.value, "CON-INPUT-OPPORTUNITY-ID")
 
     def __str__(self) -> str:
         return str(self.value)

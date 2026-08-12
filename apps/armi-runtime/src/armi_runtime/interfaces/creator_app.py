@@ -71,7 +71,6 @@ from armi_kernel.application import (
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
-    LifeViolation,
     OtherHumanRecordQueryPort,
     OtherHumanRecordViolation,
 )
@@ -95,6 +94,7 @@ from armi_kernel.contracts import (
 )
 from armi_material.api import CreatorLifeMaterialItem, MaterialViolation
 from armi_memory.api import MemoryReadPort, MemoryViolation
+from armi_opportunity.api import LifeViolation
 from armi_prompt.api import (
     CreatorPromptDeactivateCommand,
     CreatorPromptPort,

@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Final, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import CandidateOwnerDraft, OpportunityAdmissionOutcome
+from armi_kernel.application import CandidateOwnerDraft
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
@@ -35,6 +36,43 @@ type MaintenanceTransitionKind = Literal[
     "interrupted",
     "system_failed",
 ]
+
+
+class MaintenanceOpportunityStatus(StrEnum):
+    """Outcome of the sleep-owned maintenance source scan."""
+
+    ADMITTED = "admitted"
+    DUPLICATE = "duplicate"
+    REJECTED = "rejected"
+
+
+@dataclass(frozen=True, slots=True)
+class MaintenanceOpportunityOutcome:
+    status: MaintenanceOpportunityStatus
+    opportunity_id: UUID | None
+    reason_code: str | None = None
+
+    def __post_init__(self) -> None:
+        rejected = self.status is MaintenanceOpportunityStatus.REJECTED
+        if (
+            type(self.status) is not MaintenanceOpportunityStatus
+            or rejected != (self.opportunity_id is None)
+            or (
+                self.opportunity_id is not None
+                and (type(self.opportunity_id) is not UUID or self.opportunity_id.version != 7)
+            )
+            or (
+                rejected
+                and (
+                    type(self.reason_code) is not str
+                    or not self.reason_code.startswith("LIFE-")
+                )
+            )
+            or (not rejected and self.reason_code is not None)
+        ):
+            raise SleepViolation("SLEEP-MAINTENANCE-OUTCOME")
+
+
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
 
@@ -258,7 +296,7 @@ class SleepMaintenancePort(Protocol):
         *,
         consideration_after_seconds: int,
         deadline_after_seconds: int,
-    ) -> OpportunityAdmissionOutcome: ...
+    ) -> MaintenanceOpportunityOutcome: ...
 
     async def maintain_active_session(
         self,
@@ -487,6 +525,8 @@ __all__ = (
     "CreatorMaintenanceTimelineItem",
     "CreatorMaintenanceViolation",
     "MaintenanceCheckpointPlan",
+    "MaintenanceOpportunityOutcome",
+    "MaintenanceOpportunityStatus",
     "MaintenancePhase",
     "MaintenancePhaseState",
     "MaintenanceProgress",

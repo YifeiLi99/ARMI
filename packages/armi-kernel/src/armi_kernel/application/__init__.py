@@ -113,7 +113,6 @@ from .context import (
     ContextSourceIdentity,
     ContextTrustClass,
     ContextViolation,
-    OpportunitySelector,
 )
 from .context_embedding import (
     EMBEDDING_DIMENSIONS,
@@ -192,15 +191,6 @@ from .effects import (
     FrozenEffectRequest,
     PolicyDecisionId,
     PolicyDecisionOutcome,
-)
-from .life import (
-    CreatorOutreachPolicy,
-    LifeOpportunitySourceKind,
-    LifeOpportunitySourcePort,
-    LifeOpportunitySourceSnapshot,
-    LifeViolation,
-    OpportunityAdmissionOutcome,
-    OpportunityAdmissionStatus,
 )
 from .life_records import (
     LIFE_RECORD_PROJECTION_VERSION,
@@ -421,7 +411,6 @@ __all__: tuple[str, ...] = (
     "CreatorGrantDecision",
     "CreatorGrantPolicyPort",
     "CreatorGrantResult",
-    "CreatorOutreachPolicy",
     "CreatorProjectionInvalidation",
     "CreatorProjectionNotifier",
     "CreatorReplyDraft",
@@ -473,9 +462,6 @@ __all__: tuple[str, ...] = (
     "FrozenEffectRequest",
     "GrantMatcher",
     "GrantStatus",
-    "LifeOpportunitySourceKind",
-    "LifeOpportunitySourcePort",
-    "LifeOpportunitySourceSnapshot",
     "LifeRecordActor",
     "LifeRecordItem",
     "LifeRecordKind",
@@ -484,7 +470,6 @@ __all__: tuple[str, ...] = (
     "LifeRecordQueryPort",
     "LifeRecordQueryViolation",
     "LifeRecordRetrievalKind",
-    "LifeViolation",
     "ModelAttemptId",
     "ModelBinding",
     "ModelInvocationResult",
@@ -493,9 +478,6 @@ __all__: tuple[str, ...] = (
     "ModelResultStatus",
     "ModelUsage",
     "ModelViolation",
-    "OpportunityAdmissionOutcome",
-    "OpportunityAdmissionStatus",
-    "OpportunitySelector",
     "OtherHumanEndConversationDraft",
     "OtherHumanPartyRecord",
     "OtherHumanPartyRecordPage",
