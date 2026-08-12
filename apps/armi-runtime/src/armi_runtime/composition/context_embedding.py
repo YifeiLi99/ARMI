@@ -13,6 +13,8 @@ from armi_kernel.application import (
     RecallStatus,
 )
 
+from .config_assets import runtime_config_path
+
 EMBEDDING_BINDING_ID = "armi.embedding.volcengine-ark-doubao-vision-250615-v1"
 EMBEDDING_MODEL_ID = "doubao-embedding-vision-250615"
 LIFE_MATERIAL_CHUNK_CHARS = 1500
@@ -23,9 +25,7 @@ RECALL_MATERIAL_LIMIT = 2
 
 
 def load_embedding_binding(path: Path | None = None) -> EmbeddingBinding:
-    manifest_path = path or (
-        Path(__file__).parent / "runtime_resources/model-bindings.yaml"
-    )
+    manifest_path = path or runtime_config_path("model-bindings.yaml")
     try:
         value = load_yaml_file(manifest_path)["embedding"]
     except OSError, KeyError, TypeError, ValueError:

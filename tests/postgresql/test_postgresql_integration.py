@@ -3266,10 +3266,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     if live_credential is not None
                     else CredentialLocator("env", "ARMI_SECRET_ARK_API_KEY")
                 ),
-                manifest_bytes=Path(
-                    "apps/armi-runtime/src/armi_runtime/composition/"
-                    "runtime_resources/web-search.yaml"
-                ).read_bytes(),
+                manifest_bytes=Path("configs/web-search.yaml").read_bytes(),
                 diagnostic=None,
             )
 

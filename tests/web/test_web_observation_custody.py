@@ -76,10 +76,7 @@ class WebObservationCustodyTests(unittest.TestCase):
                 TraceId("2" * 32),
             )
         self.assertEqual(context.exception.code, "WEB-QUERY")
-        manifest = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-            "web-search.yaml"
-        ).read_bytes()
+        manifest = Path("configs/web-search.yaml").read_bytes()
         self.assertEqual(
             load_custody_policy(manifest).binding_id,
             "armi.model-tool.volcengine-ark-web-search-v1",

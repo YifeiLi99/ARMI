@@ -1492,10 +1492,7 @@ def test_invalid_dialogue_change_reference_cannot_suppress_a_valid_reply() -> No
 
 
 def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:
-    source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-            "model-bindings.yaml"
-        )
+    source = Path("configs/model-bindings.yaml")
     manifest = load_yaml_file(source)
     manifest["bindings"].append(dict(manifest["bindings"][0]))
     path = tmp_path / "model-bindings.yaml"
@@ -1505,10 +1502,7 @@ def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> Non
 
 
 def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) -> None:
-    source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-            "model-bindings.yaml"
-        )
+    source = Path("configs/model-bindings.yaml")
     manifest = load_yaml_file(source)
     manifest["purpose_profiles"]["consider_creator_input"][
         "response_contract_version"

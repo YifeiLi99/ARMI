@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from importlib.resources import files
-from pathlib import Path
 from typing import Final
 from uuid import UUID
 
@@ -88,6 +86,7 @@ from .candidate_pipeline import (
     build_candidate_validation_pipeline,
 )
 from .codex_pipeline import CodexEffectPipeline
+from .config_assets import runtime_config_path
 from .configuration import ConfigurationViolation
 from .context_embedding_pipeline import (
     ContextEmbeddingPipeline,
@@ -972,8 +971,7 @@ def compose_external_content_pipeline(
                 config = prepared.effective.config
                 try:
                     recognition_binding = load_external_recognition_binding(
-                        Path(__file__).parent
-                        / "runtime_resources/model-bindings.yaml"
+                        runtime_config_path("model-bindings.yaml")
                     )
                 except ValueError:
                     raise ModelViolation("MODEL-BINDING-MANIFEST") from None
@@ -1378,11 +1376,7 @@ def compose_web_search_pipeline(
     if database_locator is None or model_locator is None:
         raise WebObservationViolation("WEB-CREDENTIAL")
     try:
-        manifest_bytes = (
-            files("armi_runtime.composition.runtime_resources")
-            .joinpath("web-search.yaml")
-            .read_bytes()
-        )
+        manifest_bytes = runtime_config_path("web-search.yaml").read_bytes()
     except OSError:
         raise WebObservationViolation("WEB-MANIFEST") from None
     try:

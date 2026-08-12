@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
+from armi_kernel import load_yaml_file
 from armi_runtime.adapters.model.web_search import (
     API_BASE,
     BINDING_ID,
@@ -27,19 +28,13 @@ _BUDGET_MICROYUAN = 2_000_000
 
 def _rates(root: Path) -> tuple[int, int]:
     try:
-        manifest = json.loads(
-            (
-                root
-                / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-                "model-bindings.yaml"
-            ).read_text(encoding="utf-8")
-        )
+        manifest = load_yaml_file(root / "configs/model-bindings.yaml")
         binding = next(
             item for item in manifest["bindings"] if item["model_id"] == MODEL
         )
         input_rate = binding["input_microyuan_per_million"]
         output_rate = binding["output_microyuan_per_million"]
-    except OSError, KeyError, StopIteration, TypeError, json.JSONDecodeError:
+    except OSError, KeyError, StopIteration, TypeError, ValueError:
         raise WebSearchViolation("WEB-SEARCH-LIVE-COST") from None
     if not all(type(item) is int and item > 0 for item in (input_rate, output_rate)):
         raise WebSearchViolation("WEB-SEARCH-LIVE-COST")

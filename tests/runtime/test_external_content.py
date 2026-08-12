@@ -241,10 +241,7 @@ class ExternalContentExtractorTests(unittest.TestCase):
 class ExternalContentModelRequestTests(unittest.TestCase):
     def test_loads_packaged_recognition_models(self) -> None:
         binding = load_external_recognition_binding(
-            Path(
-                "apps/armi-runtime/src/armi_runtime/composition/"
-                "runtime_resources/model-bindings.yaml"
-            )
+            Path("configs/model-bindings.yaml")
         )
         self.assertEqual(
             binding.target_for(ExternalMessagePartKind.IMAGE),
@@ -267,10 +264,7 @@ class ExternalContentModelRequestTests(unittest.TestCase):
         self,
     ) -> None:
         binding = load_external_recognition_binding(
-            Path(
-                "apps/armi-runtime/src/armi_runtime/composition/"
-                "runtime_resources/model-bindings.yaml"
-            )
+            Path("configs/model-bindings.yaml")
         ).ark
 
         def request(role: ExternalVisualRole) -> ExternalContentRecognitionRequest:
@@ -340,10 +334,7 @@ class ExternalContentModelRequestTests(unittest.TestCase):
 class DoubaoSpeechRecognizerTests(unittest.TestCase):
     def _recognizer(self, handler) -> DoubaoSpeechRecognizer:
         bindings = load_external_recognition_binding(
-            Path(
-                "apps/armi-runtime/src/armi_runtime/composition/"
-                "runtime_resources/model-bindings.yaml"
-            )
+            Path("configs/model-bindings.yaml")
         )
         return DoubaoSpeechRecognizer(
             credential_port=EnvironmentFileCredentialPort(
@@ -487,10 +478,7 @@ class DoubaoSpeechRecognizerTests(unittest.TestCase):
 
     def test_rejects_malformed_speech_credentials(self) -> None:
         bindings = load_external_recognition_binding(
-            Path(
-                "apps/armi-runtime/src/armi_runtime/composition/"
-                "runtime_resources/model-bindings.yaml"
-            )
+            Path("configs/model-bindings.yaml")
         )
         recognizer = DoubaoSpeechRecognizer(
             credential_port=EnvironmentFileCredentialPort(

@@ -48,6 +48,7 @@ from .autonomous_activity_candidate_contract import (
     autonomous_activity_candidate_schema,
     parse_autonomous_activity_candidate,
 )
+from .config_assets import runtime_config_path
 from .dialogue_candidate_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
@@ -1229,9 +1230,7 @@ def load_active_binding(
     *,
     expected_dialogue_version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> ModelBinding:
-    manifest_path = path or (
-        Path(__file__).parent / "runtime_resources/model-bindings.yaml"
-    )
+    manifest_path = path or runtime_config_path("model-bindings.yaml")
     try:
         value = load_yaml_file(manifest_path)
         binding = value["bindings"][0]
@@ -1326,9 +1325,7 @@ def load_purpose_binding(
 ) -> ModelBinding:
     if type(purpose) is not str or not purpose:
         raise ModelViolation("MODEL-BINDING")
-    manifest_path = path or (
-        Path(__file__).parent / "runtime_resources/model-bindings.yaml"
-    )
+    manifest_path = path or runtime_config_path("model-bindings.yaml")
     try:
         value = load_yaml_file(manifest_path)
         base = value["bindings"][0]

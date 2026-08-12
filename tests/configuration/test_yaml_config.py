@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from armi_kernel import load_yaml_mapping
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_yaml_config_supports_the_project_subset() -> None:
@@ -48,3 +52,13 @@ def test_json_object_remains_valid_yaml_input() -> None:
         "schema_version": "armi.example.v1",
         "enabled": True,
     }
+
+
+def test_runtime_configs_have_one_tracked_source() -> None:
+    packaged = (
+        ROOT
+        / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources"
+    )
+    for name in ("runtime.yaml", "model-bindings.yaml", "web-search.yaml"):
+        assert (ROOT / "configs" / name).is_file()
+        assert not (packaged / name).exists()

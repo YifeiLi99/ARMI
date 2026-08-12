@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from importlib.resources import as_file, files
 from pathlib import Path
 
 from armi_kernel.application import CredentialLocator, CredentialPort
 
+from .config_assets import runtime_config_path
 from .configuration import (
     DeploymentProfile,
     EffectiveConfig,
@@ -21,8 +21,6 @@ from .configuration import (
 from .configuration.paths import canonical_absolute, has_reparse_point
 from .credential_scope import ScopedCredentialPort
 from .runtime_errors import RuntimeViolation
-
-_RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,13 +67,11 @@ def prepare_environment(
             "environment-root entries must be ordinary files and directories",
         )
     current_environment = dict(environment if environment is not None else os.environ)
-    defaults = files(_RESOURCE_PACKAGE).joinpath("runtime.yaml")
-    with as_file(defaults) as defaults_path:
-        effective = load_effective_config(
-            defaults_path=defaults_path,
-            environment_path=environment_path,
-            environment=current_environment,
-        )
+    effective = load_effective_config(
+        defaults_path=runtime_config_path("runtime.yaml"),
+        environment_path=environment_path,
+        environment=current_environment,
+    )
     if effective.config.environment.data_root != data_root.resolve():
         raise RuntimeViolation(
             "CFG-DATA-ROOT",

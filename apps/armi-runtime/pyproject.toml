@@ -42,9 +42,15 @@ include = ["src/armi_runtime"]
 
 [tool.hatch.build.targets.sdist.force-include]
 "build/creator-web-resources" = "build/creator-web-resources"
+"../../configs/runtime.yaml" = "src/armi_runtime/composition/runtime_resources/runtime.yaml"
+"../../configs/model-bindings.yaml" = "src/armi_runtime/composition/runtime_resources/model-bindings.yaml"
+"../../configs/web-search.yaml" = "src/armi_runtime/composition/runtime_resources/web-search.yaml"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/armi_runtime"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "build/creator-web-resources" = "armi_runtime/interfaces/creator_web_resources"
+"../../configs/runtime.yaml" = "armi_runtime/composition/runtime_resources/runtime.yaml"
+"../../configs/model-bindings.yaml" = "armi_runtime/composition/runtime_resources/model-bindings.yaml"
+"../../configs/web-search.yaml" = "armi_runtime/composition/runtime_resources/web-search.yaml"

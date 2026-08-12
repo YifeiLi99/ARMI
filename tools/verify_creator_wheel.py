@@ -108,6 +108,12 @@ def main() -> int:
         and "__pycache__" not in path.relative_to(runtime_root).parts
         and path.suffix != ".pyc"
     }
+    runtime_files.update(
+        {
+            name: (root / "configs" / name).read_bytes()
+            for name in ("runtime.yaml", "model-bindings.yaml", "web-search.yaml")
+        }
+    )
     with ZipFile(wheel) as archive:
         names = set(archive.namelist())
         missing = sorted(REQUIRED - names)
