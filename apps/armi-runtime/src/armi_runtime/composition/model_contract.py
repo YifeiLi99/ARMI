@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 import rfc8785
+from armi_kernel import load_yaml_file
 from armi_kernel.application import ModelBinding, ModelRequest, ModelViolation
 from armi_kernel.contracts import Digest
 from pydantic import (
@@ -1229,12 +1230,12 @@ def load_active_binding(
     expected_dialogue_version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> ModelBinding:
     manifest_path = path or (
-        Path(__file__).parent / "runtime_resources/model-bindings.manifest.json"
+        Path(__file__).parent / "runtime_resources/model-bindings.yaml"
     )
     try:
-        value = json.loads(manifest_path.read_text(encoding="utf-8"))
+        value = load_yaml_file(manifest_path)
         binding = value["bindings"][0]
-    except OSError, KeyError, TypeError, json.JSONDecodeError:
+    except OSError, KeyError, TypeError, ValueError:
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     if (
         value.get("schema_version") != MODEL_BINDING_VERSION
@@ -1326,13 +1327,13 @@ def load_purpose_binding(
     if type(purpose) is not str or not purpose:
         raise ModelViolation("MODEL-BINDING")
     manifest_path = path or (
-        Path(__file__).parent / "runtime_resources/model-bindings.manifest.json"
+        Path(__file__).parent / "runtime_resources/model-bindings.yaml"
     )
     try:
-        value = json.loads(manifest_path.read_text(encoding="utf-8"))
+        value = load_yaml_file(manifest_path)
         base = value["bindings"][0]
         profile = value["purpose_profiles"].get(purpose)
-    except OSError, KeyError, TypeError, json.JSONDecodeError:
+    except OSError, KeyError, TypeError, ValueError:
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     load_active_binding(
         manifest_path,

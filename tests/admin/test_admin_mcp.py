@@ -284,25 +284,25 @@ class AdminProtocolTests(unittest.TestCase):
     def test_stdio_subprocess_has_clean_protocol_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            config_path = root / "admin.toml"
+            config_path = root / "admin.yaml"
             config_path.write_text(
                 "\n".join(
                     (
-                        'schema_version = "armi.admin-config.v4"',
-                        'environment_kind = "system_test"',
-                        f'environment_id = "{ENVIRONMENT_ID}"',
-                        "environment_incarnation = 1",
-                        "resettable = true",
-                        "test_controls_enabled = true",
-                        f'environment_root = "{root.as_posix()}"',
-                        f'experiment_root = "{root.as_posix()}"',
-                        f'template_manifest = "{(Path.cwd() / "README.md").as_posix()}"',
-                        f'postgresql_client_root = "{(Path.cwd() / ".armi-tools/installs/postgresql/18.4").as_posix()}"',
-                        'database_locator = "env:ARMI_SECRET_ADMIN_DATABASE"',
-                        'migrator_database_locator = "env:ARMI_SECRET_MIGRATOR_DATABASE"',
-                        'preview_key_locator = "env:ARMI_SECRET_ADMIN_PREVIEW_KEY"',
-                        "[expected]",
-                        f'package_digest = "{DIGEST}"',
+                        "schema_version: armi.admin-config.v4",
+                        "environment_kind: system_test",
+                        f"environment_id: {ENVIRONMENT_ID}",
+                        "environment_incarnation: 1",
+                        "resettable: true",
+                        "test_controls_enabled: true",
+                        f'environment_root: "{root.as_posix()}"',
+                        f'experiment_root: "{root.as_posix()}"',
+                        f'template_manifest: "{(Path.cwd() / "README.md").as_posix()}"',
+                        f'postgresql_client_root: "{(Path.cwd() / ".armi-tools/installs/postgresql/18.4").as_posix()}"',
+                        "database_locator: env:ARMI_SECRET_ADMIN_DATABASE",
+                        "migrator_database_locator: env:ARMI_SECRET_MIGRATOR_DATABASE",
+                        "preview_key_locator: env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
+                        "expected:",
+                        f"  package_digest: {DIGEST}",
                         "",
                     )
                 ),

@@ -40,7 +40,8 @@ class PackageImportSmokeTests(unittest.TestCase):
         self.run_isolated_import(
             [KERNEL_SOURCE],
             "import armi_kernel; "
-            "assert armi_kernel.__all__ == (); "
+            "assert armi_kernel.__all__ == "
+            "('load_yaml_file', 'load_yaml_mapping'); "
             "assert not any(name.startswith(('armi_runtime', 'armi_admin')) "
             "for name in sys.modules)",
         )

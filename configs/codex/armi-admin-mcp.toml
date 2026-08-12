@@ -1,4 +1,4 @@
-# Copy this table into an isolated or user Codex config only when S045 activates it.
+# Codex itself requires TOML for MCP server registration.
 [mcp_servers.armi_admin]
 command = "armi-admin-mcp"
 env_vars = ["ARMI_ADMIN_CONFIG"]

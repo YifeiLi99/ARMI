@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import pickle
 import tempfile
 import unittest
@@ -21,21 +20,25 @@ from armi_runtime.composition import (
 from armi_runtime.composition.credential_scope import ScopedCredentialPort
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULTS = ROOT / "config/runtime.defaults.toml"
+DEFAULTS = ROOT / "configs/runtime.yaml"
 ENVIRONMENT_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"
 
 
 def _load(root: Path, locator_lines: str):
-    environment_path = root / "environment.toml"
+    environment_path = root / "environment.yaml"
     environment_path.write_text(
         (
-            "[environment]\n"
-            f'environment_id = "{ENVIRONMENT_ID}"\n'
-            f"data_root = {json.dumps(str(root))}\n"
-            "\n[creator]\n"
-            "port = 43123\n"
-            "\n[secret_locators]\n"
-            f"{locator_lines}"
+            "environment:\n"
+            f"  environment_id: {ENVIRONMENT_ID}\n"
+            f'  data_root: "{root.as_posix()}"\n'
+            "creator:\n"
+            "  port: 43123\n"
+            +
+            (
+                f"secret_locators:\n{locator_lines}"
+                if locator_lines
+                else "secret_locators: {}\n"
+            )
         ),
         encoding="utf-8",
         newline="\n",
@@ -236,8 +239,8 @@ class SecretResolutionTests(unittest.TestCase):
             effective = _load(
                 root,
                 (
-                    'required = "env:ARMI_SECRET_REQUIRED"\n'
-                    'unused = "env:ARMI_SECRET_UNUSED"\n'
+                    "  required: env:ARMI_SECRET_REQUIRED\n"
+                    "  unused: env:ARMI_SECRET_UNUSED\n"
                 ),
             )
             profile = DeploymentProfile.create(
@@ -258,7 +261,7 @@ class SecretResolutionTests(unittest.TestCase):
                 allowed_data_roots=(root,),
                 allowed_secret_roots=(root,),
             )
-            effective = _load(root, 'unused = "env:ARMI_SECRET_UNUSED"\n')
+            effective = _load(root, "  unused: env:ARMI_SECRET_UNUSED\n")
             with self.assertRaises(ConfigurationViolation) as missing:
                 preflight_config(
                     effective,
@@ -267,7 +270,7 @@ class SecretResolutionTests(unittest.TestCase):
                     environment={},
                 )
             self.assertEqual(missing.exception.code, "SEC-SECRET-MISSING")
-            unsupported = _load(root, 'future = "command:future-provider"\n')
+            unsupported = _load(root, "  future: command:future-provider\n")
             with self.assertRaises(ConfigurationViolation) as scheme:
                 preflight_config(
                     unsupported,

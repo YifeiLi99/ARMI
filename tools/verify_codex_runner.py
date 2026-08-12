@@ -149,19 +149,16 @@ def _environment(root: Path, auth: bytes) -> tuple[Path, Path]:
     _owner_only(secret_root)
     auth_path = secret_root / "auth.json"
     auth_path.write_bytes(auth)
-    (environment_root / "environment.toml").write_text(
+    (environment_root / "environment.yaml").write_text(
         "\n".join(
             (
-                "[environment]",
-                'environment_id = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"',
-                f'data_root = "{data_root.resolve().as_posix()}"',
-                "",
-                "[creator]",
-                "port = 45678",
-                "",
-                "[secret_locators]",
-                f'"codex.auth_json" = "file:{auth_path.resolve().as_posix()}"',
-                "",
+                "environment:",
+                "  environment_id: 01980f7d-7b8f-7e2a-8a11-2ab8e1234567",
+                f'  data_root: "{data_root.resolve().as_posix()}"',
+                "creator:",
+                "  port: 45678",
+                "secret_locators:",
+                f"  codex.auth_json: file:{auth_path.resolve().as_posix()}",
             )
         ),
         encoding="utf-8",

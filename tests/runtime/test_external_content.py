@@ -243,7 +243,7 @@ class ExternalContentModelRequestTests(unittest.TestCase):
         binding = load_external_recognition_binding(
             Path(
                 "apps/armi-runtime/src/armi_runtime/composition/"
-                "runtime_resources/model-bindings.manifest.json"
+                "runtime_resources/model-bindings.yaml"
             )
         )
         self.assertEqual(
@@ -269,7 +269,7 @@ class ExternalContentModelRequestTests(unittest.TestCase):
         binding = load_external_recognition_binding(
             Path(
                 "apps/armi-runtime/src/armi_runtime/composition/"
-                "runtime_resources/model-bindings.manifest.json"
+                "runtime_resources/model-bindings.yaml"
             )
         ).ark
 
@@ -342,7 +342,7 @@ class DoubaoSpeechRecognizerTests(unittest.TestCase):
         bindings = load_external_recognition_binding(
             Path(
                 "apps/armi-runtime/src/armi_runtime/composition/"
-                "runtime_resources/model-bindings.manifest.json"
+                "runtime_resources/model-bindings.yaml"
             )
         )
         return DoubaoSpeechRecognizer(
@@ -489,7 +489,7 @@ class DoubaoSpeechRecognizerTests(unittest.TestCase):
         bindings = load_external_recognition_binding(
             Path(
                 "apps/armi-runtime/src/armi_runtime/composition/"
-                "runtime_resources/model-bindings.manifest.json"
+                "runtime_resources/model-bindings.yaml"
             )
         )
         recognizer = DoubaoSpeechRecognizer(

@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CODEX = ROOT / "tools/toolchain-node/node_modules/@openai/codex/bin/codex.js"
-TEMPLATE = ROOT / "tools/codex/armi-admin-mcp.toml"
+TEMPLATE = ROOT / "configs/codex/armi-admin-mcp.toml"
 
 
 def _run(

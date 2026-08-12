@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import base64
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 import httpx
 import rfc8785
+from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
@@ -164,9 +164,7 @@ class VolcengineArkExternalContentRecognizer(ExternalContentRecognitionPort):
 
 def load_external_recognition_binding(path: Path) -> ExternalRecognitionBindings:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))[
-            "external_content_recognition"
-        ]
+        value = load_yaml_file(path)["external_content_recognition"]
         ark = ArkExternalRecognitionBinding(
             api_base=value["api_base"],
             image_model_id=value["image_model_id"],
@@ -186,7 +184,7 @@ def load_external_recognition_binding(path: Path) -> ExternalRecognitionBindings
             timeout_seconds=value["speech_timeout_seconds"],
             poll_interval_seconds=value["speech_poll_interval_seconds"],
         )
-    except OSError, KeyError, TypeError, json.JSONDecodeError:
+    except OSError, KeyError, TypeError, ValueError:
         raise ValueError("external recognition binding is invalid") from None
     if (
         ark.api_base != "https://ark.cn-beijing.volces.com/api/v3"

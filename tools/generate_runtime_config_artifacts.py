@@ -1,4 +1,4 @@
-"""Generate or verify packaged S008 Runtime composition resources."""
+"""Generate or verify packaged Runtime configuration resources."""
 
 from __future__ import annotations
 
@@ -8,33 +8,24 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from armi_runtime.composition.manifest import (
-    build_composition_manifest,
-    render_manifest_bytes,
-)
-
 _TARGET = Path("apps/armi-runtime/src/armi_runtime/composition/runtime_resources")
-_CONFIG = {"runtime.defaults.toml": Path("config/runtime.defaults.toml")}
+_CONFIG = {
+    "runtime.yaml": Path("configs/runtime.yaml"),
+    "model-bindings.yaml": Path("configs/model-bindings.yaml"),
+    "web-search.yaml": Path("configs/web-search.yaml"),
+}
 
 
 def _generate(root: Path, output: Path) -> None:
     output.mkdir(parents=True, exist_ok=True)
     for target_name, source_relative in _CONFIG.items():
-        value = (root / source_relative).read_bytes()
-        (output / target_name).write_bytes(value)
-    manifest = build_composition_manifest()
-    (output / "runtime-composition.manifest.json").write_bytes(
-        render_manifest_bytes(manifest)
-    )
+        (output / target_name).write_bytes((root / source_relative).read_bytes())
 
 
 def _files(root: Path) -> dict[str, bytes]:
     return {
         name: (root / name).read_bytes()
-        for name in (
-            *_CONFIG,
-            "runtime-composition.manifest.json",
-        )
+        for name in _CONFIG
         if (root / name).is_file()
     }
 
@@ -53,7 +44,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     temporary_root.mkdir(exist_ok=True)
     try:
         with tempfile.TemporaryDirectory(
-            prefix="runtime-composition-",
+            prefix="runtime-config-",
             dir=temporary_root,
         ) as temporary:
             generated = Path(temporary)
@@ -62,26 +53,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.write:
                 target.mkdir(parents=True, exist_ok=True)
                 for name, value in _files(generated).items():
-                    destination = target / name
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    destination.write_bytes(value)
+                    (target / name).write_bytes(value)
             elif _files(generated) != _files(target):
-                print(
-                    "CMP-MANIFEST-DRIFT: packaged composition resources drifted",
-                    file=sys.stderr,
-                )
+                print("CFG-RESOURCE-DRIFT: packaged configs drifted", file=sys.stderr)
                 return 1
-        print(
-            "runtime-composition: written"
-            if args.write
-            else "runtime-composition: verified"
-        )
+        print("runtime-config: written" if args.write else "runtime-config: verified")
         return 0
     except OSError:
-        print(
-            "CMP-RESOURCE-MISSING: a composition input is unavailable",
-            file=sys.stderr,
-        )
+        print("CFG-RESOURCE-MISSING: a config input is unavailable", file=sys.stderr)
         return 1
 
 

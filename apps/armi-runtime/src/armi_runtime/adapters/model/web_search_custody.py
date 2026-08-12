@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import rfc8785
+from armi_kernel import load_yaml_mapping
 from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
@@ -66,9 +67,12 @@ class WebSearchCustodyPolicy:
 
 
 def load_custody_policy(raw: bytes) -> WebSearchCustodyPolicy:
-    value = _strict_json(raw, maximum=128 * 1024)
-    if not isinstance(value, dict):
+    if len(raw) > 128 * 1024:
         raise WebObservationViolation("WEB-MANIFEST")
+    try:
+        value = load_yaml_mapping(raw)
+    except ValueError:
+        raise WebObservationViolation("WEB-MANIFEST") from None
     expected = {
         "binding_id": "armi.model-tool.volcengine-ark-web-search-v1",
         "credential_identity": "armi.model.ark-api-key.v1",

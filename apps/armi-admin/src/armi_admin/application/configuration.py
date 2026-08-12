@@ -6,12 +6,12 @@ import hashlib
 import json
 import os
 import re
-import tomllib
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
+from armi_kernel import load_yaml_mapping
 from armi_kernel.application import CredentialLocator
 from pydantic import (
     BaseModel,
@@ -227,7 +227,7 @@ def _path_identity(value: Path) -> str:
 def load_admin_config(
     environ: dict[str, str] | None = None,
 ) -> tuple[AdminConfig, Path]:
-    """Load exactly one private TOML named by ``ARMI_ADMIN_CONFIG``."""
+    """Load exactly one private YAML file named by ``ARMI_ADMIN_CONFIG``."""
 
     source = os.environ if environ is None else environ
     raw_path = source.get(ADMIN_CONFIG_ENV, "")
@@ -243,14 +243,13 @@ def load_admin_config(
         raw = resolved.read_bytes()
         if raw.startswith(b"\xef\xbb\xbf"):
             raise AdminConfigError("ADMIN-CONFIG-ENCODING")
-        value = tomllib.loads(raw.decode("utf-8", errors="strict"))
+        value = load_yaml_mapping(raw)
         return AdminConfig.model_validate(value), resolved
     except AdminConfigError:
         raise
     except (
         OSError,
-        UnicodeDecodeError,
-        tomllib.TOMLDecodeError,
+        ValueError,
         ValidationError,
     ) as exc:
         raise AdminConfigError("ADMIN-CONFIG-INVALID") from exc

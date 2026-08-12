@@ -31,7 +31,7 @@ def _rates(root: Path) -> tuple[int, int]:
             (
                 root
                 / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-                "model-bindings.manifest.json"
+                "model-bindings.yaml"
             ).read_text(encoding="utf-8")
         )
         binding = next(

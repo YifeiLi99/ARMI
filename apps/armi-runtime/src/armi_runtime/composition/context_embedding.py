@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
+from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     EMBEDDING_DIMENSIONS,
     EmbeddingBinding,
@@ -24,11 +24,11 @@ RECALL_MATERIAL_LIMIT = 2
 
 def load_embedding_binding(path: Path | None = None) -> EmbeddingBinding:
     manifest_path = path or (
-        Path(__file__).parent / "runtime_resources/model-bindings.manifest.json"
+        Path(__file__).parent / "runtime_resources/model-bindings.yaml"
     )
     try:
-        value = json.loads(manifest_path.read_text(encoding="utf-8"))["embedding"]
-    except OSError, KeyError, TypeError, json.JSONDecodeError:
+        value = load_yaml_file(manifest_path)["embedding"]
+    except OSError, KeyError, TypeError, ValueError:
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     expected = {
         "provider": "volcengine_ark",

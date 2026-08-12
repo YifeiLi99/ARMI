@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
+
+from armi_kernel import load_yaml_file
 
 from .adapter import QQAdapterConfig
 
@@ -30,11 +31,8 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
     if not path.is_file() or path.is_symlink() or size > 1_048_576:
         raise ValueError("QQ channel configuration must be a regular file")
     try:
-        document = cast(
-            dict[str, object],
-            tomllib.loads(path.read_text(encoding="utf-8")),
-        )
-    except OSError, UnicodeDecodeError, tomllib.TOMLDecodeError:
+        document = cast(dict[str, object], load_yaml_file(path))
+    except (OSError, ValueError):
         raise ValueError("QQ channel configuration is unreadable") from None
     expected = {
         "schema_version",

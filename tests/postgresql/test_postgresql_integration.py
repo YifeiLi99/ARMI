@@ -1365,24 +1365,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
                 listener.bind(("127.0.0.1", 0))
                 runtime_port = int(listener.getsockname()[1])
-            (environment_root / "environment.toml").write_text(
+            (environment_root / "environment.yaml").write_text(
                 "\n".join(
                     (
-                        "[environment]",
-                        f'environment_id = "{fixture.environment_id}"',
-                        f'data_root = "{data_root.as_posix()}"',
-                        "",
-                        "[creator]",
-                        f"port = {runtime_port}",
-                        "",
-                        "[observability]",
-                        "sample_interval_seconds = 1",
-                        "",
-                        "[secret_locators]",
-                        f'"database.runtime" = "file:{runtime_secret.as_posix()}"',
-                        f'"database.migrator" = "file:{migrator_secret.as_posix()}"',
-                        f'"creator.bearer" = "file:{creator_secret.as_posix()}"',
-                        "",
+                        "environment:",
+                        f"  environment_id: {fixture.environment_id}",
+                        f'  data_root: "{data_root.as_posix()}"',
+                        "creator:",
+                        f"  port: {runtime_port}",
+                        "observability:",
+                        "  sample_interval_seconds: 1",
+                        "secret_locators:",
+                        f"  database.runtime: file:{runtime_secret.as_posix()}",
+                        f"  database.migrator: file:{migrator_secret.as_posix()}",
+                        f"  creator.bearer: file:{creator_secret.as_posix()}",
                     )
                 ),
                 encoding="utf-8",
@@ -2456,26 +2452,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.migrator_dsn, encoding="utf-8", newline="\n"
             )
             runtime_file.write_text(fixture.runtime_dsn, encoding="utf-8", newline="\n")
-            environment_toml = "\n".join(
+            environment_yaml = "\n".join(
                 (
-                    "[environment]",
-                    f'environment_id = "{fixture.environment_id}"',
-                    f'data_root = "{(environment_root / "data").as_posix()}"',
-                    "",
-                    "[creator]",
-                    "port = 45681",
-                    "",
-                    "[secret_locators]",
-                    '"database.migrator" = "env:ARMI_SECRET_MIGRATOR_DATABASE"',
-                    f'"database.runtime" = "file:{runtime_file.as_posix()}"',
-                    "",
+                    "environment:",
+                    f"  environment_id: {fixture.environment_id}",
+                    f'  data_root: "{(environment_root / "data").as_posix()}"',
+                    "creator:",
+                    "  port: 45681",
+                    "secret_locators:",
+                    "  database.migrator: env:ARMI_SECRET_MIGRATOR_DATABASE",
+                    f"  database.runtime: file:{runtime_file.as_posix()}",
                 )
             )
-            (environment_root / "environment.toml").write_text(
-                environment_toml, encoding="utf-8", newline="\n"
+            (environment_root / "environment.yaml").write_text(
+                environment_yaml, encoding="utf-8", newline="\n"
             )
-            (template_environment / "environment.toml").write_text(
-                environment_toml, encoding="utf-8", newline="\n"
+            (template_environment / "environment.yaml").write_text(
+                environment_yaml, encoding="utf-8", newline="\n"
             )
             template_manifest = template_root / "template.json"
             template_manifest.write_text(
@@ -3275,7 +3268,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
                 manifest_bytes=Path(
                     "apps/armi-runtime/src/armi_runtime/composition/"
-                    "runtime_resources/web-search-custody.manifest.json"
+                    "runtime_resources/web-search.yaml"
                 ).read_bytes(),
                 diagnostic=None,
             )
@@ -6275,19 +6268,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             migrator_secret.write_text(
                 source.migrator_dsn, encoding="utf-8", newline="\n"
             )
-            (environment_root / "environment.toml").write_text(
+            (environment_root / "environment.yaml").write_text(
                 "\n".join(
                     (
-                        "[environment]",
-                        f'environment_id = "{source.environment_id}"',
-                        f'data_root = "{data_root.as_posix()}"',
-                        "",
-                        "[creator]",
-                        "port = 45682",
-                        "",
-                        "[secret_locators]",
-                        f'"database.migrator" = "file:{migrator_secret.as_posix()}"',
-                        "",
+                        "environment:",
+                        f"  environment_id: {source.environment_id}",
+                        f'  data_root: "{data_root.as_posix()}"',
+                        "creator:",
+                        "  port: 45682",
+                        "secret_locators:",
+                        f"  database.migrator: file:{migrator_secret.as_posix()}",
                     )
                 ),
                 encoding="utf-8",
@@ -6552,20 +6542,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
                 listener.bind(("127.0.0.1", 0))
                 runtime_port = int(listener.getsockname()[1])
-            (environment_root / "environment.toml").write_text(
+            (environment_root / "environment.yaml").write_text(
                 "\n".join(
                     (
-                        "[environment]",
-                        f'environment_id = "{fixture.environment_id}"',
-                        f'data_root = "{data_root.as_posix()}"',
-                        "",
-                        "[creator]",
-                        f"port = {runtime_port}",
-                        "",
-                        "[secret_locators]",
-                        f'"database.runtime" = "file:{runtime_secret.as_posix()}"',
-                        f'"creator.bearer" = "file:{creator_secret.as_posix()}"',
-                        "",
+                        "environment:",
+                        f"  environment_id: {fixture.environment_id}",
+                        f'  data_root: "{data_root.as_posix()}"',
+                        "creator:",
+                        f"  port: {runtime_port}",
+                        "secret_locators:",
+                        f"  database.runtime: file:{runtime_secret.as_posix()}",
+                        f"  creator.bearer: file:{creator_secret.as_posix()}",
                     )
                 ),
                 encoding="utf-8",
@@ -7594,20 +7581,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.migrator_dsn, encoding="utf-8", newline="\n"
             )
             runtime_file.write_text(fixture.runtime_dsn, encoding="utf-8", newline="\n")
-            (root / "environment.toml").write_text(
+            (root / "environment.yaml").write_text(
                 "\n".join(
                     (
-                        "[environment]",
-                        f'environment_id = "{fixture.environment_id}"',
-                        f'data_root = "{data.resolve().as_posix()}"',
-                        "",
-                        "[creator]",
-                        "port = 45679",
-                        "",
-                        "[secret_locators]",
-                        f'"database.migrator" = "file:{migrator_file.as_posix()}"',
-                        f'"database.runtime" = "file:{runtime_file.as_posix()}"',
-                        "",
+                        "environment:",
+                        f"  environment_id: {fixture.environment_id}",
+                        f'  data_root: "{data.resolve().as_posix()}"',
+                        "creator:",
+                        "  port: 45679",
+                        "secret_locators:",
+                        f"  database.migrator: file:{migrator_file.as_posix()}",
+                        f"  database.runtime: file:{runtime_file.as_posix()}",
                     )
                 ),
                 encoding="utf-8",

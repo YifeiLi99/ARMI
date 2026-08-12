@@ -39,7 +39,7 @@ async def compose_qq_channel(
     *,
     input_port: ExternalMessageInputPort,
 ) -> QQChannelBinding | None:
-    path = prepared.root / "channels" / "qq-napcat.toml"
+    path = prepared.root / "channels" / "qq-napcat.yaml"
     if not path.exists():
         return None
     try:

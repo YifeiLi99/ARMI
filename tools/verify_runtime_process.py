@@ -79,16 +79,14 @@ def _write_environment(root: Path, port: int) -> None:
     secrets = root / "secrets"
     data.mkdir()
     secrets.mkdir()
-    (root / "environment.toml").write_text(
+    (root / "environment.yaml").write_text(
         "\n".join(
             (
-                "[environment]",
-                f'environment_id = "{ENVIRONMENT_ID}"',
-                f'data_root = "{data.resolve().as_posix()}"',
-                "",
-                "[creator]",
-                f"port = {port}",
-                "",
+                "environment:",
+                f"  environment_id: {ENVIRONMENT_ID}",
+                f'  data_root: "{data.resolve().as_posix()}"',
+                "creator:",
+                f"  port: {port}",
             )
         ),
         encoding="utf-8",

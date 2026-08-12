@@ -46,7 +46,7 @@ def prepare_environment(
             "CFG-ENV-ROOT",
             "environment root must be an existing non-reparse directory",
         )
-    environment_path = root / "environment.toml"
+    environment_path = root / "environment.yaml"
     data_root = root / "data"
     secrets_root = root / "secrets"
     for path, code in (
@@ -69,7 +69,7 @@ def prepare_environment(
             "environment-root entries must be ordinary files and directories",
         )
     current_environment = dict(environment if environment is not None else os.environ)
-    defaults = files(_RESOURCE_PACKAGE).joinpath("runtime.defaults.toml")
+    defaults = files(_RESOURCE_PACKAGE).joinpath("runtime.yaml")
     with as_file(defaults) as defaults_path:
         effective = load_effective_config(
             defaults_path=defaults_path,

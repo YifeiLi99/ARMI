@@ -32,7 +32,7 @@ def _config(root: Path) -> AdminConfig:
     )
     environment = root / "environment"
     environment.mkdir()
-    (environment / "environment.toml").write_text("fixture = true\n", encoding="utf-8")
+    (environment / "environment.yaml").write_text("fixture: true\n", encoding="utf-8")
     return AdminConfig.model_validate(
         {
             "schema_version": "armi.admin-config.v4",

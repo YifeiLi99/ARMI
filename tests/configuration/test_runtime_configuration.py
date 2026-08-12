@@ -19,17 +19,17 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULTS = ROOT / "config/runtime.defaults.toml"
+DEFAULTS = ROOT / "configs/runtime.yaml"
 ENVIRONMENT_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"
 
 
-def _environment_toml(data_root: Path, extra: str = "") -> str:
+def _environment_yaml(data_root: Path, extra: str = "") -> str:
     return (
-        "[environment]\n"
-        f'environment_id = "{ENVIRONMENT_ID}"\n'
-        f"data_root = {json.dumps(str(data_root))}\n"
-        "\n[creator]\n"
-        "port = 43123\n"
+        "environment:\n"
+        f"  environment_id: {ENVIRONMENT_ID}\n"
+        f"  data_root: {json.dumps(str(data_root))}\n"
+        "creator:\n"
+        "  port: 43123\n"
         f"{extra}"
     )
 
@@ -43,9 +43,9 @@ class RuntimeConfigurationTests(unittest.TestCase):
         environment: dict[str, str] | None = None,
         raw: str | None = None,
     ):
-        environment_path = root / "environment.toml"
+        environment_path = root / "environment.yaml"
         environment_path.write_text(
-            raw if raw is not None else _environment_toml(root, extra),
+            raw if raw is not None else _environment_yaml(root, extra),
             encoding="utf-8",
             newline="\n",
         )
@@ -60,7 +60,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             root = Path(directory)
             effective = self.load(
                 root,
-                extra="\n[database]\npool_max = 20\n",
+                extra="database:\n  pool_max: 20\n",
                 environment={
                     "ARMI_DB_POOL_MAX": "24",
                     "ARMI_ARTIFACT_ORPHAN_GRACE_SECONDS": "172800",
@@ -73,7 +73,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertEqual(effective.config.artifacts.orphan_grace_seconds, 172_800)
         self.assertEqual(
             effective.applied_sources,
-            ("defaults.toml", "environment.toml", "explicit-environment"),
+            ("runtime.yaml", "environment.yaml", "explicit-environment"),
         )
 
     def test_maintenance_window_defaults_overrides_and_order(self) -> None:
@@ -136,8 +136,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
     def test_environment_overrides_all_required_deployment_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            environment_path = root / "environment.toml"
-            environment_path.write_text("", encoding="utf-8")
+            environment_path = root / "environment.yaml"
+            environment_path.write_text("{}\n", encoding="utf-8")
             effective = load_effective_config(
                 defaults_path=DEFAULTS,
                 environment_path=environment_path,
@@ -155,7 +155,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
     def test_digest_is_stable_and_excludes_secret_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            extra = '\n[secret_locators]\nmodel = "env:ARMI_SECRET_MODEL"\n'
+            extra = "secret_locators:\n  model: env:ARMI_SECRET_MODEL\n"
             first = self.load(
                 root,
                 extra=extra,
@@ -173,7 +173,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             root = Path(directory)
             effective = self.load(
                 root,
-                extra=('\n[secret_locators]\nmodel = "env:ARMI_SECRET_MODEL"\n'),
+                extra=("secret_locators:\n  model: env:ARMI_SECRET_MODEL\n"),
             )
             rendered = json.dumps(effective.redacted_view(), sort_keys=True)
         self.assertNotIn(str(root), rendered)
@@ -219,13 +219,13 @@ class RuntimeConfigurationTests(unittest.TestCase):
             )
         self.assertEqual(effective.config.secret_locators, {})
 
-    def test_malformed_toml_is_safely_rejected(self) -> None:
+    def test_malformed_yaml_is_safely_rejected(self) -> None:
         with (
             tempfile.TemporaryDirectory() as directory,
             self.assertRaises(ConfigurationViolation) as raised,
         ):
-            self.load(Path(directory), raw="[environment")
-        self.assertEqual(raised.exception.code, "CFG-TOML")
+            self.load(Path(directory), raw="environment:\n   broken: true\n")
+        self.assertEqual(raised.exception.code, "CFG-YAML")
         self.assertNotIn(str(directory), str(raised.exception))
 
     def test_plaintext_sensitive_key_is_rejected_without_value(self) -> None:
@@ -233,9 +233,9 @@ class RuntimeConfigurationTests(unittest.TestCase):
         sensitive_key = "pass" + "word"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            raw = _environment_toml(
+            raw = _environment_yaml(
                 root,
-                f'\n[database]\n{sensitive_key} = "{sensitive_value}"\n',
+                f"database:\n  {sensitive_key}: {sensitive_value}\n",
             )
             with self.assertRaises(ConfigurationViolation) as raised:
                 self.load(root, raw=raw)
@@ -245,8 +245,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
     def test_missing_required_fields_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            environment_path = root / "environment.toml"
-            environment_path.write_text("", encoding="utf-8")
+            environment_path = root / "environment.yaml"
+            environment_path.write_text("{}\n", encoding="utf-8")
             with self.assertRaises(ConfigurationViolation) as raised:
                 load_effective_config(
                     defaults_path=DEFAULTS,
@@ -262,22 +262,22 @@ class RuntimeConfigurationTests(unittest.TestCase):
         ):
             load_effective_config(
                 defaults_path=DEFAULTS,
-                environment_path=Path(directory) / "missing.toml",
+                environment_path=Path(directory) / "missing.yaml",
                 environment={},
             )
         self.assertEqual(raised.exception.code, "CFG-FILE")
 
     def test_uuid_port_path_and_strict_integer_rules(self) -> None:
         cases = [
-            _environment_toml(Path("relative"), ""),
-            _environment_toml(Path.cwd()).replace(
+            _environment_yaml(Path("relative"), ""),
+            _environment_yaml(Path.cwd()).replace(
                 ENVIRONMENT_ID, ENVIRONMENT_ID.upper()
             ),
-            _environment_toml(Path.cwd()).replace(
+            _environment_yaml(Path.cwd()).replace(
                 ENVIRONMENT_ID, "00000000-0000-4000-8000-000000000000"
             ),
-            _environment_toml(Path.cwd()).replace("port = 43123", "port = 1000"),
-            _environment_toml(Path.cwd(), "\n[database]\npool_min = true\n"),
+            _environment_yaml(Path.cwd()).replace("port: 43123", "port: 1000"),
+            _environment_yaml(Path.cwd(), "database:\n  pool_min: true\n"),
         ]
         for raw in cases:
             with (
@@ -289,12 +289,12 @@ class RuntimeConfigurationTests(unittest.TestCase):
 
     def test_fixed_numeric_relations_are_rejected(self) -> None:
         fragments = [
-            "\n[database]\npool_min = 13\npool_max = 12\n",
-            "\n[runtime]\nlease_seconds = 30\nheartbeat_seconds = 15\n",
-            "\n[work]\nlease_seconds = 60\nheartbeat_seconds = 30\n",
-            "\n[web]\nstep_timeout_seconds = 90\ntotal_timeout_seconds = 90\n",
-            "\n[scheduler]\nidle_poll_initial_seconds = 11\nidle_poll_max_seconds = 10\n",
-            "\n[codex]\ntotal_timeout_seconds = 3600\n",
+            "database:\n  pool_min: 13\n  pool_max: 12\n",
+            "runtime:\n  lease_seconds: 30\n  heartbeat_seconds: 15\n",
+            "work:\n  lease_seconds: 60\n  heartbeat_seconds: 30\n",
+            "web:\n  step_timeout_seconds: 90\n  total_timeout_seconds: 90\n",
+            "scheduler:\n  idle_poll_initial_seconds: 11\n  idle_poll_max_seconds: 10\n",
+            "codex:\n  total_timeout_seconds: 3600\n",
         ]
         for fragment in fragments:
             with (

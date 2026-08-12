@@ -6,12 +6,12 @@ import copy
 import hashlib
 import json
 import re
-import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Self, cast
 
+from armi_kernel import load_yaml_file
 from armi_kernel.application import CredentialPurpose
 from armi_kernel.contracts import Digest
 from pydantic import ValidationError
@@ -225,14 +225,14 @@ def load_effective_config(
     environment_path: Path,
     environment: Mapping[str, str] | None = None,
 ) -> EffectiveConfig:
-    """Apply defaults, environment TOML, then the explicit environment allowlist."""
+    """Apply YAML defaults, environment config, then explicit env overrides."""
 
-    defaults = _read_toml(defaults_path)
-    environment_values = _read_toml(environment_path)
+    defaults = _read_yaml(defaults_path)
+    environment_values = _read_yaml(environment_path)
     _reject_plaintext_secrets(defaults)
     _reject_plaintext_secrets(environment_values)
     merged = _merge(defaults, environment_values)
-    applied_sources = ["defaults.toml", "environment.toml"]
+    applied_sources = ["runtime.yaml", "environment.yaml"]
     overrides: Mapping[str, str] = environment if environment is not None else {}
     _reject_unknown_armi_environment(overrides)
     if _apply_environment_overrides(merged, overrides):
@@ -323,20 +323,17 @@ def sha256_hex(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _read_toml(path: Path) -> dict[str, Any]:
-    try:
-        content = path.read_bytes()
-    except OSError:
+def _read_yaml(path: Path) -> dict[str, Any]:
+    if not path.is_file():
         raise ConfigurationViolation(
             "CFG-FILE", "required configuration file is unavailable"
-        ) from None
+        )
     try:
-        parsed = tomllib.loads(content.decode("utf-8"))
-    except UnicodeDecodeError, tomllib.TOMLDecodeError:
+        return load_yaml_file(path)
+    except (OSError, ValueError):
         raise ConfigurationViolation(
-            "CFG-TOML", "configuration file is malformed"
+            "CFG-YAML", "configuration file is malformed"
         ) from None
-    return parsed
 
 
 def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

@@ -31,23 +31,20 @@ def make_environment(
     secrets.mkdir()
     normalized_data = data.resolve().as_posix()
     lines = [
-        "[environment]",
-        f'environment_id = "{ENVIRONMENT_ID}"',
-        f'data_root = "{normalized_data}"',
-        "",
-        "[creator]",
-        f"port = {port}",
-        "",
+        "environment:",
+        f"  environment_id: {ENVIRONMENT_ID}",
+        f'  data_root: "{normalized_data}"',
+        "creator:",
+        f"  port: {port}",
     ]
     if creator_locator:
         lines.extend(
             (
-                "[secret_locators]",
-                '"creator.bearer" = "env:ARMI_SECRET_CREATOR"',
-                "",
+                "secret_locators:",
+                "  creator.bearer: env:ARMI_SECRET_CREATOR",
             )
         )
-    (root / "environment.toml").write_text(
+    (root / "environment.yaml").write_text(
         "\n".join(lines),
         encoding="utf-8",
         newline="\n",

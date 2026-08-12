@@ -16,8 +16,9 @@ REQUIRED = {
     f"{PACKAGE_PREFIX}manifest.json",
     f"{PACKAGE_PREFIX}static/index.html",
     f"{PACKAGE_PREFIX}static/.vite/manifest.json",
-    f"{RUNTIME_PREFIX}runtime.defaults.toml",
-    f"{RUNTIME_PREFIX}runtime-composition.manifest.json",
+    f"{RUNTIME_PREFIX}runtime.yaml",
+    f"{RUNTIME_PREFIX}model-bindings.yaml",
+    f"{RUNTIME_PREFIX}web-search.yaml",
     f"{RUNTIME_PREFIX}schema/alembic/env.py",
     f"{RUNTIME_PREFIX}schema/alembic/versions/0000_baseline.py",
     *{

@@ -1,0 +1,105 @@
+schema_version: armi.model-bindings.v1
+active_binding: armi.model-adapter.volcengine-ark-responses-v1
+
+bindings:
+  - provider: volcengine_ark
+    api_base: https://ark.cn-beijing.volces.com/api/v3
+    model_id: doubao-seed-evolving
+    version_policy: provider_evolving_alias
+    profile: creator_input_cognition
+    request_contract_version: armi.model-request.v1
+    response_contract_version: armi.cognition-candidate.v7
+    response_model_identity_required: true
+    credential_identity: armi.model.ark-api-key.v1
+    credential_locator: model.ark_api_key
+    credential_purpose: model.request
+    pricing_snapshot_id: volcengine-ark-cn-2026-07-31-evolving
+    input_token_limit: 65536
+    output_token_limit: 4096
+    timeout_seconds: 180
+    input_microyuan_per_million: 6000000
+    output_microyuan_per_million: 30000000
+    attempt_cost_limit_microyuan: 1000000
+
+purpose_profiles:
+  consider_creator_input:
+    profile: creator_dialogue
+    response_contract_version: armi.creator-dialogue-candidate.v19
+    output_token_limit: 1024
+  consider_codex_result:
+    profile: codex_result
+    response_contract_version: armi.cognition-candidate.v7
+    output_token_limit: 1024
+  consider_codex_task:
+    profile: codex_task
+    response_contract_version: armi.cognition-candidate.v7
+    output_token_limit: 1024
+  consider_life_query_result:
+    profile: creator_dialogue
+    response_contract_version: armi.creator-dialogue-candidate.v19
+    output_token_limit: 1024
+  consider_creator_outreach:
+    profile: creator_outreach
+    response_contract_version: armi.creator-dialogue-candidate.v19
+    output_token_limit: 512
+  consider_other_human_input:
+    profile: other_human_dialogue
+    response_contract_version: armi.other-human-dialogue-candidate.v3
+    output_token_limit: 1024
+  consider_autonomous_life:
+    profile: autonomous_activity
+    response_contract_version: armi.autonomous-activity-candidate.v1
+    output_token_limit: 1024
+  consider_activity_attention:
+    profile: activity_attention
+    response_contract_version: armi.activity-attention-candidate.v2
+    output_token_limit: 1024
+  consider_activity_internal_work:
+    profile: activity_internal_work
+    response_contract_version: armi.activity-internal-work-candidate.v1
+    output_token_limit: 4096
+  consider_sleep:
+    profile: sleep_decision
+    response_contract_version: armi.sleep-decision-candidate.v1
+    output_token_limit: 256
+  consider_web_evidence:
+    profile: web_evidence_cognition
+    response_contract_version: armi.cognition-candidate.v7
+    output_token_limit: 1024
+  maintain_subjective_memory:
+    profile: memory_maintenance
+    response_contract_version: armi.maintenance-work-candidate.v1
+    output_token_limit: 1024
+  perform_subject_self_check:
+    profile: subject_self_check
+    response_contract_version: armi.maintenance-work-candidate.v1
+    output_token_limit: 1024
+
+embedding:
+  provider: volcengine_ark
+  api_base: https://ark.cn-beijing.volces.com/api/v3
+  model_id: doubao-embedding-vision-250615
+  model_binding: armi.embedding.volcengine-ark-doubao-vision-250615-v1
+  version_policy: fixed_model_id
+  dimensions: 1024
+  timeout_seconds: 60
+  credential_identity: armi.model.ark-api-key.v1
+  credential_locator: model.ark_api_key
+  credential_purpose: model.embedding
+
+external_content_recognition:
+  api_base: https://ark.cn-beijing.volces.com/api/v3
+  document_model_id: doubao-seed-evolving
+  image_model_id: doubao-seed-2-0-lite-260428
+  video_model_id: doubao-seed-2-0-lite-260428
+  output_token_limit: 2048
+  image_output_token_limit: 512
+  sticker_output_token_limit: 256
+  timeout_seconds: 180
+  speech_submit_url: https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit
+  speech_query_url: https://openspeech.bytedance.com/api/v3/auc/bigmodel/query
+  speech_resource_id: volc.bigasr.auc
+  speech_model_name: bigmodel
+  speech_model_version: "400"
+  speech_timeout_seconds: 180
+  speech_poll_interval_seconds: 1

@@ -15,6 +15,7 @@ from armi_kernel.application import (
     ModelResultStatus,
     ModelViolation,
 )
+from armi_kernel.config_yaml import load_yaml_file
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.model.volcengine_ark import (
     ArkTransport,
@@ -1491,33 +1492,31 @@ def test_invalid_dialogue_change_reference_cannot_suppress_a_valid_reply() -> No
 
 
 def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:
-    manifest = json.loads(
-        Path(
+    source = Path(
             "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-            "model-bindings.manifest.json"
-        ).read_text(encoding="utf-8")
-    )
+            "model-bindings.yaml"
+        )
+    manifest = load_yaml_file(source)
     manifest["bindings"].append(dict(manifest["bindings"][0]))
-    path = tmp_path / "model-bindings.manifest.json"
+    path = tmp_path / "model-bindings.yaml"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ModelViolation, match="MODEL-BINDING-MANIFEST"):
         load_active_binding(path)
 
 
 def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) -> None:
-    manifest = json.loads(
-        Path(
+    source = Path(
             "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-            "model-bindings.manifest.json"
-        ).read_text(encoding="utf-8")
-    )
+            "model-bindings.yaml"
+        )
+    manifest = load_yaml_file(source)
     manifest["purpose_profiles"]["consider_creator_input"][
         "response_contract_version"
     ] = WEB_DIALOGUE_CANDIDATE_VERSION
     manifest["purpose_profiles"]["consider_life_query_result"][
         "response_contract_version"
     ] = WEB_DIALOGUE_CANDIDATE_VERSION
-    path = tmp_path / "model-bindings.manifest.json"
+    path = tmp_path / "model-bindings.yaml"
     path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(ModelViolation, match="MODEL-BINDING-MANIFEST"):

@@ -370,26 +370,25 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
 class QQConfigTests(unittest.TestCase):
     def test_absent_file_keeps_channel_disabled(self) -> None:
         with TemporaryDirectory() as root:
-            self.assertIsNone(load_qq_napcat_config(Path(root) / "missing.toml"))
+            self.assertIsNone(load_qq_napcat_config(Path(root) / "missing.yaml"))
 
     def test_v3_loads_reply_policy(self) -> None:
         with TemporaryDirectory() as root:
-            path = Path(root) / "qq-napcat.toml"
+            path = Path(root) / "qq-napcat.yaml"
             path.write_text(
-                """schema_version = "armi.qq-napcat-channel.v3"
-enabled = true
-account_id = 10001
-creator_user_id = 90009
-api_base_url = "http://127.0.0.1:3000"
-event_port = 6199
-request_body_max_bytes = 262144
-reply_to_other_private_users = false
-reply_in_groups = false
-reply_private_user_allowlist = [30003]
-reply_group_allowlist = [20002]
-
-[allowed_groups]
-"20002" = "朋友群"
+                """schema_version: armi.qq-napcat-channel.v3
+enabled: true
+account_id: 10001
+creator_user_id: 90009
+api_base_url: http://127.0.0.1:3000
+event_port: 6199
+request_body_max_bytes: 262144
+reply_to_other_private_users: false
+reply_in_groups: false
+reply_private_user_allowlist: [30003]
+reply_group_allowlist: [20002]
+allowed_groups:
+  "20002": 朋友群
 """,
                 encoding="utf-8",
                 newline="\n",

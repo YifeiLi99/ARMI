@@ -13,6 +13,7 @@ from armi_kernel.application import (
     WebObservationToolAction,
     WebObservationViolation,
 )
+from armi_kernel.config_yaml import load_yaml_mapping
 from armi_kernel.contracts import IdempotencyKey, SubjectId, TraceId
 from armi_runtime.adapters.model.web_search_custody import (
     build_request_bytes,
@@ -77,13 +78,13 @@ class WebObservationCustodyTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "WEB-QUERY")
         manifest = Path(
             "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/"
-            "web-search-custody.manifest.json"
+            "web-search.yaml"
         ).read_bytes()
         self.assertEqual(
             load_custody_policy(manifest).binding_id,
             "armi.model-tool.volcengine-ark-web-search-v1",
         )
-        changed = json.loads(manifest)
+        changed = load_yaml_mapping(manifest)
         changed["tool_actions"].append("submit")
         with self.assertRaises(WebObservationViolation):
             load_custody_policy(json.dumps(changed).encode())

@@ -79,7 +79,7 @@ docs/                       私有叙述性设计与外部研究资料
 .\tools\manage_postgresql.ps1 Status
 ```
 
-准备好环境根的 `environment.toml`、secret locator 与出生资料后，通过正式 CLI 建立和运行环境：
+准备好环境根的 `environment.yaml`、secret locator 与出生资料后，通过正式 CLI 建立和运行环境。仓库内人工维护的默认配置集中在 `configs/`；JSON 只继续承载 OpenAPI、Schema、锁文件和 wire 等机器合同：
 
 ```powershell
 uv sync --frozen

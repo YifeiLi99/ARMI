@@ -973,7 +973,7 @@ def compose_external_content_pipeline(
                 try:
                     recognition_binding = load_external_recognition_binding(
                         Path(__file__).parent
-                        / "runtime_resources/model-bindings.manifest.json"
+                        / "runtime_resources/model-bindings.yaml"
                     )
                 except ValueError:
                     raise ModelViolation("MODEL-BINDING-MANIFEST") from None
@@ -1380,7 +1380,7 @@ def compose_web_search_pipeline(
     try:
         manifest_bytes = (
             files("armi_runtime.composition.runtime_resources")
-            .joinpath("web-search-custody.manifest.json")
+            .joinpath("web-search.yaml")
             .read_bytes()
         )
     except OSError:
