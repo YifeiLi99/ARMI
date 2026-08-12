@@ -31,7 +31,7 @@ class CompositionManifestTests(unittest.TestCase):
             [
                 (
                     "M0-SEAM-CONTEXT",
-                    "armi.context-compiler.deterministic-v1",
+                    "armi.context-compiler.layered-v2",
                 ),
                 (
                     "M0-SEAM-MODEL",

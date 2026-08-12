@@ -1035,6 +1035,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             (
                 schema_root / "alembic/versions/0003_dialogue_prompt_contracts.py"
             ).unlink()
+            (
+                schema_root
+                / "alembic/versions/0004_context_embedding_projections.py"
+            ).unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1044,7 +1048,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0003")
+        self.assertEqual(migrated.current_revision, "0004")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1064,6 +1068,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                          WHERE table_schema = 'armi'
                            AND table_name = 'external_message_parts'
                            AND column_name = 'visual_role'
+                       ),
+                       to_regclass('armi.context_embedding_projections'),
+                       to_regclass('armi.context_embedding_attempts'),
+                       to_regclass('armi.context_model_cache_hit_ratios'),
+                       has_table_privilege(
+                         current_user,
+                         'armi.context_embedding_projections',
+                         'SELECT,INSERT,DELETE'
                        )
                 """
             ).fetchone()
@@ -1074,6 +1086,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "external_content_recognition_attempts",
                 True,
                 True,
+                True,
+                "context_embedding_projections",
+                "context_embedding_attempts",
+                "context_model_cache_hit_ratios",
                 True,
             ),
         )
@@ -1126,10 +1142,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0004_probe.py").write_text(
+            (schema_root / "alembic/versions/0005_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0004'\n"
-                "down_revision = '0003'\n"
+                "revision = '0005'\n"
+                "down_revision = '0004'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1184,8 +1200,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0004")
-            self.assertEqual(migrated.head_revision, "0004")
+            self.assertEqual(migrated.current_revision, "0005")
+            self.assertEqual(migrated.head_revision, "0005")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1206,10 +1222,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0004_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0005_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0004'\n"
-                "down_revision = '0003'\n"
+                "revision = '0005'\n"
+                "down_revision = '0004'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1234,7 +1250,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0003",)])
+            self.assertEqual(history, [("0004",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -3759,7 +3775,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 SELECT uuidv7(), uuidv7(), %s, 'consider_autonomous_life',
                        'preparing', 0, 0, uuidv7(),
-                       'armi.context-compiler.deterministic-v1',
+                       'armi.context-compiler.layered-v2',
                        repeat('2', 32)
                 FROM generate_series(1, 10000)
                 """,
@@ -5058,7 +5074,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     context_digest, trace_id, prepared_at, model_returned_at,
                     final_disposition, validated_at) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
                           'candidate_validated', 0, 0, %s,
-                          'armi.context-compiler.deterministic-v1',
+                          'armi.context-compiler.layered-v2',
                           %s, %s, %s, %s, statement_timestamp(),
                           statement_timestamp(), 'change', statement_timestamp())
                 """,
@@ -6267,7 +6283,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0003",)])
+            self.assertEqual(restored, [("0004",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

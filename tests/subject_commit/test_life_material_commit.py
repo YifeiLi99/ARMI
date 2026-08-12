@@ -112,6 +112,8 @@ class _MaterialConnection:
             if params[1] == "deleted":
                 material["deleted_at"] = "deleted"
             return _Result((params[2],))
+        if "DELETE FROM armi.context_embedding_projections" in query:
+            return _Result()
         raise AssertionError(f"unexpected SQL: {query}")
 
 

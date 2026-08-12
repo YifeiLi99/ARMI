@@ -52,6 +52,18 @@ class ContextSection(StrEnum):
     PROMPT = "prompt"
 
 
+class ContextRequirement(StrEnum):
+    REQUIRED = "required"
+    OPTIONAL = "optional"
+
+
+class ContextLayer(StrEnum):
+    STABLE_PREFIX = "stable_prefix"
+    SCOPE_CONTEXT = "scope_context"
+    CONVERSATION_HISTORY = "conversation_history"
+    TURN_TAIL = "turn_tail"
+
+
 class ContextItemDisposition(StrEnum):
     INCLUDED = "included"
     EXCLUDED_POLICY = "excluded_policy"
@@ -103,7 +115,8 @@ class ContextItemCandidate:
     trust_class: ContextTrustClass
     privacy_scope: str
     content: str | None
-    required: bool
+    requirement: ContextRequirement
+    layer: ContextLayer
     relevance: int
     business_time: Instant | None = None
     unavailable_reason: str | None = None
@@ -113,18 +126,21 @@ class ContextItemCandidate:
             type(self.section) is not ContextSection
             or type(self.source) is not ContextSourceIdentity
             or type(self.trust_class) is not ContextTrustClass
+            or type(self.requirement) is not ContextRequirement
+            or type(self.layer) is not ContextLayer
         ):
             raise ContextViolation("CTX-ITEM")
         _require_token(self.item_kind)
         _require_token(self.privacy_scope)
-        if type(self.required) is not bool:
-            raise ContextViolation("CTX-ITEM")
         if type(self.relevance) is not int or not 0 <= self.relevance <= 100:
             raise ContextViolation("CTX-ITEM")
         if self.business_time is not None and type(self.business_time) is not Instant:
             raise ContextViolation("CTX-ITEM")
         if self.content is None:
-            if self.source.reference is not None or self.required:
+            if (
+                self.source.reference is not None
+                or self.requirement is ContextRequirement.REQUIRED
+            ):
                 raise ContextViolation("CTX-ITEM")
             if (
                 type(self.unavailable_reason) is not str
@@ -137,6 +153,10 @@ class ContextItemCandidate:
             self.content.encode("utf-8", errors="strict") if self.content else b""
         except UnicodeEncodeError:
             raise ContextViolation("CTX-UNICODE") from None
+
+    @property
+    def required(self) -> bool:
+        return self.requirement is ContextRequirement.REQUIRED
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,7 +281,9 @@ __all__ = (
     "ContextItemCandidate",
     "ContextItemDisposition",
     "ContextItemResult",
+    "ContextLayer",
     "ContextRequest",
+    "ContextRequirement",
     "ContextResult",
     "ContextSection",
     "ContextSourceIdentity",

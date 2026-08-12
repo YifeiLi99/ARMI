@@ -43,7 +43,7 @@ from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = "cognition.context.prepare"
 _MODEL_WORK_KIND = "cognition.model.invoke"
-_MECHANISM = "armi.context-compiler.deterministic-v1"
+_MECHANISM = "armi.context-compiler.layered-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +116,7 @@ class ContextEpisodeSnapshot:
     episode_id: UUID
     opportunity_id: UUID
     subject_id: UUID
+    life_generation_id: UUID
     scene_id: UUID | None
     creator_party_id: UUID | None
     other_party_id: UUID | None
@@ -551,8 +552,8 @@ class PostgreSQLContextRepository:
                   ON revision.memory_revision_id = memory.current_revision_id
                 WHERE memory.subject_id = %s
                   AND memory.life_generation_id = %s
+                  AND %s = 'maintain_subjective_memory'
                   AND revision.accessibility IN ('available', 'faded')
-                  AND %s <> 'consider_other_human_input'
                   AND NOT EXISTS (
                       SELECT 1 FROM armi.deletion_items AS deletion_item
                       WHERE deletion_item.target_kind = 'memory'
@@ -708,50 +709,7 @@ class PostgreSQLContextRepository:
             for item in relationship_rows
             for issue in item[8]
         )
-        material_rows = await (
-            await connection.execute(
-                """
-                SELECT material.life_material_id,
-                       material.current_revision_id,
-                       material.head_version,
-                       material.owner_party_id,
-                       material.material_kind,
-                       revision.title,
-                       revision.metadata,
-                       revision.material_status,
-                       revision.privacy_status,
-                       revision.artifact_id
-                FROM armi.life_materials AS material
-                JOIN armi.life_material_revisions AS revision
-                  ON revision.life_material_revision_id =
-                     material.current_revision_id
-                WHERE material.subject_id = %s
-                  AND material.life_generation_id = %s
-                  AND material.deleted_at IS NULL
-                  AND %s <> 'consider_other_human_input'
-                ORDER BY material.updated_at DESC, material.life_material_id
-                LIMIT 4
-                """,
-                (row[2], row[27], row[20]),
-            )
-        ).fetchall()
-        material_source_values: list[ContextMaterialSource] = []
-        for item in material_rows:
-            material_source_values.append(
-                ContextMaterialSource(
-                    await self._artifact_ref(connection, item[9]),
-                    item[0],
-                    item[1],
-                    int(item[2]),
-                    item[3],
-                    str(item[4]),
-                    str(item[5]),
-                    _material_metadata(item[6]),
-                    str(item[7]),
-                    str(item[8]),
-                )
-            )
-        material_sources = tuple(material_source_values)
+        material_sources: tuple[ContextMaterialSource, ...] = ()
         activity_rows = await (
             await connection.execute(
                 """
@@ -1025,6 +983,7 @@ class PostgreSQLContextRepository:
             episode_id=row[0],
             opportunity_id=row[1],
             subject_id=row[2],
+            life_generation_id=row[27],
             scene_id=row[3],
             creator_party_id=(
                 None if str(row[20]) == "consider_other_human_input" else row[4]

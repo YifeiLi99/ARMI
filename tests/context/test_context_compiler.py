@@ -10,7 +10,9 @@ import pytest
 from armi_kernel.application import (
     ContextItemCandidate,
     ContextItemDisposition,
+    ContextLayer,
     ContextRequest,
+    ContextRequirement,
     ContextSection,
     ContextSourceIdentity,
     ContextTrustClass,
@@ -37,6 +39,15 @@ def _candidate(
         source = ContextSourceIdentity("not_implemented", None, None)
     else:
         source = ContextSourceIdentity(item_kind, uuid7(), 1)
+    layer = (
+        ContextLayer.STABLE_PREFIX
+        if section in {ContextSection.SELF, ContextSection.MIND, ContextSection.PROMPT}
+        else ContextLayer.CONVERSATION_HISTORY
+        if item_kind == "recent_scene_turn"
+        else ContextLayer.SCOPE_CONTEXT
+        if item_kind == "current_scene"
+        else ContextLayer.TURN_TAIL
+    )
     return ContextItemCandidate(
         section,
         item_kind,
@@ -48,7 +59,8 @@ def _candidate(
         ),
         "private",
         content,
-        required,
+        ContextRequirement.REQUIRED if required else ContextRequirement.OPTIONAL,
+        layer,
         relevance,
         Instant(business_time or datetime(2026, 1, 1, tzinfo=UTC))
         if content is not None
@@ -95,8 +107,11 @@ def test_same_snapshot_compiles_byte_for_byte_and_keeps_external_text_as_data() 
     assert first == second
     payload = json.loads(first.compiled.canonical_bytes)
     evidence = next(
-        section for section in payload["sections"] if section["section"] == "evidence"
-    )["items"][0]
+        item
+        for layer in payload["layers"]
+        for item in layer["items"]
+        if item["section"] == "evidence"
+    )
     assert evidence["trust"] == "external_claim"
     assert evidence["content"] == malicious
     assert "instruction" not in evidence
@@ -175,7 +190,54 @@ def test_identity_changes_change_context_digest() -> None:
     )
 
 
-def test_compiled_budget_removes_oldest_complete_turn_before_memory_tail() -> None:
+def test_current_input_changes_only_turn_tail_and_is_always_last() -> None:
+    stable = (
+        _candidate(ContextSection.PROMPT, "fixed_prompt", "fixed", required=True),
+        _candidate(ContextSection.SELF, "self", "self", required=True),
+        _candidate(ContextSection.MIND, "mind", "mind", required=True),
+    )
+    memory = _candidate(
+        ContextSection.MEMORY,
+        "current_memory",
+        "recalled",
+        relevance=75,
+    )
+    first = DeterministicContextCompiler().compile(
+        _request(
+            (
+                *stable,
+                memory,
+                _candidate(
+                    ContextSection.EVIDENCE,
+                    "current_evidence",
+                    "first",
+                    required=True,
+                ),
+            )
+        )
+    )
+    second = DeterministicContextCompiler().compile(
+        _request(
+            (
+                *stable,
+                memory,
+                _candidate(
+                    ContextSection.EVIDENCE,
+                    "current_evidence",
+                    "second",
+                    required=True,
+                ),
+            )
+        )
+    )
+    first_value = json.loads(first.compiled.canonical_bytes)
+    second_value = json.loads(second.compiled.canonical_bytes)
+    assert first_value["layers"][:3] == second_value["layers"][:3]
+    assert first_value["layers"][3]["items"][-1]["item_kind"] == "current_evidence"
+    assert second_value["layers"][3]["items"][-1]["content"] == "second"
+
+
+def test_compiled_budget_removes_recall_before_oldest_complete_turn() -> None:
     first_time = datetime(2026, 1, 1, 1, tzinfo=UTC)
     second_time = datetime(2026, 1, 1, 2, tzinfo=UTC)
     old_user = _candidate(
@@ -226,9 +288,9 @@ def test_compiled_budget_removes_oldest_complete_turn_before_memory_tail() -> No
     )
 
     dispositions = {id(item.candidate): item.disposition for item in result.items}
-    assert dispositions[id(old_user)] is ContextItemDisposition.EXCLUDED_BUDGET
-    assert dispositions[id(old_reply)] is ContextItemDisposition.EXCLUDED_BUDGET
+    assert dispositions[id(old_user)] is ContextItemDisposition.INCLUDED
+    assert dispositions[id(old_reply)] is ContextItemDisposition.INCLUDED
     assert dispositions[id(new_user)] is ContextItemDisposition.INCLUDED
     assert dispositions[id(new_reply)] is ContextItemDisposition.INCLUDED
-    assert dispositions[id(memory)] is ContextItemDisposition.INCLUDED
+    assert dispositions[id(memory)] is ContextItemDisposition.EXCLUDED_BUDGET
     assert dispositions[id(current)] is ContextItemDisposition.INCLUDED

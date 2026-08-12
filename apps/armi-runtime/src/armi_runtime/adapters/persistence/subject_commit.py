@@ -1653,6 +1653,14 @@ async def _apply_memory_revisions(
         ).fetchone()
         if updated is None:
             raise SubjectCommitViolation("SUBJECT-MEMORY-HEAD-STALE")
+        if revision.accessibility.value == "forgotten":
+            await connection.execute(
+                """
+                DELETE FROM armi.context_embedding_projections
+                WHERE source_kind = 'subjective_memory' AND source_ref = %s
+                """,
+                (revision.memory_id,),
+            )
 
         if revision.related_memory_id is not None:
             related = await (

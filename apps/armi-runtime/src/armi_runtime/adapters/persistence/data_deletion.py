@@ -87,6 +87,17 @@ class LocalDataDeletionRepository:
             (order_id,),
         )
         await self._insert_logical_items(connection, order_id, party_id)
+        await connection.execute(
+            """
+            DELETE FROM armi.context_embedding_projections AS projection
+            USING armi.deletion_items AS item
+            WHERE item.deletion_order_id = %s
+              AND item.target_kind = 'memory'
+              AND item.target_ref = projection.source_ref
+              AND projection.source_kind = 'subjective_memory'
+            """,
+            (order_id,),
+        )
         artifact_ids = await self._related_artifact_ids(connection, party_id)
         reference_columns = await self._artifact_reference_columns(connection)
         items: list[DeletionArtifactItem] = []

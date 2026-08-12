@@ -10,7 +10,7 @@
         "M0-S023",
         "P1-S002"
       ],
-      "active_binding": "armi.context-compiler.deterministic-v1",
+      "active_binding": "armi.context-compiler.layered-v2",
       "runtime_discovery": false,
       "seam_id": "M0-SEAM-CONTEXT"
     },

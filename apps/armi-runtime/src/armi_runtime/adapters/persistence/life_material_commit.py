@@ -209,6 +209,14 @@ async def apply_life_materials(
             ).fetchone()
             if updated is None:
                 raise SubjectCommitViolation("SUBJECT-MATERIAL-HEAD-STALE")
+            if material.revision_kind.value == "deleted":
+                await connection.execute(
+                    """
+                    DELETE FROM armi.context_embedding_projections
+                    WHERE source_kind = 'life_material' AND source_ref = %s
+                    """,
+                    (material.material_id,),
+                )
 
 
 __all__ = ("apply_life_materials",)

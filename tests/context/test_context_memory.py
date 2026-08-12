@@ -74,7 +74,7 @@ def _snapshot(
             creator_prompt=creator_prompt,
             subject_prompt=subject_prompt,
             policy_version="context-policy.v1",
-            mechanism_identity="armi.context-compiler.deterministic-v1",
+            mechanism_identity="armi.context-compiler.layered-v2",
             trace_id=TraceId("1" * 32),
         ),
     )
@@ -513,9 +513,12 @@ def test_context_includes_current_relationship_or_explicitly_reports_none() -> N
         web_search_active=False,
     )
     empty = next(
-        item for item in empty_request.items if item.item_kind == "relationship"
+        item
+        for item in empty_request.items
+        if item.item_kind == "current_relationship"
     )
-    assert empty.unavailable_reason == "CTX-RELATIONSHIP-NONE"
+    assert empty.content == '{"status":"none"}'
+    assert empty.required
 
 
 def test_context_includes_current_life_material_with_revision_identity() -> None:
@@ -621,7 +624,7 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
     assert b"private-material" not in compiled
     assert b"private-activity" not in compiled
     assert b"creator-capability" not in compiled
-    assert b"other-relationship-secret" not in compiled
+    assert b"other-relationship-secret" in compiled
 
 
 def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -> None:
@@ -692,6 +695,20 @@ def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
                 ref=SimpleNamespace(content_digest=Digest.from_bytes(payload)),
             ),
         )
+        reply_payload = rfc8785.dumps({"speaker": "armi", "text": "reply"})
+        reply_source = cast(
+            ContextSceneTurnSource,
+            SimpleNamespace(
+                timeline_item_id=uuid7(),
+                source_version=1,
+                speaker="armi",
+                speaker_label=None,
+                occurred_at=datetime(2026, 8, 6, 10, 1, tzinfo=UTC),
+                ref=SimpleNamespace(
+                    content_digest=Digest.from_bytes(reply_payload)
+                ),
+            ),
+        )
         return _context_request(
             _snapshot(
                 (),
@@ -700,7 +717,10 @@ def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
             ),
             None,
             b"fixed prompt",
-            recent_scene_payloads=((source, payload),),
+            recent_scene_payloads=(
+                (source, payload),
+                (reply_source, reply_payload),
+            ),
             web_search_active=False,
         )
 
@@ -712,7 +732,7 @@ def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
     beta_turns = tuple(
         item.content for item in beta.items if item.item_kind == "recent_scene_turn"
     )
-    assert len(alpha_turns) == len(beta_turns) == 1
+    assert len(alpha_turns) == len(beta_turns) == 2
     assert "alpha only" in cast(str, alpha_turns[0])
     assert "beta only" not in cast(str, alpha_turns[0])
     assert "beta only" in cast(str, beta_turns[0])

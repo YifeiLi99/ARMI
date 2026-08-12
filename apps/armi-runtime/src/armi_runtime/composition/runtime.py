@@ -73,6 +73,7 @@ from .database import (
     compose_candidate_validation_pipeline,
     compose_capability_policy,
     compose_codex_pipeline,
+    compose_context_embedding_pipeline,
     compose_context_pipeline,
     compose_creator_activity_query,
     compose_creator_export_service,
@@ -198,6 +199,7 @@ async def _serve(
     other_human_record_query = None
     life_opportunity_pipeline = None
     context_pipeline = None
+    context_embedding_pipeline = None
     model_pipeline = None
     candidate_pipeline = None
     subject_commit_pipeline = None
@@ -512,6 +514,20 @@ async def _serve(
                     )
             if "model.ark_api_key" in config.secret_locators:
                 try:
+                    context_embedding_pipeline = compose_context_embedding_pipeline(
+                        prepared,
+                        authority_admission=authority.require_writable,
+                    )
+                    await context_embedding_pipeline.open()
+                except ModelViolation:
+                    context_embedding_pipeline = None
+                    lifecycle.add_degradation("RUNTIME_SEMANTIC_RECALL_UNAVAILABLE")
+                    diagnostic.emit(
+                        "runtime.semantic_recall.unavailable",
+                        level=logging.WARNING,
+                        result_code="SEMANTIC_RECALL_UNAVAILABLE",
+                    )
+                try:
                     model_pipeline = compose_model_pipeline(
                         prepared,
                         authority_admission=authority.require_writable,
@@ -651,6 +667,8 @@ async def _serve(
                 await qq_channel.close()
             if context_pipeline is not None:
                 await context_pipeline.close()
+            if context_embedding_pipeline is not None:
+                await context_embedding_pipeline.close()
             if life_opportunity_pipeline is not None:
                 await life_opportunity_pipeline.close()
             if model_pipeline is not None:
@@ -766,6 +784,11 @@ async def _serve(
             supervisor.start(
                 context_pipeline.run_worker(),
                 name="context-prepare-worker",
+            )
+        if context_embedding_pipeline is not None:
+            supervisor.start(
+                context_embedding_pipeline.run_worker(),
+                name="context-embedding-worker",
             )
         if life_opportunity_pipeline is not None:
             supervisor.start(
@@ -885,6 +908,8 @@ async def _serve(
             external_content_pipeline.stop()
         if context_pipeline is not None:
             context_pipeline.stop()
+        if context_embedding_pipeline is not None:
+            context_embedding_pipeline.stop()
         if life_opportunity_pipeline is not None:
             life_opportunity_pipeline.stop()
         if exact_life_query_pipeline is not None:
@@ -912,6 +937,8 @@ async def _serve(
         )
         if context_pipeline is not None:
             await context_pipeline.close()
+        if context_embedding_pipeline is not None:
+            await context_embedding_pipeline.close()
         if life_opportunity_pipeline is not None:
             await life_opportunity_pipeline.close()
         if exact_life_query_pipeline is not None:
@@ -1015,6 +1042,7 @@ async def _serve(
             life_opportunity_pipeline,
             exact_life_query_pipeline,
             context_pipeline,
+            context_embedding_pipeline,
             model_pipeline,
             web_search_pipeline,
             web_research_pipeline,

@@ -89,6 +89,10 @@ from .candidate_pipeline import (
 )
 from .codex_pipeline import CodexEffectPipeline
 from .configuration import ConfigurationViolation
+from .context_embedding_pipeline import (
+    ContextEmbeddingPipeline,
+    build_context_embedding_pipeline,
+)
 from .context_pipeline import ContextPipeline, build_context_pipeline
 from .creator_exports import CreatorExportService, build_creator_export_service
 from .creator_input import (
@@ -1205,6 +1209,9 @@ def compose_context_pipeline(
     """Resolve the Runtime credential for the active S023 selector and worker."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    embedding_locator = prepared.effective.config.secret_locators.get(
+        MODEL_LOCATOR_NAME
+    )
     if locator is None:
         raise DatabaseViolation(
             "DB-CONNECTION-UNAVAILABLE",
@@ -1246,6 +1253,8 @@ def compose_context_pipeline(
                     web_search_active=prepared.composition.web_search_active,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
+                    credential_port=prepared.credential_port,
+                    embedding_credential_locator=embedding_locator,
                 )
 
             return handle.consume(create)
@@ -1256,6 +1265,49 @@ def compose_context_pipeline(
             status="unavailable",
             exit_code=3,
         ) from None
+
+
+def compose_context_embedding_pipeline(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+) -> ContextEmbeddingPipeline:
+    database_locator = prepared.effective.config.secret_locators.get(
+        RUNTIME_LOCATOR_NAME
+    )
+    embedding_locator = prepared.effective.config.secret_locators.get(
+        MODEL_LOCATOR_NAME
+    )
+    if database_locator is None or embedding_locator is None:
+        raise ModelViolation("MODEL-CREDENTIAL")
+    try:
+        with prepared.credential_port.resolve(
+            database_locator, CredentialPurpose("database.runtime")
+        ) as handle:
+
+            def create(value: memoryview) -> ContextEmbeddingPipeline:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise ModelViolation("MODEL-DATABASE") from None
+                config = prepared.effective.config
+                return build_context_embedding_pipeline(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    data_root=prepared.data_root,
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
+                    credential_port=prepared.credential_port,
+                    credential_locator=embedding_locator,
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise ModelViolation("MODEL-CREDENTIAL") from None
 
 
 def compose_model_pipeline(

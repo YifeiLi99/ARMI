@@ -31,10 +31,14 @@ from armi_kernel.application import (
     CognitiveEpisodeId,
     ContextItemCandidate,
     ContextRequest,
+    ContextRequirement,
     ContextSection,
     ContextSourceIdentity,
     ContextTrustClass,
     ContextViolation,
+    CredentialLocator,
+    CredentialPort,
+    ModelViolation,
     OpportunitySelector,
     RuntimeFence,
     WorkLease,
@@ -42,6 +46,9 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 
+from armi_runtime.adapters.model.volcengine_embedding import (
+    VolcengineArkEmbeddingAdapter,
+)
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
 )
@@ -51,6 +58,10 @@ from armi_runtime.adapters.persistence.context import (
     ContextMaterialSource,
     ContextSceneTurnSource,
     PostgreSQLContextRepository,
+)
+from armi_runtime.adapters.persistence.context_embedding import (
+    PostgreSQLContextEmbeddingRepository,
+    RecalledContext,
 )
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
@@ -65,6 +76,8 @@ from .context_compiler import (
     CONTEXT_POLICY_VERSION,
     DeterministicContextCompiler,
 )
+from .context_embedding import RecallStatus, load_embedding_binding
+from .context_profiles import ContextAssemblyProfile, context_profile
 from .work_wakeup import (
     CONTEXT_PREPARE,
     MODEL_INVOKE,
@@ -91,6 +104,8 @@ class ContextPipeline(OpportunitySelector):
         "_catalog",
         "_compiler",
         "_diagnostic",
+        "_embedding",
+        "_embedding_repository",
         "_factory",
         "_lease_owner",
         "_policy_version",
@@ -111,6 +126,7 @@ class ContextPipeline(OpportunitySelector):
         web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
+        embedding: VolcengineArkEmbeddingAdapter | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
@@ -124,6 +140,8 @@ class ContextPipeline(OpportunitySelector):
         self._stop = asyncio.Event()
         self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
+        self._embedding = embedding
+        self._embedding_repository = PostgreSQLContextEmbeddingRepository()
 
     async def open(self) -> None:
         try:
@@ -184,6 +202,12 @@ class ContextPipeline(OpportunitySelector):
                 if snapshot.subject_prompt is None
                 else await self._read_source(snapshot.subject_prompt, snapshot)
             )
+            recalled = await self._recall(
+                snapshot,
+                evidence_bytes
+                or snapshot.outreach_trigger_bytes
+                or snapshot.activity_summary_bytes,
+            )
             material_payloads: list[tuple[ContextMaterialSource, bytes]] = []
             for source in snapshot.material_sources:
                 material_payloads.append(
@@ -203,7 +227,9 @@ class ContextPipeline(OpportunitySelector):
                 subject_prompt_bytes,
                 tuple(recent_scene_payloads),
                 web_search_active=self._web_search_active,
+                recalled_context=recalled,
             )
+            context_profile(snapshot.purpose).validate(request.items)
             result = self._compiler.compile(request)
             manifest = await self._publish(
                 result.manifest_bytes,
@@ -319,6 +345,29 @@ class ContextPipeline(OpportunitySelector):
             raise ContextViolation("CTX-SOURCE-INVALID") from None
         del snapshot
         return value
+
+    async def _recall(
+        self,
+        snapshot: ContextEpisodeSnapshot,
+        query_bytes: bytes,
+    ) -> RecalledContext | None:
+        profile = context_profile(snapshot.purpose)
+        if not profile.retrieval_kinds:
+            return None
+        if self._embedding is None:
+            return RecalledContext(RecallStatus.UNAVAILABLE, (), ())
+        try:
+            query = query_bytes.decode("utf-8", errors="strict")[:1500]
+            response = await self._embedding.embed(query)
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                return await self._embedding_repository.recall(
+                    unit_of_work,
+                    subject_id=snapshot.subject_id,
+                    life_generation_id=snapshot.life_generation_id,
+                    query_vector=response.vector,
+                )
+        except (UnicodeDecodeError, ModelViolation, DatabaseTransactionError):
+            return RecalledContext(RecallStatus.UNAVAILABLE, (), ())
 
     async def _read_material_source(
         self,
@@ -448,6 +497,25 @@ def _scene_turn_content(source: ContextSceneTurnSource, payload: bytes) -> str:
     return f"[{source.speaker_label}] {content}"
 
 
+def _complete_recent_turns(
+    values: tuple[tuple[ContextSceneTurnSource, bytes], ...],
+) -> tuple[tuple[ContextSceneTurnSource, bytes], ...]:
+    complete: list[tuple[ContextSceneTurnSource, bytes]] = []
+    index = 0
+    while index + 1 < len(values):
+        first = values[index]
+        second = values[index + 1]
+        if (
+            first[0].speaker in {"creator", "other_human"}
+            and second[0].speaker == "armi"
+        ):
+            complete.extend((first, second))
+            index += 2
+        else:
+            index += 1
+    return tuple(complete[-8:])
+
+
 def _context_request(
     snapshot: ContextEpisodeSnapshot,
     evidence_bytes: bytes | None,
@@ -458,7 +526,9 @@ def _context_request(
     recent_scene_payloads: tuple[tuple[ContextSceneTurnSource, bytes], ...] = (),
     *,
     web_search_active: bool,
+    recalled_context: RecalledContext | None = None,
 ) -> ContextRequest:
+    profile = context_profile(snapshot.purpose)
     runtime_bytes = rfc8785.dumps(
         {
             "subject_id": str(snapshot.subject_id),
@@ -469,6 +539,7 @@ def _context_request(
     )
     items: list[ContextItemCandidate] = [
         _item(
+            profile,
             ContextSection.RUNTIME_TRUTH,
             "runtime_identity",
             snapshot.bundle_activation_id,
@@ -479,6 +550,7 @@ def _context_request(
             relevance=100,
         ),
         _item(
+            profile,
             ContextSection.RUNTIME_TRUTH,
             "resource_snapshot",
             UUID("01985d00-0000-7000-8000-000000000029"),
@@ -498,6 +570,7 @@ def _context_request(
             source_kind="resource_snapshot",
         ),
         _item(
+            profile,
             ContextSection.PURPOSE,
             "current_purpose",
             snapshot.opportunity_id,
@@ -514,27 +587,27 @@ def _context_request(
         "life_mode": ContextSection.LIFE_MODE,
     }
     for kind, source_id, version, payload in snapshot.component_payloads:
-        if snapshot.purpose == "consider_other_human_input" and kind != "self":
-            continue
         items.append(
-            ContextItemCandidate(
+            _candidate(
+                profile,
                 section_by_component[kind],
                 kind,
                 ContextSourceIdentity(kind, source_id, version),
                 ContextTrustClass.SUBJECTIVE_STATE,
                 "private",
                 payload.decode("utf-8"),
-                kind == "self"
+                requested_required=kind == "self"
                 or (
                     snapshot.purpose == "perform_subject_self_check"
                     and kind in {"self", "mind"}
                 ),
-                90,
+                relevance=90,
             )
         )
     if snapshot.scene_id is not None:
         items.append(
             _item(
+                profile,
                 ContextSection.SCENE,
                 "current_scene",
                 snapshot.scene_id,
@@ -551,9 +624,10 @@ def _context_request(
                 relevance=80,
             )
         )
-        for source, payload in recent_scene_payloads:
+        for source, payload in _complete_recent_turns(recent_scene_payloads):
             items.append(
-                ContextItemCandidate(
+                _candidate(
+                    profile,
                     ContextSection.SCENE,
                     "recent_scene_turn",
                     ContextSourceIdentity(
@@ -572,18 +646,36 @@ def _context_request(
                         else "creator_visible"
                     ),
                     _scene_turn_content(source, payload),
-                    False,
-                    88,
-                    Instant(source.occurred_at),
+                    requested_required=False,
+                    relevance=88,
+                    business_time=Instant(source.occurred_at),
                 )
             )
     accessible_memories = tuple(
         item
         for item in snapshot.memory_payloads
         if item[3] in {"available", "faded"}
-        and snapshot.purpose != "perform_subject_self_check"
-        and snapshot.purpose != "consider_other_human_input"
+        and (
+            "current_memory" in profile.retrieval_kinds
+            or snapshot.purpose == "maintain_subjective_memory"
+        )
     )
+    if recalled_context is not None:
+        accessible_memories = tuple(
+            (
+                memory_id,
+                version,
+                rfc8785.dumps(
+                    {
+                        "summary": summary,
+                        "accessibility": "recalled",
+                        "similarity": similarity,
+                    }
+                ),
+                "available",
+            )
+            for memory_id, version, summary, similarity in recalled_context.memories
+        )
     if accessible_memories:
         for (
             memory_id,
@@ -592,20 +684,25 @@ def _context_request(
             accessibility,
         ) in accessible_memories:
             items.append(
-                ContextItemCandidate(
+                _candidate(
+                    profile,
                     ContextSection.MEMORY,
                     "current_memory",
                     ContextSourceIdentity("subjective_memory", memory_id, version),
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
                     payload.decode("utf-8"),
-                    False,
-                    85 if accessibility == "available" else 70,
+                    requested_required=False,
+                    relevance=85 if accessibility == "available" else 70,
                 )
             )
-    else:
+    elif (
+        recalled_context is None
+        and "current_memory" not in profile.forbidden_kinds
+    ):
         items.append(
             _unavailable(
+                profile,
                 ContextSection.MEMORY,
                 "memory",
                 reason=(
@@ -615,10 +712,15 @@ def _context_request(
                 ),
             )
         )
-    if material_payloads and snapshot.purpose != "consider_other_human_input":
+    if (
+        recalled_context is None
+        and material_payloads
+        and "current_material" in profile.retrieval_kinds
+    ):
         for source, payload in material_payloads:
             items.append(
-                ContextItemCandidate(
+                _candidate(
+                    profile,
                     ContextSection.MATERIAL,
                     "current_material",
                     ContextSourceIdentity(
@@ -629,13 +731,59 @@ def _context_request(
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
                     payload.decode("utf-8", errors="strict"),
-                    False,
-                    82,
+                    requested_required=False,
+                    relevance=82,
                 )
             )
-    else:
+    if recalled_context is not None and "current_material" in profile.retrieval_kinds:
+        for material_id, version, chunk, similarity in recalled_context.materials:
+            items.append(
+                _candidate(
+                    profile,
+                    ContextSection.MATERIAL,
+                    "current_material",
+                    ContextSourceIdentity("life_material", material_id, version),
+                    ContextTrustClass.SUBJECTIVE_STATE,
+                    "private",
+                    rfc8785.dumps(
+                        {"chunk": chunk, "similarity": similarity}
+                    ).decode("utf-8"),
+                    requested_required=False,
+                    relevance=max(0, min(100, round(similarity * 100))),
+                )
+            )
+        items.append(
+            _candidate(
+                profile,
+                ContextSection.MATERIAL,
+                "recall_status",
+                ContextSourceIdentity(
+                    "semantic_recall", snapshot.opportunity_id, 1
+                ),
+                ContextTrustClass.RUNTIME_AUTHORITY,
+                "private",
+                rfc8785.dumps(
+                    {
+                        "status": recalled_context.status.value,
+                        "signal": (
+                            "recall_unavailable"
+                            if recalled_context.status is RecallStatus.UNAVAILABLE
+                            else None
+                        ),
+                    }
+                ).decode("utf-8"),
+                requested_required=False,
+                relevance=100,
+            )
+        )
+    elif (
+        recalled_context is None
+        and not material_payloads
+        and "current_material" not in profile.forbidden_kinds
+    ):
         items.append(
             _unavailable(
+                profile,
                 ContextSection.MATERIAL,
                 "material",
                 reason="CTX-MATERIAL-NONE",
@@ -653,44 +801,64 @@ def _context_request(
         authorization_status,
     ) in capability_states:
         items.append(
-            ContextItemCandidate(
+            _candidate(
+                profile,
                 ContextSection.CAPABILITY,
                 f"capability_state_{authorization_status}",
                 ContextSourceIdentity("capability_state", capability_id, version),
                 ContextTrustClass.RUNTIME_AUTHORITY,
                 "private",
                 payload.decode("utf-8", errors="strict"),
-                False,
-                100 if authorization_status == "pending" else 96,
+                requested_required=False,
+                relevance=100 if authorization_status == "pending" else 96,
             )
         )
     if snapshot.relationship_payloads:
         for relationship_id, version, payload in snapshot.relationship_payloads:
             items.append(
-                ContextItemCandidate(
+                _candidate(
+                    profile,
                     ContextSection.RELATIONSHIP,
                     "current_relationship",
                     ContextSourceIdentity("relationship", relationship_id, version),
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
                     payload.decode("utf-8"),
-                    snapshot.purpose
+                    requested_required=snapshot.purpose
                     in {
                         "consider_creator_input",
                         "consider_life_query_result",
                         "consider_other_human_input",
                     },
-                    96,
+                    relevance=96,
                 )
             )
     else:
-        items.append(
-            _unavailable(
-                ContextSection.RELATIONSHIP,
-                "relationship",
-                reason="CTX-RELATIONSHIP-NONE",
+        if "current_relationship" in profile.required_kinds:
+            items.append(
+                _candidate(
+                    profile,
+                    ContextSection.RELATIONSHIP,
+                    "current_relationship",
+                    ContextSourceIdentity(
+                        "relationship_slot", snapshot.opportunity_id, 1
+                    ),
+                    ContextTrustClass.RUNTIME_AUTHORITY,
+                    "private",
+                    '{"status":"none"}',
+                    requested_required=True,
+                    relevance=96,
+                )
             )
-        )
+        else:
+            items.append(
+                _unavailable(
+                    profile,
+                    ContextSection.RELATIONSHIP,
+                    "relationship",
+                    reason="CTX-RELATIONSHIP-NONE",
+                )
+            )
     recallable_commitments = tuple(
         item
         for item in snapshot.relationship_commitment_payloads
@@ -699,7 +867,8 @@ def _context_request(
     if recallable_commitments:
         for commitment_id, version, payload, status in recallable_commitments:
             items.append(
-                ContextItemCandidate(
+                _candidate(
+                    profile,
                     ContextSection.RELATIONSHIP,
                     "current_relationship_commitment",
                     ContextSourceIdentity(
@@ -708,13 +877,14 @@ def _context_request(
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
                     payload.decode("utf-8"),
-                    False,
-                    92 if status == "active" else 80,
+                    requested_required=False,
+                    relevance=92 if status == "active" else 80,
                 )
             )
     else:
         items.append(
             _unavailable(
+                profile,
                 ContextSection.RELATIONSHIP,
                 "relationship_commitment",
                 reason=(
@@ -726,20 +896,22 @@ def _context_request(
         )
     for issue_id, version, payload in snapshot.relationship_issue_payloads:
         items.append(
-            ContextItemCandidate(
+            _candidate(
+                profile,
                 ContextSection.RELATIONSHIP,
                 "current_relationship_issue",
                 ContextSourceIdentity("relationship_issue", issue_id, version),
                 ContextTrustClass.SUBJECTIVE_STATE,
                 "private",
                 payload.decode("utf-8"),
-                False,
-                90,
+                requested_required=False,
+                relevance=90,
             )
         )
     items.extend(
         (
             _item(
+                profile,
                 ContextSection.ACTIVITY,
                 "current_life_opportunity",
                 snapshot.opportunity_source_ref,
@@ -757,6 +929,7 @@ def _context_request(
                 source_kind=snapshot.opportunity_source_kind,
             ),
             _item(
+                profile,
                 ContextSection.LIFE_MODE,
                 "current_maintenance_window",
                 snapshot.opportunity_source_ref,
@@ -780,8 +953,9 @@ def _context_request(
                 source_kind=snapshot.opportunity_source_kind,
             )
             if snapshot.purpose == "consider_sleep"
-            else _unavailable(ContextSection.LIFE_MODE, "maintenance_window"),
+            else _unavailable(profile, ContextSection.LIFE_MODE, "maintenance_window"),
             _item(
+                profile,
                 ContextSection.LIFE_MODE,
                 "current_maintenance_phase",
                 snapshot.opportunity_source_ref,
@@ -806,8 +980,9 @@ def _context_request(
             )
             if snapshot.purpose
             in {"maintain_subjective_memory", "perform_subject_self_check"}
-            else _unavailable(ContextSection.LIFE_MODE, "maintenance_phase"),
+            else _unavailable(profile, ContextSection.LIFE_MODE, "maintenance_phase"),
             _item(
+                profile,
                 ContextSection.ACTIVITY,
                 "current_activities",
                 snapshot.subject_id,
@@ -826,8 +1001,9 @@ def _context_request(
                 source_kind="activity_summary",
             )
             if snapshot.purpose != "consider_other_human_input"
-            else _unavailable(ContextSection.ACTIVITY, "activities"),
+            else _unavailable(profile, ContextSection.ACTIVITY, "activities"),
             _item(
+                profile,
                 ContextSection.ACTIVITY,
                 "current_activity",
                 snapshot.opportunity_source_ref,
@@ -840,8 +1016,9 @@ def _context_request(
                 source_kind=snapshot.opportunity_source_kind,
             )
             if snapshot.purpose != "consider_other_human_input"
-            else _unavailable(ContextSection.ACTIVITY, "activity"),
+            else _unavailable(profile, ContextSection.ACTIVITY, "activity"),
             _item(
+                profile,
                 ContextSection.CAPABILITY,
                 "web_search_availability",
                 UUID("01985d00-0000-7000-8000-000000000034"),
@@ -861,6 +1038,7 @@ def _context_request(
                 relevance=60,
             ),
             _item(
+                profile,
                 ContextSection.CAPABILITY,
                 "capability_catalog",
                 UUID("01985d00-0000-7000-8000-000000000027"),
@@ -871,6 +1049,7 @@ def _context_request(
                 relevance=70,
             ),
             _item(
+                profile,
                 ContextSection.PROMPT,
                 "fixed_prompt",
                 snapshot.fixed_prompt.source_id,
@@ -881,11 +1060,11 @@ def _context_request(
                 relevance=100,
             ),
             (
-                _unavailable(ContextSection.PROMPT, "creator_prompt")
-                if snapshot.purpose == "consider_other_human_input"
-                or snapshot.creator_prompt is None
+                _unavailable(profile, ContextSection.PROMPT, "creator_prompt")
+                if snapshot.creator_prompt is None
                 or creator_prompt_bytes is None
                 else _item(
+                    profile,
                     ContextSection.PROMPT,
                     "creator_prompt",
                     snapshot.creator_prompt.source_id,
@@ -897,9 +1076,10 @@ def _context_request(
                 )
             ),
             (
-                _unavailable(ContextSection.PROMPT, "subject_prompt")
+                _unavailable(profile, ContextSection.PROMPT, "subject_prompt")
                 if snapshot.subject_prompt is None or subject_prompt_bytes is None
                 else _item(
+                    profile,
                     ContextSection.PROMPT,
                     "subject_prompt",
                     snapshot.subject_prompt.source_id,
@@ -913,9 +1093,11 @@ def _context_request(
             ),
         )
     )
+    items = [item for item in items if profile.allows(item.item_kind)]
     if snapshot.evidence is not None:
         items.append(
             _item(
+                profile,
                 ContextSection.EVIDENCE,
                 (
                     "codex_task_source"
@@ -938,6 +1120,7 @@ def _context_request(
     if snapshot.outreach_trigger_bytes is not None:
         items.append(
             _item(
+                profile,
                 ContextSection.EVIDENCE,
                 "current_evidence",
                 snapshot.opportunity_source_ref,
@@ -976,6 +1159,7 @@ def _context_request(
 
 
 def _item(
+    profile: ContextAssemblyProfile,
     section: ContextSection,
     kind: str,
     source_id: UUID,
@@ -991,7 +1175,8 @@ def _item(
         content = value.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
         raise ContextViolation("CTX-SOURCE-INVALID") from None
-    return ContextItemCandidate(
+    return _candidate(
+        profile,
         section,
         kind,
         ContextSourceIdentity(
@@ -1002,17 +1187,21 @@ def _item(
         trust,
         "private",
         content,
-        required,
-        relevance,
+        requested_required=required,
+        relevance=relevance,
     )
 
 
 def _unavailable(
+    profile: ContextAssemblyProfile,
     section: ContextSection,
     kind: str,
     *,
     reason: str = "CTX-SOURCE-NOT-IMPLEMENTED",
 ) -> ContextItemCandidate:
+    policy = profile.candidate_policy(kind, requested_required=False)
+    if policy.requirement is ContextRequirement.REQUIRED:
+        raise ContextViolation("CTX-SOURCE-MISSING")
     return ContextItemCandidate(
         section,
         kind,
@@ -1020,9 +1209,41 @@ def _unavailable(
         ContextTrustClass.RUNTIME_AUTHORITY,
         "private",
         None,
-        False,
+        ContextRequirement.OPTIONAL,
+        policy.layer,
         0,
         unavailable_reason=reason,
+    )
+
+
+def _candidate(
+    profile: ContextAssemblyProfile,
+    section: ContextSection,
+    kind: str,
+    source: ContextSourceIdentity,
+    trust: ContextTrustClass,
+    privacy_scope: str,
+    content: str,
+    *,
+    requested_required: bool,
+    relevance: int,
+    business_time: Instant | None = None,
+) -> ContextItemCandidate:
+    policy = profile.candidate_policy(
+        kind,
+        requested_required=requested_required,
+    )
+    return ContextItemCandidate(
+        section,
+        kind,
+        source,
+        trust,
+        privacy_scope,
+        content,
+        policy.requirement,
+        policy.layer,
+        relevance,
+        business_time,
     )
 
 
@@ -1075,6 +1296,8 @@ def build_context_pipeline(
     web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
+    credential_port: CredentialPort | None = None,
+    embedding_credential_locator: CredentialLocator | None = None,
 ) -> ContextPipeline:
     factory = PostgreSQLUnitOfWorkFactory(
         conninfo,
@@ -1094,6 +1317,16 @@ def build_context_pipeline(
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
+        embedding=(
+            VolcengineArkEmbeddingAdapter(
+                binding=load_embedding_binding(),
+                credential_port=credential_port,
+                locator=embedding_credential_locator,
+            )
+            if credential_port is not None
+            and embedding_credential_locator is not None
+            else None
+        ),
     )
 
 

@@ -133,9 +133,7 @@ class ModelPipeline:
             if web_search_active
             else DIALOGUE_CANDIDATE_VERSION
         )
-        default_binding = load_active_binding(
-            expected_dialogue_version=dialogue_version
-        )
+        load_active_binding(expected_dialogue_version=dialogue_version)
         dialogue_binding = load_purpose_binding(
             "consider_creator_input",
             expected_dialogue_version=dialogue_version,
@@ -174,6 +172,18 @@ class ModelPipeline:
         )
         self_check_binding = load_purpose_binding(
             "perform_subject_self_check",
+            expected_dialogue_version=dialogue_version,
+        )
+        web_evidence_binding = load_purpose_binding(
+            "consider_web_evidence",
+            expected_dialogue_version=dialogue_version,
+        )
+        codex_task_binding = load_purpose_binding(
+            "consider_codex_task",
+            expected_dialogue_version=dialogue_version,
+        )
+        codex_result_binding = load_purpose_binding(
+            "consider_codex_result",
             expected_dialogue_version=dialogue_version,
         )
         self._dialogue_version = dialogue_version
@@ -268,12 +278,30 @@ class ModelPipeline:
         self._factory = factory
         self._storage = storage
         self._adapters = {
-            "__default__": VolcengineArkModelAdapter(
-                binding=default_binding,
+            "consider_web_evidence": VolcengineArkModelAdapter(
+                binding=web_evidence_binding,
                 credential_port=credential_port,
                 locator=credential_locator,
                 candidate_schema=candidate_schema(
-                    default_binding.response_contract_version
+                    web_evidence_binding.response_contract_version
+                ),
+                candidate_parser=parse_candidate,
+            ),
+            "consider_codex_task": VolcengineArkModelAdapter(
+                binding=codex_task_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    codex_task_binding.response_contract_version
+                ),
+                candidate_parser=parse_candidate,
+            ),
+            "consider_codex_result": VolcengineArkModelAdapter(
+                binding=codex_result_binding,
+                credential_port=credential_port,
+                locator=credential_locator,
+                candidate_schema=candidate_schema(
+                    codex_result_binding.response_contract_version
                 ),
                 candidate_parser=parse_candidate,
             ),
@@ -664,7 +692,10 @@ class ModelPipeline:
             raise
 
     def _adapter_for(self, purpose: str) -> VolcengineArkModelAdapter:
-        adapter = self._adapters.get(purpose, self._adapters["__default__"])
+        try:
+            adapter = self._adapters[purpose]
+        except KeyError:
+            raise ModelViolation("MODEL-BINDING") from None
         if (
             purpose in {"consider_creator_input", "consider_life_query_result"}
             and adapter.binding.response_contract_version != self._dialogue_version

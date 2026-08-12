@@ -12,18 +12,45 @@ from armi_kernel.application import (
     ContextItemCandidate,
     ContextItemDisposition,
     ContextItemResult,
+    ContextLayer,
     ContextRequest,
     ContextResult,
-    ContextSection,
     ContextViolation,
 )
 
-CONTEXT_MANIFEST_VERSION = "armi.context-manifest.v1"
-CONTEXT_POLICY_VERSION = "armi.context-policy.v3"
-CONTEXT_MECHANISM = "armi.context-compiler.deterministic-v1"
+CONTEXT_MANIFEST_VERSION = "armi.context-manifest.v2"
+CONTEXT_POLICY_VERSION = "armi.context-policy.v4"
+CONTEXT_MECHANISM = "armi.context-compiler.layered-v2"
 
-_SECTION_ORDER = tuple(ContextSection)
-_SECTION_RANK = {section: index for index, section in enumerate(_SECTION_ORDER)}
+_LAYER_ORDER = tuple(ContextLayer)
+_LAYER_RANK = {layer: index for index, layer in enumerate(_LAYER_ORDER)}
+_KIND_ORDER = {
+    "runtime_identity": 0,
+    "current_purpose": 1,
+    "fixed_prompt": 2,
+    "creator_prompt": 3,
+    "subject_prompt": 4,
+    "self": 5,
+    "mind": 6,
+    "current_scene": 10,
+    "current_relationship": 20,
+    "current_relationship_commitment": 21,
+    "current_relationship_issue": 22,
+    "life_mode": 30,
+    "current_activities": 31,
+    "current_activity": 32,
+    "resource_snapshot": 33,
+    "current_life_opportunity": 34,
+    "current_maintenance_window": 35,
+    "current_maintenance_phase": 36,
+    "capability_catalog": 40,
+    "web_search_availability": 41,
+    "current_memory": 50,
+    "current_material": 51,
+    "recall_status": 52,
+    "codex_task_source": 90,
+    "current_evidence": 91,
+}
 
 
 class DeterministicContextCompiler(ContextCompiler):
@@ -154,7 +181,8 @@ def _sort_key(candidate: ContextItemCandidate) -> tuple[object, ...]:
     if candidate.item_kind == "current_memory":
         source_ref = ""
     return (
-        _SECTION_RANK[candidate.section],
+        _LAYER_RANK[candidate.layer],
+        _KIND_ORDER.get(candidate.item_kind, 80),
         -candidate.relevance,
         source_time,
         source_ref,
@@ -171,6 +199,17 @@ def _budget_removals(results: list[ContextItemResult]) -> tuple[int, ...]:
     ]
     if not included:
         return ()
+    recall = [
+        (index, result)
+        for index, result in included
+        if result.candidate.item_kind in {"current_memory", "current_material"}
+    ]
+    if recall:
+        index, _ = min(
+            recall,
+            key=lambda pair: (pair[1].candidate.relevance, -pair[1].ordinal),
+        )
+        return (index,)
     recent = [
         (index, result)
         for index, result in included
@@ -191,17 +230,6 @@ def _budget_removals(results: list[ContextItemResult]) -> tuple[int, ...]:
             if _scene_speaker(second) == "armi":
                 return (first_index, second_index)
         return (first_index,)
-    memories = [
-        (index, result)
-        for index, result in included
-        if result.candidate.item_kind == "current_memory"
-    ]
-    if memories:
-        index, _ = min(
-            memories,
-            key=lambda pair: (pair[1].candidate.relevance, -pair[1].ordinal),
-        )
-        return (index,)
     index, _ = min(
         included,
         key=lambda pair: (pair[1].candidate.relevance, -pair[1].ordinal),
@@ -236,10 +264,11 @@ def _compiled_bytes(
     request: ContextRequest,
     results: list[ContextItemResult],
 ) -> bytes:
-    sections: list[dict[str, object]] = []
-    for section in _SECTION_ORDER:
+    layers: list[dict[str, object]] = []
+    for layer in _LAYER_ORDER:
         items = [
             {
+                "section": result.candidate.section.value,
                 "item_kind": result.candidate.item_kind,
                 "source": _source(result.candidate),
                 "trust": result.candidate.trust_class.value,
@@ -247,14 +276,14 @@ def _compiled_bytes(
                 "content": result.candidate.content,
             }
             for result in results
-            if result.candidate.section is section
+            if result.candidate.layer is layer
             and result.disposition is ContextItemDisposition.INCLUDED
         ]
-        sections.append({"section": section.value, "items": items})
+        layers.append({"layer": layer.value, "items": items})
     value = {
-        "schema_version": "armi.compiled-context.v1",
+        "schema_version": "armi.compiled-context.v2",
         "purpose": request.purpose.value,
-        "sections": sections,
+        "layers": layers,
     }
     return rfc8785.dumps(cast(Any, value)) + b"\n"
 
@@ -268,7 +297,8 @@ def _manifest_item(result: ContextItemResult) -> dict[str, object]:
         "source": _source(candidate),
         "trust": candidate.trust_class.value,
         "privacy": candidate.privacy_scope,
-        "required": candidate.required,
+        "requirement": candidate.requirement.value,
+        "layer": candidate.layer.value,
         "relevance": candidate.relevance,
         "disposition": result.disposition.value,
         "content_bytes": result.content_bytes,

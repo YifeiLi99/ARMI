@@ -316,13 +316,20 @@ def _dialogue_candidate() -> dict[str, object]:
 def _request(binding: ModelBinding):
     context = json.dumps(
         {
-            "schema_version": "armi.compiled-context.v1",
+            "schema_version": "armi.compiled-context.v2",
             "purpose": "consider_creator_input",
-            "sections": [
+            "layers": [
                 {
-                    "section": "evidence",
+                    "layer": "stable_prefix",
+                    "items": [],
+                },
+                {"layer": "scope_context", "items": []},
+                {"layer": "conversation_history", "items": []},
+                {
+                    "layer": "turn_tail",
                     "items": [
                         {
+                            "section": "evidence",
                             "item_kind": "current_evidence",
                             "source": {
                                 "kind": "creator_input",
@@ -452,8 +459,8 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert "binding" not in request
     assert "context_digest" not in request
     assert "output_contract" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v3"
-    assert request["prompt_version"] == "armi.dialogue-prompt.v1"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v4"
+    assert request["prompt_version"] == "armi.dialogue-prompt.v2"
     assert request["task"] == "respond_to_creator"
     assert request["available_refs"] == []
     assert [message["role"] for message in request["messages"]] == ["system", "user"]
@@ -547,34 +554,56 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
             "external_claim",
         ),
     )
-    sections = []
+    layer_names = (
+        "stable_prefix",
+        "scope_context",
+        "conversation_history",
+        "turn_tail",
+    )
+    layer_items: dict[str, list[dict[str, object]]] = {
+        layer: [] for layer in layer_names
+    }
     refs = []
-    for ordinal, (section, kind, content, trust) in enumerate(items, 1):
-        sections.append(
+    for section, kind, content, trust in items:
+        layer = (
+            "stable_prefix"
+            if kind == "runtime_identity"
+            else "conversation_history"
+            if kind == "recent_scene_turn"
+            else "turn_tail"
+        )
+        layer_items[layer].append(
             {
                 "section": section,
-                "items": [
-                    {
-                        "item_kind": kind,
-                        "source": {
-                            "kind": kind,
-                            "reference": source_id,
-                            "version": 1,
-                            "digest": Digest.from_bytes(kind.encode()).value,
-                        },
-                        "trust": trust,
-                        "privacy": "private",
-                        "content": json.dumps(content, ensure_ascii=False),
-                    }
-                ],
+                "item_kind": kind,
+                "source": {
+                    "kind": kind,
+                    "reference": source_id,
+                    "version": 1,
+                    "digest": Digest.from_bytes(kind.encode()).value,
+                },
+                "trust": trust,
+                "privacy": "private",
+                "content": json.dumps(content, ensure_ascii=False),
             }
         )
-        refs.append({"ref": f"ctx:{ordinal}", "section": section, "item_kind": kind})
+    for layer in layer_names:
+        for item in layer_items[layer]:
+            refs.append(
+                {
+                    "ref": f"ctx:{len(refs) + 1}",
+                    "section": item["section"],
+                    "item_kind": item["item_kind"],
+                }
+            )
     compiled = json.dumps(
         {
-            "schema_version": "armi.compiled-context.v1",
+            "schema_version": "armi.compiled-context.v2",
             "purpose": "consider_creator_input",
-            "sections": sections,
+            "layers": [
+                {"layer": layer, "items": layer_items[layer]}
+                for layer in layer_names
+            ],
         },
         ensure_ascii=False,
     ).encode()
@@ -595,24 +624,25 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
         "system",
         "user",
         "assistant",
+        "system",
         "user",
     ]
-    assert "我们曾经聊过雨声。" in messages[0]["content"]
-    assert "[ctx:2]" in messages[0]["content"]
-    assert "uncertainty" not in messages[0]["content"]
-    assert "links" not in messages[0]["content"]
+    assert "我们曾经聊过雨声。" in messages[3]["content"]
+    assert "[ctx:5]" in messages[3]["content"]
+    assert "uncertainty" not in messages[3]["content"]
+    assert "links" not in messages[3]["content"]
     assert "runtime_identity" not in messages[0]["content"]
     assert "authorization status" not in messages[0]["content"]
     assert "remaining uses" not in messages[0]["content"]
-    assert "回复由 Runtime 在模型外核对发送权限" in messages[0]["content"]
+    assert "回复由 Runtime 在模型外核对发送权限" in messages[3]["content"]
     assert "这是缺少前置 Creator 原话的半轮回复。" not in json.dumps(
         messages, ensure_ascii=False
     )
     assert messages[1]["content"] == "窗外的光很好看。"
     assert messages[2]["content"] == "我也想知道那片光落在哪里。"
-    assert messages[3]["content"] == "你想聊些什么?"
-    assert request["available_refs"] == ["ctx:2"]
-    assert request["prompt_version"] == "armi.dialogue-prompt.v1"
+    assert messages[4]["content"] == "你想聊些什么?"
+    assert request["available_refs"] == ["ctx:5"]
+    assert request["prompt_version"] == "armi.dialogue-prompt.v2"
     assert request["diagnostics"]["section_bytes"]["memories"] > 0
     assert source_id not in json.dumps(request, ensure_ascii=False)
 
@@ -637,13 +667,16 @@ def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> Non
     source_id = "01980f7d-7b8f-7e2a-8a11-2ab8e1234571"
     compiled = json.dumps(
         {
-            "schema_version": "armi.compiled-context.v1",
+            "schema_version": "armi.compiled-context.v2",
             "purpose": "consider_other_human_input",
-            "sections": [
+            "layers": [
+                {"layer": "stable_prefix", "items": []},
+                {"layer": "scope_context", "items": []},
                 {
-                    "section": "scene",
+                    "layer": "conversation_history",
                     "items": [
                         {
+                            "section": "scene",
                             "item_kind": "recent_scene_turn",
                             "source": {
                                 "kind": "turn",
@@ -658,6 +691,7 @@ def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> Non
                             ),
                         },
                         {
+                            "section": "scene",
                             "item_kind": "recent_scene_turn",
                             "source": {
                                 "kind": "turn",
@@ -674,9 +708,10 @@ def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> Non
                     ],
                 },
                 {
-                    "section": "evidence",
+                    "layer": "turn_tail",
                     "items": [
                         {
+                            "section": "evidence",
                             "item_kind": "current_evidence",
                             "source": {
                                 "kind": "qq_input",
@@ -722,7 +757,7 @@ def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> Non
     )
 
     assert binding.response_contract_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
-    assert request["schema_version"] == "armi.creator-dialogue-input.v3"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v4"
     assert request["task"] == "respond_to_other_human"
     assert [message["role"] for message in request["messages"]] == [
         "system",
@@ -1495,7 +1530,7 @@ def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) 
     assert binding.response_contract_version == WEB_DIALOGUE_CANDIDATE_VERSION
     request = json.loads(_request(binding).canonical_bytes)
     assert "candidate_base" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v3"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v4"
     assert "output_contract" not in request
 
     manifest["bindings"] = [manifest["bindings"][0]]

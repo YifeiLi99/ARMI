@@ -22,6 +22,18 @@
       "version_policy": "provider_evolving_alias"
     }
   ],
+  "embedding": {
+    "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+    "credential_identity": "armi.model.ark-api-key.v1",
+    "credential_locator": "model.ark_api_key",
+    "credential_purpose": "model.embedding",
+    "dimensions": 1024,
+    "model_binding": "armi.embedding.volcengine-ark-doubao-vision-250615-v1",
+    "model_id": "doubao-embedding-vision-250615",
+    "provider": "volcengine_ark",
+    "timeout_seconds": 60,
+    "version_policy": "fixed_model_id"
+  },
   "purpose_profiles": {
     "consider_activity_attention": {
       "output_token_limit": 1024,
@@ -43,6 +55,16 @@
       "profile": "creator_dialogue",
       "response_contract_version": "armi.creator-dialogue-candidate.v19"
     },
+    "consider_codex_result": {
+      "output_token_limit": 1024,
+      "profile": "codex_result",
+      "response_contract_version": "armi.cognition-candidate.v7"
+    },
+    "consider_codex_task": {
+      "output_token_limit": 1024,
+      "profile": "codex_task",
+      "response_contract_version": "armi.cognition-candidate.v7"
+    },
     "consider_life_query_result": {
       "output_token_limit": 1024,
       "profile": "creator_dialogue",
@@ -62,6 +84,11 @@
       "output_token_limit": 256,
       "profile": "sleep_decision",
       "response_contract_version": "armi.sleep-decision-candidate.v1"
+    },
+    "consider_web_evidence": {
+      "output_token_limit": 1024,
+      "profile": "web_evidence_cognition",
+      "response_contract_version": "armi.cognition-candidate.v7"
     },
     "maintain_subjective_memory": {
       "output_token_limit": 1024,
