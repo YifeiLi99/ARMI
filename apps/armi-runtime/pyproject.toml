@@ -6,6 +6,7 @@ dependencies = [
     "alembic==1.18.5",
     "armi-adapter-qq==0.0.0",
     "armi-artifact-store==0.0.0",
+    "armi-evidence==0.0.0",
     "armi-interaction==0.0.0",
     "armi-kernel==0.0.0",
     "armi-perception==0.0.0",
@@ -37,6 +38,7 @@ armi-codex-runner = "armi_runtime.codex_runner_cli:main"
 [tool.uv.sources]
 armi-adapter-qq = { workspace = true }
 armi-artifact-store = { workspace = true }
+armi-evidence = { workspace = true }
 armi-kernel = { workspace = true }
 armi-postgresql-contract = { workspace = true }
 armi-runtime-foundation = { workspace = true }

@@ -282,7 +282,9 @@ class ExternalMessageInputRepository:
             return None
         if str(row[3]) != request_digest.value:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-IDEMPOTENCY-MISMATCH")
-        from ._creator_contract import EvidenceId, OpportunityId
+        from armi_evidence.api import EvidenceId
+
+        from ._creator_contract import OpportunityId
 
         return ExternalMessageInputAcceptance(
             context.conversation_binding_id,

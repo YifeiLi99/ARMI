@@ -10,6 +10,7 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_evidence.api import EvidenceWritePort
 from armi_interaction.api import (
     ExternalAccountKey,
     ExternalChannel,
@@ -91,6 +92,7 @@ class ExternalContentPipeline:
         storage: ContentAddressedArtifactStore,
         catalog: PerceptionArtifactCatalogPort,
         work: PerceptionDurableWorkPort,
+        evidence: EvidenceWritePort,
         fetch: ExternalMediaFetchPort,
         recognizer: ExternalContentRecognitionPort,
         target_for: Callable[[ExternalMessagePartKind], tuple[str, str]],
@@ -105,7 +107,7 @@ class ExternalContentPipeline:
         self._wakeups = wakeups
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._catalog = catalog
-        self._repository = PostgreSQLExternalContentRepository()
+        self._repository = PostgreSQLExternalContentRepository(evidence)
         self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()

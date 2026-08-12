@@ -9,6 +9,7 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import (
     ArtifactViolation,
     RuntimeFence,
@@ -58,12 +59,13 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         custody: WebSearchPipeline,
+        evidence: EvidenceWritePort,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
         self._custody = custody
-        self._repository = PostgreSQLWebEvidenceRepository()
+        self._repository = PostgreSQLWebEvidenceRepository(evidence)
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -176,6 +178,7 @@ def build_web_research_admission_pipeline(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     custody: WebSearchPipeline,
+    evidence: EvidenceWritePort,
     diagnostic: Diagnostic | None = None,
 ) -> WebResearchAdmissionPipeline:
     factory = PostgreSQLUnitOfWorkFactory(
@@ -194,6 +197,7 @@ def build_web_research_admission_pipeline(
             max_object_bytes=max_object_bytes,
         ),
         custody=custody,
+        evidence=evidence,
         diagnostic=diagnostic,
     )
 

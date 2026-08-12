@@ -6,6 +6,13 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_evidence.api import (
+    EvidenceDraft,
+    EvidenceId,
+    EvidencePrivacyScope,
+    EvidenceSourceKind,
+    EvidenceWritePort,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -50,7 +57,10 @@ class WebResearchIntentSnapshot:
 class PostgreSQLWebEvidenceRepository:
     """Own fixed SQL for the inactive S034 admission and evidence path."""
 
-    __slots__ = ()
+    __slots__ = ("_evidence",)
+
+    def __init__(self, evidence: EvidenceWritePort) -> None:
+        self._evidence = evidence
 
     async def fail_admission(
         self,
@@ -225,24 +235,18 @@ class PostgreSQLWebEvidenceRepository:
         intent_id = WebResearchIntentId(row[0])
         evidence_id = uuid7()
         opportunity_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.external_evidence (
-                evidence_id, interaction_id, subject_id, scene_id,
-                creator_party_id, artifact_id, source_kind, trust_status,
-                privacy_scope, acceptance_status, web_observation_request_id,
-                observation_attempt_id) VALUES (
-                %s, NULL, %s, %s, %s, %s, 'web_search', 'external_claim',
-                'private', 'accepted', %s, %s)
-            """,
-            (
-                evidence_id,
-                row[1],
-                row[2],
-                row[3],
-                evidence_artifact_id.value,
-                request_id.value,
-                attempt_id.value,
+        await self._evidence.accept(
+            unit_of_work,
+            EvidenceDraft(
+                evidence_id=EvidenceId(evidence_id),
+                subject_id=row[1],
+                scene_id=row[2],
+                context_party_id=row[3],
+                artifact_id=evidence_artifact_id.value,
+                source_kind=EvidenceSourceKind.WEB_SEARCH,
+                privacy_scope=EvidencePrivacyScope.PRIVATE,
+                web_observation_request_id=request_id.value,
+                observation_attempt_id=attempt_id.value,
             ),
         )
         for source, artifact_id in zip(
@@ -272,7 +276,7 @@ class PostgreSQLWebEvidenceRepository:
             """
             INSERT INTO armi.opportunities (
                 opportunity_id, evidence_id, subject_id, scene_id,
-                creator_party_id, purpose, source_kind, source_ref,
+                context_party_id, purpose, source_kind, source_ref,
                 source_version, eligibility_status,
                 current_disposition, root_opportunity_id,
                 predecessor_opportunity_id, reconsideration_no) VALUES (

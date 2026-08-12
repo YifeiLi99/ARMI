@@ -7,11 +7,17 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_evidence.api import (
+    EvidenceDraft,
+    EvidenceId,
+    EvidencePrivacyScope,
+    EvidenceSourceKind,
+    EvidenceWritePort,
+)
 from armi_interaction.api import (
     CreatorInputAcceptance,
     CreatorInputContext,
     CreatorInteractionId,
-    EvidenceId,
     OpportunityId,
 )
 from armi_kernel.application import (
@@ -63,7 +69,10 @@ class CodexDispatchSnapshot:
 
 
 class PostgreSQLCodexDelegationRepository:
-    __slots__ = ()
+    __slots__ = ("_evidence",)
+
+    def __init__(self, evidence: EvidenceWritePort) -> None:
+        self._evidence = evidence
 
     async def admit_task_source(
         self,
@@ -139,21 +148,17 @@ class PostgreSQLCodexDelegationRepository:
             ),
         )
         evidence_id, opportunity_id = uuid7(), uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.external_evidence (
-                evidence_id, interaction_id, subject_id, scene_id,
-                context_party_id, artifact_id, source_kind, trust_status,
-                privacy_scope, acceptance_status, codex_task_source_id) VALUES (%s,NULL,%s,%s,%s,%s,'codex_task_source','external_claim',
-                'private','accepted',%s)
-            """,
-            (
-                evidence_id,
-                draft.subject_id.value,
-                subject[0],
-                subject[1],
-                draft.manifest_artifact_id.value,
-                draft.task_source_id.value,
+        await self._evidence.accept(
+            uow,
+            EvidenceDraft(
+                evidence_id=EvidenceId(evidence_id),
+                subject_id=draft.subject_id.value,
+                scene_id=subject[0],
+                context_party_id=subject[1],
+                artifact_id=draft.manifest_artifact_id.value,
+                source_kind=EvidenceSourceKind.CODEX_TASK_SOURCE,
+                privacy_scope=EvidencePrivacyScope.PRIVATE,
+                codex_task_source_id=draft.task_source_id.value,
             ),
         )
         await connection.execute(
@@ -299,21 +304,17 @@ class PostgreSQLCodexDelegationRepository:
                 draft.trace_id.value,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.external_evidence (
-                evidence_id, interaction_id, subject_id, scene_id,
-                context_party_id, artifact_id, source_kind, trust_status,
-                privacy_scope, acceptance_status, codex_task_source_id) VALUES (%s,NULL,%s,%s,%s,%s,'codex_task_source','external_claim',
-                'private','accepted',%s)
-            """,
-            (
-                evidence_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                draft.manifest_artifact_id.value,
-                draft.task_source_id.value,
+        await self._evidence.accept(
+            uow,
+            EvidenceDraft(
+                evidence_id=EvidenceId(evidence_id),
+                subject_id=context.subject_id,
+                scene_id=context.scene_id,
+                context_party_id=context.creator_party_id,
+                artifact_id=draft.manifest_artifact_id.value,
+                source_kind=EvidenceSourceKind.CODEX_TASK_SOURCE,
+                privacy_scope=EvidencePrivacyScope.PRIVATE,
+                codex_task_source_id=draft.task_source_id.value,
             ),
         )
         await connection.execute(
@@ -766,21 +767,17 @@ class PostgreSQLCodexDelegationRepository:
             if status is CodexVerificationStatus.VERIFIED
             else artifacts["result_evidence"]
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.external_evidence (
-                evidence_id, interaction_id, subject_id, scene_id,
-                context_party_id, artifact_id, source_kind, trust_status,
-                privacy_scope, acceptance_status, codex_verification_id) VALUES (%s,NULL,%s,%s,%s,%s,'codex_result','external_claim',
-                'private','accepted',%s)
-            """,
-            (
-                evidence_id,
-                snapshot.subject_id,
-                snapshot.scene_id,
-                snapshot.creator_party_id,
-                evidence_ref.artifact_id.value,
-                verification_id,
+        await self._evidence.accept(
+            uow,
+            EvidenceDraft(
+                evidence_id=EvidenceId(evidence_id),
+                subject_id=snapshot.subject_id,
+                scene_id=snapshot.scene_id,
+                context_party_id=snapshot.creator_party_id,
+                artifact_id=evidence_ref.artifact_id.value,
+                source_kind=EvidenceSourceKind.CODEX_RESULT,
+                privacy_scope=EvidencePrivacyScope.PRIVATE,
+                codex_verification_id=verification_id,
             ),
         )
         await connection.execute(

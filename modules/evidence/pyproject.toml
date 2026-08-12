@@ -1,0 +1,14 @@
+[project]
+name = "armi-evidence"
+version = "0.0.0"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "armi-runtime-foundation==0.0.0",
+]
+
+[tool.uv.sources]
+armi-runtime-foundation = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11.33,<0.12"]
+build-backend = "uv_build"

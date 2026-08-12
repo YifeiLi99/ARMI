@@ -10,6 +10,7 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -108,6 +109,7 @@ class WebSearchPipeline:
         credential_port: CredentialPort,
         credential_locator: CredentialLocator,
         manifest_bytes: bytes,
+        evidence: EvidenceWritePort,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
@@ -116,7 +118,7 @@ class WebSearchPipeline:
         self._policy = load_custody_policy(manifest_bytes)
         self._catalog = ArtifactCatalogRepository()
         self._repository = PostgreSQLWebObservationRepository()
-        self._evidence_repository = PostgreSQLWebEvidenceRepository()
+        self._evidence_repository = PostgreSQLWebEvidenceRepository(evidence)
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -674,6 +676,7 @@ def build_web_search_pipeline(
     credential_port: CredentialPort,
     credential_locator: CredentialLocator,
     manifest_bytes: bytes,
+    evidence: EvidenceWritePort,
     diagnostic: Diagnostic | None,
 ) -> WebSearchPipeline:
     factory = PostgreSQLUnitOfWorkFactory(
@@ -694,6 +697,7 @@ def build_web_search_pipeline(
         credential_port=credential_port,
         credential_locator=credential_locator,
         manifest_bytes=manifest_bytes,
+        evidence=evidence,
         diagnostic=diagnostic,
     )
 

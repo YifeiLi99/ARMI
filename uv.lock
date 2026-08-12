@@ -9,6 +9,7 @@ members = [
     "armi-admin",
     "armi-artifact-store",
     "armi-channel-napcat",
+    "armi-evidence",
     "armi-interaction",
     "armi-kernel",
     "armi-material",
@@ -177,11 +178,25 @@ dependencies = [
 requires-dist = [{ name = "httpx", specifier = "==0.28.1" }]
 
 [[package]]
+name = "armi-evidence"
+version = "0.0.0"
+source = { editable = "modules/evidence" }
+dependencies = [
+    { name = "armi-runtime-foundation" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+]
+
+[[package]]
 name = "armi-interaction"
 version = "0.0.0"
 source = { editable = "modules/interaction" }
 dependencies = [
     { name = "armi-artifact-store" },
+    { name = "armi-evidence" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "armi-subject-state" },
@@ -193,6 +208,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "armi-subject-state", editable = "modules/subject-state" },
@@ -283,6 +299,7 @@ version = "0.0.0"
 source = { editable = "modules/perception" }
 dependencies = [
     { name = "armi-artifact-store" },
+    { name = "armi-evidence" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
@@ -295,6 +312,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
@@ -360,6 +378,7 @@ dependencies = [
     { name = "armi-activity" },
     { name = "armi-adapter-qq" },
     { name = "armi-artifact-store" },
+    { name = "armi-evidence" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-material" },
@@ -389,6 +408,7 @@ requires-dist = [
     { name = "armi-activity", editable = "modules/activity" },
     { name = "armi-adapter-qq", editable = "packages/armi-adapter-qq" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-material", editable = "modules/material" },

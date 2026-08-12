@@ -82,6 +82,7 @@ from .database import (
     compose_creator_export_service,
     compose_data_rights_order_service,
     compose_effect_registration_pipeline,
+    compose_evidence_module,
     compose_exact_life_query_pipeline,
     compose_interaction_module,
     compose_life_opportunity_pipeline,
@@ -183,6 +184,7 @@ async def _serve(
     recovery_reasons: tuple[str, ...] = ()
     browser_sessions: BrowserSessionStore | None = None
     interaction_module = None
+    evidence_module = None
     scene_timeline_query = None
     creator_scenes = None
     activity_module = None
@@ -328,6 +330,8 @@ async def _serve(
                     result_code="CREATOR_EVENT_STREAM",
                 )
             )
+            evidence_module = compose_evidence_module()
+            await evidence_module.open()
             interaction_module = compose_interaction_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -335,6 +339,7 @@ async def _serve(
                 authority_admission=authority.require_writable,
                 notifier=creator_events,
                 subject_state_read=subject_state_module.read,
+                evidence=evidence_module.write,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -435,6 +440,7 @@ async def _serve(
                         prepared,
                         authority_admission=authority.require_writable,
                         fetch=qq_channel.media_fetch,
+                        evidence=evidence_module.write,
                         wakeups=work_wakeups,
                         diagnostic=lambda event: diagnostic.emit(
                             event,
@@ -510,6 +516,7 @@ async def _serve(
                 authority_admission=authority.require_writable,
                 activity_cognition=activity_module.cognition,
                 activity_commit=activity_module.commit,
+                evidence=evidence_module.write,
                 memory_commit=memory_module.commit,
                 memory_cognition=memory_module.cognition,
                 mood_commit=mood_module.commit,
@@ -565,6 +572,7 @@ async def _serve(
                         prepared,
                         creator_party_id=creator_context.party_id,
                         creator_input=interaction_module.creator_transaction,
+                        evidence=evidence_module.write,
                         authority_admission=authority.require_writable,
                         notifier=creator_events,
                         diagnostic=lambda event: diagnostic.emit(
@@ -626,6 +634,7 @@ async def _serve(
                         web_search_pipeline = compose_web_search_pipeline(
                             prepared,
                             authority_admission=authority.require_writable,
+                            evidence=evidence_module.write,
                             diagnostic=lambda event: diagnostic.emit(
                                 event,
                                 result_code="WEB_SEARCH_CUSTODY",
@@ -636,6 +645,7 @@ async def _serve(
                             prepared,
                             authority_admission=authority.require_writable,
                             custody=web_search_pipeline,
+                            evidence=evidence_module.write,
                             diagnostic=lambda event: diagnostic.emit(
                                 event,
                                 result_code="WEB_RESEARCH_ADMISSION",

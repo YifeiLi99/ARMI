@@ -191,12 +191,20 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-evidence",
+        module="armi_evidence",
+        project_dir=Path("modules/evidence"),
+        layers=(),
+        dependencies=("armi-runtime-foundation==0.0.0",),
+    ),
+    Distribution(
         name="armi-interaction",
         module="armi_interaction",
         project_dir=Path("modules/interaction"),
         layers=(),
         dependencies=(
             "armi-artifact-store==0.0.0",
+            "armi-evidence==0.0.0",
             "armi-kernel==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-subject-state==0.0.0",
@@ -212,6 +220,7 @@ DISTRIBUTIONS = (
         layers=(),
         dependencies=(
             "armi-artifact-store==0.0.0",
+            "armi-evidence==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "armi-runtime-foundation==0.0.0",
@@ -230,6 +239,7 @@ DISTRIBUTIONS = (
             "alembic==1.18.5",
             "armi-adapter-qq==0.0.0",
             "armi-artifact-store==0.0.0",
+            "armi-evidence==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "armi-perception==0.0.0",
@@ -814,11 +824,17 @@ def _check_import(
             }
         )
         or (
+            source_distribution == "armi-evidence"
+            and target_distribution
+            not in {None, "armi-runtime-foundation", "armi-evidence"}
+        )
+        or (
             source_distribution == "armi-interaction"
             and target_distribution
             not in {
                 None,
                 "armi-artifact-store",
+                "armi-evidence",
                 "armi-kernel",
                 "armi-runtime-foundation",
                 "armi-subject-state",
@@ -831,6 +847,7 @@ def _check_import(
             not in {
                 None,
                 "armi-artifact-store",
+                "armi-evidence",
                 "armi-interaction",
                 "armi-kernel",
                 "armi-runtime-foundation",
@@ -934,6 +951,9 @@ def _check_import(
         "armi-mood": frozenset({"armi_mood", "armi_mood.api", "armi_mood.bootstrap"}),
         "armi-prompt": frozenset(
             {"armi_prompt", "armi_prompt.api", "armi_prompt.bootstrap"}
+        ),
+        "armi-evidence": frozenset(
+            {"armi_evidence", "armi_evidence.api", "armi_evidence.bootstrap"}
         ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
@@ -1062,6 +1082,17 @@ def _check_import(
                     path,
                     line,
                     "perception bootstrap is reserved for Runtime composition",
+                )
+            )
+        if imported_module == "armi_evidence.bootstrap" and not source_module.startswith(
+            "armi_runtime.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "evidence bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1242,6 +1273,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_perception.api": root / "modules/perception/src/armi_perception/api.py",
         "armi_perception.bootstrap": root
         / "modules/perception/src/armi_perception/bootstrap.py",
+        "armi_evidence": root / "modules/evidence/src/armi_evidence/__init__.py",
+        "armi_evidence.api": root / "modules/evidence/src/armi_evidence/api.py",
+        "armi_evidence.bootstrap": root
+        / "modules/evidence/src/armi_evidence/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1418,6 +1453,24 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                     )
                 )
             if (
+                distribution.name != "armi-evidence"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\bINSERT\s+INTO\s+armi\."
+                    r"(?:external_evidence|experience_evidence_links)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-EVIDENCE-SQL",
+                        relative,
+                        1,
+                        "accepted-evidence writes are owned by armi-evidence",
+                    )
+                )
+            if (
                 distribution.name != "armi-perception"
                 and ".runtime_resources.schema.alembic." not in module
                 and re.search(
@@ -1498,6 +1551,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "perception": (
             "perception_module = compose_perception_module(",
             "perception_module.worker.run_worker()",
+        ),
+        "evidence": (
+            "evidence_module = compose_evidence_module()",
+            "evidence=evidence_module.write",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

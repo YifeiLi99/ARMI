@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from uuid import uuid7
 
+from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
     CreatorInputAcceptance,
     CreatorInputCommand,
@@ -12,7 +13,6 @@ from armi_interaction.api import (
     CreatorInteractionId,
     CreatorOperation,
     CreatorOperationPhase,
-    EvidenceId,
     OpportunityId,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId

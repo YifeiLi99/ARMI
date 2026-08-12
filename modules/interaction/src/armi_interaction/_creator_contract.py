@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_evidence.api import EvidenceId
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
 
 _CODE = re.compile(
@@ -43,17 +44,6 @@ class CreatorInteractionId:
 
     def __post_init__(self) -> None:
         _require_uuid7(self.value, "CON-INPUT-INTERACTION-ID")
-
-    def __str__(self) -> str:
-        return str(self.value)
-
-
-@dataclass(frozen=True, slots=True)
-class EvidenceId:
-    value: UUID
-
-    def __post_init__(self) -> None:
-        _require_uuid7(self.value, "CON-INPUT-EVIDENCE-ID")
 
     def __str__(self) -> str:
         return str(self.value)
@@ -286,6 +276,5 @@ __all__ = (
     "CreatorOperation",
     "CreatorOperationPhase",
     "CreatorOperationQueryPort",
-    "EvidenceId",
     "OpportunityId",
 )

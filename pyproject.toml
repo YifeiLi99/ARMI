@@ -33,6 +33,7 @@ members = [
     "modules/subject-state",
     "modules/mood",
     "modules/prompt",
+    "modules/evidence",
     "modules/interaction",
     "modules/perception",
     "apps/armi-runtime",
@@ -52,6 +53,7 @@ testpaths = [
     "modules/subject-state/tests",
     "modules/mood/tests",
     "modules/prompt/tests",
+    "modules/evidence/tests",
     "modules/interaction/tests",
     "modules/perception/tests",
 ]

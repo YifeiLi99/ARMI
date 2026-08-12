@@ -9,8 +9,8 @@ from uuid import uuid7
 import httpx
 from armi_adapter_qq import QQAdapterConfig, QQIngressAdapter, create_qq_event_app
 from armi_channel_napcat import NapCatActionResponse, NapCatDownloadedFile
+from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
-    EvidenceId,
     ExternalMessageInputAcceptance,
     ExternalMessageInteractionId,
     ObservedExternalMessage,

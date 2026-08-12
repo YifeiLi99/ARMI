@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import CreatorProjectionNotifier
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 from armi_subject_state.api import SubjectStateReadPort
@@ -72,13 +73,14 @@ def bootstrap_interaction(
     catalog: InteractionArtifactCatalogPort,
     data_rights: InteractionDataRightsGate,
     subject_state: SubjectStateReadPort,
+    evidence: EvidenceWritePort,
     notifier: CreatorProjectionNotifier | None,
     wakeups: InteractionWakeupPort | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
 ) -> InteractionModule:
-    creator_repository = CreatorInputRepository()
-    other_repository = OtherHumanInputRepository()
+    creator_repository = CreatorInputRepository(evidence)
+    other_repository = OtherHumanInputRepository(evidence)
     creator_input = EvidenceAcceptanceTransaction(
         creator_party_id=creator_party_id,
         storage=storage,

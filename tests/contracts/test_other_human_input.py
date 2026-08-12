@@ -3,8 +3,8 @@ from __future__ import annotations
 from uuid import uuid7
 
 import pytest
+from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
-    EvidenceId,
     OpportunityId,
     OtherHumanInputAcceptance,
     OtherHumanInputCommand,

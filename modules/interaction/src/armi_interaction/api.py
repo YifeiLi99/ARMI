@@ -19,7 +19,6 @@ from ._creator_contract import (
     CreatorOperation,
     CreatorOperationPhase,
     CreatorOperationQueryPort,
-    EvidenceId,
     OpportunityId,
 )
 from ._external_contract import (
@@ -147,7 +146,6 @@ __all__ = (
     "CreatorScenePort",
     "CreatorSceneStatusCommand",
     "CreatorSceneView",
-    "EvidenceId",
     "ExternalAccountKey",
     "ExternalChannel",
     "ExternalConversationKey",

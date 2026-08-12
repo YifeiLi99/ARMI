@@ -22,8 +22,8 @@ from armi_channel_napcat import (
     NapCatPrivateMessageEvent,
     NapCatRejected,
 )
+from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
-    EvidenceId,
     ExternalMessageInputAcceptance,
     ExternalMessageInteractionId,
     ObservedExternalMessage,

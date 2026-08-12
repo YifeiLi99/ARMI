@@ -14,6 +14,7 @@ from armi_activity.api import (
     CreatorActivityTimeline,
     CreatorActivityTimelineItem,
 )
+from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
     CreatorInputAcceptance,
     CreatorInputCommand,
@@ -24,7 +25,6 @@ from armi_interaction.api import (
     CreatorSceneCreateCommand,
     CreatorSceneStatusCommand,
     CreatorSceneView,
-    EvidenceId,
     OpportunityId,
     OtherHumanInputAcceptance,
     OtherHumanInputCommand,

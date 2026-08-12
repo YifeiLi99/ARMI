@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_evidence.api import EvidenceId
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
 
-from ._creator_contract import EvidenceId, OpportunityId
+from ._creator_contract import OpportunityId
 from ._scene_contract import SceneKey, SceneStatus
 
 _KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", re.ASCII)

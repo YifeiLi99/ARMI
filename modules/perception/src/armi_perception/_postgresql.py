@@ -6,6 +6,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
+from armi_evidence.api import (
+    EvidenceDraft,
+    EvidenceId,
+    EvidencePrivacyScope,
+    EvidenceSourceKind,
+    EvidenceWritePort,
+)
 from armi_interaction.api import (
     ExternalMessagePartKind,
     ExternalMessageViolation,
@@ -85,7 +92,10 @@ class ExternalFinalizationSnapshot:
 
 
 class PostgreSQLExternalContentRepository:
-    __slots__ = ()
+    __slots__ = ("_evidence",)
+
+    def __init__(self, evidence: EvidenceWritePort) -> None:
+        self._evidence = evidence
 
     async def recover_terminal_recognition(
         self, unit: PostgreSQLRuntimeUnitOfWork
@@ -578,25 +588,26 @@ class PostgreSQLExternalContentRepository:
         evidence_id, opportunity_id, timeline_id = uuid7(), uuid7(), uuid7()
         creator = snapshot.purpose == "creator_message"
         source_kind = "creator_input" if creator else "other_human_input"
-        privacy = "creator_visible" if creator else "private"
         purpose = "consider_creator_input" if creator else "consider_other_human_input"
-        await connection.execute(
-            """
-            INSERT INTO armi.external_evidence (
-                evidence_id, interaction_id, subject_id, scene_id,
-                context_party_id, artifact_id, source_kind, trust_status,
-                privacy_scope, acceptance_status)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'external_claim',%s,'accepted')
-            """,
-            (
-                evidence_id,
-                snapshot.interaction_id,
-                snapshot.subject_id,
-                snapshot.scene_id,
-                snapshot.source_party_id,
-                artifact_id,
-                source_kind,
-                privacy,
+        await self._evidence.accept(
+            unit,
+            EvidenceDraft(
+                evidence_id=EvidenceId(evidence_id),
+                subject_id=snapshot.subject_id,
+                scene_id=snapshot.scene_id,
+                context_party_id=snapshot.source_party_id,
+                artifact_id=artifact_id,
+                source_kind=(
+                    EvidenceSourceKind.CREATOR_INPUT
+                    if creator
+                    else EvidenceSourceKind.OTHER_HUMAN_INPUT
+                ),
+                privacy_scope=(
+                    EvidencePrivacyScope.CREATOR_VISIBLE
+                    if creator
+                    else EvidencePrivacyScope.PRIVATE
+                ),
+                interaction_id=snapshot.interaction_id,
             ),
         )
         await connection.execute(

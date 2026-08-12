@@ -5,10 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID, uuid7
 
+from armi_evidence.api import (
+    EvidenceDraft,
+    EvidenceId,
+    EvidencePrivacyScope,
+    EvidenceSourceKind,
+    EvidenceWritePort,
+)
 from armi_kernel.contracts import Digest
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
-from ._creator_contract import EvidenceId, OpportunityId
+from ._creator_contract import OpportunityId
 from ._other_human_contract import (
     OtherHumanInputAcceptance,
     OtherHumanInputViolation,
@@ -28,7 +35,10 @@ class OtherHumanInputContext:
 
 
 class OtherHumanInputRepository:
-    __slots__ = ()
+    __slots__ = ("_evidence",)
+
+    def __init__(self, evidence: EvidenceWritePort) -> None:
+        self._evidence = evidence
 
     async def register_party(
         self,
@@ -275,22 +285,17 @@ class OtherHumanInputRepository:
                 addressed_to_subject,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.external_evidence (
-                evidence_id, interaction_id,
-                subject_id, scene_id, context_party_id, artifact_id,
-                source_kind, trust_status, privacy_scope, acceptance_status
-            ) VALUES (%s,%s,%s,%s,%s,%s,
-                      'other_human_input','external_claim','private','accepted')
-            """,
-            (
-                evidence_id,
-                interaction_id,
-                context.subject_id,
-                context.scene_id,
-                context.party_id,
-                artifact_id,
+        await self._evidence.accept(
+            unit_of_work,
+            EvidenceDraft(
+                evidence_id=EvidenceId(evidence_id),
+                subject_id=context.subject_id,
+                scene_id=context.scene_id,
+                context_party_id=context.party_id,
+                artifact_id=artifact_id,
+                source_kind=EvidenceSourceKind.OTHER_HUMAN_INPUT,
+                privacy_scope=EvidencePrivacyScope.PRIVATE,
+                interaction_id=interaction_id,
             ),
         )
         await connection.execute(

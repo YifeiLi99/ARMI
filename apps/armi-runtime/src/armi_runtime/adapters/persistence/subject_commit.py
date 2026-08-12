@@ -13,6 +13,7 @@ from armi_activity.api import (
     ActivityCommitPort,
     ActivityViolation,
 )
+from armi_evidence.api import EvidenceId, EvidenceWritePort, ExperienceEvidenceLink
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -147,6 +148,7 @@ class PostgreSQLSubjectCommitRepository:
 
     __slots__ = (
         "_activity_commit",
+        "_evidence",
         "_material_commit",
         "_memory_commit",
         "_mood_commit",
@@ -161,6 +163,7 @@ class PostgreSQLSubjectCommitRepository:
     def __init__(
         self,
         activity_commit: ActivityCommitPort,
+        evidence: EvidenceWritePort,
         memory_commit: MemoryCommitPort,
         mood_commit: MoodCommitPort,
         prompt_commit: PromptCommitPort,
@@ -172,6 +175,7 @@ class PostgreSQLSubjectCommitRepository:
         subject_state_commit: SubjectStateCommitPort,
     ) -> None:
         self._activity_commit = activity_commit
+        self._evidence = evidence
         self._memory_commit = memory_commit
         self._mood_commit = mood_commit
         self._prompt_commit = prompt_commit
@@ -747,14 +751,14 @@ class PostgreSQLSubjectCommitRepository:
             for ordinal, (context_item_id, evidence_id, _) in enumerate(
                 evidence_links, 1
             ):
-                await connection.execute(
-                    """
-                    INSERT INTO armi.experience_evidence_links (
-                        experience_id, evidence_id, context_item_id,
-                        link_kind, ordinal
-                    ) VALUES (%s, %s, %s, 'relied_on', %s)
-                    """,
-                    (experience_id.value, evidence_id, context_item_id, ordinal),
+                await self._evidence.link_experience(
+                    unit_of_work,
+                    ExperienceEvidenceLink(
+                        experience_id.value,
+                        EvidenceId(evidence_id),
+                        context_item_id,
+                        ordinal,
+                    ),
                 )
 
         try:

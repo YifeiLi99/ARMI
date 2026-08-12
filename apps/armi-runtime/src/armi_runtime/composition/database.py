@@ -14,6 +14,8 @@ from armi_activity.api import (
 )
 from armi_activity.bootstrap import ActivityModule, bootstrap_activity
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_evidence.api import EvidenceWritePort
+from armi_evidence.bootstrap import EvidenceModule, bootstrap_evidence
 from armi_interaction.api import CreatorInputTransactionPort
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel.application import (
@@ -423,6 +425,12 @@ def inspect_creator_party_id(prepared: PreparedEnvironment) -> UUID | None:
     return None if context is None else context.party_id
 
 
+def compose_evidence_module() -> EvidenceModule:
+    """Bind the one active accepted-evidence owner implementation."""
+
+    return bootstrap_evidence()
+
+
 def compose_interaction_module(
     prepared: PreparedEnvironment,
     *,
@@ -431,6 +439,7 @@ def compose_interaction_module(
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
     subject_state_read: SubjectStateReadPort,
+    evidence: EvidenceWritePort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
@@ -492,6 +501,7 @@ def compose_interaction_module(
                     catalog=ArtifactCatalogRepository(),
                     data_rights=DataRightsOrderRepository(),
                     subject_state=subject_state_read,
+                    evidence=evidence,
                     notifier=notifier,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -891,6 +901,7 @@ def compose_perception_module(
     *,
     authority_admission: Callable[[], RuntimeFence],
     fetch: ExternalMediaFetchPort,
+    evidence: EvidenceWritePort,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
 ) -> PerceptionModule:
@@ -935,6 +946,7 @@ def compose_perception_module(
                     ),
                     catalog=ArtifactCatalogRepository(),
                     work=PostgreSQLDurableWorkGateway(factory),
+                    evidence=evidence,
                     fetch=fetch,
                     ark_recognizer=VolcengineArkExternalContentRecognizer(
                         credential_port=prepared.credential_port,
@@ -1355,6 +1367,7 @@ def compose_web_search_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    evidence: EvidenceWritePort,
     diagnostic: Callable[[str], None] | None = None,
 ) -> WebSearchPipeline:
     """Resolve the fixed database and Ark credentials for S033 custody."""
@@ -1398,6 +1411,7 @@ def compose_web_search_pipeline(
                     credential_port=prepared.credential_port,
                     credential_locator=model_locator,
                     manifest_bytes=manifest_bytes,
+                    evidence=evidence,
                     diagnostic=diagnostic,
                 )
 
@@ -1411,6 +1425,7 @@ def compose_web_research_admission_pipeline(
     *,
     authority_admission: Callable[[], RuntimeFence],
     custody: WebSearchPipeline,
+    evidence: EvidenceWritePort,
     diagnostic: Callable[[str], None] | None = None,
 ) -> WebResearchAdmissionPipeline:
     """Resolve the active S034 intent-to-custody worker."""
@@ -1447,6 +1462,7 @@ def compose_web_research_admission_pipeline(
                     ),
                     authority_admission=authority_admission,
                     custody=custody,
+                    evidence=evidence,
                     diagnostic=diagnostic,
                 )
 
@@ -1541,6 +1557,7 @@ def compose_subject_commit_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
+    evidence: EvidenceWritePort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
@@ -1591,6 +1608,7 @@ def compose_subject_commit_pipeline(
                     authority_admission=authority_admission,
                     activity_cognition=activity_cognition,
                     activity_commit=activity_commit,
+                    evidence=evidence,
                     memory_commit=memory_commit,
                     memory_cognition=memory_cognition,
                     mood_commit=mood_commit,
@@ -1812,6 +1830,7 @@ def compose_codex_pipeline(
     *,
     creator_party_id: UUID,
     creator_input: CreatorInputTransactionPort,
+    evidence: EvidenceWritePort,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -1858,6 +1877,7 @@ def compose_codex_pipeline(
                     run_root=run_root,
                     creator_party_id=creator_party_id,
                     creator_input=creator_input,
+                    evidence=evidence,
                     notifier=notifier,
                     diagnostic=diagnostic,
                 )
@@ -1881,6 +1901,7 @@ __all__ = (
     "compose_creator_export_service",
     "compose_data_rights_order_service",
     "compose_effect_registration_pipeline",
+    "compose_evidence_module",
     "compose_exact_life_query_pipeline",
     "compose_interaction_module",
     "compose_life_opportunity_pipeline",

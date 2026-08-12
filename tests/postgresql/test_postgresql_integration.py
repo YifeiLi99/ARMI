@@ -47,6 +47,7 @@ from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_evidence.bootstrap import bootstrap_evidence
 from armi_interaction._creator_postgresql import CreatorInputRepository
 from armi_interaction._external import ExternalMessageInputService
 from armi_interaction._external_postgresql import ExternalMessageInputRepository
@@ -632,8 +633,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 storage=storage,
                 catalog=ArtifactCatalogRepository(),
                 messages=ExternalMessageInputRepository(),
-                creator_inputs=CreatorInputRepository(),
-                other_inputs=OtherHumanInputRepository(),
+                creator_inputs=CreatorInputRepository(bootstrap_evidence().write),
+                other_inputs=OtherHumanInputRepository(bootstrap_evidence().write),
                 unit_of_work_factory=input_factory,
                 data_rights=DataRightsOrderRepository(),
             )
@@ -764,6 +765,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     storage=storage,
                     catalog=ArtifactCatalogRepository(),
                     work=PostgreSQLDurableWorkGateway(pipeline_factory),
+                    evidence=bootstrap_evidence().write,
                     fetch=_ExternalMediaFetch(),
                     recognizer=_ExternalContentRecognizer(),
                     target_for=lambda _kind: ("test_provider", "test_model"),
@@ -2404,7 +2406,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     factory,
                     storage=storage,
                     creator_party_id=creator_party_id,
-                    input_repository=CreatorInputRepository(),
+                    input_repository=CreatorInputRepository(bootstrap_evidence().write),
+                    evidence=bootstrap_evidence().write,
                     notifier=None,
                     diagnostic=lambda _event: None,
                 )
@@ -3400,6 +3403,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     else CredentialLocator("env", "ARMI_SECRET_ARK_API_KEY")
                 ),
                 manifest_bytes=Path("configs/web-search.yaml").read_bytes(),
+                evidence=bootstrap_evidence().write,
                 diagnostic=None,
             )
 
@@ -5677,6 +5681,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             prompt_module = bootstrap_prompt()
             repository = PostgreSQLSubjectCommitRepository(
                 activity_commit=activity_module.commit,
+                evidence=bootstrap_evidence().write,
                 memory_commit=memory_module.commit,
                 mood_commit=mood_module.commit,
                 prompt_commit=prompt_module.commit,

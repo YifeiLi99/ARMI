@@ -13,6 +13,8 @@ from tools.check_workspace_boundaries import (
 
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_EXPORTS = {
+    "armi_evidence.api": frozenset({"EvidenceId", "EvidenceWritePort"}),
+    "armi_evidence.bootstrap": frozenset({"bootstrap_evidence"}),
     "armi_kernel": frozenset(),
     "armi_kernel.application": frozenset(
         {
@@ -141,6 +143,30 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             distribution="armi-runtime",
         )
         self.assert_rejected(violations, "ARC-SURFACE-REVERSE")
+
+    def test_evidence_public_contract_is_available_to_business_modules(self) -> None:
+        violations = self.analyze(
+            "from armi_evidence.api import EvidenceId\n",
+            module="armi_interaction.api",
+            distribution="armi-interaction",
+        )
+        self.assertEqual(violations, [])
+
+    def test_evidence_cannot_depend_on_runtime(self) -> None:
+        violations = self.analyze(
+            "from armi_runtime.composition import database\n",
+            module="armi_evidence.api",
+            distribution="armi-evidence",
+        )
+        self.assert_rejected(violations, "ARC-SURFACE-REVERSE")
+
+    def test_evidence_bootstrap_is_reserved_for_composition(self) -> None:
+        violations = self.analyze(
+            "from armi_evidence.bootstrap import bootstrap_evidence\n",
+            module="armi_runtime.adapters.example",
+            distribution="armi-runtime",
+        )
+        self.assert_rejected(violations, "ARC-SURFACE-BOOTSTRAP")
 
     def test_kernel_cannot_import_technical_adapter(self) -> None:
         violations = self.analyze(

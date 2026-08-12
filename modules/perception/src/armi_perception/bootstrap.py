@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_evidence.api import EvidenceWritePort
 from armi_interaction.api import ExternalMessagePartKind
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 
@@ -41,6 +42,7 @@ def bootstrap_perception(
     storage: ContentAddressedArtifactStore,
     catalog: PerceptionArtifactCatalogPort,
     work: PerceptionDurableWorkPort,
+    evidence: EvidenceWritePort,
     fetch: ExternalMediaFetchPort,
     ark_recognizer: ExternalContentRecognitionPort,
     speech_recognizer: ExternalContentRecognitionPort,
@@ -57,6 +59,7 @@ def bootstrap_perception(
         storage=storage,
         catalog=catalog,
         work=work,
+        evidence=evidence,
         fetch=fetch,
         recognizer=recognizer,
         target_for=target_for,

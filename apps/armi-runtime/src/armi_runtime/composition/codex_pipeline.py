@@ -18,6 +18,7 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_evidence.api import EvidenceWritePort
 from armi_interaction.api import (
     CreatorInputAcceptance,
     CreatorInputContext,
@@ -96,6 +97,7 @@ class CodexTaskSourceGateway(
         storage: ContentAddressedArtifactStore,
         creator_party_id: UUID,
         input_repository: CreatorInputTransactionPort,
+        evidence: EvidenceWritePort,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic,
     ) -> None:
@@ -104,7 +106,7 @@ class CodexTaskSourceGateway(
         self._creator_party_id = creator_party_id
         self._notifier = notifier
         self._diagnostic = diagnostic
-        self._repository = PostgreSQLCodexDelegationRepository()
+        self._repository = PostgreSQLCodexDelegationRepository(evidence)
         self._input_repository = input_repository
         self._catalog = ArtifactCatalogRepository()
 
@@ -318,6 +320,7 @@ class CodexEffectPipeline:
         run_root: Path,
         creator_party_id: UUID,
         creator_input: CreatorInputTransactionPort,
+        evidence: EvidenceWritePort,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
@@ -325,7 +328,7 @@ class CodexEffectPipeline:
         self._storage = storage
         self._environment_root = environment_root
         self._run_root = run_root
-        self._repository = PostgreSQLCodexDelegationRepository()
+        self._repository = PostgreSQLCodexDelegationRepository(evidence)
         self._catalog = ArtifactCatalogRepository()
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -335,6 +338,7 @@ class CodexEffectPipeline:
             storage=storage,
             creator_party_id=creator_party_id,
             input_repository=creator_input,
+            evidence=evidence,
             notifier=notifier,
             diagnostic=self._diagnostic,
         )
