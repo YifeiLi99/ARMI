@@ -13,6 +13,12 @@ from armi_activity.api import (
     ActivityCommitPort,
     ActivityViolation,
 )
+from armi_capability.api import (
+    CapabilityCommitContext,
+    CapabilityCommitPort,
+    CapabilityReadPort,
+    CapabilityViolation,
+)
 from armi_cognition import SubjectChangeSet
 from armi_evidence.api import EvidenceId, EvidenceWritePort, ExperienceEvidenceLink
 from armi_expression.api import (
@@ -34,9 +40,7 @@ from armi_kernel.application import (
     CandidateApplicationStatus,
     CandidateDisposition,
     CandidateExactLifeQueryDraft,
-    CapabilityRequestDraft,
     CodexDelegationDraft,
-    CreatorSceneReplyScope,
     ExperienceId,
     RuntimeFence,
     SubjectCommitId,
@@ -156,11 +160,26 @@ def _expression_commit_context(
     )
 
 
+def _capability_commit_context(
+    snapshot: SubjectCommitSnapshot,
+) -> CapabilityCommitContext:
+    return CapabilityCommitContext(
+        snapshot.validation_id,
+        snapshot.episode_id,
+        snapshot.subject_id,
+        snapshot.scene_id,
+        snapshot.creator_party_id,
+        snapshot.trace_id,
+    )
+
+
 class PostgreSQLSubjectCommitRepository:
     """Read one validated ChangeSet and atomically apply or settle it."""
 
     __slots__ = (
         "_activity_commit",
+        "_capability_commit",
+        "_capability_read",
         "_evidence",
         "_expression_commit",
         "_material_commit",
@@ -175,6 +194,8 @@ class PostgreSQLSubjectCommitRepository:
     def __init__(
         self,
         activity_commit: ActivityCommitPort,
+        capability_commit: CapabilityCommitPort,
+        capability_read: CapabilityReadPort,
         evidence: EvidenceWritePort,
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
@@ -186,6 +207,8 @@ class PostgreSQLSubjectCommitRepository:
         subject_state_commit: SubjectStateCommitPort,
     ) -> None:
         self._activity_commit = activity_commit
+        self._capability_commit = capability_commit
+        self._capability_read = capability_read
         self._evidence = evidence
         self._expression_commit = expression_commit
         self._memory_commit = memory_commit
@@ -312,19 +335,10 @@ class PostgreSQLSubjectCommitRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         subject_commit_id: SubjectCommitId,
     ) -> tuple[UUID, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        rows = await (
-            await connection.execute(
-                """
-                SELECT capability_request_id
-                FROM armi.capability_requests
-                WHERE subject_commit_id = %s
-                ORDER BY capability_request_id
-                """,
-                (subject_commit_id.value,),
-            )
-        ).fetchall()
-        return tuple(UUID(str(row[0])) for row in rows)
+        return await self._capability_read.request_ids_for_commit(
+            unit_of_work.transaction,
+            commit_id=subject_commit_id.value,
+        )
 
     async def affected_activity_ids(
         self,
@@ -900,12 +914,15 @@ class PostgreSQLSubjectCommitRepository:
                 proposal_ref=activity_result.focus_proposal_ref,
             )
 
-        await _insert_capability_requests(
-            unit_of_work,
-            snapshot=snapshot,
-            commit_id=commit_id,
-            requests=change_set.capability_requests,
-        )
+        try:
+            await self._capability_commit.commit_requests(
+                unit_of_work,
+                context=_capability_commit_context(snapshot),
+                commit_id=commit_id.value,
+                requests=change_set.capability_requests,
+            )
+        except CapabilityViolation as error:
+            raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
         try:
             await self._expression_commit.commit(
                 unit_of_work,
@@ -1454,238 +1471,6 @@ async def _evidence_links(
         )
     ).fetchall()
     return [(row[0], row[1], row[2]) for row in rows]
-
-
-async def _insert_capability_requests(
-    unit_of_work: PostgreSQLUnitOfWork,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    requests: tuple[CapabilityRequestDraft, ...],
-) -> None:
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    for draft in requests:
-        catalog = await (
-            await connection.execute(
-                """
-                SELECT capability_id, operation_class
-                FROM armi.capabilities
-                WHERE capability_kind = %s
-                """,
-                (draft.capability.value,),
-            )
-        ).fetchone()
-        if catalog is None or str(catalog[1]) != draft.operation.value:
-            raise SubjectCommitViolation("SUBJECT-CAPABILITY-CATALOG")
-        request_id = uuid7()
-        scope = draft.scope
-        if isinstance(scope, CreatorSceneReplyScope):
-            if (
-                scope.subject_id != snapshot.subject_id
-                or scope.scene_id != snapshot.scene_id
-                or scope.creator_party_id != snapshot.creator_party_id
-            ):
-                raise SubjectCommitViolation("SUBJECT-CAPABILITY-SCOPE")
-            columns = (
-                scope.audience_scope,
-                scope.data_scope,
-                scope.purpose,
-                None,
-                None,
-                None,
-                scope.valid_for_seconds,
-                scope.max_uses,
-                scope.max_payload_bytes,
-            )
-        else:
-            columns = (
-                None,
-                None,
-                "delegate_codex_work",
-                scope.workspace_scope,
-                scope.artifact_scope,
-                scope.network_access,
-                scope.valid_for_seconds,
-                scope.max_uses,
-                None,
-            )
-        inserted = await (
-            await connection.execute(
-                """
-            INSERT INTO armi.capability_requests (
-                capability_request_id, subject_commit_id, proposal_ref,
-                subject_id, interaction_scene_id, creator_party_id,
-                capability_id, capability_kind, operation_class,
-                audience_scope, data_scope, purpose, workspace_scope,
-                artifact_scope, network_access, requested_valid_for_seconds,
-                requested_max_uses, requested_max_payload_bytes) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (subject_id, capability_kind, operation_class)
-            WHERE capability_kind = 'codex.delegated-work'
-              AND current_status IN ('pending', 'granted', 'limited')
-            DO NOTHING
-            RETURNING capability_request_id
-                """,
-                (
-                    request_id,
-                    commit_id.value,
-                    draft.proposal_ref,
-                    snapshot.subject_id,
-                    snapshot.scene_id,
-                    snapshot.creator_party_id,
-                    catalog[0],
-                    draft.capability.value,
-                    draft.operation.value,
-                    *columns,
-                ),
-            )
-        ).fetchone()
-        if inserted is None:
-            continue
-        rows = await (
-            await connection.execute(
-                """
-                SELECT basis.context_item_id
-                FROM armi.cognitive_candidate_basis_links AS basis
-                JOIN armi.cognitive_context_items AS item
-                  ON item.context_item_id = basis.context_item_id
-                 AND item.cognitive_episode_id = %s
-                 AND item.disposition = 'included'
-                WHERE basis.candidate_validation_id = %s
-                  AND basis.proposal_ref = %s
-                ORDER BY basis.ordinal
-                """,
-                (snapshot.episode_id, snapshot.validation_id, draft.proposal_ref),
-            )
-        ).fetchall()
-        if len(rows) != len(draft.basis_ordinals):
-            raise SubjectCommitViolation("SUBJECT-CAPABILITY-BASIS")
-        for ordinal, row in enumerate(rows, 1):
-            await connection.execute(
-                """
-                INSERT INTO armi.capability_request_basis_links (
-                    capability_request_id, context_item_id, ordinal
-                ) VALUES (%s, %s, %s)
-                """,
-                (request_id, row[0], ordinal),
-            )
-        await unit_of_work.audit.append(
-            _audit(
-                unit_of_work,
-                snapshot,
-                "capability.request.created",
-                "capability_request",
-                request_id,
-                AuditResultStatus.APPLIED,
-            )
-        )
-        if isinstance(scope, CreatorSceneReplyScope):
-            await _grant_local_creator_reply(
-                unit_of_work,
-                snapshot=snapshot,
-                request_id=request_id,
-                capability_id=catalog[0],
-                scope=scope,
-            )
-
-
-async def _grant_local_creator_reply(
-    unit_of_work: PostgreSQLUnitOfWork,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    request_id: UUID,
-    capability_id: UUID,
-    scope: CreatorSceneReplyScope,
-) -> None:
-    """Authorize the subject's same-scene reply without a Creator approval loop."""
-
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    now_row = await (
-        await connection.execute("SELECT statement_timestamp()")
-    ).fetchone()
-    if now_row is None:
-        raise SubjectCommitViolation("SUBJECT-DATABASE")
-    now = now_row[0]
-    grant_id = uuid7()
-    decision_id = uuid7()
-    command_digest = Digest.from_bytes(
-        rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.local-creator-reply-grant.v1",
-                    "request_id": str(request_id),
-                    "decision": "grant",
-                    "reason": "same_scene_creator_conversation",
-                },
-            )
-        )
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.permission_grants (
-            grant_id, capability_request_id, creator_party_id,
-            capability_id, subject_id, interaction_scene_id,
-            operation_class, audience_scope, data_scope, purpose,
-            workspace_scope, artifact_scope, network_access,
-            valid_from, valid_until, max_uses, max_payload_bytes) VALUES (
-            %s, %s, %s, %s, %s, %s, 'send', 'creator',
-            'creator_visible_response', 'respond_to_creator',
-            NULL, NULL, NULL, %s, %s, %s, %s)
-        """,
-        (
-            grant_id,
-            request_id,
-            snapshot.creator_party_id,
-            capability_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            now,
-            now + timedelta(seconds=scope.valid_for_seconds),
-            scope.max_uses,
-            scope.max_payload_bytes,
-        ),
-    )
-    await connection.execute(
-        """
-        UPDATE armi.capability_requests
-        SET current_status = 'granted', request_version = 2,
-            resolved_by_party_id = creator_party_id,
-            resolution_reason_class = 'same_scene_creator_conversation',
-            resolved_at = statement_timestamp()
-        WHERE capability_request_id = %s
-          AND current_status = 'pending' AND request_version = 1
-        """,
-        (request_id,),
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.capability_request_decisions (
-            capability_decision_id, capability_request_id,
-            creator_party_id, expected_request_version,
-            resulting_request_version, decision_kind, command_digest,
-            reason_code) VALUES (
-            %s, %s, %s, 1, 2, 'grant', %s,
-            'same_scene_creator_conversation')
-        """,
-        (
-            decision_id,
-            request_id,
-            snapshot.creator_party_id,
-            command_digest.value,
-        ),
-    )
-    await unit_of_work.audit.append(
-        _audit(
-            unit_of_work,
-            snapshot,
-            "capability.request.granted",
-            "capability_request",
-            request_id,
-            AuditResultStatus.APPLIED,
-        )
-    )
 
 
 async def _insert_web_research_intent(

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_capability.api import (
     CapabilityDecisionId,
     CapabilityKind,
     CapabilityOperation,

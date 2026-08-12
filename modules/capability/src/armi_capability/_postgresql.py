@@ -7,7 +7,6 @@ import hashlib
 import hmac
 import json
 import secrets
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -19,24 +18,10 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CapabilityKind,
-    CapabilityOperation,
-    CapabilityRequestId,
-    CapabilityRequestStatus,
-    CapabilityViolation,
-    CodexDelegatedWorkScope,
     CreatorEventResourceKind,
     CreatorEventViolation,
-    CreatorGrantCommand,
-    CreatorGrantDecision,
-    CreatorGrantResult,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
-    CreatorSceneReplyScope,
-    GrantStatus,
-    PermissionGrant,
-    PermissionGrantId,
-    RuntimeFence,
     WorkDraft,
     WorkId,
     WorkOwner,
@@ -50,9 +35,29 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 
-from ..transaction_errors import DatabaseTransactionError
-from .unit_of_work import PostgreSQLUnitOfWorkFactory
+from .api import (
+    CapabilityCommitContext,
+    CapabilityKind,
+    CapabilityOperation,
+    CapabilityRequestDraft,
+    CapabilityRequestId,
+    CapabilityRequestStatus,
+    CapabilityViolation,
+    CodexDelegatedWorkScope,
+    CreatorGrantCommand,
+    CreatorGrantDecision,
+    CreatorGrantResult,
+    CreatorSceneReplyScope,
+    GrantStatus,
+    PermissionGrant,
+    PermissionGrantId,
+)
 
 
 class PostgreSQLCreatorGrantPolicy:
@@ -62,26 +67,13 @@ class PostgreSQLCreatorGrantPolicy:
 
     def __init__(
         self,
-        conninfo: str,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
         environment_id: UUID,
-        pool_min: int,
-        pool_max: int,
-        acquire_timeout_seconds: int,
-        statement_timeout_seconds: int,
-        authority_admission: Callable[[], RuntimeFence],
         cursor_key: bytes,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
-        self._factory = PostgreSQLUnitOfWorkFactory(
-            conninfo,
-            environment_id=environment_id,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            acquire_timeout_seconds=acquire_timeout_seconds,
-            statement_timeout_seconds=statement_timeout_seconds,
-            authority_admission=authority_admission,
-        )
+        self._factory = factory
         if type(cursor_key) is not bytes or len(cursor_key) < 32:
             raise CapabilityViolation("POLICY-CURSOR-KEY")
         self._cursor_key = hmac.new(
@@ -125,7 +117,7 @@ class PostgreSQLCreatorGrantPolicy:
             else None
         )
         async with self._factory.unit_of_work(read_only=True) as unit_of_work:
-            connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+            connection = unit_of_work.transaction
             rows = await (
                 await connection.execute(
                     """
@@ -282,7 +274,7 @@ class PostgreSQLCreatorGrantPolicy:
     async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+                connection = unit_of_work.transaction
                 command_digest = _command_digest(command)
                 existing = await (
                     await connection.execute(
@@ -585,14 +577,263 @@ class PostgreSQLCreatorGrantPolicy:
                 )
         except CapabilityViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CapabilityViolation("POLICY-DATABASE") from None
+
+    async def request_ids_for_commit(
+        self,
+        transaction: Any,
+        *,
+        commit_id: UUID,
+    ) -> tuple[UUID, ...]:
+        rows = await (
+            await transaction.execute(
+                """
+                SELECT capability_request_id
+                FROM armi.capability_requests
+                WHERE subject_commit_id = %s
+                ORDER BY capability_request_id
+                """,
+                (commit_id,),
+            )
+        ).fetchall()
+        return tuple(UUID(str(row[0])) for row in rows)
+
+    async def commit_requests(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: CapabilityCommitContext,
+        commit_id: UUID,
+        requests: tuple[CapabilityRequestDraft, ...],
+    ) -> None:
+        connection = unit_of_work.transaction
+        for draft in requests:
+            catalog = await (
+                await connection.execute(
+                    """
+                    SELECT capability_id, operation_class
+                    FROM armi.capabilities
+                    WHERE capability_kind = %s
+                    """,
+                    (draft.capability.value,),
+                )
+            ).fetchone()
+            if catalog is None or str(catalog[1]) != draft.operation.value:
+                raise CapabilityViolation("CAPABILITY-CATALOG")
+            request_id = uuid7()
+            scope = draft.scope
+            if isinstance(scope, CreatorSceneReplyScope):
+                if (
+                    scope.subject_id != context.subject_id
+                    or scope.scene_id != context.scene_id
+                    or scope.creator_party_id != context.creator_party_id
+                ):
+                    raise CapabilityViolation("CAPABILITY-SCOPE")
+                columns = (
+                    scope.audience_scope,
+                    scope.data_scope,
+                    scope.purpose,
+                    None,
+                    None,
+                    None,
+                    scope.valid_for_seconds,
+                    scope.max_uses,
+                    scope.max_payload_bytes,
+                )
+            else:
+                columns = (
+                    None,
+                    None,
+                    "delegate_codex_work",
+                    scope.workspace_scope,
+                    scope.artifact_scope,
+                    scope.network_access,
+                    scope.valid_for_seconds,
+                    scope.max_uses,
+                    None,
+                )
+            inserted = await (
+                await connection.execute(
+                    """
+                    INSERT INTO armi.capability_requests (
+                        capability_request_id, subject_commit_id, proposal_ref,
+                        subject_id, interaction_scene_id, creator_party_id,
+                        capability_id, capability_kind, operation_class,
+                        audience_scope, data_scope, purpose, workspace_scope,
+                        artifact_scope, network_access, requested_valid_for_seconds,
+                        requested_max_uses, requested_max_payload_bytes) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (subject_id, capability_kind, operation_class)
+                    WHERE capability_kind = 'codex.delegated-work'
+                      AND current_status IN ('pending', 'granted', 'limited')
+                    DO NOTHING
+                    RETURNING capability_request_id
+                    """,
+                    (
+                        request_id,
+                        commit_id,
+                        draft.proposal_ref,
+                        context.subject_id,
+                        context.scene_id,
+                        context.creator_party_id,
+                        catalog[0],
+                        draft.capability.value,
+                        draft.operation.value,
+                        *columns,
+                    ),
+                )
+            ).fetchone()
+            if inserted is None:
+                continue
+            rows = await (
+                await connection.execute(
+                    """
+                    SELECT basis.context_item_id
+                    FROM armi.cognitive_candidate_basis_links AS basis
+                    JOIN armi.cognitive_context_items AS item
+                      ON item.context_item_id = basis.context_item_id
+                     AND item.cognitive_episode_id = %s
+                     AND item.disposition = 'included'
+                    WHERE basis.candidate_validation_id = %s
+                      AND basis.proposal_ref = %s
+                    ORDER BY basis.ordinal
+                    """,
+                    (context.episode_id, context.validation_id, draft.proposal_ref),
+                )
+            ).fetchall()
+            if len(rows) != len(draft.basis_ordinals):
+                raise CapabilityViolation("CAPABILITY-BASIS")
+            for ordinal, row in enumerate(rows, 1):
+                await connection.execute(
+                    """
+                    INSERT INTO armi.capability_request_basis_links (
+                        capability_request_id, context_item_id, ordinal
+                    ) VALUES (%s, %s, %s)
+                    """,
+                    (request_id, row[0], ordinal),
+                )
+            await unit_of_work.audit.append(
+                _commit_audit(
+                    unit_of_work,
+                    context,
+                    "capability.request.created",
+                    request_id,
+                )
+            )
+            if isinstance(scope, CreatorSceneReplyScope):
+                await self._grant_local_creator_reply(
+                    unit_of_work,
+                    context=context,
+                    request_id=request_id,
+                    capability_id=UUID(str(catalog[0])),
+                    scope=scope,
+                )
+
+    async def _grant_local_creator_reply(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: CapabilityCommitContext,
+        request_id: UUID,
+        capability_id: UUID,
+        scope: CreatorSceneReplyScope,
+    ) -> None:
+        """Authorize the subject's same-scene reply without an approval loop."""
+
+        if context.creator_party_id is None or context.scene_id is None:
+            raise CapabilityViolation("CAPABILITY-SCOPE")
+        connection = unit_of_work.transaction
+        now_row = await (
+            await connection.execute("SELECT statement_timestamp()")
+        ).fetchone()
+        if now_row is None:
+            raise CapabilityViolation("CAPABILITY-DATABASE")
+        now = now_row[0]
+        grant_id = uuid7()
+        decision_id = uuid7()
+        command_digest = Digest.from_bytes(
+            rfc8785.dumps(
+                cast(
+                    Any,
+                    {
+                        "schema_version": "armi.local-creator-reply-grant.v1",
+                        "request_id": str(request_id),
+                        "decision": "grant",
+                        "reason": "same_scene_creator_conversation",
+                    },
+                )
+            )
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.permission_grants (
+                grant_id, capability_request_id, creator_party_id,
+                capability_id, subject_id, interaction_scene_id,
+                operation_class, audience_scope, data_scope, purpose,
+                workspace_scope, artifact_scope, network_access,
+                valid_from, valid_until, max_uses, max_payload_bytes) VALUES (
+                %s, %s, %s, %s, %s, %s, 'send', 'creator',
+                'creator_visible_response', 'respond_to_creator',
+                NULL, NULL, NULL, %s, %s, %s, %s)
+            """,
+            (
+                grant_id,
+                request_id,
+                context.creator_party_id,
+                capability_id,
+                context.subject_id,
+                context.scene_id,
+                now,
+                now + timedelta(seconds=scope.valid_for_seconds),
+                scope.max_uses,
+                scope.max_payload_bytes,
+            ),
+        )
+        await connection.execute(
+            """
+            UPDATE armi.capability_requests
+            SET current_status = 'granted', request_version = 2,
+                resolved_by_party_id = creator_party_id,
+                resolution_reason_class = 'same_scene_creator_conversation',
+                resolved_at = statement_timestamp()
+            WHERE capability_request_id = %s
+              AND current_status = 'pending' AND request_version = 1
+            """,
+            (request_id,),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.capability_request_decisions (
+                capability_decision_id, capability_request_id,
+                creator_party_id, expected_request_version,
+                resulting_request_version, decision_kind, command_digest,
+                reason_code) VALUES (
+                %s, %s, %s, 1, 2, 'grant', %s,
+                'same_scene_creator_conversation')
+            """,
+            (
+                decision_id,
+                request_id,
+                context.creator_party_id,
+                command_digest.value,
+            ),
+        )
+        await unit_of_work.audit.append(
+            _commit_audit(
+                unit_of_work,
+                context,
+                "capability.request.granted",
+                request_id,
+            )
+        )
 
     async def expire_once(self, *, limit: int = 100) -> int:
         expired_request_ids: list[UUID] = []
         cancelled_projection_refs: list[tuple[UUID, UUID]] = []
         async with self._factory.unit_of_work() as unit_of_work:
-            connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+            connection = unit_of_work.transaction
             rows = await (
                 await connection.execute(
                     """
@@ -734,6 +975,26 @@ class PostgreSQLCreatorGrantPolicy:
                 await self._notifier.notify(invalidation)
             except CreatorEventViolation:
                 continue
+
+
+def _commit_audit(
+    unit_of_work: PostgreSQLRuntimeUnitOfWork,
+    context: CapabilityCommitContext,
+    action: str,
+    request_id: UUID,
+) -> AuditDraft:
+    return AuditDraft(
+        AuditEventId(uuid7()),
+        AuditReference("runtime", unit_of_work.environment_id),
+        Purpose("cognition.subject.commit"),
+        action,
+        AuditReference("capability_request", request_id),
+        AuditResultStatus.APPLIED,
+        context.trace_id,
+        AuditSensitivity.PRIVATE,
+        subject_id=SubjectId(context.subject_id),
+        request=AuditReference("cognitive_episode", context.episode_id),
+    )
 
 
 async def _cancel_registered_effects(
@@ -935,13 +1196,13 @@ def _command_digest(command: CreatorGrantCommand) -> Digest:
 
 
 async def _activate_codex_registration(
-    unit_of_work: Any,
+    unit_of_work: PostgreSQLRuntimeUnitOfWork,
     *,
     capability_request_id: UUID,
     grant_id: UUID,
     valid_until: datetime,
 ) -> None:
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+    connection = unit_of_work.transaction
     row = await (
         await connection.execute(
             """

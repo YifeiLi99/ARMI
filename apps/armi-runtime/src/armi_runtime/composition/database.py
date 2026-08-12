@@ -14,6 +14,12 @@ from armi_activity.api import (
 )
 from armi_activity.bootstrap import ActivityModule, bootstrap_activity
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_capability.api import (
+    CapabilityCommitPort,
+    CapabilityReadPort,
+    CapabilityViolation,
+)
+from armi_capability.bootstrap import CapabilityModule, bootstrap_capability
 from armi_cognition.api import (
     CognitionCandidateParser,
     CognitionModelPort,
@@ -35,7 +41,6 @@ from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel.application import (
     ActionAdapterPort,
     CandidateViolation,
-    CapabilityViolation,
     CodexDelegationViolation,
     CreatorExportViolation,
     CreatorProjectionNotifier,
@@ -127,9 +132,6 @@ from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRe
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
-)
-from armi_runtime.adapters.persistence.capability_policy import (
-    PostgreSQLCreatorGrantPolicy,
 )
 from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
@@ -1641,6 +1643,8 @@ def compose_subject_commit_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
+    capability_commit: CapabilityCommitPort,
+    capability_read: CapabilityReadPort,
     evidence: EvidenceWritePort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
@@ -1696,6 +1700,8 @@ def compose_subject_commit_pipeline(
                     authority_admission=authority_admission,
                     activity_cognition=activity_cognition,
                     activity_commit=activity_commit,
+                    capability_commit=capability_commit,
+                    capability_read=capability_read,
                     evidence=evidence,
                     expression_commit=expression.commit,
                     memory_commit=memory_commit,
@@ -1729,7 +1735,7 @@ def compose_capability_policy(
     authority_admission: Callable[[], RuntimeFence],
     cursor_key: bytes,
     notifier: CreatorProjectionNotifier | None = None,
-) -> PostgreSQLCreatorGrantPolicy:
+) -> CapabilityModule:
     """Resolve the Runtime credential for the sole active T-04 policy."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
@@ -1740,13 +1746,13 @@ def compose_capability_policy(
             locator, CredentialPurpose("database.runtime")
         ) as handle:
 
-            def create(value: memoryview) -> PostgreSQLCreatorGrantPolicy:
+            def create(value: memoryview) -> CapabilityModule:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     raise CapabilityViolation("POLICY-DATABASE") from None
                 config = prepared.effective.config
-                return PostgreSQLCreatorGrantPolicy(
+                factory = PostgreSQLUnitOfWorkFactory(
                     conninfo,
                     environment_id=config.environment.environment_id,
                     pool_min=config.database.pool_min,
@@ -1754,6 +1760,10 @@ def compose_capability_policy(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                )
+                return bootstrap_capability(
+                    factory,
+                    environment_id=config.environment.environment_id,
                     cursor_key=cursor_key,
                     notifier=notifier,
                 )

@@ -16,6 +16,7 @@ from uuid import uuid7
 
 import uvicorn
 from armi_activity.api import ActivityViolation
+from armi_capability.api import CapabilityViolation
 from armi_context.api import ContextViolation
 from armi_expression.api import ResponseViolation
 from armi_interaction.api import (
@@ -26,7 +27,6 @@ from armi_interaction.api import (
 )
 from armi_kernel.application import (
     CandidateViolation,
-    CapabilityViolation,
     CodexDelegationViolation,
     CreatorExportViolation,
     DataRightsViolation,
@@ -516,6 +516,8 @@ async def _serve(
                 authority_admission=authority.require_writable,
                 activity_cognition=activity_module.cognition,
                 activity_commit=activity_module.commit,
+                capability_commit=capability_policy.commit,
+                capability_read=capability_policy.read,
                 evidence=evidence_module.write,
                 memory_commit=memory_module.commit,
                 memory_cognition=memory_module.cognition,

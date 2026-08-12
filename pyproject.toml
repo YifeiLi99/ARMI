@@ -25,6 +25,7 @@ members = [
     "packages/armi-channel-napcat",
     "packages/armi-adapter-qq",
     "packages/armi-runtime-foundation",
+    "modules/capability",
     "modules/relationship",
     "modules/memory",
     "modules/sleep",
@@ -62,6 +63,7 @@ testpaths = [
     "modules/context/tests",
     "modules/cognition/tests",
     "modules/expression/tests",
+    "modules/capability/tests",
     "modules/interaction/tests",
     "modules/perception/tests",
 ]

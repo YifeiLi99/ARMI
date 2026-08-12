@@ -14,8 +14,11 @@ from uuid import UUID, uuid7
 import pytest
 import rfc8785
 from armi_activity.api import ActivityStatus, default_activity_cognition
+from armi_capability.api import CodexDelegatedWorkScope, CreatorSceneReplyScope
 from armi_cognition import (
     CandidateValidationStatus,
+)
+from armi_cognition import (
     parse_subject_change_set as _parse_subject_change_set,
 )
 from armi_cognition._candidate_postgresql import (
@@ -47,9 +50,7 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateOwner,
     CandidateOwnerDraft,
-    CodexDelegatedWorkScope,
     CodexDelegationDraft,
-    CreatorSceneReplyScope,
     LifeRecordKind,
     SubjectCommitViolation,
 )

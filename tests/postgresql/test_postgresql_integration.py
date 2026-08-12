@@ -47,6 +47,17 @@ from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_capability.api import (
+    CapabilityDecisionId,
+    CapabilityRequestId,
+    CapabilityRequestStatus,
+    CapabilityViolation,
+    CodexDelegatedWorkScope,
+    CreatorGrantCommand,
+    CreatorGrantDecision,
+    CreatorSceneReplyScope,
+)
+from armi_capability.bootstrap import bootstrap_capability
 from armi_cognition import parse_subject_change_set
 from armi_cognition._model_contract import (
     build_request_bytes,
@@ -97,16 +108,8 @@ from armi_kernel.application import (
     BirthViolation,
     CandidateApplicationStatus,
     CandidateBasis,
-    CapabilityDecisionId,
-    CapabilityRequestId,
-    CapabilityRequestStatus,
-    CapabilityViolation,
     CasStatus,
-    CodexDelegatedWorkScope,
     CreatorCodexTaskCommand,
-    CreatorGrantCommand,
-    CreatorGrantDecision,
-    CreatorSceneReplyScope,
     CredentialLocator,
     EffectStatus,
     LifeRecordActor,
@@ -169,9 +172,6 @@ from armi_runtime.adapters.persistence.birth import (
     BirthRepository,
     ContinuityState,
     probe_continuity,
-)
-from armi_runtime.adapters.persistence.capability_policy import (
-    PostgreSQLCreatorGrantPolicy,
 )
 from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.durable_work import (
@@ -5682,8 +5682,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 relationship_module.read,
                 relationship_module.policy,
             )
+            capability_module = bootstrap_capability(
+                factory,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"t03-capability-cursor-key").digest(),
+            )
             repository = PostgreSQLSubjectCommitRepository(
                 activity_commit=activity_module.commit,
+                capability_commit=capability_module.commit,
+                capability_read=capability_module.read,
                 evidence=bootstrap_evidence().write,
                 expression_commit=expression_module.commit,
                 memory_commit=memory_module.commit,
@@ -5922,14 +5929,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         async def exercise_policy() -> tuple[
             str, int, str, str, int, int, str, str, str
         ]:
-            policy = PostgreSQLCreatorGrantPolicy(
-                fixture.runtime_dsn,
+            policy = bootstrap_capability(
+                PostgreSQLUnitOfWorkFactory(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    pool_min=1,
+                    pool_max=1,
+                    acquire_timeout_seconds=2,
+                    statement_timeout_seconds=5,
+                    authority_admission=lambda: fence,
+                ),
                 environment_id=fixture.environment_id,
-                pool_min=1,
-                pool_max=1,
-                acquire_timeout_seconds=2,
-                statement_timeout_seconds=5,
-                authority_admission=lambda: fence,
                 cursor_key=b"s027-capability-policy-cursor-key",
             )
             await policy.open()

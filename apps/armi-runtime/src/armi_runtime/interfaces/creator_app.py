@@ -12,6 +12,14 @@ from typing import Any, Literal, Protocol, TypedDict, assert_never, cast
 from uuid import UUID, uuid7
 
 from armi_activity.api import ActivityReadPort, ActivityViolation
+from armi_capability.api import (
+    CapabilityDecisionId,
+    CapabilityPolicyPort,
+    CapabilityRequestId,
+    CapabilityViolation,
+    CreatorGrantCommand,
+    CreatorGrantDecision,
+)
 from armi_interaction.api import (
     CreatorInputAcceptance,
     CreatorInputAcceptancePort,
@@ -38,9 +46,6 @@ from armi_interaction.api import (
     SceneTimelineQueryPort,
 )
 from armi_kernel.application import (
-    CapabilityDecisionId,
-    CapabilityRequestId,
-    CapabilityViolation,
     CodexDelegationViolation,
     CodexModel,
     CodexReasoningEffort,
@@ -51,9 +56,6 @@ from armi_kernel.application import (
     CreatorExportPort,
     CreatorExportResult,
     CreatorExportViolation,
-    CreatorGrantCommand,
-    CreatorGrantDecision,
-    CreatorGrantResult,
     CreatorProjectionInvalidation,
     DataRightsOrderCommand,
     DataRightsOrderDetail,
@@ -232,18 +234,6 @@ ReadinessProvider = Callable[[], Readiness]
 RuntimeStatusProvider = Callable[[], RuntimeStatusResponse]
 SubjectSummaryProvider = Callable[[], Awaitable[SubjectSummary]]
 SecurityEvent = Callable[[str], None]
-
-
-class CapabilityPolicyPort(Protocol):
-    async def list_requests(
-        self,
-        *,
-        creator_party_id: UUID,
-        limit: int,
-        cursor: str | None,
-    ) -> dict[str, object]: ...
-
-    async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult: ...
 
 
 class CreatorLifeMaterialQueryPort(Protocol):

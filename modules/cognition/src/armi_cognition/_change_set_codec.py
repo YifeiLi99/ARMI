@@ -18,6 +18,13 @@ from armi_activity.api import (
     CandidateActivityDraft,
     default_activity_cognition,
 )
+from armi_capability.api import (
+    CapabilityKind,
+    CapabilityOperation,
+    CapabilityRequestDraft,
+    CodexDelegatedWorkScope,
+    CreatorSceneReplyScope,
+)
 from armi_expression.api import (
     CreatorReplyDraft,
     FormalNoActionDraft,
@@ -35,13 +42,8 @@ from armi_kernel.application import (
     CandidateOwnerDraft,
     CandidateRejection,
     CandidateViolation,
-    CapabilityKind,
-    CapabilityOperation,
-    CapabilityRequestDraft,
-    CodexDelegatedWorkScope,
     CodexDelegationDraft,
     CodexTaskSourceId,
-    CreatorSceneReplyScope,
     LifeRecordKind,
     SubjectCommitViolation,
     WebResearchRequestDraft,

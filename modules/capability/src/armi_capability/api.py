@@ -1,4 +1,4 @@
-"""Technology-neutral capability request and grant contracts."""
+"""Public contracts for capabilities, requests, and grants."""
 
 from __future__ import annotations
 
@@ -8,6 +8,12 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
+
+from armi_kernel.contracts import TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 
 _CODE = re.compile(r"^(?:CON|CAPABILITY|POLICY|CONFLICT|SCOPE)-[A-Z0-9-]+$", re.ASCII)
 
@@ -92,6 +98,25 @@ class PermissionGrantId:
 
     def __post_init__(self) -> None:
         _uuid7(self.value, "CON-CAPABILITY-GRANT-ID")
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityCommitContext:
+    validation_id: UUID
+    episode_id: UUID
+    subject_id: UUID
+    scene_id: UUID | None
+    creator_party_id: UUID | None
+    trace_id: TraceId
+
+    def __post_init__(self) -> None:
+        for value in (self.validation_id, self.episode_id, self.subject_id):
+            _uuid7(value, "CON-CAPABILITY-COMMIT-CONTEXT")
+        for value in (self.scene_id, self.creator_party_id):
+            if value is not None:
+                _uuid7(value, "CON-CAPABILITY-COMMIT-CONTEXT")
+        if type(self.trace_id) is not TraceId:
+            raise CapabilityViolation("CON-CAPABILITY-COMMIT-CONTEXT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,6 +399,46 @@ class CreatorGrantPolicyPort(Protocol):
     async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult: ...
 
 
+@runtime_checkable
+class CapabilityPolicyPort(CreatorGrantPolicyPort, Protocol):
+    async def open(self) -> None: ...
+    async def close(self) -> None: ...
+    def stop(self) -> None: ...
+    async def run_expiry_reconciler(self) -> None: ...
+
+    async def list_requests(
+        self,
+        *,
+        creator_party_id: UUID,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, object]: ...
+
+    async def expire_once(self, *, limit: int = 100) -> int: ...
+
+
+@runtime_checkable
+class CapabilityCommitPort(Protocol):
+    async def commit_requests(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: CapabilityCommitContext,
+        commit_id: UUID,
+        requests: tuple[CapabilityRequestDraft, ...],
+    ) -> None: ...
+
+
+@runtime_checkable
+class CapabilityReadPort(Protocol):
+    async def request_ids_for_commit(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        commit_id: UUID,
+    ) -> tuple[UUID, ...]: ...
+
+
 def _uuid7(value: UUID, code: str) -> None:
     if type(value) is not UUID or value.version != 7:
         raise CapabilityViolation(code)
@@ -381,10 +446,14 @@ def _uuid7(value: UUID, code: str) -> None:
 
 __all__ = (
     "CapabilityAvailability",
+    "CapabilityCommitContext",
+    "CapabilityCommitPort",
     "CapabilityDecisionId",
     "CapabilityId",
     "CapabilityKind",
     "CapabilityOperation",
+    "CapabilityPolicyPort",
+    "CapabilityReadPort",
     "CapabilityRequestDraft",
     "CapabilityRequestId",
     "CapabilityRequestStatus",

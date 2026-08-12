@@ -86,6 +86,17 @@ DISTRIBUTIONS = (
         dependencies=(),
     ),
     Distribution(
+        name="armi-capability",
+        module="armi_capability",
+        project_dir=Path("modules/capability"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-relationship",
         module="armi_relationship",
         project_dir=Path("modules/relationship"),
@@ -270,6 +281,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-activity==0.0.0",
             "armi-artifact-store==0.0.0",
+            "armi-capability==0.0.0",
             "armi-expression==0.0.0",
             "armi-kernel==0.0.0",
             "armi-material==0.0.0",
@@ -310,6 +322,7 @@ DISTRIBUTIONS = (
             "alembic==1.18.5",
             "armi-adapter-qq==0.0.0",
             "armi-artifact-store==0.0.0",
+            "armi-capability==0.0.0",
             "armi-cognition==0.0.0",
             "armi-context==0.0.0",
             "armi-evidence==0.0.0",
@@ -838,6 +851,16 @@ def _check_import(
             and target_distribution not in {None, "armi-runtime-foundation"}
         )
         or (
+            source_distribution == "armi-capability"
+            and target_distribution
+            not in {
+                None,
+                "armi-capability",
+                "armi-kernel",
+                "armi-runtime-foundation",
+            }
+        )
+        or (
             source_distribution == "armi-relationship"
             and target_distribution
             not in {
@@ -970,6 +993,7 @@ def _check_import(
                 None,
                 "armi-activity",
                 "armi-artifact-store",
+                "armi-capability",
                 "armi-cognition",
                 "armi-expression",
                 "armi-kernel",
@@ -1064,6 +1088,9 @@ def _check_import(
         "armi-channel-napcat": frozenset({"armi_channel_napcat"}),
         "armi-adapter-qq": frozenset({"armi_adapter_qq"}),
         "armi-runtime-foundation": frozenset({"armi_runtime_foundation"}),
+        "armi-capability": frozenset(
+            {"armi_capability", "armi_capability.api", "armi_capability.bootstrap"}
+        ),
         "armi-relationship": frozenset(
             {
                 "armi_relationship",
@@ -1131,6 +1158,18 @@ def _check_import(
                     path,
                     line,
                     "relationship bootstrap is reserved for Runtime composition",
+                )
+            )
+        if (
+            imported_module == "armi_capability.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "capability bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module == "armi_memory.bootstrap" and not source_module.startswith(
@@ -1438,6 +1477,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "packages/armi-adapter-qq/src/armi_adapter_qq/__init__.py",
         "armi_runtime_foundation": root
         / "packages/armi-runtime-foundation/src/armi_runtime_foundation/__init__.py",
+        "armi_capability": root
+        / "modules/capability/src/armi_capability/__init__.py",
+        "armi_capability.api": root
+        / "modules/capability/src/armi_capability/api.py",
+        "armi_capability.bootstrap": root
+        / "modules/capability/src/armi_capability/bootstrap.py",
         "armi_relationship": root
         / "modules/relationship/src/armi_relationship/__init__.py",
         "armi_relationship.api": root
@@ -1792,6 +1837,26 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "expression intent writes are owned by armi-expression",
                     )
                 )
+            if (
+                distribution.name != "armi-capability"
+                and ".runtime_resources.schema.alembic." not in module
+                and "armi_runtime.adapters.persistence.effect_ledger" not in module
+                and re.search(
+                    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:capability_requests|capability_request_decisions|"
+                    r"capability_request_basis_links|permission_grants|capabilities)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-CAPABILITY-SQL",
+                        relative,
+                        1,
+                        "capability and permission writes are owned by armi-capability",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1891,6 +1956,15 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                 _relative(database_path, root),
                 1,
                 "default Runtime composition must bind the expression module",
+            )
+        )
+    if "return bootstrap_capability(" not in database_source:
+        violations.append(
+            Violation(
+                "ARC-ACTIVE-MODULE",
+                _relative(database_path, root),
+                1,
+                "default Runtime composition must bind the capability module",
             )
         )
     return violations

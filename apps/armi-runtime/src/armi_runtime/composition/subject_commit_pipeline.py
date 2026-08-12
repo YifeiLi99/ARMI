@@ -14,6 +14,7 @@ from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
+from armi_capability.api import CapabilityCommitPort, CapabilityReadPort
 from armi_cognition import parse_subject_change_set
 from armi_evidence.api import EvidenceWritePort
 from armi_expression.api import (
@@ -125,6 +126,8 @@ class SubjectCommitPipeline:
         storage: ContentAddressedArtifactStore,
         activity_cognition: ActivityCognitionPort,
         activity_commit: ActivityCommitPort,
+        capability_commit: CapabilityCommitPort,
+        capability_read: CapabilityReadPort,
         evidence: EvidenceWritePort,
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
@@ -160,6 +163,8 @@ class SubjectCommitPipeline:
         self._subject_state_cognition = subject_state_cognition
         self._repository = PostgreSQLSubjectCommitRepository(
             activity_commit,
+            capability_commit,
+            capability_read,
             evidence,
             expression_commit,
             memory_commit,
@@ -720,6 +725,8 @@ def build_subject_commit_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
+    capability_commit: CapabilityCommitPort,
+    capability_read: CapabilityReadPort,
     evidence: EvidenceWritePort,
     expression_commit: ExpressionCommitPort,
     memory_commit: MemoryCommitPort,
@@ -757,6 +764,8 @@ def build_subject_commit_pipeline(
         ),
         activity_cognition=activity_cognition,
         activity_commit=activity_commit,
+        capability_commit=capability_commit,
+        capability_read=capability_read,
         evidence=evidence,
         expression_commit=expression_commit,
         memory_commit=memory_commit,

@@ -14,6 +14,11 @@ from armi_activity.api import (
     CreatorActivityTimeline,
     CreatorActivityTimelineItem,
 )
+from armi_capability.api import (
+    CapabilityRequestStatus,
+    CreatorGrantCommand,
+    CreatorGrantResult,
+)
 from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
     CreatorInputAcceptance,
@@ -41,14 +46,11 @@ from armi_interaction.api import (
     SceneTimelineQuery,
 )
 from armi_kernel.application import (
-    CapabilityRequestStatus,
     CodexModel,
     CreatorCodexTaskCommand,
     CreatorExportCommand,
     CreatorExportResult,
     CreatorExportStatus,
-    CreatorGrantCommand,
-    CreatorGrantResult,
     DataRightsExecutionStatus,
     DataRightsOrderCommand,
     DataRightsOrderDetail,

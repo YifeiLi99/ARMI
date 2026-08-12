@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_capability.api import CapabilityRequestDraft
 from armi_expression.api import ResponseChoiceDraft
 from armi_kernel.application import (
     CandidateBasis,
@@ -18,7 +19,6 @@ from armi_kernel.application import (
     CandidateRejection,
     CandidateValidationId,
     CandidateViolation,
-    CapabilityRequestDraft,
     CodexDelegationDraft,
     WebResearchRequestDraft,
 )

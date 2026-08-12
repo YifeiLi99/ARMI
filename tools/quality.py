@@ -152,9 +152,9 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         wheels = [name for name in artifacts if name.endswith(".whl")]
         source_distributions = [name for name in artifacts if name.endswith(".tar.gz")]
         valid = (
-            len(artifacts) == 46
-            and len(wheels) == 23
-            and len(source_distributions) == 23
+            len(artifacts) == 48
+            and len(wheels) == 24
+            and len(source_distributions) == 24
             and all(
                 any(name.startswith(prefix) for name in wheels) for prefix in expected
             )
