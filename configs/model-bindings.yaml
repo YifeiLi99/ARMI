@@ -24,7 +24,7 @@ bindings:
 purpose_profiles:
   consider_creator_input:
     profile: creator_dialogue
-    response_contract_version: armi.creator-dialogue-candidate.v19
+    response_contract_version: armi.creator-dialogue-candidate.v21
     output_token_limit: 1024
   consider_codex_result:
     profile: codex_result
@@ -36,15 +36,15 @@ purpose_profiles:
     output_token_limit: 1024
   consider_life_query_result:
     profile: creator_dialogue
-    response_contract_version: armi.creator-dialogue-candidate.v19
+    response_contract_version: armi.creator-dialogue-candidate.v21
     output_token_limit: 1024
   consider_creator_outreach:
     profile: creator_outreach
-    response_contract_version: armi.creator-dialogue-candidate.v19
+    response_contract_version: armi.creator-dialogue-candidate.v21
     output_token_limit: 512
   consider_other_human_input:
     profile: other_human_dialogue
-    response_contract_version: armi.other-human-dialogue-candidate.v3
+    response_contract_version: armi.other-human-dialogue-candidate.v4
     output_token_limit: 1024
   consider_autonomous_life:
     profile: autonomous_activity

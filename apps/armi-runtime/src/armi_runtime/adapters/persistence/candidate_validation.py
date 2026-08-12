@@ -30,8 +30,8 @@ from armi_kernel.application import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
+    CandidateOwnerDraft,
     CandidateRejection,
-    CandidateRelationshipDraft,
     CandidateSleepDecisionDraft,
     CandidateSubjectPromptDraft,
     CandidateValidationResult,
@@ -60,6 +60,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_relationship.api import RelationshipReadPort
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -102,7 +103,7 @@ class CandidateEpisodeSnapshot:
             UUID,
             UUID,
             int,
-            tuple[tuple[str, str], ...],
+            tuple[tuple[UUID, str, str], ...],
             str,
             tuple[tuple[str, str, str, str], ...],
             str,
@@ -149,7 +150,10 @@ class CandidateEpisodeSnapshot:
 class PostgreSQLCandidateValidationRepository:
     """Freeze validation input and atomically preserve its result."""
 
-    __slots__ = ()
+    __slots__ = ("_relationships",)
+
+    def __init__(self, relationships: RelationshipReadPort) -> None:
+        self._relationships = relationships
 
     async def snapshot(
         self,
@@ -392,48 +396,41 @@ class PostgreSQLCandidateValidationRepository:
         ).fetchone()
         if subject_party_row is None:
             raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        relationship_row = await (
+        relationship_context_row = await (
             await connection.execute(
                 """
-                SELECT relationship.relationship_id,
-                       relationship.current_revision_id,
-                       relationship.head_version,
-                       revision.facts,
-                       revision.interpretation,
-                       revision.boundaries,
-                       revision.relationship_status,
-                       revision.commitments,
-                       revision.open_issues
+                SELECT item.source_ref, item.source_version
                 FROM armi.cognitive_context_items AS item
-                JOIN armi.relationships AS relationship
-                  ON relationship.relationship_id = item.source_ref
-                 AND relationship.subject_id = %s
-                 AND relationship.life_generation_id = %s
-                 AND relationship.other_party_id = %s
-                 AND relationship.scope = %s
-                 AND relationship.head_version = item.source_version
-                JOIN armi.relationship_revisions AS revision
-                  ON revision.relationship_revision_id =
-                     relationship.current_revision_id
                 WHERE item.cognitive_episode_id = %s
                   AND item.disposition = 'included'
                   AND item.section = 'relationship'
                   AND item.item_kind = 'current_relationship'
                   AND item.source_kind = 'relationship'
                 """,
-                (
-                    row[2],
-                    row[3],
-                    row[9],
-                    (
-                        "other_human_social"
-                        if row[13] == "consider_other_human_input"
-                        else "creator_social"
-                    ),
-                    row[0],
-                ),
+                (row[0],),
             )
         ).fetchone()
+        relationship_snapshot = (
+            None
+            if relationship_context_row is None or row[9] is None
+            else await self._relationships.current_for_party(
+                unit_of_work.transaction,
+                subject_id=row[2],
+                generation_id=row[3],
+                other_party_id=row[9],
+                scope=(
+                    "other_human_social"
+                    if row[13] == "consider_other_human_input"
+                    else "creator_social"
+                ),
+                expected_head_version=int(relationship_context_row[1]),
+            )
+        )
+        if relationship_context_row is not None and (
+            relationship_snapshot is None
+            or relationship_snapshot.relationship_id != relationship_context_row[0]
+        ):
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
         material_rows = await (
             await connection.execute(
                 """
@@ -545,17 +542,48 @@ class PostgreSQLCandidateValidationRepository:
             ),
             subject_party_row[0],
             None
-            if relationship_row is None
+            if relationship_snapshot is None
             else (
-                relationship_row[0],
-                relationship_row[1],
-                int(relationship_row[2]),
-                _relationship_facts(relationship_row[3]),
-                str(relationship_row[4]),
-                _relationship_boundaries(relationship_row[5]),
-                str(relationship_row[6]),
-                _relationship_commitments(relationship_row[7]),
-                _relationship_issues(relationship_row[8]),
+                relationship_snapshot.relationship_id,
+                relationship_snapshot.current_revision_id,
+                relationship_snapshot.head_version,
+                tuple(
+                    (item.fact_id, item.kind.value, item.summary)
+                    for item in relationship_snapshot.revision.facts
+                ),
+                relationship_snapshot.revision.interpretation,
+                tuple(
+                    (
+                        item.party_role.value,
+                        item.kind.value,
+                        item.action.value,
+                        item.summary,
+                    )
+                    for item in relationship_snapshot.revision.boundaries
+                ),
+                relationship_snapshot.revision.status.value,
+                tuple(
+                    (
+                        item.commitment_id,
+                        item.party_role.value,
+                        item.scope,
+                        item.content,
+                        item.status.value,
+                        item.last_event_kind.value,
+                        item.last_event_summary,
+                    )
+                    for item in relationship_snapshot.revision.commitments
+                ),
+                tuple(
+                    (
+                        item.issue_id,
+                        item.kind.value,
+                        item.commitment_ids,
+                        item.summary,
+                        item.status.value,
+                    )
+                    for item in relationship_snapshot.revision.open_issues
+                ),
             ),
             tuple(
                 [
@@ -838,7 +866,7 @@ async def _insert_items(
                     CandidateExperienceDraft,
                     CandidateMemoryDraft,
                     CandidateMemoryRevisionDraft,
-                    CandidateRelationshipDraft,
+                    CandidateOwnerDraft,
                     CandidateComponentDraft,
                     CandidateRejection,
                 ),
@@ -891,7 +919,7 @@ def _validation_drafts(
     CandidateExperienceDraft
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
-    | CandidateRelationshipDraft
+    | CandidateOwnerDraft
     | CandidateLifeMaterialDraft
     | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
@@ -914,7 +942,7 @@ def _validation_drafts(
         *change_set.experiences,
         *change_set.memories,
         *change_set.memory_revisions,
-        *change_set.relationships,
+        *change_set.owner_drafts,
         *change_set.materials,
         *change_set.prompts,
         *change_set.exact_life_queries,
@@ -935,7 +963,7 @@ def _owner(
     value: CandidateExperienceDraft
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
-    | CandidateRelationshipDraft
+    | CandidateOwnerDraft
     | CandidateLifeMaterialDraft
     | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
@@ -963,8 +991,8 @@ def _owner(
         return CandidateOwner.EXPERIENCE
     if isinstance(value, (CandidateMemoryDraft, CandidateMemoryRevisionDraft)):
         return CandidateOwner.MEMORY
-    if isinstance(value, CandidateRelationshipDraft):
-        return CandidateOwner.RELATIONSHIP
+    if isinstance(value, CandidateOwnerDraft):
+        return CandidateOwner(value.owner)
     if isinstance(value, CandidateLifeMaterialDraft):
         return CandidateOwner.MATERIAL
     if isinstance(value, CandidateSubjectPromptDraft):
@@ -994,7 +1022,7 @@ def _implicit_fact_class(
     value: CandidateExperienceDraft
     | CandidateMemoryDraft
     | CandidateMemoryRevisionDraft
-    | CandidateRelationshipDraft
+    | CandidateOwnerDraft
     | CandidateLifeMaterialDraft
     | CandidateMaintenanceDecisionDraft
     | CandidateSubjectPromptDraft
@@ -1020,7 +1048,7 @@ def _implicit_fact_class(
             CandidateExperienceDraft,
             CandidateMemoryDraft,
             CandidateMemoryRevisionDraft,
-            CandidateRelationshipDraft,
+            CandidateOwnerDraft,
             CandidateComponentDraft,
             CandidateSubjectPromptDraft,
             CandidateExactLifeQueryDraft,
@@ -1095,129 +1123,6 @@ async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
         ArtifactPrivacyScope(str(row[5])),
         ArtifactIntegrityStatus(str(row[6])),
     )
-
-
-def _relationship_facts(value: object) -> tuple[tuple[str, str], ...]:
-    if type(value) is not list:
-        raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-    result: list[tuple[str, str]] = []
-    for raw in cast(list[object], value):
-        if type(raw) is not dict:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        item = cast(dict[object, object], raw)
-        if set(item) != {"kind", "summary"}:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        if type(item["kind"]) is not str or type(item["summary"]) is not str:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        result.append((item["kind"], item["summary"]))
-    return tuple(result)
-
-
-def _relationship_boundaries(
-    value: object,
-) -> tuple[tuple[str, str, str, str], ...]:
-    if type(value) is not list:
-        raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-    result: list[tuple[str, str, str, str]] = []
-    keys = {"party_role", "kind", "action", "summary"}
-    for raw in cast(list[object], value):
-        if type(raw) is not dict:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        item = cast(dict[object, object], raw)
-        if set(item) != keys:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        values = tuple(item[key] for key in ("party_role", "kind", "action", "summary"))
-        if any(type(item_value) is not str for item_value in values):
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        result.append(cast(tuple[str, str, str, str], values))
-    return tuple(result)
-
-
-def _relationship_commitments(
-    value: object,
-) -> tuple[tuple[UUID, str, str, str, str, str, str], ...]:
-    if type(value) is not list:
-        raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-    result: list[tuple[UUID, str, str, str, str, str, str]] = []
-    keys = {
-        "commitment_id",
-        "party_role",
-        "scope",
-        "content",
-        "status",
-        "last_event_kind",
-        "last_event_summary",
-    }
-    for raw in cast(list[object], value):
-        if type(raw) is not dict:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        item = cast(dict[object, object], raw)
-        if set(item) != keys or any(type(item[key]) is not str for key in keys):
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        try:
-            commitment_id = UUID(cast(str, item["commitment_id"]))
-        except ValueError:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT") from None
-        if commitment_id.version != 7:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        result.append(
-            (
-                commitment_id,
-                cast(str, item["party_role"]),
-                cast(str, item["scope"]),
-                cast(str, item["content"]),
-                cast(str, item["status"]),
-                cast(str, item["last_event_kind"]),
-                cast(str, item["last_event_summary"]),
-            )
-        )
-    return tuple(result)
-
-
-def _relationship_issues(
-    value: object,
-) -> tuple[tuple[UUID, str, tuple[UUID, ...], str, str], ...]:
-    if type(value) is not list:
-        raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-    result: list[tuple[UUID, str, tuple[UUID, ...], str, str]] = []
-    keys = {"issue_id", "kind", "commitment_ids", "summary", "status"}
-    for raw in cast(list[object], value):
-        if type(raw) is not dict:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        item = cast(dict[object, object], raw)
-        if set(item) != keys or any(
-            type(item[key]) is not str
-            for key in ("issue_id", "kind", "summary", "status")
-        ):
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        commitment_ids = item["commitment_ids"]
-        if type(commitment_ids) is not list or any(
-            type(commitment_id) is not str
-            for commitment_id in cast(list[object], commitment_ids)
-        ):
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        try:
-            issue_id = UUID(cast(str, item["issue_id"]))
-            parsed_commitment_ids = tuple(
-                UUID(cast(str, commitment_id))
-                for commitment_id in cast(list[object], commitment_ids)
-            )
-        except ValueError:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT") from None
-        if issue_id.version != 7 or any(
-            commitment_id.version != 7 for commitment_id in parsed_commitment_ids
-        ):
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        result.append(
-            (
-                issue_id,
-                cast(str, item["kind"]),
-                parsed_commitment_ids,
-                cast(str, item["summary"]),
-                cast(str, item["status"]),
-            )
-        )
-    return tuple(result)
 
 
 def _material_metadata(value: object) -> tuple[tuple[str, str], ...]:

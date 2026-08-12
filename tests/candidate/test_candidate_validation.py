@@ -19,6 +19,7 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateLifeMaterialDraft,
     CandidateOwner,
+    CandidateOwnerDraft,
     CandidateValidationStatus,
     CodexDelegatedWorkScope,
     CodexDelegationDraft,
@@ -37,6 +38,11 @@ from armi_kernel.application import (
     MemorySourceKind,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
+    SubjectCommitViolation,
+)
+from armi_kernel.contracts import Digest
+from armi_relationship._application import RelationshipApplication
+from armi_relationship.api import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
@@ -48,9 +54,7 @@ from armi_kernel.application import (
     RelationshipIssueKind,
     RelationshipPartyRole,
     RelationshipStatus,
-    SubjectCommitViolation,
 )
-from armi_kernel.contracts import Digest
 from armi_runtime.adapters.persistence.candidate_validation import (
     PostgreSQLCandidateValidationRepository,
     _relationship_party_ids,
@@ -65,11 +69,38 @@ from armi_runtime.composition.candidate_validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
     _memory_source_kind,
+    _relationship_wire,
 )
 from armi_runtime.composition.other_human_dialogue_candidate_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
 )
-from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
+from armi_runtime.composition.subject_commit_contract import (
+    parse_subject_change_set as _parse_subject_change_set,
+)
+
+_CandidateValidator = DeterministicCandidateValidator
+
+
+def DeterministicCandidateValidator(
+    context: CandidateValidationContext,
+) -> Any:
+    return _CandidateValidator(
+        context,
+        relationship_cognition=RelationshipApplication(),
+    )
+
+
+def parse_subject_change_set(value: bytes) -> Any:
+    return _parse_subject_change_set(value, RelationshipApplication())
+
+
+def _relationships(change_set: Any) -> tuple[Any, ...]:
+    application = RelationshipApplication()
+    return tuple(
+        application.decode_change_set(item.canonical_payload)
+        for item in change_set.owner_drafts
+        if item.owner == "relationship"
+    )
 
 
 def _self_state(*, name: str | None = None) -> dict[str, object]:
@@ -124,7 +155,7 @@ def test_terminal_validation_failure_also_fails_owning_episode() -> None:
     )
 
     asyncio.run(
-        PostgreSQLCandidateValidationRepository().fail(
+        PostgreSQLCandidateValidationRepository(cast(Any, SimpleNamespace())).fail(
             cast(Any, unit_of_work),
             lease=cast(Any, lease),
             error_code="CON-CANDIDATE-RELATIONSHIP-CONTEXT",
@@ -284,7 +315,7 @@ def test_other_human_dialogue_uses_party_scoped_v21_change_set(
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v21" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v22" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert reparsed.disposition.value == disposition
     if draft_type is not None:
@@ -294,14 +325,6 @@ def test_other_human_dialogue_uses_party_scoped_v21_change_set(
             reply = reparsed.action_choices[0]
             assert isinstance(reply, OtherHumanReplyDraft)
             assert reply.operation == "send"
-            historical = json.loads(result.change_set.canonical_bytes)
-            historical["schema_version"] = "armi.subject-change-set.v20"
-            historical["action_choices"][0]["operation"] = "deliver_local"
-            historical_bytes = rfc8785.dumps(historical)
-            normalized = parse_subject_change_set(historical_bytes)
-            assert normalized.canonical_bytes == historical_bytes
-            assert isinstance(normalized.action_choices[0], OtherHumanReplyDraft)
-            assert normalized.action_choices[0].operation == "send"
 
 
 def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
@@ -375,8 +398,8 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert len(result.change_set.experiences) == 1
-    assert len(result.change_set.relationships) == 1
-    relationship = result.change_set.relationships[0]
+    assert len(_relationships(result.change_set)) == 1
+    relationship = _relationships(result.change_set)[0]
     assert relationship.subject_party_id == ids[7]
     assert relationship.other_party_id == ids[6]
     assert relationship.scope == "other_human_social"
@@ -384,7 +407,7 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
     assert relationship.commitments[0].party_role is RelationshipPartyRole.OTHER
     assert isinstance(result.change_set.action_choices[0], OtherHumanReplyDraft)
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert reparsed.relationships == result.change_set.relationships
+    assert _relationships(reparsed) == _relationships(result.change_set)
 
 
 def test_two_other_human_relationship_candidates_keep_separate_party_identity() -> None:
@@ -449,7 +472,7 @@ def test_two_other_human_relationship_candidates_keep_separate_party_identity() 
             bases=bases,
         )
         assert result.change_set is not None
-        return result.change_set.relationships[0]
+        return _relationships(result.change_set)[0]
 
     first_party = uuid7()
     second_party = uuid7()
@@ -486,6 +509,7 @@ def test_other_human_reply_is_rejected_after_contact_exit() -> None:
             2,
             (
                 RelationshipFact(
+                    uuid7(),
                     RelationshipFactKind.PARTY_EXPRESSION,
                     "对方明确结束了联系。",
                 ),
@@ -562,6 +586,7 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
             2,
             (
                 RelationshipFact(
+                    uuid7(),
                     RelationshipFactKind.SHARED_EXPERIENCE,
                     "我们约定过回复时间。",
                 ),
@@ -630,14 +655,14 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    relationship = result.change_set.relationships[0]
+    relationship = _relationships(result.change_set)[0]
     assert relationship.other_party_id == ids[6]
     assert relationship.commitments[0].status is RelationshipCommitmentStatus.VIOLATED
     assert (
         relationship.open_issues[0].kind is RelationshipIssueKind.COMMITMENT_VIOLATION
     )
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert reparsed.relationships == result.change_set.relationships
+    assert _relationships(reparsed) == _relationships(result.change_set)
 
 
 @pytest.mark.parametrize(
@@ -806,7 +831,7 @@ def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> No
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert result.change_set.relationships == ()
+    assert _relationships(result.change_set) == ()
     assert result.change_set.components == ()
     decision = result.change_set.maintenance_decisions[0]
     assert decision.outcome is MaintenanceWorkOutcome.ISSUE_FOUND
@@ -2907,14 +2932,14 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None and repeated.change_set is not None
     assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v13" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v22" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
-    assert len(result.change_set.relationships) == 1
+    assert len(_relationships(result.change_set)) == 1
     assert {
         item.atomic_group_ref for item in result.change_set.action_choices
     } == {"group:1"}
     assert result.change_set.experiences[0].atomic_group_ref == "group:2"
-    relationship = result.change_set.relationships[0]
+    relationship = _relationships(result.change_set)[0]
     assert relationship.atomic_group_ref == "group:2"
     assert relationship.subject_party_id == subject_party_id
     assert relationship.other_party_id == context.creator_party_id
@@ -2935,16 +2960,31 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
         ),
     )
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert reparsed.relationships == result.change_set.relationships
-    assert any(item is relationship for item in _validation_drafts(result.change_set))
+    assert _relationships(reparsed) == _relationships(result.change_set)
+    assert any(
+        isinstance(item, CandidateOwnerDraft) and item.owner == "relationship"
+        for item in _validation_drafts(result.change_set)
+    )
     historical_wire = json.loads(result.change_set.canonical_bytes)
     historical_wire["schema_version"] = "armi.subject-change-set.v12"
+    historical_wire["relationships"] = [_relationship_wire(relationship)]
+    historical_wire.pop("owner_drafts")
+    for key in (
+        "activities",
+        "activity_decisions",
+        "materials",
+        "prompts",
+        "exact_life_queries",
+        "maintenance_decisions",
+    ):
+        historical_wire.pop(key)
     for item in historical_wire["relationships"]:
         item.pop("commitments")
         item.pop("open_issues")
         item.pop("commitment_event")
+        item["mechanism_identity"] = "armi.relationship.contextual-v1"
     historical = parse_subject_change_set(rfc8785.dumps(cast(Any, historical_wire)))
-    assert historical.relationships[0].commitments == ()
+    assert _relationships(historical)[0].commitments == ()
 
 
 def test_dialogue_establishes_armi_commitment_without_granting_authority() -> None:
@@ -2993,7 +3033,7 @@ def test_dialogue_establishes_armi_commitment_without_granting_authority() -> No
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    relationship = result.change_set.relationships[0]
+    relationship = _relationships(result.change_set)[0]
     assert (
         relationship.source_experience_ref
         == result.change_set.experiences[0].proposal_ref
@@ -3006,9 +3046,9 @@ def test_dialogue_establishes_armi_commitment_without_granting_authority() -> No
     assert relationship.commitment_event is not None
     assert relationship.commitment_event.commitment_id == commitment.commitment_id
     assert len(result.change_set.capability_requests) == 1
-    assert parse_subject_change_set(
-        result.change_set.canonical_bytes
-    ).relationships == (relationship,)
+    assert _relationships(
+        parse_subject_change_set(result.change_set.canonical_bytes)
+    ) == (relationship,)
 
 
 @pytest.mark.parametrize(
@@ -3074,6 +3114,7 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
             2,
             (
                 RelationshipFact(
+                    uuid7(),
                     RelationshipFactKind.SHARED_EXPERIENCE,
                     "我们进行过一次真实交流。",
                 ),
@@ -3144,7 +3185,7 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    relationship = result.change_set.relationships[0]
+    relationship = _relationships(result.change_set)[0]
     changed = relationship.commitments[0]
     assert changed.commitment_id == commitment_id
     assert changed.status is expected_status
@@ -3191,6 +3232,7 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
             3,
             (
                 RelationshipFact(
+                    uuid7(),
                     RelationshipFactKind.SHARED_EXPERIENCE,
                     "我们形成了两项彼此矛盾的承担。",
                 ),
@@ -3266,7 +3308,7 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    relationship = result.change_set.relationships[0]
+    relationship = _relationships(result.change_set)[0]
     assert relationship.commitment_event is not None
     assert (
         relationship.commitment_event.kind
@@ -3291,6 +3333,7 @@ def test_ended_relationship_blocks_later_creator_reply() -> None:
             1,
             (
                 RelationshipFact(
+                    uuid7(),
                     RelationshipFactKind.PARTY_EXPRESSION,
                     "创造者表达了结束接触的决定。",
                 ),
@@ -3350,6 +3393,7 @@ def test_compact_dialogue_revises_only_current_context_relationship() -> None:
     relationship_id = uuid7()
     revision_id = uuid7()
     original_fact = RelationshipFact(
+        uuid7(),
         RelationshipFactKind.SHARED_EXPERIENCE,
         "我们进行过一次真实交流。",
     )
@@ -3421,7 +3465,7 @@ def test_compact_dialogue_revises_only_current_context_relationship() -> None:
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    relationship = result.change_set.relationships[0]
+    relationship = _relationships(result.change_set)[0]
     assert relationship.relationship_id == relationship_id
     assert relationship.current_revision_id == revision_id
     assert relationship.expected_head_version == 2

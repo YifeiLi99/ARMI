@@ -37,9 +37,16 @@ from armi_kernel.application import (
     MaintenancePhase,
     MemoryAccessibility,
     MemorySourceKind,
+    RuntimeFence,
+    WorkLease,
+    WorkViolation,
+)
+from armi_kernel.contracts import Purpose, SubjectId
+from armi_relationship.api import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
+    RelationshipCognitionPort,
     RelationshipCommitment,
     RelationshipCommitmentEventKind,
     RelationshipCommitmentStatus,
@@ -49,12 +56,9 @@ from armi_kernel.application import (
     RelationshipIssueKind,
     RelationshipIssueStatus,
     RelationshipPartyRole,
+    RelationshipReadPort,
     RelationshipStatus,
-    RuntimeFence,
-    WorkLease,
-    WorkViolation,
 )
-from armi_kernel.contracts import Purpose, SubjectId
 
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
@@ -105,6 +109,7 @@ class CandidateValidationPipeline:
         "_diagnostic",
         "_factory",
         "_lease_owner",
+        "_relationship_cognition",
         "_repository",
         "_stop",
         "_storage",
@@ -118,15 +123,18 @@ class CandidateValidationPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        relationship_cognition: RelationshipCognitionPort,
+        relationship_read: RelationshipReadPort,
         web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
+        self._relationship_cognition = relationship_cognition
         self._web_search_active = web_search_active
         self._catalog = ArtifactCatalogRepository()
-        self._repository = PostgreSQLCandidateValidationRepository()
+        self._repository = PostgreSQLCandidateValidationRepository(relationship_read)
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -215,7 +223,9 @@ class CandidateValidationPipeline:
                             snapshot.current_relationship[1],
                             snapshot.current_relationship[2],
                             tuple(
-                                RelationshipFact(RelationshipFactKind(item[0]), item[1])
+                                RelationshipFact(
+                                    item[0], RelationshipFactKind(item[1]), item[2]
+                                )
                                 for item in snapshot.current_relationship[3]
                             ),
                             snapshot.current_relationship[4],
@@ -281,7 +291,8 @@ class CandidateValidationPipeline:
                     other_party_id=snapshot.other_party_id,
                     scene_kind=snapshot.scene_kind,
                     sender_party_kind=snapshot.sender_party_kind,
-                )
+                ),
+                self._relationship_cognition,
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)
             published = (
@@ -492,6 +503,8 @@ def build_candidate_validation_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_cognition: RelationshipCognitionPort,
+    relationship_read: RelationshipReadPort,
     web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -511,6 +524,8 @@ def build_candidate_validation_pipeline(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
         ),
+        relationship_cognition=relationship_cognition,
+        relationship_read=relationship_read,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,

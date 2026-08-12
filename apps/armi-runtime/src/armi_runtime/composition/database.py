@@ -17,7 +17,6 @@ from armi_kernel.application import (
     CreatorMaintenanceViolation,
     CreatorProjectionNotifier,
     CreatorPromptViolation,
-    CreatorRelationshipViolation,
     CredentialPort,
     CredentialPurpose,
     DataRightsViolation,
@@ -34,6 +33,15 @@ from armi_kernel.application import (
     WebObservationViolation,
     WebResearchViolation,
 )
+from armi_relationship.api import (
+    RelationshipCognitionPort,
+    RelationshipCommitPort,
+    RelationshipDataRightsParticipant,
+    RelationshipPolicyPort,
+    RelationshipReadPort,
+    RelationshipViolation,
+)
+from armi_relationship.bootstrap import RelationshipModule, bootstrap_relationship
 
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
@@ -54,9 +62,6 @@ from armi_runtime.adapters.persistence.creator_activities import (
 from armi_runtime.adapters.persistence.creator_maintenance import (
     PostgreSQLCreatorMaintenanceQuery,
 )
-from armi_runtime.adapters.persistence.creator_relationships import (
-    PostgreSQLCreatorRelationshipQuery,
-)
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.other_human_records import (
     PostgreSQLOtherHumanRecordQuery,
@@ -64,6 +69,7 @@ from armi_runtime.adapters.persistence.other_human_records import (
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
 )
+from armi_runtime.adapters.persistence.role_policy import physical_role_name
 from armi_runtime.adapters.persistence.runtime_authority import (
     PostgreSQLRuntimeAuthority,
 )
@@ -524,6 +530,7 @@ def compose_life_record_query(
     *,
     creator_party_id: UUID,
     cursor_key: bytes,
+    relationship_read: RelationshipReadPort,
 ) -> PostgreSQLLifeRecordQuery:
     """Resolve the shared read-only exact-life and memory projection."""
 
@@ -550,6 +557,7 @@ def compose_life_record_query(
                     data_root=prepared.data_root,
                     max_object_bytes=config.artifacts.max_object_bytes,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    relationships=relationship_read,
                 )
 
             return handle.consume(create)
@@ -643,40 +651,42 @@ def compose_exact_life_query_pipeline(
         raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
 
 
-def compose_creator_relationship_query(
+def compose_relationship_module(
     prepared: PreparedEnvironment,
     *,
     creator_party_id: UUID,
-) -> PostgreSQLCreatorRelationshipQuery:
-    """Resolve the Runtime credential for the bounded relationship projection."""
+) -> RelationshipModule:
+    """Resolve and bind the one active relationship owner implementation."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
-        raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE")
+        raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE")
     try:
         with prepared.credential_port.resolve(
             locator,
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> PostgreSQLCreatorRelationshipQuery:
+            def create(value: memoryview) -> RelationshipModule:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
-                    raise CreatorRelationshipViolation(
+                    raise RelationshipViolation(
                         "RELATIONSHIP-QUERY-UNAVAILABLE"
                     ) from None
                 config = prepared.effective.config
-                return PostgreSQLCreatorRelationshipQuery(
+                return bootstrap_relationship(
                     conninfo,
-                    environment_id=config.environment.environment_id,
+                    expected_role=physical_role_name(
+                        config.environment.environment_id, "runtime"
+                    ),
                     creator_party_id=creator_party_id,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                 )
 
             return handle.consume(create)
     except ConfigurationViolation:
-        raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE") from None
+        raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE") from None
 
 
 def compose_creator_maintenance_query(
@@ -1105,6 +1115,7 @@ def compose_data_rights_order_service(
     *,
     creator_party_id: UUID,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_data_rights: RelationshipDataRightsParticipant,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsOrderService:
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
@@ -1135,6 +1146,7 @@ def compose_data_rights_order_service(
                     ),
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    relationship_data_rights=relationship_data_rights,
                     notifier=notifier,
                 )
 
@@ -1147,6 +1159,8 @@ def compose_life_opportunity_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_read: RelationshipReadPort,
+    relationship_policy: RelationshipPolicyPort,
     wakeups: WorkWakeupBus | None = None,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
@@ -1179,6 +1193,8 @@ def compose_life_opportunity_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                    relationship_read=relationship_read,
+                    relationship_policy=relationship_policy,
                     wakeups=wakeups,
                     notifier=notifier,
                     model_concurrency=config.model.concurrency,
@@ -1199,6 +1215,7 @@ def compose_context_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_read: RelationshipReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ContextPipeline:
@@ -1248,6 +1265,7 @@ def compose_context_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                    relationship_read=relationship_read,
                     web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1469,6 +1487,8 @@ def compose_candidate_validation_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_cognition: RelationshipCognitionPort,
+    relationship_read: RelationshipReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CandidateValidationPipeline:
@@ -1503,6 +1523,8 @@ def compose_candidate_validation_pipeline(
                         config.database.statement_timeout_seconds
                     ),
                     authority_admission=authority_admission,
+                    relationship_cognition=relationship_cognition,
+                    relationship_read=relationship_read,
                     web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1517,6 +1539,10 @@ def compose_subject_commit_pipeline(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_cognition: RelationshipCognitionPort,
+    relationship_commit: RelationshipCommitPort,
+    relationship_read: RelationshipReadPort,
+    relationship_policy: RelationshipPolicyPort,
     notifier: CreatorProjectionNotifier | None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -1549,6 +1575,10 @@ def compose_subject_commit_pipeline(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    relationship_cognition=relationship_cognition,
+                    relationship_commit=relationship_commit,
+                    relationship_read=relationship_read,
+                    relationship_policy=relationship_policy,
                     notifier=notifier,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1816,7 +1846,6 @@ __all__ = (
     "compose_creator_input",
     "compose_creator_maintenance_query",
     "compose_creator_prompt_service",
-    "compose_creator_relationship_query",
     "compose_creator_scene_service",
     "compose_data_rights_order_service",
     "compose_effect_registration_pipeline",
@@ -1827,6 +1856,7 @@ __all__ = (
     "compose_life_record_query",
     "compose_model_pipeline",
     "compose_other_human_record_query",
+    "compose_relationship_module",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",
     "compose_runtime_observation",

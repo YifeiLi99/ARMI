@@ -1,5 +1,5 @@
 {
-  "include": ["packages", "apps/armi-runtime", "apps/armi-admin", "tools", "tests"],
+  "include": ["packages", "modules", "apps/armi-runtime", "apps/armi-admin", "tools", "tests"],
   "exclude": [
     ".armi-tools",
     ".tmp",
@@ -13,6 +13,8 @@
     "packages/armi-postgresql-contract/src",
     "packages/armi-channel-napcat/src",
     "packages/armi-adapter-qq/src",
+    "packages/armi-runtime-foundation/src",
+    "modules/relationship/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -24,6 +26,8 @@
     "packages/armi-artifact-store/src",
     "packages/armi-channel-napcat/src",
     "packages/armi-adapter-qq/src",
+    "packages/armi-runtime-foundation/src",
+    "modules/relationship/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

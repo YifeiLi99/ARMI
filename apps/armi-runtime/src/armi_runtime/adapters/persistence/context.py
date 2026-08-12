@@ -36,6 +36,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_relationship.api import RelationshipReadPort
 
 from .artifact_catalog import ArtifactCatalogRepository
 from .capability_context import CapabilityStatePayload, load_capability_state_payloads
@@ -153,10 +154,11 @@ class ContextEpisodeSnapshot:
 class PostgreSQLContextRepository:
     """Own SQL for selecting, freezing and settling one Context episode."""
 
-    __slots__ = ("_catalog",)
+    __slots__ = ("_catalog", "_relationships")
 
-    def __init__(self) -> None:
+    def __init__(self, relationships: RelationshipReadPort) -> None:
         self._catalog = ArtifactCatalogRepository()
+        self._relationships = relationships
 
     async def select_one(
         self,
@@ -617,98 +619,24 @@ class PostgreSQLContextRepository:
             if row[20] == "consider_other_human_input"
             else "creator_social"
         )
-        relationship_rows = await (
-            await connection.execute(
-                """
-                SELECT relationship.relationship_id,
-                       relationship.head_version,
-                       relationship.scope,
-                       revision.facts,
-                       revision.interpretation,
-                       revision.boundaries,
-                       revision.relationship_status,
-                       revision.commitments,
-                       revision.open_issues
-                FROM armi.relationships AS relationship
-                JOIN armi.relationship_revisions AS revision
-                  ON revision.relationship_revision_id =
-                     relationship.current_revision_id
-                WHERE relationship.subject_id = %s
-                  AND relationship.life_generation_id = %s
-                  AND (
-                      %s = 'perform_subject_self_check'
-                      OR (
-                          relationship.other_party_id = %s
-                          AND relationship.scope = %s
-                      )
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM armi.deletion_items AS deletion_item
-                      WHERE deletion_item.target_kind = 'relationship'
-                        AND deletion_item.target_ref = relationship.relationship_id
-                        AND deletion_item.result_status IN ('completed', 'partial')
-                  )
-                ORDER BY relationship.relationship_id
-                """,
-                (
-                    row[2],
-                    row[27],
-                    row[20],
-                    relationship_party_id,
-                    relationship_scope,
-                ),
-            )
-        ).fetchall()
-        relationship_payloads = tuple(
-            (
-                item[0],
-                int(item[1]),
-                rfc8785.dumps(
-                    {
-                        "scope": str(item[2]),
-                        "facts": item[3],
-                        "interpretation": str(item[4]),
-                        "boundaries": item[5],
-                        "status": str(item[6]),
-                    }
-                ),
-            )
-            for item in relationship_rows
+        relationship_bundle = await self._relationships.context_bundle(
+            unit_of_work.transaction,
+            subject_id=row[2],
+            generation_id=row[27],
+            other_party_id=(
+                None
+                if row[20] == "perform_subject_self_check"
+                else relationship_party_id
+            ),
+            scope=(
+                None
+                if row[20] == "perform_subject_self_check"
+                else relationship_scope
+            ),
         )
-        relationship_commitment_payloads = tuple(
-            (
-                UUID(str(commitment["commitment_id"])),
-                int(item[1]),
-                rfc8785.dumps(
-                    {
-                        "party_role": commitment["party_role"],
-                        "scope": commitment["scope"],
-                        "content": commitment["content"],
-                        "status": commitment["status"],
-                        "last_event_kind": commitment["last_event_kind"],
-                        "last_event_summary": commitment["last_event_summary"],
-                    }
-                ),
-                str(commitment["status"]),
-            )
-            for item in relationship_rows
-            for commitment in item[7]
-        )
-        relationship_issue_payloads = tuple(
-            (
-                UUID(str(issue["issue_id"])),
-                int(item[1]),
-                rfc8785.dumps(
-                    {
-                        "kind": issue["kind"],
-                        "summary": issue["summary"],
-                        "status": issue["status"],
-                    }
-                ),
-            )
-            for item in relationship_rows
-            for issue in item[8]
-        )
+        relationship_payloads = relationship_bundle.relationships
+        relationship_commitment_payloads = relationship_bundle.commitments
+        relationship_issue_payloads = relationship_bundle.open_issues
         material_sources: tuple[ContextMaterialSource, ...] = ()
         activity_rows = await (
             await connection.execute(

@@ -1817,9 +1817,7 @@ def _dialogue_request_value(
             section = item_value.get("section")
             if not isinstance(section, str):
                 raise ModelViolation("MODEL-CONTEXT")
-            compiled_items.append(
-                (layer, section, cast(dict[str, object], item_value))
-            )
+            compiled_items.append((layer, section, cast(dict[str, object], item_value)))
     if len(compiled_items) != len(included_context_refs):
         raise ModelViolation("MODEL-CONTEXT")
 

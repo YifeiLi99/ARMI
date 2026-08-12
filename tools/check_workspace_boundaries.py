@@ -6,6 +6,7 @@ import argparse
 import ast
 import importlib.util
 import json
+import re
 import sys
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
@@ -76,6 +77,27 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-runtime-foundation",
+        module="armi_runtime_foundation",
+        project_dir=Path("packages/armi-runtime-foundation"),
+        layers=(),
+        dependencies=(),
+    ),
+    Distribution(
+        name="armi-relationship",
+        module="armi_relationship",
+        project_dir=Path("modules/relationship"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "pydantic==2.13.4",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -86,6 +108,8 @@ DISTRIBUTIONS = (
             "armi-artifact-store==0.0.0",
             "armi-kernel==0.0.0",
             "armi-postgresql-contract==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "armi-relationship==0.0.0",
             "fastapi==0.140.13",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -580,6 +604,20 @@ def _check_import(
             source_distribution == "armi-admin"
             and target_distribution == "armi-runtime"
         )
+        or (
+            source_distribution == "armi-runtime-foundation"
+            and target_distribution not in {None, "armi-runtime-foundation"}
+        )
+        or (
+            source_distribution == "armi-relationship"
+            and target_distribution
+            not in {
+                None,
+                "armi-kernel",
+                "armi-runtime-foundation",
+                "armi-relationship",
+            }
+        )
     )
     if reverse_dependency:
         violations.append(
@@ -647,8 +685,27 @@ def _check_import(
         "armi-kernel": PUBLIC_KERNEL_MODULES,
         "armi-channel-napcat": frozenset({"armi_channel_napcat"}),
         "armi-adapter-qq": frozenset({"armi_adapter_qq"}),
+        "armi-runtime-foundation": frozenset({"armi_runtime_foundation"}),
+        "armi-relationship": frozenset(
+            {
+                "armi_relationship",
+                "armi_relationship.api",
+                "armi_relationship.bootstrap",
+            }
+        ),
     }
     if crosses_distribution and target_distribution in public_modules:
+        if imported_module == "armi_relationship.bootstrap" and not source_module.startswith(
+            "armi_runtime.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "relationship bootstrap is reserved for Runtime composition",
+                )
+            )
         if imported_module not in public_modules[target_distribution]:
             violations.append(
                 Violation(
@@ -782,6 +839,14 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "packages/armi-channel-napcat/src/armi_channel_napcat/__init__.py",
         "armi_adapter_qq": root
         / "packages/armi-adapter-qq/src/armi_adapter_qq/__init__.py",
+        "armi_runtime_foundation": root
+        / "packages/armi-runtime-foundation/src/armi_runtime_foundation/__init__.py",
+        "armi_relationship": root
+        / "modules/relationship/src/armi_relationship/__init__.py",
+        "armi_relationship.api": root
+        / "modules/relationship/src/armi_relationship/api.py",
+        "armi_relationship.bootstrap": root
+        / "modules/relationship/src/armi_relationship/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -812,6 +877,24 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                     public_exports=public_exports,
                 )
             )
+            if (
+                distribution.name != "armi-relationship"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE)\s+armi\."
+                    r"(?:relationships|relationship_revisions|relationship_experience_links)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-RELATIONSHIP-SQL",
+                        relative,
+                        1,
+                        "relationship table SQL is owned by armi-relationship",
+                    )
+                )
     return violations
 
 

@@ -26,7 +26,6 @@ from armi_kernel.application import (
     CreatorInputViolation,
     CreatorMaintenanceViolation,
     CreatorPromptViolation,
-    CreatorRelationshipViolation,
     DataRightsViolation,
     EffectViolation,
     ExternalMessageViolation,
@@ -45,6 +44,7 @@ from armi_kernel.application import (
     WebResearchViolation,
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
+from armi_relationship.api import RelationshipViolation
 
 from armi_runtime.adapters.persistence.runtime_observability import (
     RuntimeObservationError,
@@ -80,7 +80,6 @@ from .database import (
     compose_creator_input,
     compose_creator_maintenance_query,
     compose_creator_prompt_service,
-    compose_creator_relationship_query,
     compose_creator_scene_service,
     compose_data_rights_order_service,
     compose_effect_registration_pipeline,
@@ -92,6 +91,7 @@ from .database import (
     compose_model_pipeline,
     compose_other_human_input,
     compose_other_human_record_query,
+    compose_relationship_module,
     compose_response_admission_pipeline,
     compose_runtime_authority,
     compose_runtime_observation,
@@ -188,6 +188,7 @@ async def _serve(
     exact_life_query_pipeline = None
     creator_maintenance_query = None
     creator_relationship_query = None
+    relationship_module = None
     creator_prompt_service = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
@@ -317,10 +318,17 @@ async def _serve(
                 creator_party_id=creator_context.party_id,
             )
             await creator_activity_query.open()
+            relationship_module = compose_relationship_module(
+                prepared,
+                creator_party_id=creator_context.party_id,
+            )
+            await relationship_module.open()
+            creator_relationship_query = relationship_module.read
             life_record_query = compose_life_record_query(
                 prepared,
                 creator_party_id=creator_context.party_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
+                relationship_read=relationship_module.read,
             )
             await life_record_query.open()
             other_human_record_query = compose_other_human_record_query(
@@ -344,11 +352,6 @@ async def _serve(
                 creator_party_id=creator_context.party_id,
             )
             await creator_maintenance_query.open()
-            creator_relationship_query = compose_creator_relationship_query(
-                prepared,
-                creator_party_id=creator_context.party_id,
-            )
-            await creator_relationship_query.open()
             creator_prompt_service = compose_creator_prompt_service(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -371,6 +374,7 @@ async def _serve(
                 prepared,
                 creator_party_id=creator_context.party_id,
                 authority_admission=authority.require_writable,
+                relationship_data_rights=relationship_module.data_rights,
                 notifier=creator_events,
             )
             await data_rights_order_service.open()
@@ -432,6 +436,8 @@ async def _serve(
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                relationship_read=relationship_module.read,
+                relationship_policy=relationship_module.policy,
                 wakeups=work_wakeups,
                 notifier=creator_events,
             )
@@ -439,6 +445,7 @@ async def _serve(
             context_pipeline = compose_context_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                relationship_read=relationship_module.read,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -449,6 +456,8 @@ async def _serve(
             candidate_pipeline = compose_candidate_validation_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                relationship_cognition=relationship_module.cognition,
+                relationship_read=relationship_module.read,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -459,6 +468,10 @@ async def _serve(
             subject_commit_pipeline = compose_subject_commit_pipeline(
                 prepared,
                 authority_admission=authority.require_writable,
+                relationship_cognition=relationship_module.cognition,
+                relationship_commit=relationship_module.commit,
+                relationship_read=relationship_module.read,
+                relationship_policy=relationship_module.policy,
                 notifier=creator_events,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
@@ -618,7 +631,7 @@ async def _serve(
             CreatorExportViolation,
             DataRightsViolation,
             CreatorPromptViolation,
-            CreatorRelationshipViolation,
+            RelationshipViolation,
             OtherHumanRecordViolation,
             LifeRecordQueryViolation,
             SceneQueryViolation,
@@ -651,8 +664,8 @@ async def _serve(
                 await other_human_record_query.close()
             if creator_maintenance_query is not None:
                 await creator_maintenance_query.close()
-            if creator_relationship_query is not None:
-                await creator_relationship_query.close()
+            if relationship_module is not None:
+                await relationship_module.close()
             if creator_prompt_service is not None:
                 await creator_prompt_service.close()
             if creator_export_service is not None:
@@ -894,8 +907,8 @@ async def _serve(
             await other_human_record_query.close()
         if creator_maintenance_query is not None:
             await creator_maintenance_query.close()
-        if creator_relationship_query is not None:
-            await creator_relationship_query.close()
+        if relationship_module is not None:
+            await relationship_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:
@@ -1198,8 +1211,8 @@ async def _serve(
             await other_human_record_query.close()
         if creator_maintenance_query is not None:
             await creator_maintenance_query.close()
-        if creator_relationship_query is not None:
-            await creator_relationship_query.close()
+        if relationship_module is not None:
+            await relationship_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:

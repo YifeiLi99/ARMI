@@ -24,7 +24,10 @@ HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
 HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
     "armi.other-human-dialogue-candidate.v2"
 )
-OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v3"
+HISTORICAL_COMPACT_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
+    "armi.other-human-dialogue-candidate.v3"
+)
+OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v4"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[
@@ -254,7 +257,10 @@ def parse_other_human_dialogue_candidate_value(
             expected_version == HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
         ):
             candidate = _HISTORICAL_ACTIVE_ADAPTER.validate_python(raw, strict=True)
-        elif expected_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
+        elif expected_version in (
+            OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+            HISTORICAL_COMPACT_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        ):
             candidate = _ADAPTER.validate_python(raw, strict=True)
         else:
             raise ValueError("unsupported other-human candidate version")
@@ -291,6 +297,8 @@ def candidate_schema(
     version: str = OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
 ) -> dict[str, object]:
     if version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
+        return cast(dict[str, object], _ADAPTER.json_schema())
+    if version == HISTORICAL_COMPACT_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
         return cast(dict[str, object], _ADAPTER.json_schema())
     if version == HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
         return cast(dict[str, object], _HISTORICAL_ACTIVE_ADAPTER.json_schema())

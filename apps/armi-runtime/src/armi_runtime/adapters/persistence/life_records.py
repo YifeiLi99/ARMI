@@ -45,6 +45,7 @@ from armi_kernel.application import (
     LifeRecordRetrievalKind,
 )
 from armi_kernel.contracts import Digest, Instant, OpaqueCursor
+from armi_relationship.api import RelationshipReadPort
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
@@ -168,6 +169,7 @@ class PostgreSQLLifeRecordQuery:
         "_expected_role",
         "_pool",
         "_pool_timeout_seconds",
+        "_relationships",
         "_storage",
     )
 
@@ -181,10 +183,12 @@ class PostgreSQLLifeRecordQuery:
         data_root: Path,
         max_object_bytes: int,
         pool_timeout_seconds: int,
+        relationships: RelationshipReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
+        self._relationships = relationships
         self._storage = ContentAddressedArtifactStore(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
@@ -268,6 +272,22 @@ class PostgreSQLLifeRecordQuery:
             ):
                 await connection.execute("SET TRANSACTION READ ONLY")
                 subject_id = await self._scope(connection, request.actor)
+                generation_row = await (
+                    await connection.execute(
+                        """
+                        SELECT life_generation_id FROM armi.life_generations
+                        WHERE subject_id = %s AND status = 'active'
+                        """,
+                        (subject_id,),
+                    )
+                ).fetchone()
+                if generation_row is None:
+                    raise LifeRecordQueryViolation("LIFE-QUERY-SCOPE")
+                relationship_snapshots = await self._relationships.all_current(
+                    connection,
+                    subject_id=subject_id,
+                    generation_id=generation_row[0],
+                )
                 rows = await (
                     await connection.execute(
                         """
@@ -382,32 +402,6 @@ class PostgreSQLLifeRecordQuery:
                             )
                             UNION ALL
                             (
-                            SELECT relationship.relationship_id,
-                                   'relationship'::text,
-                                   revision.interpretation,
-                                   'relationship_current'::text,
-                                   revision.created_at,
-                                   NULL::boolean
-                            FROM armi.relationships AS relationship
-                            JOIN armi.relationship_revisions AS revision
-                              ON revision.relationship_revision_id =
-                                 relationship.current_revision_id
-                            CROSS JOIN query_input AS query
-                            WHERE relationship.subject_id = query.subject_id
-                              AND (query.record_kind IS NULL OR query.record_kind = 'relationship')
-                              AND (query.query_text IS NULL OR revision.interpretation ILIKE '%%' || query.query_text || '%%')
-                              AND (query.before_at IS NULL OR (revision.created_at, 'relationship'::text, relationship.relationship_id) < (query.before_at, query.before_kind, query.before_id))
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM armi.deletion_items AS deletion_item
-                                  WHERE deletion_item.target_kind = 'relationship'
-                                    AND deletion_item.target_ref = relationship.relationship_id
-                                    AND deletion_item.result_status IN ('completed', 'partial')
-                              )
-                            ORDER BY revision.created_at DESC, relationship.relationship_id DESC
-                            LIMIT (SELECT branch_limit FROM query_input)
-                            )
-                            UNION ALL
-                            (
                             SELECT revision.component_revision_id,
                                    'self_change'::text,
                                    left(revision.semantic_payload::text, 4096),
@@ -430,7 +424,6 @@ class PostgreSQLLifeRecordQuery:
                         FROM records
                         ORDER BY occurred_at DESC, record_kind DESC,
                                  record_ref DESC
-                        LIMIT %s
                         """,
                         (
                             subject_id,
@@ -443,7 +436,6 @@ class PostgreSQLLifeRecordQuery:
                             None if boundary is None else boundary[1],
                             None if boundary is None else boundary[2],
                             request.limit + 1,
-                            request.limit + 1,
                         ),
                     )
                 ).fetchall()
@@ -451,6 +443,37 @@ class PostgreSQLLifeRecordQuery:
             raise
         except psycopg.Error, PoolTimeout:
             raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
+        relationship_rows = [
+            (
+                snapshot.relationship_id,
+                "relationship",
+                snapshot.revision.interpretation,
+                "relationship_current",
+                snapshot.revision.occurred_at,
+                None,
+            )
+            for snapshot in relationship_snapshots
+            if request.record_kind in {None, LifeRecordKind.RELATIONSHIP}
+            and (
+                request.query_text is None
+                or request.query_text.casefold()
+                in snapshot.revision.interpretation.casefold()
+            )
+            and (
+                boundary is None
+                or (
+                    snapshot.revision.occurred_at,
+                    "relationship",
+                    snapshot.relationship_id,
+                )
+                < (boundary[0].value, boundary[1], boundary[2])
+            )
+        ]
+        rows = sorted(
+            [*rows, *relationship_rows],
+            key=lambda row: (cast(datetime, row[4]), str(row[1]), cast(UUID, row[0])),
+            reverse=True,
+        )
         visible = rows[: request.limit]
         next_cursor = None
         if len(rows) > request.limit and visible:

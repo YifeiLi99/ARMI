@@ -41,10 +41,6 @@ from armi_kernel.application import (
     CreatorPromptRevisionCommand,
     CreatorPromptView,
     CreatorPromptViolation,
-    CreatorRelationshipItem,
-    CreatorRelationshipRevision,
-    CreatorRelationshipTimeline,
-    CreatorRelationshipViolation,
     CreatorSceneCollection,
     CreatorSceneCreateCommand,
     CreatorSceneStatusCommand,
@@ -92,13 +88,6 @@ from armi_kernel.application import (
     PromptKind,
     PromptRevisionKind,
     RegisterOtherHumanPartyCommand,
-    RelationshipBoundary,
-    RelationshipBoundaryAction,
-    RelationshipBoundaryKind,
-    RelationshipFact,
-    RelationshipFactKind,
-    RelationshipPartyRole,
-    RelationshipStatus,
     SceneKey,
     SceneQueryViolation,
     SceneStatus,
@@ -112,6 +101,21 @@ from armi_kernel.application.life_records import (
     MemoryRevisionKind as QueryMemoryRevisionKind,
 )
 from armi_kernel.contracts import Digest, Instant
+from armi_relationship.api import (
+    CreatorRelationshipItem,
+    CreatorRelationshipRevision,
+    CreatorRelationshipTimeline,
+    RelationshipBoundary,
+    RelationshipBoundaryAction,
+    RelationshipBoundaryKind,
+    RelationshipFact,
+    RelationshipFactKind,
+    RelationshipPartyRole,
+    RelationshipStatus,
+)
+from armi_relationship.api import (
+    RelationshipViolation as CreatorRelationshipViolation,
+)
 from armi_runtime.composition.lifecycle import LifecycleController
 from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import (
@@ -367,6 +371,7 @@ class _CreatorRelationshipQuery:
             revision_no=1,
             facts=(
                 RelationshipFact(
+                    uuid7(),
                     RelationshipFactKind.PARTY_EXPRESSION,
                     "Creator 表达了联系限制",
                 ),
@@ -1802,7 +1807,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(current.status_code, 200)
         self.assertEqual(
             current.json()["projection_version"],
-            "creator-relationship.v1",
+            "creator-relationship.v2",
         )
         self.assertEqual(
             current.json()["relationship"]["current"]["boundaries"][0]["kind"],

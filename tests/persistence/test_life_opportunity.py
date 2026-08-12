@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import pytest
@@ -16,6 +16,26 @@ from armi_runtime.adapters.persistence.life_opportunity import (
     PostgreSQLLifeOpportunityRepository,
 )
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWork
+
+
+class _Relationships:
+    def __init__(self, *, boundary: bool = False) -> None:
+        self._boundary = boundary
+
+    async def current_for_party(self, *_args: object, **_kwargs: object) -> object | None:
+        return object() if self._boundary else None
+
+
+class _RelationshipPolicy:
+    def allows_snapshot_outreach(self, _relationship: object) -> bool:
+        return False
+
+
+def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepository:
+    return PostgreSQLLifeOpportunityRepository(
+        cast(Any, _Relationships(boundary=boundary)),
+        cast(Any, _RelationshipPolicy()),
+    )
 
 
 class _Cursor:
@@ -87,6 +107,10 @@ class _UnitOfWork:
         self.audit = _Audit()
         self._connection = connection
 
+    @property
+    def transaction(self) -> _Connection:
+        return self._connection
+
     def _connection_for_repository(self) -> _Connection:
         return self._connection
 
@@ -98,7 +122,7 @@ def test_current_active_material_admits_one_idempotent_autonomous_opportunity() 
         revision_id=revision_id,
     )
     unit_of_work = _UnitOfWork(connection)
-    repository = PostgreSQLLifeOpportunityRepository()
+    repository = _repository()
 
     first = asyncio.run(
         repository.admit_life_material_revision(
@@ -171,7 +195,7 @@ def test_active_in_progress_activity_admits_one_durable_internal_work_step() -> 
         revision_id=uuid7(),
     )
     unit_of_work = _UnitOfWork(cast(_Connection, connection))
-    repository = PostgreSQLLifeOpportunityRepository()
+    repository = _repository()
 
     first = asyncio.run(
         repository.admit_activity_internal_work(
@@ -247,7 +271,7 @@ def test_attention_need_information_retries_after_new_creator_input() -> None:
     unit_of_work = _UnitOfWork(cast(_Connection, connection))
 
     outcome = asyncio.run(
-        PostgreSQLLifeOpportunityRepository().admit_activity_attention(
+        _repository().admit_activity_attention(
             cast(PostgreSQLUnitOfWork, unit_of_work),
             model_concurrency=2,
         )
@@ -321,7 +345,7 @@ def test_long_absence_admits_one_scene_bound_creator_outreach_condition() -> Non
         unit_of_work.runtime_fence.bundle_activation_id,
         1,
     )
-    repository = PostgreSQLLifeOpportunityRepository()
+    repository = _repository()
     policy = CreatorOutreachPolicy(259_200, 86_400)
 
     first = asyncio.run(
@@ -364,7 +388,7 @@ def test_creator_outreach_stops_at_relationship_and_unanswered_boundaries(
     )
 
     result = asyncio.run(
-        PostgreSQLLifeOpportunityRepository().admit_creator_outreach(
+        _repository(boundary=boundary).admit_creator_outreach(
             cast(PostgreSQLUnitOfWork, unit_of_work),
             policy=CreatorOutreachPolicy(259_200, 86_400),
         )

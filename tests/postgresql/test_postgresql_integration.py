@@ -128,6 +128,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_relationship.bootstrap import bootstrap_relationship
 from armi_runtime.adapters.creator_response_inbox import (
     PostgreSQLLocalInbox,
 )
@@ -1042,6 +1043,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root
                 / "alembic/versions/0005_remove_runtime_composition_manifest.py"
             ).unlink()
+            (schema_root / "alembic/versions/0006_relationship_lifecycle.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1051,7 +1053,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0005")
+        self.assertEqual(migrated.current_revision, "0006")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1123,6 +1125,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root
                 / "alembic/versions/0005_remove_runtime_composition_manifest.py"
             ).unlink()
+            (schema_root / "alembic/versions/0006_relationship_lifecycle.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1152,7 +1155,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0005")
+        self.assertEqual(migrated.current_revision, "0006")
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             activation = connection.execute(
                 """
@@ -1220,10 +1223,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0006_probe.py").write_text(
+            (schema_root / "alembic/versions/0007_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0006'\n"
-                "down_revision = '0005'\n"
+                "revision = '0007'\n"
+                "down_revision = '0006'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1278,8 +1281,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0006")
-            self.assertEqual(migrated.head_revision, "0006")
+            self.assertEqual(migrated.current_revision, "0007")
+            self.assertEqual(migrated.head_revision, "0007")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1300,10 +1303,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0006_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0007_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0006'\n"
-                "down_revision = '0005'\n"
+                "revision = '0007'\n"
+                "down_revision = '0006'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1328,7 +1331,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0005",)])
+            self.assertEqual(history, [("0006",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -1539,7 +1542,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "/v1/life-records?limit=1": "life-record-query.v2",
                         "/v1/memories?limit=1": "creator-memory.v1",
                         "/v1/maintenance/status": "creator-maintenance.v2",
-                        "/v1/relationships/current": "creator-relationship.v1",
+                        "/v1/relationships/current": "creator-relationship.v2",
                         "/v1/prompts/creator-guidance": "creator-prompt.v1",
                         "/v1/other-human-records?limit=1": "other-human-record.v1",
                         "/v1/data-rights/orders": "data-rights-order.v2",
@@ -1956,9 +1959,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 for _ in range(2)
             )
+            relationship_module = bootstrap_relationship(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=manifest.creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            await relationship_module.open()
             pipelines = tuple(
                 LifeOpportunityPipeline(
                     factory=factory,
+                    relationship_read=relationship_module.read,
+                    relationship_policy=relationship_module.policy,
                     maintenance_consideration_seconds=1,
                     maintenance_deadline_seconds=120,
                 )
@@ -1978,6 +1990,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 for pipeline in pipelines:
                     await pipeline.close()
+                await relationship_module.close()
                 await authority.release(record.fence)
                 await authority.close()
             return first, second, restarted, attention, sleep_window
@@ -2064,6 +2077,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 await factory.close()
 
+            relationship_module = bootstrap_relationship(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            await relationship_module.open()
             life_records = PostgreSQLLifeRecordQuery(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -2072,6 +2092,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 data_root=root,
                 max_object_bytes=1024 * 1024,
                 pool_timeout_seconds=2,
+                relationships=relationship_module.read,
             )
             await life_records.open()
             try:
@@ -2090,6 +2111,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             finally:
                 await life_records.close()
+                await relationship_module.close()
 
             query = PostgreSQLCreatorActivityQuery(
                 fixture.runtime_dsn,
@@ -2185,12 +2207,24 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 authority_admission=lambda: record.fence,
                 require_runtime_fence=True,
             )
-            pipeline = LifeOpportunityPipeline(factory=maintenance_factory)
+            relationship_module = bootstrap_relationship(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            await relationship_module.open()
+            pipeline = LifeOpportunityPipeline(
+                factory=maintenance_factory,
+                relationship_read=relationship_module.read,
+                relationship_policy=relationship_module.policy,
+            )
             await pipeline.open()
             try:
                 outcome = await pipeline.maintain_sleep_once()
             finally:
                 await pipeline.close()
+                await relationship_module.close()
                 await authority.release(record.fence)
                 await authority.close()
             self.assertEqual(outcome.reason_code, "LIFE-MAINTENANCE-ADVANCED")
@@ -5460,7 +5494,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=5,
                 authority_admission=lambda: fence,
             )
-            repository = PostgreSQLSubjectCommitRepository()
+            relationship_module = bootstrap_relationship(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                pool_timeout_seconds=2,
+            )
+            repository = PostgreSQLSubjectCommitRepository(
+                relationship_module.commit,
+                relationship_module.read,
+                relationship_module.policy,
+            )
+            await relationship_module.open()
             await factory.open()
             try:
                 async with factory.unit_of_work() as unit_of_work:
@@ -5487,6 +5532,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 return result.status, result.subject_version or -1
             finally:
                 await factory.close()
+                await relationship_module.close()
 
         status, version = asyncio.run(
             settle(),
@@ -6335,7 +6381,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0005",)])
+            self.assertEqual(restored, [("0006",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

@@ -59,9 +59,14 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_relationship.api import (
+    RelationshipCommitPort,
+    RelationshipPolicyPort,
+    RelationshipReadPort,
+    RelationshipViolation,
+)
 
 from .life_material_commit import apply_life_materials
-from .relationship_commit import apply_relationships
 from .subject_prompt_commit import (
     apply_subject_prompts,
     lock_subject_prompt_heads,
@@ -103,7 +108,17 @@ class SubjectCommitSnapshot:
 class PostgreSQLSubjectCommitRepository:
     """Read one validated ChangeSet and atomically apply or settle it."""
 
-    __slots__ = ()
+    __slots__ = ("_relationship_commit", "_relationship_policy", "_relationships")
+
+    def __init__(
+        self,
+        relationship_commit: RelationshipCommitPort,
+        relationship_read: RelationshipReadPort,
+        relationship_policy: RelationshipPolicyPort,
+    ) -> None:
+        self._relationship_commit = relationship_commit
+        self._relationships = relationship_read
+        self._relationship_policy = relationship_policy
 
     async def settle_stale(
         self,
@@ -326,19 +341,9 @@ class PostgreSQLSubjectCommitRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         validation_id: UUID,
     ) -> tuple[UUID, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        rows = await (
-            await connection.execute(
-                """
-                SELECT relationship_id
-                FROM armi.relationship_revisions
-                WHERE candidate_validation_id = %s
-                ORDER BY relationship_id
-                """,
-                (validation_id,),
-            )
-        ).fetchall()
-        return tuple(UUID(str(row[0])) for row in rows)
+        return await self._relationship_commit.affected_relationship_ids(
+            unit_of_work.transaction, validation_id
+        )
 
     async def snapshot(
         self,
@@ -617,7 +622,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.sleep_decisions
             and not change_set.memories
             and not change_set.memory_revisions
-            and not change_set.relationships
+            and not change_set.owner_drafts
             and not change_set.materials
             and not change_set.prompts
             and not change_set.exact_life_queries
@@ -779,17 +784,22 @@ class PostgreSQLSubjectCommitRepository:
             revisions=change_set.memory_revisions,
         )
 
-        await apply_relationships(
-            connection,
-            validation_id=snapshot.validation_id,
-            subject_id=snapshot.subject_id,
-            generation_id=snapshot.generation_id,
-            creator_party_id=snapshot.creator_party_id,
-            episode_other_party_id=snapshot.other_party_id,
-            commit_id=commit_id.value,
-            relationships=change_set.relationships,
-            experience_ids={key: value.value for key, value in experience_ids.items()},
-        )
+        try:
+            await self._relationship_commit.commit(
+                unit_of_work.transaction,
+                validation_id=snapshot.validation_id,
+                subject_id=snapshot.subject_id,
+                generation_id=snapshot.generation_id,
+                commit_id=commit_id.value,
+                drafts=change_set.owner_drafts,
+                experience_ids={
+                    key: value.value for key, value in experience_ids.items()
+                },
+            )
+        except RelationshipViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code.removeprefix('RELATIONSHIP-')}"
+            ) from None
 
         await apply_life_materials(
             connection,
@@ -915,6 +925,8 @@ class PostgreSQLSubjectCommitRepository:
         )
         await _insert_response_intent(
             unit_of_work,
+            relationships=self._relationships,
+            relationship_policy=self._relationship_policy,
             snapshot=snapshot,
             commit_id=commit_id,
             change_set=change_set,
@@ -2699,6 +2711,8 @@ async def _grant_local_creator_reply(
 async def _insert_response_intent(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
+    relationships: RelationshipReadPort,
+    relationship_policy: RelationshipPolicyPort,
     snapshot: SubjectCommitSnapshot,
     commit_id: SubjectCommitId,
     change_set: SubjectChangeSet,
@@ -2718,6 +2732,8 @@ async def _insert_response_intent(
         if other_replies or endings:
             await _insert_other_human_action(
                 unit_of_work,
+                relationships=relationships,
+                relationship_policy=relationship_policy,
                 snapshot=snapshot,
                 commit_id=commit_id,
                 replies=other_replies,
@@ -2843,6 +2859,8 @@ async def _insert_other_human_change_terminal_decision(
 async def _insert_other_human_action(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
+    relationships: RelationshipReadPort,
+    relationship_policy: RelationshipPolicyPort,
     snapshot: SubjectCommitSnapshot,
     commit_id: SubjectCommitId,
     replies: tuple[OtherHumanReplyDraft, ...],
@@ -2955,35 +2973,16 @@ async def _insert_other_human_action(
     reply = replies[0]
     if response_artifact is None:
         raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT")
-    blocked = await (
-        await connection.execute(
-            """
-            SELECT 1
-            FROM armi.relationships AS relationship
-            JOIN armi.relationship_revisions AS revision
-              ON revision.relationship_revision_id = relationship.current_revision_id
-            WHERE relationship.subject_id = %s
-              AND relationship.life_generation_id = %s
-              AND relationship.other_party_id = %s
-              AND relationship.scope = %s
-              AND (
-                  revision.relationship_status = 'ended'
-                  OR EXISTS (
-                      SELECT 1
-                      FROM jsonb_array_elements(revision.boundaries) AS boundary
-                      WHERE boundary->>'kind' IN ('contact', 'exit')
-                  )
-              )
-            """,
-            (
-                snapshot.subject_id,
-                snapshot.generation_id,
-                snapshot.other_party_id,
-                relationship_scope,
-            ),
-        )
-    ).fetchone()
-    if blocked is not None:
+    relationship = await relationships.current_for_party(
+        unit_of_work.transaction,
+        subject_id=snapshot.subject_id,
+        generation_id=snapshot.generation_id,
+        other_party_id=snapshot.other_party_id,
+        scope=relationship_scope,
+    )
+    if relationship is not None and not relationship_policy.allows_snapshot_contact(
+        relationship
+    ):
         raise SubjectCommitViolation("SUBJECT-RELATIONSHIP-BOUNDARY")
     action_id = uuid7()
     revision_id = uuid7()

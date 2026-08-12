@@ -10,7 +10,9 @@ members = [
     "armi-channel-napcat",
     "armi-kernel",
     "armi-postgresql-contract",
+    "armi-relationship",
     "armi-runtime",
+    "armi-runtime-foundation",
     "armi-workspace",
 ]
 build-constraints = [
@@ -149,6 +151,29 @@ version = "0.0.0"
 source = { editable = "packages/armi-postgresql-contract" }
 
 [[package]]
+name = "armi-relationship"
+version = "0.0.0"
+source = { editable = "modules/relationship" }
+dependencies = [
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
+    { name = "pydantic" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
+    { name = "psycopg-pool", specifier = "==3.3.1" },
+    { name = "pydantic", specifier = "==2.13.4" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
 name = "armi-runtime"
 version = "0.0.0"
 source = { editable = "apps/armi-runtime" }
@@ -158,6 +183,8 @@ dependencies = [
     { name = "armi-artifact-store" },
     { name = "armi-kernel" },
     { name = "armi-postgresql-contract" },
+    { name = "armi-relationship" },
+    { name = "armi-runtime-foundation" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "openai" },
@@ -180,6 +207,8 @@ requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
+    { name = "armi-relationship", editable = "modules/relationship" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "fastapi", specifier = "==0.140.13" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "openai", specifier = "==2.49.0" },
@@ -194,6 +223,11 @@ requires-dist = [
     { name = "rfc8785", specifier = "==0.1.4" },
     { name = "uvicorn", specifier = "==0.51.0" },
 ]
+
+[[package]]
+name = "armi-runtime-foundation"
+version = "0.0.0"
+source = { editable = "packages/armi-runtime-foundation" }
 
 [[package]]
 name = "armi-workspace"

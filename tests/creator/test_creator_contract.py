@@ -502,7 +502,7 @@ class CreatorContractTests(unittest.TestCase):
         current = CreatorRelationshipCurrentResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "creator-relationship.v1",
+                "projection_version": "creator-relationship.v2",
                 "relationship": {
                     "relationship_id": ENVIRONMENT_ID,
                     "current_revision_id": ENVIRONMENT_ID,
@@ -513,6 +513,7 @@ class CreatorContractTests(unittest.TestCase):
                         "revision_no": 1,
                         "facts": [
                             {
+                                "fact_id": ENVIRONMENT_ID,
                                 "kind": "party_expression",
                                 "summary": "Creator 表达了联系限制",
                             }
@@ -529,6 +530,7 @@ class CreatorContractTests(unittest.TestCase):
                         "commitments": [],
                         "open_issues": [],
                         "commitment_event": None,
+                        "issue_resolution": None,
                         "status": "active",
                         "occurred_at": INSTANT,
                     },
@@ -594,7 +596,7 @@ class CreatorContractTests(unittest.TestCase):
                 "event_kind": "relationship.invalidated",
                 "resource_kind": "relationship",
                 "resource_ref": ENVIRONMENT_ID,
-                "projection_version": "creator-relationship.v1",
+                "projection_version": "creator-relationship.v2",
                 "occurred_at": INSTANT,
             }
         )

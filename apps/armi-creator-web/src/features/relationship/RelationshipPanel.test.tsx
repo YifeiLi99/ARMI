@@ -20,7 +20,7 @@ function jsonResponse(value: object, status = 200): Response {
 function currentRelationship() {
   return {
     contract_version: "1.0",
-    projection_version: "creator-relationship.v1",
+    projection_version: "creator-relationship.v2",
     relationship: {
       relationship_id: RELATIONSHIP_ID,
       current_revision_id: REVISION_ID,
@@ -31,6 +31,7 @@ function currentRelationship() {
         revision_no: 1,
         facts: [
           {
+            fact_id: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
             kind: "party_expression",
             summary: "Creator 表达了联系限制",
           },
@@ -62,6 +63,7 @@ function currentRelationship() {
           summary: "已建立承诺",
           related_commitment_id: null,
         },
+        issue_resolution: null,
         status: "active",
         occurred_at: "2026-08-05T10:00:00.000000Z",
       },
@@ -105,7 +107,7 @@ describe("Creator relationship panel", () => {
       if (path === `/v1/relationships/${RELATIONSHIP_ID}/timeline`) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-relationship.v1",
+          projection_version: "creator-relationship.v2",
           relationship_id: RELATIONSHIP_ID,
           items: [currentRelationship().relationship.current],
           truncated: false,
@@ -169,7 +171,7 @@ describe("Creator relationship panel", () => {
       vi.fn<typeof fetch>().mockResolvedValue(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-relationship.v1",
+          projection_version: "creator-relationship.v2",
           relationship: null,
         }),
       ),

@@ -53,7 +53,7 @@ _PROJECTIONS = {
     CreatorEventResourceKind.MEMORY: "creator-memory.v1",
     CreatorEventResourceKind.MAINTENANCE: "creator-maintenance.v2",
     CreatorEventResourceKind.MATERIAL: "life-record-query.v2",
-    CreatorEventResourceKind.RELATIONSHIP: "creator-relationship.v1",
+    CreatorEventResourceKind.RELATIONSHIP: "creator-relationship.v2",
     CreatorEventResourceKind.SCENE_TIMELINE: "scene-timeline.v5",
     CreatorEventResourceKind.CAPABILITY_REQUEST: "capability-request.v4",
     CreatorEventResourceKind.OPERATION: "creator-operation.v1",

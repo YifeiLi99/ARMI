@@ -49,9 +49,6 @@ from armi_kernel.application import (
     CreatorPromptRevisionCommand,
     CreatorPromptView,
     CreatorPromptViolation,
-    CreatorRelationshipQueryPort,
-    CreatorRelationshipRevision,
-    CreatorRelationshipViolation,
     CreatorSceneCreateCommand,
     CreatorScenePort,
     CreatorSceneStatusCommand,
@@ -108,6 +105,11 @@ from armi_kernel.contracts import (
     UnknownOutcome,
     WaitingOutcome,
 )
+from armi_relationship.api import (
+    CreatorRelationshipRevision,
+    RelationshipReadPort,
+    RelationshipViolation,
+)
 from fastapi import FastAPI, Request
 from fastapi.responses import (
     JSONResponse,
@@ -154,6 +156,7 @@ from .creator_contract import (
     CreatorRelationshipCommitmentResponse,
     CreatorRelationshipCurrentResponse,
     CreatorRelationshipFactResponse,
+    CreatorRelationshipIssueResolutionResponse,
     CreatorRelationshipIssueResponse,
     CreatorRelationshipItemResponse,
     CreatorRelationshipRevisionResponse,
@@ -868,6 +871,7 @@ def _relationship_revision_response(
         revision_no=revision.revision_no,
         facts=[
             CreatorRelationshipFactResponse(
+                fact_id=str(item.fact_id),
                 kind=item.kind.value,
                 summary=item.summary,
             )
@@ -889,7 +893,7 @@ def _relationship_revision_response(
                 party_role=item.party_role.value,
                 scope=item.scope,
                 content=item.content,
-                status=item.status.value,
+                status=cast(Literal["open"], item.status.value),
                 last_event_kind=item.last_event_kind.value,
                 last_event_summary=item.last_event_summary,
             )
@@ -917,6 +921,15 @@ def _relationship_revision_response(
                     if revision.commitment_event.related_commitment_id is None
                     else str(revision.commitment_event.related_commitment_id)
                 ),
+            )
+        ),
+        issue_resolution=(
+            None
+            if revision.issue_resolution is None
+            else CreatorRelationshipIssueResolutionResponse(
+                issue_id=str(revision.issue_resolution.issue_id),
+                status="resolved",
+                resolution_summary=revision.issue_resolution.resolution_summary,
             )
         ),
         status=revision.status.value,
@@ -1370,7 +1383,7 @@ def create_runtime_app(
     creator_life_material_query: CreatorLifeMaterialQueryPort | None = None,
     creator_memory_query: CreatorMemoryQueryPort | None = None,
     creator_maintenance_query: CreatorMaintenanceQueryPort | None = None,
-    creator_relationship_query: CreatorRelationshipQueryPort | None = None,
+    creator_relationship_query: RelationshipReadPort | None = None,
     other_human_record_query: OtherHumanRecordQueryPort | None = None,
     creator_emergency_wake: CreatorEmergencyWakePort | None = None,
     creator_events: CreatorEventBroker | None = None,
@@ -2398,14 +2411,14 @@ def create_runtime_app(
             )
         try:
             item = await creator_relationship_query.current()
-        except CreatorRelationshipViolation:
+        except RelationshipViolation:
             return JSONResponse(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_RELATIONSHIP_QUERY_UNAVAILABLE"),
             )
         response = CreatorRelationshipCurrentResponse(
             contract_version="1.0",
-            projection_version="creator-relationship.v1",
+            projection_version="creator-relationship.v2",
             relationship=(
                 None
                 if item is None
@@ -2465,7 +2478,7 @@ def create_runtime_app(
             )
         try:
             timeline = await creator_relationship_query.timeline(parsed)
-        except CreatorRelationshipViolation as error:
+        except RelationshipViolation as error:
             if error.code == "RELATIONSHIP-QUERY-NOT-FOUND":
                 return JSONResponse(
                     status_code=404,
@@ -2477,7 +2490,7 @@ def create_runtime_app(
             )
         response = CreatorRelationshipTimelineResponse(
             contract_version="1.0",
-            projection_version="creator-relationship.v1",
+            projection_version="creator-relationship.v2",
             relationship_id=str(timeline.relationship_id),
             items=[_relationship_revision_response(item) for item in timeline.items],
             truncated=timeline.truncated,

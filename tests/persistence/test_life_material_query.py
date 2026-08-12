@@ -5,7 +5,7 @@ import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, Self, cast
 from uuid import UUID, uuid7
 
 import pytest
@@ -152,6 +152,7 @@ def test_creator_material_query_reads_only_current_visible_verified_body(
         data_root=data_root,
         max_object_bytes=1_000_000,
         pool_timeout_seconds=1,
+        relationships=cast(Any, object()),
     )
     query._pool = _Pool(connection)  # pyright: ignore[reportPrivateUsage,reportAttributeAccessIssue]
 

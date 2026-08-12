@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from typing import Any, cast
 from uuid import UUID
 
@@ -23,8 +24,8 @@ from armi_kernel.application import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
+    CandidateOwnerDraft,
     CandidateRejection,
-    CandidateRelationshipDraft,
     CandidateSleepDecisionDraft,
     CandidateSubjectPromptDraft,
     CandidateViolation,
@@ -51,9 +52,19 @@ from armi_kernel.application import (
     MemorySourceKind,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
+    SleepDecisionKind,
+    SubjectChangeSet,
+    SubjectCommitViolation,
+    WebResearchRequestDraft,
+)
+from armi_kernel.contracts import ContractViolation, Digest
+from armi_relationship.api import (
+    RELATIONSHIP_MECHANISM_IDENTITY,
+    CandidateRelationshipDraft,
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
+    RelationshipCognitionPort,
     RelationshipCommitment,
     RelationshipCommitmentEvent,
     RelationshipCommitmentEventKind,
@@ -65,12 +76,7 @@ from armi_kernel.application import (
     RelationshipIssueStatus,
     RelationshipPartyRole,
     RelationshipStatus,
-    SleepDecisionKind,
-    SubjectChangeSet,
-    SubjectCommitViolation,
-    WebResearchRequestDraft,
 )
-from armi_kernel.contracts import ContractViolation, Digest
 
 _TOP_KEYS_V1 = {
     "schema_version",
@@ -102,9 +108,13 @@ _TOP_KEYS_V16 = {*_TOP_KEYS_V15, "prompts"}
 _TOP_KEYS_V17 = {*_TOP_KEYS_V16, "exact_life_queries"}
 _TOP_KEYS_V18 = {*_TOP_KEYS_V17, "activities", "activity_decisions"}
 _TOP_KEYS_V19 = {*_TOP_KEYS_V18, "maintenance_decisions"}
+_TOP_KEYS_V22 = (_TOP_KEYS_V19 - {"relationships"}) | {"owner_drafts"}
 
 
-def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
+def parse_subject_change_set(
+    value: bytes,
+    relationship_cognition: RelationshipCognitionPort | None = None,
+) -> SubjectChangeSet:
     try:
         raw = json.loads(value)
         if type(raw) is not dict:
@@ -132,11 +142,14 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             "armi.subject-change-set.v19",
             "armi.subject-change-set.v20",
             "armi.subject-change-set.v21",
+            "armi.subject-change-set.v22",
         }:
             raise ValueError
         version = document["schema_version"]
         expected_keys = (
-            _TOP_KEYS_V1
+            _TOP_KEYS_V22
+            if version.endswith(".v22")
+            else _TOP_KEYS_V1
             if version.endswith(".v1")
             else _TOP_KEYS_V2
             if version.endswith(".v2")
@@ -247,11 +260,22 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             )
             for item in _array(document.get("relationships", []), 1)
         )
+        owner_drafts = (
+            tuple(
+                _owner_draft(item)
+                for item in _array(document.get("owner_drafts", []), 1)
+            )
+            if version.endswith(".v22")
+            else tuple(
+                _bind_legacy_relationship(item, relationship_cognition)
+                for item in relationships
+            )
+        )
         materials = tuple(
             _material(
                 item,
                 include_mutation=version.endswith(
-                    (".v15", ".v16", ".v17", ".v18", ".v19")
+                    (".v15", ".v16", ".v17", ".v18", ".v19", ".v22")
                 ),
             )
             for item in _array(document.get("materials", []), 1)
@@ -293,7 +317,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             sleep_decisions,
             memories,
             memory_revisions,
-            relationships,
+            owner_drafts,
             materials,
             prompts,
             exact_life_queries,
@@ -313,7 +337,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 *sleep_decisions,
                 *memories,
                 *memory_revisions,
-                *relationships,
+                *owner_drafts,
                 *materials,
                 *prompts,
                 *exact_life_queries,
@@ -359,7 +383,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
             or result.sleep_decisions
             or result.memories
             or result.memory_revisions
-            or result.relationships
+            or result.owner_drafts
             or result.materials
             or result.prompts
             or result.exact_life_queries
@@ -400,10 +424,10 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 )
             ):
                 raise ValueError
-            if relationships and (
-                len(relationships) != 1
+            if owner_drafts and (
+                len(owner_drafts) != 1
                 or len(experiences) != 1
-                or relationships[0].source_experience_ref != experiences[0].proposal_ref
+                or owner_drafts[0].atomic_group_ref != experiences[0].atomic_group_ref
             ):
                 raise ValueError
             if result.disposition is CandidateDisposition.CHANGE:
@@ -507,7 +531,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                 raise ValueError
         else:
             if result.disposition is CandidateDisposition.CHANGE:
-                if no_action:
+                if no_action and not owner_drafts:
                     raise ValueError
             elif change_material or reply:
                 raise ValueError
@@ -520,7 +544,7 @@ def parse_subject_change_set(value: bytes) -> SubjectChangeSet:
                     or no_action[0].kind.value != result.disposition.value
                 ):
                     raise ValueError
-            elif no_action:
+            elif no_action and not owner_drafts:
                 raise ValueError
         return result
     except (
@@ -704,6 +728,54 @@ def _memory_revision(value: object) -> CandidateMemoryRevisionDraft:
     )
 
 
+def _owner_draft(value: object) -> CandidateOwnerDraft:
+    item = _object(
+        value,
+        {
+            "proposal_ref",
+            "atomic_group_ref",
+            "basis_ordinals",
+            "fact_class",
+            "owner",
+            "payload",
+        },
+    )
+    owner = _text(item["owner"])
+    if owner != "relationship":
+        raise ValueError
+    return CandidateOwnerDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        CandidateFactClass(_text(item["fact_class"])),
+        owner,
+        rfc8785.dumps(cast(Any, item["payload"])),
+    )
+
+
+def _bind_legacy_relationship(
+    value: CandidateRelationshipDraft,
+    cognition: RelationshipCognitionPort | None,
+) -> CandidateOwnerDraft:
+    if cognition is None:
+        raise ValueError
+    return cognition.bind(value)
+
+
+def _legacy_fact_id(
+    relationship_id: UUID,
+    ordinal: int,
+    kind: str,
+    summary: str,
+) -> UUID:
+    digest = bytearray(
+        sha256(f"{relationship_id}:{ordinal}:{kind}:{summary}".encode()).digest()[:16]
+    )
+    digest[6] = (digest[6] & 0x0F) | 0x70
+    digest[8] = (digest[8] & 0x3F) | 0x80
+    return UUID(bytes=bytes(digest))
+
+
 def _relationship(
     value: object,
     *,
@@ -735,28 +807,39 @@ def _relationship(
         keys,
     )
     current_revision_id = item["current_revision_id"]
+    relationship_id = _uuid7(item["relationship_id"])
+    raw_facts = _array(item["facts"], 64)
     return CandidateRelationshipDraft(
-        _text(item["proposal_ref"]),
-        _text(item["atomic_group_ref"]),
-        _ordinals(item["basis_ordinals"]),
-        CandidateFactClass(_text(item["fact_class"])),
-        _uuid7(item["relationship_id"]),
-        _uuid7(item["subject_party_id"]),
-        _uuid7(item["other_party_id"]),
-        None if current_revision_id is None else _uuid7(current_revision_id),
-        _nonnegative(item["expected_head_version"]),
-        _text(item["source_experience_ref"]),
-        tuple(
+        proposal_ref=_text(item["proposal_ref"]),
+        atomic_group_ref=_text(item["atomic_group_ref"]),
+        basis_ordinals=_ordinals(item["basis_ordinals"]),
+        fact_class=CandidateFactClass(_text(item["fact_class"])),
+        relationship_id=relationship_id,
+        subject_party_id=_uuid7(item["subject_party_id"]),
+        other_party_id=_uuid7(item["other_party_id"]),
+        current_revision_id=(
+            None if current_revision_id is None else _uuid7(current_revision_id)
+        ),
+        expected_head_version=_nonnegative(item["expected_head_version"]),
+        source_experience_ref=_text(item["source_experience_ref"]),
+        facts=tuple(
             RelationshipFact(
+                _legacy_fact_id(
+                    relationship_id,
+                    ordinal,
+                    _text(fact["kind"]),
+                    _text(fact["summary"]),
+                ),
                 RelationshipFactKind(_text(fact["kind"])),
                 _text(fact["summary"]),
             )
-            for fact in (
-                _object(raw, {"kind", "summary"}) for raw in _array(item["facts"], 64)
+            for ordinal, fact in enumerate(
+                (_object(raw, {"kind", "summary"}) for raw in raw_facts),
+                start=1,
             )
         ),
-        _text(item["interpretation"]),
-        tuple(
+        interpretation=_text(item["interpretation"]),
+        boundaries=tuple(
             RelationshipBoundary(
                 RelationshipPartyRole(_text(boundary["party_role"])),
                 RelationshipBoundaryKind(_text(boundary["kind"])),
@@ -768,8 +851,8 @@ def _relationship(
                 for raw in _array(item["boundaries"], 16)
             )
         ),
-        RelationshipStatus(_text(item["status"])),
-        ()
+        status=RelationshipStatus(_text(item["status"])),
+        commitments=()
         if not include_commitments
         else tuple(
             RelationshipCommitment(
@@ -797,7 +880,7 @@ def _relationship(
                 for raw in _array(item["commitments"], 16)
             )
         ),
-        ()
+        open_issues=()
         if not include_commitments
         else tuple(
             RelationshipIssue(
@@ -815,14 +898,14 @@ def _relationship(
                 for raw in _array(item["open_issues"], 32)
             )
         ),
-        (
+        commitment_event=(
             _relationship_commitment_event(item["commitment_event"])
             if include_commitments
             else None
         ),
-        _text(item["scope"]),
-        _text(item["mechanism_identity"]),
-        _text(item["privacy_scope"]),
+        scope=_text(item["scope"]),
+        mechanism_identity=RELATIONSHIP_MECHANISM_IDENTITY,
+        privacy_scope=_text(item["privacy_scope"]),
     )
 
 

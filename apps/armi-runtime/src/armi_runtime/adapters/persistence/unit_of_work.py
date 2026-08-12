@@ -298,6 +298,13 @@ class PostgreSQLUnitOfWork:
         return self._runtime_fence
 
     @property
+    def transaction(self) -> psycopg.AsyncConnection[tuple[Any, ...]]:
+        """Return the active caller-owned transaction for owner participants."""
+
+        self._require_active()
+        return cast(psycopg.AsyncConnection[tuple[Any, ...]], self._connection)
+
+    @property
     def committed_actions(self) -> tuple[PostCommitAction, ...]:
         return self._committed_actions
 

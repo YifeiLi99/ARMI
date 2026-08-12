@@ -42,8 +42,12 @@ DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v17"
 WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v18"
 HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION = DIALOGUE_CANDIDATE_VERSION
 HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION = WEB_DIALOGUE_CANDIDATE_VERSION
-DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v19"
-WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v20"
+HISTORICAL_COMPACT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v19"
+HISTORICAL_COMPACT_WEB_DIALOGUE_CANDIDATE_VERSION = (
+    "armi.creator-dialogue-candidate.v20"
+)
+DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v21"
+WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v22"
 DIALOGUE_MODEL_OUTPUT_VERSION = "armi.creator-dialogue-model-output.v2"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
@@ -1077,6 +1081,10 @@ def dialogue_candidate_schema(
         return _COMPACT_ADAPTER.json_schema()
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
         return _COMPACT_WEB_ADAPTER.json_schema()
+    if version == HISTORICAL_COMPACT_DIALOGUE_CANDIDATE_VERSION:
+        return _COMPACT_ADAPTER.json_schema()
+    if version == HISTORICAL_COMPACT_WEB_DIALOGUE_CANDIDATE_VERSION:
+        return _COMPACT_WEB_ADAPTER.json_schema()
     if version == HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION:
         return _ADAPTER_V17.json_schema()
     if version == HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION:
@@ -1451,6 +1459,14 @@ def parse_dialogue_candidate(
             _COMPACT_ADAPTER.validate_python(value, strict=True), web=False
         )
     if version == WEB_DIALOGUE_CANDIDATE_VERSION:
+        return _translate_compact_dialogue(
+            _COMPACT_WEB_ADAPTER.validate_python(value, strict=True), web=True
+        )
+    if version == HISTORICAL_COMPACT_DIALOGUE_CANDIDATE_VERSION:
+        return _translate_compact_dialogue(
+            _COMPACT_ADAPTER.validate_python(value, strict=True), web=False
+        )
+    if version == HISTORICAL_COMPACT_WEB_DIALOGUE_CANDIDATE_VERSION:
         return _translate_compact_dialogue(
             _COMPACT_WEB_ADAPTER.validate_python(value, strict=True), web=True
         )

@@ -16,7 +16,7 @@ const RESOURCES = {
   material: ["material.invalidated", "life-record-query.v2", UUID_V7],
   relationship: [
     "relationship.invalidated",
-    "creator-relationship.v1",
+    "creator-relationship.v2",
     UUID_V7,
   ],
   scene_timeline: [

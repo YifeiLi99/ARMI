@@ -45,6 +45,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
+from armi_relationship.api import RelationshipReadPort
 
 from armi_runtime.adapters.model.volcengine_embedding import (
     VolcengineArkEmbeddingAdapter,
@@ -122,6 +123,7 @@ class ContextPipeline(OpportunitySelector):
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        relationship_read: RelationshipReadPort,
         policy_version: str = CONTEXT_POLICY_VERSION,
         web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
@@ -132,7 +134,7 @@ class ContextPipeline(OpportunitySelector):
         self._storage = storage
         self._policy_version = policy_version
         self._web_search_active = web_search_active
-        self._repository = PostgreSQLContextRepository()
+        self._repository = PostgreSQLContextRepository(relationship_read)
         self._catalog = ArtifactCatalogRepository()
         self._compiler = DeterministicContextCompiler()
         self._work = PostgreSQLDurableWorkGateway(factory)
@@ -366,7 +368,7 @@ class ContextPipeline(OpportunitySelector):
                     life_generation_id=snapshot.life_generation_id,
                     query_vector=response.vector,
                 )
-        except (UnicodeDecodeError, ModelViolation, DatabaseTransactionError):
+        except UnicodeDecodeError, ModelViolation, DatabaseTransactionError:
             return RecalledContext(RecallStatus.UNAVAILABLE, (), ())
 
     async def _read_material_source(
@@ -696,10 +698,7 @@ def _context_request(
                     relevance=85 if accessibility == "available" else 70,
                 )
             )
-    elif (
-        recalled_context is None
-        and "current_memory" not in profile.forbidden_kinds
-    ):
+    elif recalled_context is None and "current_memory" not in profile.forbidden_kinds:
         items.append(
             _unavailable(
                 profile,
@@ -745,9 +744,9 @@ def _context_request(
                     ContextSourceIdentity("life_material", material_id, version),
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
-                    rfc8785.dumps(
-                        {"chunk": chunk, "similarity": similarity}
-                    ).decode("utf-8"),
+                    rfc8785.dumps({"chunk": chunk, "similarity": similarity}).decode(
+                        "utf-8"
+                    ),
                     requested_required=False,
                     relevance=max(0, min(100, round(similarity * 100))),
                 )
@@ -757,9 +756,7 @@ def _context_request(
                 profile,
                 ContextSection.MATERIAL,
                 "recall_status",
-                ContextSourceIdentity(
-                    "semantic_recall", snapshot.opportunity_id, 1
-                ),
+                ContextSourceIdentity("semantic_recall", snapshot.opportunity_id, 1),
                 ContextTrustClass.RUNTIME_AUTHORITY,
                 "private",
                 rfc8785.dumps(
@@ -1061,8 +1058,7 @@ def _context_request(
             ),
             (
                 _unavailable(profile, ContextSection.PROMPT, "creator_prompt")
-                if snapshot.creator_prompt is None
-                or creator_prompt_bytes is None
+                if snapshot.creator_prompt is None or creator_prompt_bytes is None
                 else _item(
                     profile,
                     ContextSection.PROMPT,
@@ -1293,6 +1289,7 @@ def build_context_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_read: RelationshipReadPort,
     web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -1314,6 +1311,7 @@ def build_context_pipeline(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
         ),
+        relationship_read=relationship_read,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
@@ -1323,8 +1321,7 @@ def build_context_pipeline(
                 credential_port=credential_port,
                 locator=embedding_credential_locator,
             )
-            if credential_port is not None
-            and embedding_credential_locator is not None
+            if credential_port is not None and embedding_credential_locator is not None
             else None
         ),
     )

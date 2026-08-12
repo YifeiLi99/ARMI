@@ -7,11 +7,10 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_relationship.api import (
     CreatorRelationshipItem,
     CreatorRelationshipRevision,
     CreatorRelationshipTimeline,
-    CreatorRelationshipViolation,
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
@@ -19,6 +18,9 @@ from armi_kernel.application import (
     RelationshipFactKind,
     RelationshipPartyRole,
     RelationshipStatus,
+)
+from armi_relationship.api import (
+    RelationshipViolation as CreatorRelationshipViolation,
 )
 
 
@@ -28,6 +30,7 @@ def revision(*, revision_no: int = 1) -> CreatorRelationshipRevision:
         revision_no=revision_no,
         facts=(
             RelationshipFact(
+                uuid7(),
                 RelationshipFactKind.PARTY_EXPRESSION,
                 "Creator 表达了联系限制",
             ),

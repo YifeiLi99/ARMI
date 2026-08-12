@@ -1908,7 +1908,7 @@
               "creator-memory.v1",
               "creator-maintenance.v2",
               "life-record-query.v2",
-              "creator-relationship.v1",
+              "creator-relationship.v2",
               "scene-timeline.v5",
               "capability-request.v4",
               "creator-operation.v1",
@@ -2292,7 +2292,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "creator-relationship.v1",
+            "const": "creator-relationship.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2318,6 +2318,11 @@
       "CreatorRelationshipFactResponse": {
         "additionalProperties": false,
         "properties": {
+          "fact_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Fact Id",
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "shared_experience",
@@ -2334,10 +2339,39 @@
           }
         },
         "required": [
+          "fact_id",
           "kind",
           "summary"
         ],
         "title": "CreatorRelationshipFactResponse",
+        "type": "object"
+      },
+      "CreatorRelationshipIssueResolutionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "issue_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Issue Id",
+            "type": "string"
+          },
+          "resolution_summary": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Resolution Summary",
+            "type": "string"
+          },
+          "status": {
+            "const": "resolved",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issue_id",
+          "status",
+          "resolution_summary"
+        ],
+        "title": "CreatorRelationshipIssueResolutionResponse",
         "type": "object"
       },
       "CreatorRelationshipIssueResponse": {
@@ -2468,6 +2502,16 @@
             "title": "Interpretation",
             "type": "string"
           },
+          "issue_resolution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreatorRelationshipIssueResolutionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "occurred_at": {
             "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
             "title": "Occurred At",
@@ -2509,6 +2553,7 @@
           "commitments",
           "open_issues",
           "commitment_event",
+          "issue_resolution",
           "status",
           "occurred_at"
         ],
@@ -2532,7 +2577,7 @@
             "type": "array"
           },
           "projection_version": {
-            "const": "creator-relationship.v1",
+            "const": "creator-relationship.v2",
             "title": "Projection Version",
             "type": "string"
           },

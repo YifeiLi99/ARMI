@@ -31,12 +31,23 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
 
 class PostgreSQLLifeOpportunityRepository:
     """Admit one source-backed root opportunity under the active Runtime fence."""
+
+    __slots__ = ("_relationship_policy", "_relationships")
+
+    def __init__(
+        self,
+        relationships: RelationshipReadPort,
+        relationship_policy: RelationshipPolicyPort,
+    ) -> None:
+        self._relationships = relationships
+        self._relationship_policy = relationship_policy
 
     async def maintain_sleep_window(
         self,
@@ -970,36 +981,16 @@ class PostgreSQLLifeOpportunityRepository:
         creator_party_id = scene[1]
         latest_input_at = scene[3]
         now = scene[7]
-        boundary = await (
-            await connection.execute(
-                """
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM armi.relationships AS relationship
-                    JOIN armi.relationship_revisions AS revision
-                      ON revision.relationship_revision_id =
-                         relationship.current_revision_id
-                    WHERE relationship.subject_id = %s
-                      AND relationship.life_generation_id = %s
-                      AND relationship.other_party_id = %s
-                      AND relationship.scope = 'creator_social'
-                      AND (
-                          revision.relationship_status = 'ended'
-                          OR EXISTS (
-                              SELECT 1
-                              FROM jsonb_array_elements(revision.boundaries) AS item
-                              WHERE item->>'kind' IN ('contact', 'exit')
-                                AND item->>'action' IN (
-                                    'refuse', 'restrict', 'end_contact'
-                                )
-                          )
-                      )
-                )
-                """,
-                (fence.subject_id, fence.life_generation_id, creator_party_id),
-            )
-        ).fetchone()
-        if boundary is not None and bool(boundary[0]):
+        relationship = await self._relationships.current_for_party(
+            unit_of_work.transaction,
+            subject_id=fence.subject_id,
+            generation_id=fence.life_generation_id,
+            other_party_id=creator_party_id,
+            scope="creator_social",
+        )
+        if relationship is not None and not self._relationship_policy.allows_snapshot_outreach(
+            relationship
+        ):
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
@@ -1080,50 +1071,40 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-OUTREACH-COOLDOWN",
             )
-        source = await (
-            await connection.execute(
-                """
-                SELECT 'creator_outreach_relationship',
-                       revision.relationship_revision_id,
-                       relationship.head_version, NULL::uuid, revision.created_at
-                FROM armi.relationships AS relationship
-                JOIN armi.relationship_revisions AS revision
-                  ON revision.relationship_revision_id =
-                     relationship.current_revision_id
-                WHERE relationship.subject_id = %s
-                  AND relationship.life_generation_id = %s
-                  AND relationship.other_party_id = %s
-                  AND relationship.scope = 'creator_social'
-                  AND revision.relationship_status = 'active'
-                  AND revision.created_at > %s
-                  AND EXISTS (
-                      SELECT 1
-                      FROM jsonb_array_elements(revision.commitments) AS item
-                      WHERE item->>'party_role' = 'subject'
-                        AND item->>'status' = 'active'
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM armi.opportunities AS existing
-                      WHERE existing.subject_id = relationship.subject_id
-                        AND existing.source_kind =
-                            'creator_outreach_relationship'
-                        AND existing.source_ref =
-                            revision.relationship_revision_id
-                        AND existing.source_version = relationship.head_version
-                        AND existing.purpose = 'consider_creator_outreach'
-                  )
-                ORDER BY revision.created_at DESC,
-                         revision.relationship_revision_id DESC
-                LIMIT 1
-                """,
-                (
-                    fence.subject_id,
-                    fence.life_generation_id,
-                    creator_party_id,
-                    latest_input_at or scene[6],
-                ),
+        source = None
+        if (
+            relationship is not None
+            and relationship.revision.status.value == "active"
+            and relationship.revision.occurred_at > (latest_input_at or scene[6])
+            and any(
+                item.party_role.value == "subject" and item.status.value == "active"
+                for item in relationship.revision.commitments
             )
-        ).fetchone()
+        ):
+            existing = await (
+                await connection.execute(
+                    """
+                    SELECT 1 FROM armi.opportunities
+                    WHERE subject_id = %s
+                      AND source_kind = 'creator_outreach_relationship'
+                      AND source_ref = %s AND source_version = %s
+                      AND purpose = 'consider_creator_outreach'
+                    """,
+                    (
+                        fence.subject_id,
+                        relationship.current_revision_id,
+                        relationship.head_version,
+                    ),
+                )
+            ).fetchone()
+            if existing is None:
+                source = (
+                    "creator_outreach_relationship",
+                    relationship.current_revision_id,
+                    relationship.head_version,
+                    None,
+                    relationship.revision.occurred_at,
+                )
         if source is None:
             source = await (
                 await connection.execute(

@@ -27,8 +27,8 @@ from armi_kernel.application import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     CandidateOwner,
+    CandidateOwnerDraft,
     CandidateRejection,
-    CandidateRelationshipDraft,
     CandidateSleepDecisionDraft,
     CandidateSubjectPromptDraft,
     CandidateValidationId,
@@ -60,9 +60,17 @@ from armi_kernel.application import (
     ModelViolation,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
+    SleepDecisionKind,
+    SubjectChangeSet,
+    WebResearchRequestDraft,
+)
+from armi_kernel.contracts import Digest
+from armi_relationship.api import (
+    CandidateRelationshipDraft,
     RelationshipBoundary,
     RelationshipBoundaryAction,
     RelationshipBoundaryKind,
+    RelationshipCognitionPort,
     RelationshipCommitment,
     RelationshipCommitmentEvent,
     RelationshipCommitmentEventKind,
@@ -74,11 +82,7 @@ from armi_kernel.application import (
     RelationshipIssueStatus,
     RelationshipPartyRole,
     RelationshipStatus,
-    SleepDecisionKind,
-    SubjectChangeSet,
-    WebResearchRequestDraft,
 )
-from armi_kernel.contracts import Digest
 from pydantic import ValidationError
 
 from .activity_attention_candidate_contract import (
@@ -222,12 +226,12 @@ ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 SLEEP_CHANGE_SET_VERSION = "armi.subject-change-set.v9"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
-RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v13"
+RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
 MAINTENANCE_CHANGE_SET_VERSION = "armi.subject-change-set.v19"
-OTHER_HUMAN_CHANGE_SET_VERSION = "armi.subject-change-set.v21"
+OTHER_HUMAN_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -546,10 +550,22 @@ class CandidateValidationContext:
 class DeterministicCandidateValidator:
     """Validate candidate v4 into a canonical, not-yet-effective change set."""
 
-    __slots__ = ("_context",)
+    __slots__ = ("_context", "_relationship_cognition")
 
-    def __init__(self, context: CandidateValidationContext) -> None:
+    def __init__(
+        self,
+        context: CandidateValidationContext,
+        relationship_cognition: RelationshipCognitionPort | None = None,
+    ) -> None:
         self._context = context
+        self._relationship_cognition = relationship_cognition
+
+    def _bind_relationship(
+        self, value: CandidateRelationshipDraft
+    ) -> CandidateOwnerDraft:
+        if self._relationship_cognition is None:
+            raise CandidateViolation("CANDIDATE-RELATIONSHIP-OWNER")
+        return self._relationship_cognition.bind(value)
 
     def validate(
         self,
@@ -1091,6 +1107,7 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateRelationshipDraft)
         )
+        owner_drafts = tuple(self._bind_relationship(value) for value in relationships)
         materials = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -1221,8 +1238,11 @@ class DeterministicCandidateValidator:
             change_set_value["memory_revisions"] = [
                 _memory_revision_wire(item) for item in memory_revisions
             ]
-        if change_set_version in {
-            RELATIONSHIP_CHANGE_SET_VERSION,
+        if change_set_version == RELATIONSHIP_CHANGE_SET_VERSION:
+            change_set_value["owner_drafts"] = [
+                _owner_draft_wire(item) for item in owner_drafts
+            ]
+        elif change_set_version in {
             MATERIAL_CHANGE_SET_VERSION,
             PROMPT_CHANGE_SET_VERSION,
             EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
@@ -1307,6 +1327,29 @@ class DeterministicCandidateValidator:
             change_set_value["codex_delegations"] = [
                 _codex_delegation_wire(item) for item in codex_delegations
             ]
+        if change_set_version == RELATIONSHIP_CHANGE_SET_VERSION:
+            v22_arrays: dict[str, list[object]] = {
+                "web_research_requests": [
+                    _web_research_wire(item) for item in web_research_requests
+                ],
+                "codex_delegations": [
+                    _codex_delegation_wire(item) for item in codex_delegations
+                ],
+                "activities": [],
+                "activity_decisions": [],
+                "memories": [_memory_wire(item) for item in memories],
+                "memory_revisions": [
+                    _memory_revision_wire(item) for item in memory_revisions
+                ],
+                "materials": [_material_wire(item) for item in materials],
+                "prompts": [_prompt_wire(item) for item in prompts],
+                "exact_life_queries": [
+                    _exact_life_query_wire(item) for item in exact_life_queries
+                ],
+                "maintenance_decisions": [],
+            }
+            for key, encoded in v22_arrays.items():
+                change_set_value.setdefault(key, encoded)
         canonical = rfc8785.dumps(cast(Any, change_set_value))
         change_set = SubjectChangeSet(
             canonical,
@@ -1328,7 +1371,7 @@ class DeterministicCandidateValidator:
             codex_delegations,
             memories=memories,
             memory_revisions=memory_revisions,
-            relationships=relationships,
+            owner_drafts=owner_drafts,
             materials=materials,
             prompts=prompts,
             exact_life_queries=exact_life_queries,
@@ -1490,8 +1533,10 @@ class DeterministicCandidateValidator:
             "activity_decisions": [],
             "memories": [],
             "memory_revisions": [],
-            "relationships": (
-                [] if relationship is None else [_relationship_wire(relationship)]
+            "owner_drafts": (
+                []
+                if relationship is None
+                else [_owner_draft_wire(self._bind_relationship(relationship))]
             ),
             "materials": [],
             "prompts": [],
@@ -1517,7 +1562,9 @@ class DeterministicCandidateValidator:
             action_choices,
             (),
             (),
-            relationships=() if relationship is None else (relationship,),
+            owner_drafts=(
+                () if relationship is None else (self._bind_relationship(relationship),)
+            ),
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
@@ -3502,17 +3549,25 @@ def _bind_dialogue_relationship(
 
     facts = list(() if current is None else current.facts)
     shared_experience = RelationshipFact(
+        _derived_uuid7(context.model_attempt_id, b"relationship-shared-fact"),
         RelationshipFactKind.SHARED_EXPERIENCE,
         experience.first_person_gist,
     )
-    if shared_experience not in facts:
+    if not any(
+        item.kind is shared_experience.kind
+        and item.summary == shared_experience.summary
+        for item in facts
+    ):
         facts.append(shared_experience)
     if change.fact is not None:
         fact = RelationshipFact(
+            _derived_uuid7(context.model_attempt_id, b"relationship-expression-fact"),
             RelationshipFactKind(change.fact.kind),
             change.fact.summary,
         )
-        if fact not in facts:
+        if not any(
+            item.kind is fact.kind and item.summary == fact.summary for item in facts
+        ):
             facts.append(fact)
     if len(facts) > 64:
         return None, "CANDIDATE-RELATIONSHIP-FACT-LIMIT"
@@ -4385,6 +4440,17 @@ def _relationship_wire(value: CandidateRelationshipDraft) -> dict[str, object]:
         "scope": value.scope,
         "mechanism_identity": value.mechanism_identity,
         "privacy_scope": value.privacy_scope,
+    }
+
+
+def _owner_draft_wire(value: CandidateOwnerDraft) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "fact_class": value.fact_class.value,
+        "owner": value.owner,
+        "payload": json.loads(value.canonical_payload),
     }
 
 

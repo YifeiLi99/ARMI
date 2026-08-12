@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid7
 
@@ -19,6 +20,7 @@ from armi_kernel.application import (
     DataRightsViolation,
 )
 from armi_kernel.contracts import Digest, Purpose, TraceId
+from armi_relationship.api import RelationshipDataRightsParticipant
 from psycopg import sql
 
 from .unit_of_work import PostgreSQLUnitOfWork
@@ -32,7 +34,10 @@ class DeletionArtifactItem:
 
 
 class LocalDataDeletionRepository:
-    __slots__ = ()
+    __slots__ = ("_relationships",)
+
+    def __init__(self, relationships: RelationshipDataRightsParticipant) -> None:
+        self._relationships = relationships
 
     async def pending_order_ids(
         self, unit_of_work: PostgreSQLUnitOfWork
@@ -87,6 +92,27 @@ class LocalDataDeletionRepository:
             (order_id,),
         )
         await self._insert_logical_items(connection, order_id, party_id)
+        relationship_ids = await self._relationships.find_for_party(
+            unit_of_work.transaction, party_id
+        )
+        for relationship_id in relationship_ids:
+            await connection.execute(
+                """
+                INSERT INTO armi.deletion_items (
+                    deletion_item_id, deletion_order_id, target_kind,
+                    target_ref, required_action, result_status, completed_at
+                ) VALUES (%s, %s, 'relationship', %s, 'tombstone',
+                          'completed', statement_timestamp())
+                ON CONFLICT (deletion_order_id, target_kind, target_ref) DO NOTHING
+                """,
+                (uuid7(), order_id, relationship_id),
+            )
+            await self._relationships.tombstone(
+                unit_of_work.transaction,
+                relationship_id=relationship_id,
+                order_id=order_id,
+                tombstoned_at=datetime.now(UTC),
+            )
         await connection.execute(
             """
             DELETE FROM armi.context_embedding_projections AS projection
@@ -268,9 +294,6 @@ class LocalDataDeletionRepository:
                   ON evidence.evidence_id = link.evidence_id
                 WHERE evidence.context_party_id = %s
                 UNION ALL
-                SELECT 'relationship', relationship_id, 'tombstone', NULL
-                FROM armi.relationships WHERE other_party_id = %s
-                UNION ALL
                 SELECT 'scene', scene_id, 'tombstone', NULL
                 FROM armi.interaction_scenes WHERE primary_party_id = %s
                 UNION ALL
@@ -288,7 +311,7 @@ class LocalDataDeletionRepository:
             FROM targets
             ON CONFLICT (deletion_order_id, target_kind, target_ref) DO NOTHING
             """,
-            (party_id,) * 8 + (order_id,),
+            (party_id,) * 7 + (order_id,),
         )
 
     async def _related_artifact_ids(

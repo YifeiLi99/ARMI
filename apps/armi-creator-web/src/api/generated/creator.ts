@@ -1401,7 +1401,7 @@ export interface components {
         | "creator-memory.v1"
         | "creator-maintenance.v2"
         | "life-record-query.v2"
-        | "creator-relationship.v1"
+        | "creator-relationship.v2"
         | "scene-timeline.v5"
         | "capability-request.v4"
         | "creator-operation.v1"
@@ -1543,12 +1543,14 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-relationship.v1";
+      projection_version: "creator-relationship.v2";
       relationship:
         components["schemas"]["CreatorRelationshipItemResponse"] | null;
     };
     /** CreatorRelationshipFactResponse */
     CreatorRelationshipFactResponse: {
+      /** Fact Id */
+      fact_id: string;
       /**
        * Kind
        * @enum {string}
@@ -1556,6 +1558,18 @@ export interface components {
       kind: "shared_experience" | "party_expression";
       /** Summary */
       summary: string;
+    };
+    /** CreatorRelationshipIssueResolutionResponse */
+    CreatorRelationshipIssueResolutionResponse: {
+      /** Issue Id */
+      issue_id: string;
+      /** Resolution Summary */
+      resolution_summary: string;
+      /**
+       * Status
+       * @constant
+       */
+      status: "resolved";
     };
     /** CreatorRelationshipIssueResponse */
     CreatorRelationshipIssueResponse: {
@@ -1601,6 +1615,9 @@ export interface components {
       facts: components["schemas"]["CreatorRelationshipFactResponse"][];
       /** Interpretation */
       interpretation: string;
+      issue_resolution:
+        | components["schemas"]["CreatorRelationshipIssueResolutionResponse"]
+        | null;
       /** Occurred At */
       occurred_at: string;
       /** Open Issues */
@@ -1628,7 +1645,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-relationship.v1";
+      projection_version: "creator-relationship.v2";
       /** Relationship Id */
       relationship_id: string;
       /** Truncated */

@@ -21,6 +21,7 @@ from armi_kernel.application import (
     RuntimeFence,
 )
 from armi_kernel.contracts import Instant
+from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 
 from armi_runtime.adapters.persistence.life_opportunity import (
     PostgreSQLLifeOpportunityRepository,
@@ -149,6 +150,8 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         self,
         *,
         factory: PostgreSQLUnitOfWorkFactory,
+        relationship_read: RelationshipReadPort,
+        relationship_policy: RelationshipPolicyPort,
         wakeups: WorkWakeupBus | None = None,
         model_concurrency: int = 2,
         maintenance_consideration_seconds: int = 57_600,
@@ -158,7 +161,9 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._factory = factory
-        self._repository = PostgreSQLLifeOpportunityRepository()
+        self._repository = PostgreSQLLifeOpportunityRepository(
+            relationship_read, relationship_policy
+        )
         self._stop = asyncio.Event()
         self._wakeups = wakeups or WorkWakeupBus()
         self._model_concurrency = model_concurrency
@@ -305,6 +310,8 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
 def compose_life_opportunity_pipeline(
     *,
     factory: PostgreSQLUnitOfWorkFactory,
+    relationship_read: RelationshipReadPort,
+    relationship_policy: RelationshipPolicyPort,
     wakeups: WorkWakeupBus | None = None,
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
@@ -315,6 +322,8 @@ def compose_life_opportunity_pipeline(
 ) -> LifeOpportunityPipeline:
     return LifeOpportunityPipeline(
         factory=factory,
+        relationship_read=relationship_read,
+        relationship_policy=relationship_policy,
         wakeups=wakeups,
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,
@@ -336,6 +345,8 @@ def build_life_opportunity_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_read: RelationshipReadPort,
+    relationship_policy: RelationshipPolicyPort,
     wakeups: WorkWakeupBus | None = None,
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
@@ -355,6 +366,8 @@ def build_life_opportunity_pipeline(
     )
     return LifeOpportunityPipeline(
         factory=factory,
+        relationship_read=relationship_read,
+        relationship_policy=relationship_policy,
         wakeups=wakeups,
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,

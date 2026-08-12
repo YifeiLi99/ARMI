@@ -40,6 +40,12 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation, Instant, Purpose, SubjectId
+from armi_relationship.api import (
+    RelationshipCognitionPort,
+    RelationshipCommitPort,
+    RelationshipPolicyPort,
+    RelationshipReadPort,
+)
 
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
@@ -86,6 +92,7 @@ class SubjectCommitPipeline:
         "_fault_injector",
         "_lease_owner",
         "_notifier",
+        "_relationship_cognition",
         "_repository",
         "_stop",
         "_storage",
@@ -98,6 +105,10 @@ class SubjectCommitPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        relationship_cognition: RelationshipCognitionPort,
+        relationship_commit: RelationshipCommitPort,
+        relationship_read: RelationshipReadPort,
+        relationship_policy: RelationshipPolicyPort,
         notifier: CreatorProjectionNotifier | None,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
@@ -107,7 +118,10 @@ class SubjectCommitPipeline:
         self._catalog = ArtifactCatalogRepository()
         self._storage = storage
         self._notifier = notifier
-        self._repository = PostgreSQLSubjectCommitRepository()
+        self._relationship_cognition = relationship_cognition
+        self._repository = PostgreSQLSubjectCommitRepository(
+            relationship_commit, relationship_read, relationship_policy
+        )
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -145,7 +159,9 @@ class SubjectCommitPipeline:
         lease = cast(WorkLease, records[0].lease)
         try:
             snapshot = await self._snapshot(lease)
-            change_set = parse_subject_change_set(await self._read(snapshot))
+            change_set = parse_subject_change_set(
+                await self._read(snapshot), self._relationship_cognition
+            )
             replies = tuple(
                 item
                 for item in change_set.action_choices
@@ -593,7 +609,7 @@ class SubjectCommitPipeline:
                     CreatorEventResourceKind.RELATIONSHIP,
                     str(relationship_id),
                     now,
-                    "creator-relationship.v1",
+                    "creator-relationship.v2",
                 )
                 for relationship_id in relationship_ids
             )
@@ -636,6 +652,10 @@ def build_subject_commit_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_cognition: RelationshipCognitionPort,
+    relationship_commit: RelationshipCommitPort,
+    relationship_read: RelationshipReadPort,
+    relationship_policy: RelationshipPolicyPort,
     notifier: CreatorProjectionNotifier | None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -655,6 +675,10 @@ def build_subject_commit_pipeline(
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
+        relationship_cognition=relationship_cognition,
+        relationship_commit=relationship_commit,
+        relationship_read=relationship_read,
+        relationship_policy=relationship_policy,
         notifier=notifier,
         wakeups=wakeups,
         diagnostic=diagnostic,

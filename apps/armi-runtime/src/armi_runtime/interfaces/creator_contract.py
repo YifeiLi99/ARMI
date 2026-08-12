@@ -310,6 +310,7 @@ type RelationshipCommitmentEventKindValue = Literal[
 
 
 class CreatorRelationshipFactResponse(_StrictWireModel):
+    fact_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     kind: Literal["shared_experience", "party_expression"]
     summary: Annotated[str, Field(min_length=1, max_length=512)]
 
@@ -346,6 +347,12 @@ class CreatorRelationshipCommitmentEventResponse(_StrictWireModel):
     related_commitment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
 
 
+class CreatorRelationshipIssueResolutionResponse(_StrictWireModel):
+    issue_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    status: Literal["resolved"]
+    resolution_summary: Annotated[str, Field(min_length=1, max_length=512)]
+
+
 class CreatorRelationshipRevisionResponse(_StrictWireModel):
     relationship_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     revision_no: Annotated[int, Field(ge=1)]
@@ -361,6 +368,7 @@ class CreatorRelationshipRevisionResponse(_StrictWireModel):
     ]
     open_issues: Annotated[list[CreatorRelationshipIssueResponse], Field(max_length=32)]
     commitment_event: CreatorRelationshipCommitmentEventResponse | None
+    issue_resolution: CreatorRelationshipIssueResolutionResponse | None
     status: Literal["active", "ended"]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
@@ -375,13 +383,13 @@ class CreatorRelationshipItemResponse(_StrictWireModel):
 
 class CreatorRelationshipCurrentResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-relationship.v1"]
+    projection_version: Literal["creator-relationship.v2"]
     relationship: CreatorRelationshipItemResponse | None
 
 
 class CreatorRelationshipTimelineResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-relationship.v1"]
+    projection_version: Literal["creator-relationship.v2"]
     relationship_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[CreatorRelationshipRevisionResponse], Field(max_length=100)]
     truncated: bool
@@ -613,7 +621,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "creator-memory.v1",
         "creator-maintenance.v2",
         "life-record-query.v2",
-        "creator-relationship.v1",
+        "creator-relationship.v2",
         "scene-timeline.v5",
         "capability-request.v4",
         "creator-operation.v1",
@@ -2184,6 +2192,7 @@ __all__ = (
     "CreatorRelationshipCommitmentResponse",
     "CreatorRelationshipCurrentResponse",
     "CreatorRelationshipFactResponse",
+    "CreatorRelationshipIssueResolutionResponse",
     "CreatorRelationshipIssueResponse",
     "CreatorRelationshipItemResponse",
     "CreatorRelationshipRevisionResponse",

@@ -165,7 +165,7 @@ function memoryPageResponse(): object {
 function relationshipCurrentResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "creator-relationship.v1",
+    projection_version: "creator-relationship.v2",
     relationship: null,
   };
 }

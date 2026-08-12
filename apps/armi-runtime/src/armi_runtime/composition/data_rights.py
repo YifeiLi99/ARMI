@@ -33,6 +33,7 @@ from armi_kernel.application import (
     RuntimeFence,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose
+from armi_relationship.api import RelationshipDataRightsParticipant
 
 from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
 from armi_runtime.adapters.persistence.data_rights import (
@@ -470,6 +471,7 @@ def build_data_rights_order_service(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    relationship_data_rights: RelationshipDataRightsParticipant,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsOrderService:
     unit_of_work_factory = PostgreSQLUnitOfWorkFactory(
@@ -482,7 +484,7 @@ def build_data_rights_order_service(
         authority_admission=authority_admission,
     )
     deletion = LocalDataDeletionExecutor(
-        repository=LocalDataDeletionRepository(),
+        repository=LocalDataDeletionRepository(relationship_data_rights),
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
