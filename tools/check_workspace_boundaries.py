@@ -72,6 +72,7 @@ DISTRIBUTIONS = (
         layers=(),
         dependencies=(
             "armi-channel-napcat==0.0.0",
+            "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "fastapi==0.140.13",
         ),
@@ -189,6 +190,21 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-interaction",
+        module="armi_interaction",
+        project_dir=Path("modules/interaction"),
+        layers=(),
+        dependencies=(
+            "armi-artifact-store==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "armi-subject-state==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -197,6 +213,7 @@ DISTRIBUTIONS = (
             "alembic==1.18.5",
             "armi-adapter-qq==0.0.0",
             "armi-artifact-store==0.0.0",
+            "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "armi-runtime-foundation==0.0.0",
@@ -700,7 +717,13 @@ def _check_import(
         or (
             source_distribution == "armi-adapter-qq"
             and target_distribution
-            not in {None, "armi-kernel", "armi-channel-napcat", "armi-adapter-qq"}
+            not in {
+                None,
+                "armi-kernel",
+                "armi-channel-napcat",
+                "armi-adapter-qq",
+                "armi-interaction",
+            }
         )
         or (
             source_distribution == "armi-runtime"
@@ -773,6 +796,18 @@ def _check_import(
                 "armi-kernel",
                 "armi-runtime-foundation",
                 "armi-prompt",
+            }
+        )
+        or (
+            source_distribution == "armi-interaction"
+            and target_distribution
+            not in {
+                None,
+                "armi-artifact-store",
+                "armi-kernel",
+                "armi-runtime-foundation",
+                "armi-subject-state",
+                "armi-interaction",
             }
         )
     )
@@ -873,6 +908,9 @@ def _check_import(
         "armi-prompt": frozenset(
             {"armi_prompt", "armi_prompt.api", "armi_prompt.bootstrap"}
         ),
+        "armi-interaction": frozenset(
+            {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
+        ),
     }
     if crosses_distribution and target_distribution in public_modules:
         if (
@@ -972,6 +1010,17 @@ def _check_import(
                     path,
                     line,
                     "Prompt bootstrap is reserved for Runtime/Admin composition",
+                )
+            )
+        if imported_module == "armi_interaction.bootstrap" and not source_module.startswith(
+            "armi_runtime.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "interaction bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1141,6 +1190,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_prompt": root / "modules/prompt/src/armi_prompt/__init__.py",
         "armi_prompt.api": root / "modules/prompt/src/armi_prompt/api.py",
         "armi_prompt.bootstrap": root / "modules/prompt/src/armi_prompt/bootstrap.py",
+        "armi_interaction": root
+        / "modules/interaction/src/armi_interaction/__init__.py",
+        "armi_interaction.api": root
+        / "modules/interaction/src/armi_interaction/api.py",
+        "armi_interaction.bootstrap": root
+        / "modules/interaction/src/armi_interaction/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1366,6 +1421,14 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "prompt_module.read",
             "prompt_module.cognition",
             "prompt_module.commit",
+        ),
+        "interaction": (
+            "interaction_module = compose_interaction_module(",
+            "interaction_module.creator_input",
+            "interaction_module.creator_scenes",
+            "interaction_module.scene_timeline",
+            "interaction_module.other_human_input",
+            "interaction_module.external_message_input",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

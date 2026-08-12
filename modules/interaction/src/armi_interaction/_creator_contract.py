@@ -71,6 +71,18 @@ class OpportunityId:
 
 
 @dataclass(frozen=True, slots=True)
+class CreatorInputContext:
+    subject_id: UUID
+    scene_id: UUID
+    creator_party_id: UUID
+
+    def __post_init__(self) -> None:
+        _require_uuid7(self.subject_id, "CON-INPUT-SUBJECT-ID")
+        _require_uuid7(self.scene_id, "CON-INPUT-SCENE-ID")
+        _require_uuid7(self.creator_party_id, "CON-INPUT-CREATOR")
+
+
+@dataclass(frozen=True, slots=True)
 class CreatorInputCommand:
     scene_key: str
     message: str
@@ -268,6 +280,7 @@ __all__ = (
     "CreatorInputAcceptance",
     "CreatorInputAcceptancePort",
     "CreatorInputCommand",
+    "CreatorInputContext",
     "CreatorInputViolation",
     "CreatorInteractionId",
     "CreatorOperation",

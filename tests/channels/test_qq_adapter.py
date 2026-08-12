@@ -22,16 +22,18 @@ from armi_channel_napcat import (
     NapCatPrivateMessageEvent,
     NapCatRejected,
 )
+from armi_interaction.api import (
+    EvidenceId,
+    ExternalMessageInputAcceptance,
+    ExternalMessageInteractionId,
+    ObservedExternalMessage,
+    OpportunityId,
+)
 from armi_kernel.application import (
     EffectAttemptId,
     EffectId,
     EffectViolation,
-    EvidenceId,
-    ExternalMessageInputAcceptance,
-    ExternalMessageInteractionId,
     FrozenEffectRequest,
-    ObservedExternalMessage,
-    OpportunityId,
 )
 from armi_kernel.contracts import Digest, TraceId
 

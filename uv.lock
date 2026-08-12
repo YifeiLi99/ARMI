@@ -9,6 +9,7 @@ members = [
     "armi-admin",
     "armi-artifact-store",
     "armi-channel-napcat",
+    "armi-interaction",
     "armi-kernel",
     "armi-material",
     "armi-memory",
@@ -98,6 +99,7 @@ version = "0.0.0"
 source = { editable = "packages/armi-adapter-qq" }
 dependencies = [
     { name = "armi-channel-napcat" },
+    { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "fastapi" },
 ]
@@ -105,6 +107,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-channel-napcat", editable = "packages/armi-channel-napcat" },
+    { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "fastapi", specifier = "==0.140.13" },
 ]
@@ -169,6 +172,31 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "httpx", specifier = "==0.28.1" }]
+
+[[package]]
+name = "armi-interaction"
+version = "0.0.0"
+source = { editable = "modules/interaction" }
+dependencies = [
+    { name = "armi-artifact-store" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "armi-subject-state" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "armi-subject-state", editable = "modules/subject-state" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
+    { name = "psycopg-pool", specifier = "==3.3.1" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
 
 [[package]]
 name = "armi-kernel"
@@ -302,6 +330,7 @@ dependencies = [
     { name = "armi-activity" },
     { name = "armi-adapter-qq" },
     { name = "armi-artifact-store" },
+    { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-material" },
     { name = "armi-memory" },
@@ -333,6 +362,7 @@ requires-dist = [
     { name = "armi-activity", editable = "modules/activity" },
     { name = "armi-adapter-qq", editable = "packages/armi-adapter-qq" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },

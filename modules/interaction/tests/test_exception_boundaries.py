@@ -5,21 +5,23 @@ from typing import Any, cast
 from uuid import uuid7
 
 import pytest
+from armi_interaction._creator import EvidenceAcceptanceTransaction
+from armi_interaction.api import (
+    CreatorInputCommand,
+    CreatorInputContext,
+    CreatorInputViolation,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
-    CreatorInputCommand,
-    CreatorInputViolation,
     StagedArtifact,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
-from armi_runtime.adapters.persistence.creator_input import CreatorInputContext
 from armi_runtime.adapters.transaction_errors import (
     CommitState,
     DatabaseFailureKind,
     DatabaseTransactionError,
 )
-from armi_runtime.composition.creator_input import EvidenceAcceptanceTransaction
 
 
 class _StagingStorage:
@@ -77,6 +79,7 @@ async def test_creator_input_lookup_failure_discards_stage_without_publish(
         catalog=cast(Any, object()),
         repository=cast(Any, object()),
         unit_of_work_factory=cast(Any, SimpleNamespace(environment_id=uuid7())),
+        data_rights=cast(Any, object()),
         subject_state=cast(Any, object()),
         notifier=None,
     )

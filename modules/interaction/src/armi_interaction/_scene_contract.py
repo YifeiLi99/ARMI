@@ -8,9 +8,8 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_kernel.application import AuditResultStatus
 from armi_kernel.contracts import Instant, OpaqueCursor, TraceId
-
-from .auditing import AuditResultStatus
 
 PROJECTION_VERSION = "scene-timeline.v5"
 SCENE_COLLECTION_PROJECTION_VERSION = "creator-scenes.v1"

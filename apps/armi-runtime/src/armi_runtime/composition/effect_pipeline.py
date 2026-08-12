@@ -13,6 +13,9 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_interaction.api import (
+    SceneKey,
+)
 from armi_kernel.application import (
     ActionAdapterPort,
     ArtifactViolation,
@@ -27,7 +30,6 @@ from armi_kernel.application import (
     EffectView,
     EffectViolation,
     RuntimeFence,
-    SceneKey,
     WorkLease,
     WorkViolation,
 )

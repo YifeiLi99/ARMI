@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 import rfc8785
-from armi_kernel.application import (
-    AuditResultStatus,
+from armi_interaction._timeline_postgresql import SceneTimelineCursorCodec
+from armi_interaction.api import (
     CreatorSceneCollection,
     CreatorSceneCreateCommand,
     CreatorSceneStatusCommand,
@@ -22,10 +22,10 @@ from armi_kernel.application import (
     SceneTimelineQuery,
     TimelineItemId,
 )
-from armi_kernel.contracts import Instant, TraceId
-from armi_runtime.adapters.persistence.scene_timeline import (
-    SceneTimelineCursorCodec,
+from armi_kernel.application import (
+    AuditResultStatus,
 )
+from armi_kernel.contracts import Instant, TraceId
 
 
 class SceneTimelineContractTests(unittest.TestCase):

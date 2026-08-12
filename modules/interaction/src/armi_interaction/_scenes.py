@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -12,19 +11,22 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     AuditViolation,
+)
+from armi_kernel.contracts import Purpose, SubjectId, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
+
+from ._scene_contract import (
     CreatorSceneCollection,
     CreatorSceneCreateCommand,
     CreatorScenePort,
     CreatorSceneStatusCommand,
     CreatorSceneView,
-    RuntimeFence,
     SceneQueryViolation,
 )
-from armi_kernel.contracts import Purpose, SubjectId, TraceId
-
-from armi_runtime.adapters.persistence.creator_scenes import CreatorSceneRepository
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
+from ._scenes_postgresql import CreatorSceneRepository
 
 
 class CreatorSceneService(CreatorScenePort):
@@ -34,7 +36,7 @@ class CreatorSceneService(CreatorScenePort):
         self,
         *,
         creator_party_id: UUID,
-        factory: PostgreSQLUnitOfWorkFactory,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         repository: CreatorSceneRepository,
     ) -> None:
         self._creator_party_id = creator_party_id
@@ -44,7 +46,7 @@ class CreatorSceneService(CreatorScenePort):
     async def open(self) -> None:
         try:
             await self._factory.open()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
 
     async def close(self) -> None:
@@ -59,7 +61,7 @@ class CreatorSceneService(CreatorScenePort):
                 )
         except SceneQueryViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
 
     async def create(self, command: CreatorSceneCreateCommand) -> CreatorSceneView:
@@ -88,7 +90,7 @@ class CreatorSceneService(CreatorScenePort):
                 return created
         except SceneQueryViolation:
             raise
-        except DatabaseTransactionError as error:
+        except RuntimeTransactionFailure as error:
             code = (
                 "SCENE-KEY-CONFLICT"
                 if error.code == "DB-TX-UNIQUE"
@@ -123,7 +125,7 @@ class CreatorSceneService(CreatorScenePort):
                 return changed
         except SceneQueryViolation:
             raise
-        except DatabaseTransactionError, AuditViolation:
+        except RuntimeTransactionFailure, AuditViolation:
             raise SceneQueryViolation("SCENE-UPDATE-FAILED") from None
 
 
@@ -148,30 +150,4 @@ def _audit(
     )
 
 
-def build_creator_scene_service(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    creator_party_id: UUID,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-) -> CreatorSceneService:
-    return CreatorSceneService(
-        creator_party_id=creator_party_id,
-        factory=PostgreSQLUnitOfWorkFactory(
-            conninfo,
-            environment_id=environment_id,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            acquire_timeout_seconds=acquire_timeout_seconds,
-            statement_timeout_seconds=statement_timeout_seconds,
-            authority_admission=authority_admission,
-        ),
-        repository=CreatorSceneRepository(),
-    )
-
-
-__all__ = ("CreatorSceneService", "build_creator_scene_service")
+__all__ = ("CreatorSceneService",)

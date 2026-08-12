@@ -11,7 +11,7 @@ from armi_channel_napcat import (
     NapCatViolation,
     parse_onebot_message,
 )
-from armi_kernel.application import ExternalMessageViolation
+from armi_interaction.api import ExternalMessageViolation
 from fastapi import FastAPI, Request, Response
 
 from .adapter import QQAdapterConfig, QQIngressAdapter

@@ -10,11 +10,7 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_kernel.application import (
-    ArtifactId,
-    ArtifactPolicy,
-    ArtifactPrivacyScope,
-    ArtifactViolation,
+from armi_interaction.api import (
     ExternalAccountKey,
     ExternalChannel,
     ExternalContentRecognitionPort,
@@ -24,6 +20,12 @@ from armi_kernel.application import (
     ExternalMediaFetchPort,
     ExternalMessagePartKind,
     ExternalMessageViolation,
+)
+from armi_kernel.application import (
+    ArtifactId,
+    ArtifactPolicy,
+    ArtifactPrivacyScope,
+    ArtifactViolation,
     PublishedArtifact,
     RuntimeFence,
     WorkLease,

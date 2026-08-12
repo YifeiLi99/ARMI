@@ -10,7 +10,7 @@ from uuid import UUID
 
 from armi_kernel.contracts import Digest, Instant, TraceId
 
-from .creator_input import EvidenceId, OpportunityId
+from ._creator_contract import EvidenceId, OpportunityId
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _EXTERNAL_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", re.ASCII)
@@ -695,5 +695,6 @@ __all__ = (
     "ExternalMessageSendRequest",
     "ExternalMessageViolation",
     "ExternalPartyKey",
+    "ExternalVisualRole",
     "ObservedExternalMessage",
 )

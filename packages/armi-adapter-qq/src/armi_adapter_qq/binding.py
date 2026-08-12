@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from armi_channel_napcat import NapCatHttpClient, NapCatViolation
-from armi_kernel.application import (
-    ActionAdapterPort,
+from armi_interaction.api import (
     ExternalMediaFetchPort,
     ExternalMessageInputPort,
+)
+from armi_kernel.application import (
+    ActionAdapterPort,
 )
 from fastapi import FastAPI
 

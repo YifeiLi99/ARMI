@@ -5,21 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID, uuid7
 
-from armi_kernel.application import (
-    EvidenceId,
-    OpportunityId,
+from armi_kernel.contracts import Digest
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from ._creator_contract import EvidenceId, OpportunityId
+from ._other_human_contract import (
     OtherHumanInputAcceptance,
     OtherHumanInputViolation,
     OtherHumanInteractionId,
     OtherHumanPartyKey,
     OtherHumanPartyView,
     OtherHumanSceneView,
-    SceneKey,
-    SceneStatus,
 )
-from armi_kernel.contracts import Digest
-
-from .unit_of_work import PostgreSQLUnitOfWork
+from ._scene_contract import SceneKey, SceneStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,12 +32,12 @@ class OtherHumanInputRepository:
 
     async def register_party(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         party_key: OtherHumanPartyKey,
         display_label: str,
     ) -> OtherHumanPartyView:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await connection.execute(
             """
             INSERT INTO armi.parties (
@@ -70,13 +68,13 @@ class OtherHumanInputRepository:
 
     async def set_scene(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         party_key: OtherHumanPartyKey,
         scene_key: SceneKey,
         target_status: SceneStatus,
     ) -> OtherHumanSceneView:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         party = await (
             await connection.execute(
                 """
@@ -155,13 +153,13 @@ class OtherHumanInputRepository:
 
     async def context(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         party_key: OtherHumanPartyKey,
         scene_key: SceneKey,
         lock: bool = False,
     ) -> OtherHumanInputContext:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         suffix = " FOR UPDATE OF scene" if lock else ""
         row = await (
             await connection.execute(
@@ -192,13 +190,13 @@ class OtherHumanInputRepository:
 
     async def existing(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         context: OtherHumanInputContext,
         idempotency_key: str,
         request_digest: Digest,
     ) -> OtherHumanInputAcceptance | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -236,7 +234,7 @@ class OtherHumanInputRepository:
 
     async def create(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         context: OtherHumanInputContext,
         idempotency_key: str,
@@ -248,7 +246,7 @@ class OtherHumanInputRepository:
         external_message_key: str | None = None,
         addressed_to_subject: bool | None = None,
     ) -> OtherHumanInputAcceptance:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         interaction_id, evidence_id, opportunity_id, timeline_id = (
             uuid7(),
             uuid7(),

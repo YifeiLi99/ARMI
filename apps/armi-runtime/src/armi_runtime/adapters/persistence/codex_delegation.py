@@ -7,6 +7,13 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_interaction.api import (
+    CreatorInputAcceptance,
+    CreatorInputContext,
+    CreatorInteractionId,
+    EvidenceId,
+    OpportunityId,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -23,14 +30,9 @@ from armi_kernel.application import (
     CodexTaskSourceDraft,
     CodexTaskSourceId,
     CodexVerificationStatus,
-    CreatorInputAcceptance,
-    CreatorInteractionId,
-    EvidenceId,
-    OpportunityId,
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 
-from .creator_input import CreatorInputContext
 from .effect_grant_coordination import coordinate_dispatch_boundary
 from .unit_of_work import PostgreSQLUnitOfWork
 

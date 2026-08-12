@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
-from armi_kernel.application import (
+from armi_interaction.api import (
     ExternalMediaContent,
     ExternalMessagePartKind,
     ExternalMessageViolation,

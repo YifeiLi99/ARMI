@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -22,6 +21,16 @@ from armi_kernel.application import (
     CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    PublishedArtifact,
+)
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
+
+from ._dependencies import NullInteractionWakeup
+from ._other_human_contract import (
     OtherHumanInputAcceptance,
     OtherHumanInputCommand,
     OtherHumanInputPort,
@@ -29,24 +38,19 @@ from armi_kernel.application import (
     OtherHumanPartyView,
     OtherHumanSceneCommand,
     OtherHumanSceneView,
-    PublishedArtifact,
     RegisterOtherHumanPartyCommand,
-    RuntimeFence,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
-
-from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
-from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
-from armi_runtime.adapters.persistence.other_human_input import (
+from ._other_human_postgresql import (
     OtherHumanInputContext,
     OtherHumanInputRepository,
 )
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWorkFactory,
+from .api import (
+    InteractionArtifactCatalogPort,
+    InteractionDataRightsGate,
+    InteractionWakeupPort,
 )
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
-from .work_wakeup import OPPORTUNITY_AVAILABLE, WorkWakeupBus
+_OPPORTUNITY_AVAILABLE = "opportunity.available"
 
 
 async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
@@ -68,24 +72,25 @@ class OtherHumanInputService(OtherHumanInputPort):
         self,
         *,
         storage: ContentAddressedArtifactStore,
-        catalog: ArtifactCatalogRepository,
+        catalog: InteractionArtifactCatalogPort,
         repository: OtherHumanInputRepository,
-        unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-        wakeups: WorkWakeupBus | None = None,
+        unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        data_rights: InteractionDataRightsGate,
+        wakeups: InteractionWakeupPort | None = None,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._storage = storage
-        self._data_rights = DataRightsOrderRepository()
+        self._data_rights = data_rights
         self._catalog = catalog
         self._repository = repository
         self._uow_factory = unit_of_work_factory
-        self._wakeups = wakeups or WorkWakeupBus()
+        self._wakeups = wakeups or NullInteractionWakeup()
         self._notifier = notifier
 
     async def open(self) -> None:
         try:
             await self._uow_factory.open()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
 
     async def close(self) -> None:
@@ -118,7 +123,7 @@ class OtherHumanInputService(OtherHumanInputPort):
                 return view
         except OtherHumanInputViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
 
     async def set_scene(self, command: OtherHumanSceneCommand) -> OtherHumanSceneView:
@@ -145,7 +150,7 @@ class OtherHumanInputService(OtherHumanInputPort):
                 return view
         except OtherHumanInputViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
 
     async def accept(
@@ -180,7 +185,7 @@ class OtherHumanInputService(OtherHumanInputPort):
         )
         try:
             existing = await self._existing(command, context, request_digest)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             await self._storage.discard(staged)
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
         except Exception:
@@ -195,11 +200,11 @@ class OtherHumanInputService(OtherHumanInputPort):
             raise OtherHumanInputViolation("ART-OTHER-HUMAN-PUBLISH") from None
         try:
             acceptance = await self._commit(command, context, request_digest, published)
-        except DatabaseTransactionError as error:
+        except RuntimeTransactionFailure as error:
             if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
                 try:
                     recovered = await self._existing(command, context, request_digest)
-                except DatabaseTransactionError:
+                except RuntimeTransactionFailure:
                     raise OtherHumanInputViolation(
                         "DB-OTHER-HUMAN-UNAVAILABLE"
                     ) from None
@@ -207,7 +212,7 @@ class OtherHumanInputService(OtherHumanInputPort):
                     return recovered
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
         if acceptance.newly_accepted:
-            self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+            self._wakeups.notify(_OPPORTUNITY_AVAILABLE)
             await self._notify(context.party_id)
         return acceptance
 
@@ -241,7 +246,7 @@ class OtherHumanInputService(OtherHumanInputPort):
                 )
         except OtherHumanInputViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
 
     async def _existing(
@@ -336,38 +341,4 @@ class OtherHumanInputService(OtherHumanInputPort):
             return acceptance
 
 
-def build_other_human_input_service(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    wakeups: WorkWakeupBus | None = None,
-    notifier: CreatorProjectionNotifier | None = None,
-) -> OtherHumanInputService:
-    return OtherHumanInputService(
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts", max_object_bytes=max_object_bytes
-        ),
-        catalog=ArtifactCatalogRepository(),
-        repository=OtherHumanInputRepository(),
-        unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
-            conninfo,
-            environment_id=environment_id,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            acquire_timeout_seconds=acquire_timeout_seconds,
-            statement_timeout_seconds=statement_timeout_seconds,
-            authority_admission=authority_admission,
-        ),
-        wakeups=wakeups,
-        notifier=notifier,
-    )
-
-
-__all__ = ("OtherHumanInputService", "build_other_human_input_service")
+__all__ = ("OtherHumanInputService",)

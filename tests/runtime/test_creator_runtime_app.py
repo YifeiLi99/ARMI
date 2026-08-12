@@ -14,15 +14,7 @@ from armi_activity.api import (
     CreatorActivityTimeline,
     CreatorActivityTimelineItem,
 )
-from armi_kernel.application import (
-    CapabilityRequestStatus,
-    CodexModel,
-    CreatorCodexTaskCommand,
-    CreatorExportCommand,
-    CreatorExportResult,
-    CreatorExportStatus,
-    CreatorGrantCommand,
-    CreatorGrantResult,
+from armi_interaction.api import (
     CreatorInputAcceptance,
     CreatorInputCommand,
     CreatorInteractionId,
@@ -32,44 +24,54 @@ from armi_kernel.application import (
     CreatorSceneCreateCommand,
     CreatorSceneStatusCommand,
     CreatorSceneView,
-    DataRightsExecutionStatus,
-    DataRightsOrderCommand,
-    DataRightsOrderDetail,
-    DataRightsOrderKind,
-    DataRightsOrderResult,
-    DataRightsRequesterKind,
-    DataRightsScopeKind,
-    DataRightsViolation,
-    EffectArtifactKind,
     EvidenceId,
-    LifeRecordActor,
-    LifeRecordItem,
-    LifeRecordKind,
-    LifeRecordPage,
-    LifeRecordQuery,
-    LifeRecordQueryViolation,
     OpportunityId,
     OtherHumanInputAcceptance,
     OtherHumanInputCommand,
     OtherHumanInputViolation,
     OtherHumanInteractionId,
-    OtherHumanPartyKey,
-    OtherHumanPartyRecord,
-    OtherHumanPartyRecordPage,
     OtherHumanPartyView,
-    OtherHumanRecordDirection,
     OtherHumanSceneCommand,
-    OtherHumanSceneRecord,
-    OtherHumanSceneRecordPage,
     OtherHumanSceneView,
-    OtherHumanTimelineRecord,
-    OtherHumanTimelineRecordPage,
     RegisterOtherHumanPartyCommand,
     SceneKey,
     SceneQueryViolation,
     SceneStatus,
     SceneTimelinePage,
     SceneTimelineQuery,
+)
+from armi_kernel.application import (
+    CapabilityRequestStatus,
+    CodexModel,
+    CreatorCodexTaskCommand,
+    CreatorExportCommand,
+    CreatorExportResult,
+    CreatorExportStatus,
+    CreatorGrantCommand,
+    CreatorGrantResult,
+    DataRightsExecutionStatus,
+    DataRightsOrderCommand,
+    DataRightsOrderDetail,
+    DataRightsOrderKind,
+    DataRightsOrderResult,
+    DataRightsPartyKey,
+    DataRightsRequesterKind,
+    DataRightsScopeKind,
+    DataRightsViolation,
+    EffectArtifactKind,
+    LifeRecordActor,
+    LifeRecordItem,
+    LifeRecordKind,
+    LifeRecordPage,
+    LifeRecordQuery,
+    LifeRecordQueryViolation,
+    OtherHumanPartyRecord,
+    OtherHumanPartyRecordPage,
+    OtherHumanRecordDirection,
+    OtherHumanSceneRecord,
+    OtherHumanSceneRecordPage,
+    OtherHumanTimelineRecord,
+    OtherHumanTimelineRecordPage,
 )
 from armi_kernel.contracts import Digest, Instant
 from armi_material.api import (
@@ -807,7 +809,7 @@ class _DataRightsOrders:
         return self._request(UUID(CREATOR_ID), DataRightsRequesterKind.CREATOR, command)
 
     async def request_other_human(
-        self, party_key: OtherHumanPartyKey, command: DataRightsOrderCommand
+        self, party_key: DataRightsPartyKey, command: DataRightsOrderCommand
     ) -> DataRightsOrderResult:
         if party_key.value != "friend-1":
             raise DataRightsViolation("DATA-RIGHTS-REQUESTER-NOT-FOUND")
@@ -827,7 +829,7 @@ class _DataRightsOrders:
         )
 
     async def get_other_human(
-        self, party_key: OtherHumanPartyKey, order_id: UUID
+        self, party_key: DataRightsPartyKey, order_id: UUID
     ) -> DataRightsOrderResult | None:
         if party_key.value != "friend-1":
             raise DataRightsViolation("DATA-RIGHTS-REQUESTER-NOT-FOUND")
@@ -850,7 +852,7 @@ class _DataRightsOrders:
         return None if result is None else DataRightsOrderDetail(result, ())
 
     async def list_other_human(
-        self, party_key: OtherHumanPartyKey
+        self, party_key: DataRightsPartyKey
     ) -> tuple[DataRightsOrderDetail, ...]:
         if party_key.value != "friend-1":
             raise DataRightsViolation("DATA-RIGHTS-REQUESTER-NOT-FOUND")
@@ -861,7 +863,7 @@ class _DataRightsOrders:
         )
 
     async def detail_other_human(
-        self, party_key: OtherHumanPartyKey, order_id: UUID
+        self, party_key: DataRightsPartyKey, order_id: UUID
     ) -> DataRightsOrderDetail | None:
         result = await self.get_other_human(party_key, order_id)
         return None if result is None else DataRightsOrderDetail(result, ())

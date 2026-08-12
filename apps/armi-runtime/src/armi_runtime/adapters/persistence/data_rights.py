@@ -9,12 +9,13 @@ from uuid import UUID
 from armi_kernel.application import (
     DataRightsExecutionStatus,
     DataRightsOrderKind,
+    DataRightsPartyKey,
     DataRightsRequesterKind,
     DataRightsScopeKind,
     DataRightsViolation,
-    OtherHumanPartyKey,
 )
 from armi_kernel.contracts import Digest, Instant
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -50,10 +51,10 @@ class DataRightsOrderRepository:
 
     async def creator_party(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         creator_party_id: UUID,
     ) -> UUID:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -70,7 +71,7 @@ class DataRightsOrderRepository:
     async def other_human_party(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
-        party_key: OtherHumanPartyKey,
+        party_key: DataRightsPartyKey,
     ) -> UUID:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         row = await (
@@ -258,10 +259,10 @@ class DataRightsOrderRepository:
 
     async def blocks_new_interaction(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         requester_party_id: UUID,
     ) -> bool:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         await connection.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             (f"data-rights:{requester_party_id}",),

@@ -19,11 +19,7 @@ from armi_channel_napcat import (
     NapCatRejected,
     NapCatViolation,
 )
-from armi_kernel.application import (
-    ActionAdapterPort,
-    EffectAdapterReceipt,
-    EffectDeliveryId,
-    EffectViolation,
+from armi_interaction.api import (
     ExternalAccountKey,
     ExternalChannel,
     ExternalConversationKey,
@@ -42,8 +38,14 @@ from armi_kernel.application import (
     ExternalMessageViolation,
     ExternalPartyKey,
     ExternalVisualRole,
-    FrozenEffectRequest,
     ObservedExternalMessage,
+)
+from armi_kernel.application import (
+    ActionAdapterPort,
+    EffectAdapterReceipt,
+    EffectDeliveryId,
+    EffectViolation,
+    FrozenEffectRequest,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
 

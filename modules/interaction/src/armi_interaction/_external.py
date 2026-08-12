@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -19,37 +18,45 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    ConfigureExternalCreatorCommand,
     CreatorEventResourceKind,
-    CreatorInputAcceptance,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    PublishedArtifact,
+)
+from armi_kernel.contracts import Digest, IdempotencyKey, Instant, Purpose, SubjectId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
+
+from ._creator_contract import CreatorInputAcceptance
+from ._creator_postgresql import CreatorInputRepository
+from ._dependencies import NullInteractionWakeup
+from ._external_contract import (
+    ConfigureExternalCreatorCommand,
     ExternalCreatorBinding,
     ExternalMessageInputAcceptance,
     ExternalMessageInputPort,
     ExternalMessageInteractionId,
     ExternalMessageViolation,
     ObservedExternalMessage,
-    OtherHumanInputAcceptance,
-    PublishedArtifact,
-    RuntimeFence,
 )
-from armi_kernel.contracts import Digest, IdempotencyKey, Instant, Purpose, SubjectId
-
-from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
-from armi_runtime.adapters.persistence.creator_input import CreatorInputRepository
-from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
-from armi_runtime.adapters.persistence.external_message_input import (
+from ._external_postgresql import (
     ExternalMessageInputContext,
     ExternalMessageInputRepository,
 )
-from armi_runtime.adapters.persistence.other_human_input import (
+from ._other_human_contract import OtherHumanInputAcceptance
+from ._other_human_postgresql import (
     OtherHumanInputRepository,
 )
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
+from .api import (
+    InteractionArtifactCatalogPort,
+    InteractionDataRightsGate,
+    InteractionWakeupPort,
+)
 
-from .work_wakeup import EXTERNAL_CONTENT, OPPORTUNITY_AVAILABLE, WorkWakeupBus
+_EXTERNAL_CONTENT = "external.content"
+_OPPORTUNITY_AVAILABLE = "opportunity.available"
 
 
 async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
@@ -73,12 +80,13 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         self,
         *,
         storage: ContentAddressedArtifactStore,
-        catalog: ArtifactCatalogRepository,
+        catalog: InteractionArtifactCatalogPort,
         messages: ExternalMessageInputRepository,
         creator_inputs: CreatorInputRepository,
         other_inputs: OtherHumanInputRepository,
-        unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-        wakeups: WorkWakeupBus | None = None,
+        unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        data_rights: InteractionDataRightsGate,
+        wakeups: InteractionWakeupPort | None = None,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._storage = storage
@@ -86,15 +94,15 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         self._messages = messages
         self._creator_inputs = creator_inputs
         self._other_inputs = other_inputs
-        self._data_rights = DataRightsOrderRepository()
+        self._data_rights = data_rights
         self._factory = unit_of_work_factory
-        self._wakeups = wakeups or WorkWakeupBus()
+        self._wakeups = wakeups or NullInteractionWakeup()
         self._notifier = notifier
 
     async def open(self) -> None:
         try:
             await self._factory.open()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-UNAVAILABLE") from None
 
     async def close(self) -> None:
@@ -129,7 +137,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
                 return binding
         except ExternalMessageViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-UNAVAILABLE") from None
 
     async def accept(
@@ -188,7 +196,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
                 published,
                 deferred,
             )
-        except DatabaseTransactionError as error:
+        except RuntimeTransactionFailure as error:
             if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
                 recovered = await self._existing(
                     context, idempotency_key, request_digest
@@ -198,9 +206,9 @@ class ExternalMessageInputService(ExternalMessageInputPort):
             raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-UNAVAILABLE") from None
         if accepted.newly_accepted:
             self._wakeups.notify(
-                EXTERNAL_CONTENT
+                _EXTERNAL_CONTENT
                 if accepted.opportunity_id is None and command.has_media
-                else OPPORTUNITY_AVAILABLE
+                else _OPPORTUNITY_AVAILABLE
             )
             await self._notify(command, context)
         return accepted
@@ -268,7 +276,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
                 )
         except ExternalMessageViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-UNAVAILABLE") from None
 
     async def _existing(
@@ -536,40 +544,4 @@ def _acceptance(
     )
 
 
-def build_external_message_input_service(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    wakeups: WorkWakeupBus | None = None,
-    notifier: CreatorProjectionNotifier | None = None,
-) -> ExternalMessageInputService:
-    return ExternalMessageInputService(
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts", max_object_bytes=max_object_bytes
-        ),
-        catalog=ArtifactCatalogRepository(),
-        messages=ExternalMessageInputRepository(),
-        creator_inputs=CreatorInputRepository(),
-        other_inputs=OtherHumanInputRepository(),
-        unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
-            conninfo,
-            environment_id=environment_id,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            acquire_timeout_seconds=acquire_timeout_seconds,
-            statement_timeout_seconds=statement_timeout_seconds,
-            authority_admission=authority_admission,
-        ),
-        wakeups=wakeups,
-        notifier=notifier,
-    )
-
-
-__all__ = ("ExternalMessageInputService", "build_external_message_input_service")
+__all__ = ("ExternalMessageInputService",)

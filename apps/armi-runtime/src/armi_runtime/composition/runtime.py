@@ -16,17 +16,20 @@ from uuid import uuid7
 
 import uvicorn
 from armi_activity.api import ActivityViolation
+from armi_interaction.api import (
+    CreatorInputCommand,
+    CreatorInputViolation,
+    ExternalMessageViolation,
+    SceneQueryViolation,
+)
 from armi_kernel.application import (
     CandidateViolation,
     CapabilityViolation,
     CodexDelegationViolation,
     ContextViolation,
     CreatorExportViolation,
-    CreatorInputCommand,
-    CreatorInputViolation,
     DataRightsViolation,
     EffectViolation,
-    ExternalMessageViolation,
     LifeRecordQueryViolation,
     LifeViolation,
     ModelViolation,
@@ -36,7 +39,6 @@ from armi_kernel.application import (
     ResponseViolation,
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
-    SceneQueryViolation,
     SubjectCommitViolation,
     WebObservationViolation,
     WebResearchViolation,
@@ -78,20 +80,17 @@ from .database import (
     compose_context_embedding_pipeline,
     compose_context_pipeline,
     compose_creator_export_service,
-    compose_creator_input,
-    compose_creator_scene_service,
     compose_data_rights_order_service,
     compose_effect_registration_pipeline,
     compose_exact_life_query_pipeline,
     compose_external_content_pipeline,
-    compose_external_message_input,
+    compose_interaction_module,
     compose_life_opportunity_pipeline,
     compose_life_record_query,
     compose_material_module,
     compose_memory_module,
     compose_model_pipeline,
     compose_mood_module,
-    compose_other_human_input,
     compose_other_human_record_query,
     compose_prompt_module,
     compose_relationship_module,
@@ -99,7 +98,6 @@ from .database import (
     compose_runtime_authority,
     compose_runtime_observation,
     compose_runtime_recovery,
-    compose_scene_timeline_query,
     compose_sleep_module,
     compose_subject_commit_pipeline,
     compose_subject_state_module,
@@ -184,6 +182,7 @@ async def _serve(
     observation_driver: RuntimeObservationDriver | None = None
     recovery_reasons: tuple[str, ...] = ()
     browser_sessions: BrowserSessionStore | None = None
+    interaction_module = None
     scene_timeline_query = None
     creator_scenes = None
     activity_module = None
@@ -323,18 +322,32 @@ async def _serve(
                 creator_party_id=creator_context.party_id,
                 default_scene_key=creator_context.default_scene_key,
             )
-            scene_timeline_query = compose_scene_timeline_query(
+            creator_events = CreatorEventBroker(
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="CREATOR_EVENT_STREAM",
+                )
+            )
+            interaction_module = compose_interaction_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
-            )
-            await scene_timeline_query.open()
-            creator_scenes = compose_creator_scene_service(
-                prepared,
-                creator_party_id=creator_context.party_id,
                 authority_admission=authority.require_writable,
+                notifier=creator_events,
+                subject_state_read=subject_state_module.read,
+                wakeups=work_wakeups,
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="CREATOR_INPUT",
+                ),
+                fault_injector=inject_admin_fault,
             )
-            await creator_scenes.open()
+            await interaction_module.open()
+            scene_timeline_query = interaction_module.scene_timeline
+            creator_scenes = interaction_module.creator_scenes
+            creator_input = interaction_module.creator_input
+            other_human_input = interaction_module.other_human_input
+            external_message_input = interaction_module.external_message_input
             activity_module = compose_activity_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -396,12 +409,6 @@ async def _serve(
                 authority_admission=authority.require_writable,
             )
             await creator_export_service.open()
-            creator_events = CreatorEventBroker(
-                diagnostic=lambda event: diagnostic.emit(
-                    event,
-                    result_code="CREATOR_EVENT_STREAM",
-                )
-            )
             data_rights_order_service = compose_data_rights_order_service(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -418,34 +425,6 @@ async def _serve(
                 notifier=creator_events,
             )
             await capability_policy.open()
-            creator_input = compose_creator_input(
-                prepared,
-                creator_party_id=creator_context.party_id,
-                authority_admission=authority.require_writable,
-                notifier=creator_events,
-                subject_state_read=subject_state_module.read,
-                wakeups=work_wakeups,
-                diagnostic=lambda event: diagnostic.emit(
-                    event,
-                    result_code="CREATOR_INPUT",
-                ),
-                fault_injector=inject_admin_fault,
-            )
-            await creator_input.open()
-            other_human_input = compose_other_human_input(
-                prepared,
-                authority_admission=authority.require_writable,
-                wakeups=work_wakeups,
-                notifier=creator_events,
-            )
-            await other_human_input.open()
-            external_message_input = compose_external_message_input(
-                prepared,
-                authority_admission=authority.require_writable,
-                wakeups=work_wakeups,
-                notifier=creator_events,
-            )
-            await external_message_input.open()
             qq_channel = await compose_qq_channel(
                 prepared,
                 input_port=external_message_input,
@@ -585,6 +564,7 @@ async def _serve(
                     codex_pipeline = compose_codex_pipeline(
                         prepared,
                         creator_party_id=creator_context.party_id,
+                        creator_input=interaction_module.creator_transaction,
                         authority_admission=authority.require_writable,
                         notifier=creator_events,
                         diagnostic=lambda event: diagnostic.emit(
@@ -729,10 +709,8 @@ async def _serve(
                     error.code,
                 ),
             )
-            if scene_timeline_query is not None:
-                await scene_timeline_query.close()
-            if creator_scenes is not None:
-                await creator_scenes.close()
+            if interaction_module is not None:
+                await interaction_module.close()
             if activity_module is not None:
                 await activity_module.close()
             if exact_life_query_pipeline is not None:
@@ -759,12 +737,6 @@ async def _serve(
                 await creator_export_service.close()
             if data_rights_order_service is not None:
                 await data_rights_order_service.close()
-            if creator_input is not None:
-                await creator_input.close()
-            if other_human_input is not None:
-                await other_human_input.close()
-            if external_message_input is not None:
-                await external_message_input.close()
             if external_content_pipeline is not None:
                 await external_content_pipeline.close()
             if qq_channel is not None:
@@ -984,10 +956,8 @@ async def _serve(
                 "creator.session.revoked_all",
                 result_code="CREATOR_SESSION_REVOKED",
             )
-        if scene_timeline_query is not None:
-            await scene_timeline_query.close()
-        if creator_scenes is not None:
-            await creator_scenes.close()
+        if interaction_module is not None:
+            await interaction_module.close()
         if activity_module is not None:
             await activity_module.close()
         if other_human_record_query is not None:
@@ -1010,12 +980,6 @@ async def _serve(
             await creator_export_service.close()
         if data_rights_order_service is not None:
             await data_rights_order_service.close()
-        if creator_input is not None:
-            await creator_input.close()
-        if other_human_input is not None:
-            await other_human_input.close()
-        if external_message_input is not None:
-            await external_message_input.close()
         if external_content_pipeline is not None:
             external_content_pipeline.stop()
         if context_pipeline is not None:
@@ -1296,10 +1260,8 @@ async def _serve(
             await stopping()
         return EXIT_LISTENER_FAILURE
     finally:
-        if scene_timeline_query is not None:
-            await scene_timeline_query.close()
-        if creator_scenes is not None:
-            await creator_scenes.close()
+        if interaction_module is not None:
+            await interaction_module.close()
         if activity_module is not None:
             await activity_module.close()
         if exact_life_query_pipeline is not None:
@@ -1326,12 +1288,6 @@ async def _serve(
             await creator_export_service.close()
         if data_rights_order_service is not None:
             await data_rights_order_service.close()
-        if creator_input is not None:
-            await creator_input.close()
-        if other_human_input is not None:
-            await other_human_input.close()
-        if external_message_input is not None:
-            await external_message_input.close()
         if context_pipeline is not None:
             await context_pipeline.close()
         if life_opportunity_pipeline is not None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from uuid import uuid7
 
-from armi_kernel.application import (
+from armi_interaction.api import (
     CreatorInputAcceptance,
     CreatorInputCommand,
     CreatorInputViolation,

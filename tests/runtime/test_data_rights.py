@@ -50,6 +50,10 @@ class _UnitOfWork:
     def _connection_for_repository(self) -> _Connection:
         return self.connection
 
+    @property
+    def transaction(self) -> _Connection:
+        return self.connection
+
 
 def test_three_order_kinds_are_explicit_and_bounded() -> None:
     for kind in DataRightsOrderKind:

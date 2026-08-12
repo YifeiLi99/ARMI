@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Final
 from uuid import UUID, uuid7
 
@@ -24,43 +23,45 @@ from armi_kernel.application import (
     AuditSensitivity,
     AuditViolation,
     CreatorEventResourceKind,
-    CreatorInputAcceptance,
-    CreatorInputAcceptancePort,
-    CreatorInputCommand,
-    CreatorInputViolation,
-    CreatorOperation,
-    CreatorOperationQueryPort,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
-    OpportunityId,
     PublishedArtifact,
-    RuntimeFence,
-    SceneKey,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 from armi_subject_state.api import (
     SubjectStateReadPort,
     SubjectStateViolation,
     SubjectSummary,
 )
 
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
+from ._creator_contract import (
+    CreatorInputAcceptance,
+    CreatorInputAcceptancePort,
+    CreatorInputCommand,
+    CreatorInputViolation,
+    CreatorOperation,
+    CreatorOperationQueryPort,
+    OpportunityId,
 )
-from armi_runtime.adapters.persistence.creator_input import (
+from ._creator_postgresql import (
     CreatorInputContext,
     CreatorInputRepository,
 )
-from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWork,
-    PostgreSQLUnitOfWorkFactory,
+from ._dependencies import NullInteractionWakeup
+from ._scene_contract import SceneKey
+from .api import (
+    InteractionArtifactCatalogPort,
+    InteractionDataRightsGate,
+    InteractionWakeupPort,
 )
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .work_wakeup import OPPORTUNITY_AVAILABLE, WorkWakeupBus
 
 _PURPOSE: Final = "creator_message"
+_OPPORTUNITY_AVAILABLE: Final = "opportunity.available"
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
 
@@ -98,26 +99,27 @@ class EvidenceAcceptanceTransaction(
         *,
         creator_party_id: UUID,
         storage: ContentAddressedArtifactStore,
-        catalog: ArtifactCatalogRepository,
+        catalog: InteractionArtifactCatalogPort,
         repository: CreatorInputRepository,
-        unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+        unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        data_rights: InteractionDataRightsGate,
         notifier: CreatorProjectionNotifier | None,
         subject_state: SubjectStateReadPort,
-        wakeups: WorkWakeupBus | None = None,
+        wakeups: InteractionWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
     ) -> None:
         if creator_party_id.version != 7:
             raise CreatorInputViolation("CON-INPUT-CREATOR")
         self._creator_party_id = creator_party_id
-        self._data_rights = DataRightsOrderRepository()
+        self._data_rights = data_rights
         self._storage = storage
         self._catalog = catalog
         self._repository = repository
         self._uow_factory = unit_of_work_factory
         self._notifier = notifier
         self._subject_state = subject_state
-        self._wakeups = wakeups or WorkWakeupBus()
+        self._wakeups = wakeups or NullInteractionWakeup()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._fault_injector = fault_injector or _ignore_diagnostic
 
@@ -140,7 +142,7 @@ class EvidenceAcceptanceTransaction(
         request_digest = self._request_digest(context, content_digest)
         try:
             existing = await self._read_existing(command, context, request_digest)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             await self._storage.discard(staged)
             raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
         except Exception:
@@ -161,7 +163,7 @@ class EvidenceAcceptanceTransaction(
                 request_digest,
                 published,
             )
-        except DatabaseTransactionError as error:
+        except RuntimeTransactionFailure as error:
             if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
                 try:
                     recovered = await self._read_existing(
@@ -169,7 +171,7 @@ class EvidenceAcceptanceTransaction(
                         context,
                         request_digest,
                     )
-                except DatabaseTransactionError:
+                except RuntimeTransactionFailure:
                     code = (
                         "DB-INPUT-COMMIT-UNKNOWN"
                         if error.code == "DB-TX-COMMIT-UNKNOWN"
@@ -190,14 +192,14 @@ class EvidenceAcceptanceTransaction(
         except ArtifactViolation:
             raise CreatorInputViolation("ART-INPUT-CATALOG") from None
         if acceptance.newly_accepted:
-            self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+            self._wakeups.notify(_OPPORTUNITY_AVAILABLE)
             await self._notify(command.scene_key)
         return acceptance
 
     async def open(self) -> None:
         try:
             await self._uow_factory.open()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
 
     async def close(self) -> None:
@@ -215,7 +217,7 @@ class EvidenceAcceptanceTransaction(
                 )
         except CreatorInputViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
 
     async def get_subject_summary(self) -> SubjectSummary:
@@ -229,7 +231,7 @@ class EvidenceAcceptanceTransaction(
                 )
         except CreatorInputViolation, SubjectStateViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CreatorInputViolation("DB-SUBJECT-SUMMARY") from None
 
     async def _attempt(
@@ -320,7 +322,7 @@ class EvidenceAcceptanceTransaction(
                 )
         except CreatorInputViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
 
     async def _read_existing(
@@ -359,7 +361,7 @@ class EvidenceAcceptanceTransaction(
 
     def _artifact_audit(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: UUID,
         content_digest: Digest,
         command: CreatorInputCommand,
@@ -392,51 +394,4 @@ class EvidenceAcceptanceTransaction(
             self._diagnostic("creator.input.notification_failed")
 
 
-def build_evidence_acceptance_transaction(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    creator_party_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    notifier: CreatorProjectionNotifier | None,
-    subject_state: SubjectStateReadPort,
-    wakeups: WorkWakeupBus | None = None,
-    diagnostic: Diagnostic | None = None,
-    fault_injector: FaultInjector | None = None,
-) -> EvidenceAcceptanceTransaction:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    return EvidenceAcceptanceTransaction(
-        creator_party_id=creator_party_id,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        ),
-        catalog=ArtifactCatalogRepository(),
-        repository=CreatorInputRepository(),
-        unit_of_work_factory=factory,
-        notifier=notifier,
-        subject_state=subject_state,
-        wakeups=wakeups,
-        diagnostic=diagnostic,
-        fault_injector=fault_injector,
-    )
-
-
-__all__ = (
-    "EvidenceAcceptanceTransaction",
-    "build_evidence_acceptance_transaction",
-)
+__all__ = ("EvidenceAcceptanceTransaction",)

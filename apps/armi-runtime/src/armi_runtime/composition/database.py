@@ -14,6 +14,11 @@ from armi_activity.api import (
 )
 from armi_activity.bootstrap import ActivityModule, bootstrap_activity
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_interaction.api import (
+    CreatorInputTransactionPort,
+    ExternalMediaFetchPort,
+)
+from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel.application import (
     ActionAdapterPort,
     CandidateViolation,
@@ -24,7 +29,6 @@ from armi_kernel.application import (
     CredentialPort,
     CredentialPurpose,
     DataRightsViolation,
-    ExternalMediaFetchPort,
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeViolation,
@@ -32,7 +36,6 @@ from armi_kernel.application import (
     OtherHumanRecordViolation,
     ResponseViolation,
     RuntimeFence,
-    SceneQueryViolation,
     SubjectCommitViolation,
     WebObservationViolation,
     WebResearchViolation,
@@ -105,6 +108,7 @@ from armi_runtime.adapters.persistence.birth import (
 from armi_runtime.adapters.persistence.capability_policy import (
     PostgreSQLCreatorGrantPolicy,
 )
+from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.other_human_records import (
     PostgreSQLOtherHumanRecordQuery,
@@ -118,9 +122,6 @@ from armi_runtime.adapters.persistence.runtime_authority import (
 )
 from armi_runtime.adapters.persistence.runtime_observability import (
     PostgreSQLRuntimeObservation,
-)
-from armi_runtime.adapters.persistence.scene_timeline import (
-    PostgreSQLSceneTimelineQuery,
 )
 from armi_runtime.adapters.persistence.schema_gateway import (
     DatabaseViolation,
@@ -143,11 +144,6 @@ from .context_embedding_pipeline import (
 )
 from .context_pipeline import ContextPipeline, build_context_pipeline
 from .creator_exports import CreatorExportService, build_creator_export_service
-from .creator_input import (
-    EvidenceAcceptanceTransaction,
-    build_evidence_acceptance_transaction,
-)
-from .creator_scenes import CreatorSceneService, build_creator_scene_service
 from .data_rights import DataRightsOrderService, build_data_rights_order_service
 from .effect_pipeline import (
     EffectRegistrationPipeline,
@@ -163,19 +159,11 @@ from .external_content_pipeline import (
     build_external_content_pipeline,
 )
 from .external_content_recognizer import ExternalContentRecognizer
-from .external_message_input import (
-    ExternalMessageInputService,
-    build_external_message_input_service,
-)
 from .life_opportunity import (
     LifeOpportunityPipeline,
     build_life_opportunity_pipeline,
 )
 from .model_pipeline import ModelPipeline, build_model_pipeline
-from .other_human_input import (
-    OtherHumanInputService,
-    build_other_human_input_service,
-)
 from .response_pipeline import (
     ResponseAdmissionPipeline,
     build_response_admission_pipeline,
@@ -440,13 +428,19 @@ def inspect_creator_party_id(prepared: PreparedEnvironment) -> UUID | None:
     return None if context is None else context.party_id
 
 
-def compose_scene_timeline_query(
+def compose_interaction_module(
     prepared: PreparedEnvironment,
     *,
     creator_party_id: UUID,
     cursor_key: bytes,
-) -> PostgreSQLSceneTimelineQuery:
-    """Resolve the Runtime credential for the dedicated read-only query pool."""
+    authority_admission: Callable[[], RuntimeFence],
+    notifier: CreatorProjectionNotifier | None,
+    subject_state_read: SubjectStateReadPort,
+    wakeups: WorkWakeupBus | None = None,
+    diagnostic: Callable[[str], None] | None = None,
+    fault_injector: Callable[[str], None] | None = None,
+) -> InteractionModule:
+    """Resolve and bind the one active interaction owner implementation."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
@@ -462,7 +456,7 @@ def compose_scene_timeline_query(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> PostgreSQLSceneTimelineQuery:
+            def create(value: memoryview) -> InteractionModule:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
@@ -473,14 +467,40 @@ def compose_scene_timeline_query(
                         exit_code=3,
                     ) from None
                 config = prepared.effective.config
-                return PostgreSQLSceneTimelineQuery(
+                expected_role = physical_role_name(
+                    config.environment.environment_id, "runtime"
+                )
+                return bootstrap_interaction(
                     conninfo,
                     environment_id=config.environment.environment_id,
+                    expected_role=expected_role,
                     creator_party_id=creator_party_id,
                     cursor_key=cursor_key,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
+                        conninfo,
+                        environment_id=config.environment.environment_id,
+                        pool_min=config.database.pool_min,
+                        pool_max=config.database.pool_max,
+                        acquire_timeout_seconds=(
+                            config.database.pool_acquire_timeout_seconds
+                        ),
+                        statement_timeout_seconds=(
+                            config.database.statement_timeout_seconds
+                        ),
+                        authority_admission=authority_admission,
+                    ),
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
+                    ),
+                    catalog=ArtifactCatalogRepository(),
+                    data_rights=DataRightsOrderRepository(),
+                    subject_state=subject_state_read,
+                    notifier=notifier,
+                    wakeups=wakeups,
+                    diagnostic=diagnostic,
+                    fault_injector=fault_injector,
                 )
 
             return handle.consume(create)
@@ -491,51 +511,6 @@ def compose_scene_timeline_query(
             status="unavailable",
             exit_code=3,
         ) from None
-
-
-def compose_creator_scene_service(
-    prepared: PreparedEnvironment,
-    *,
-    creator_party_id: UUID,
-    authority_admission: Callable[[], RuntimeFence],
-) -> CreatorSceneService:
-    """Resolve the Runtime credential for the scene lifecycle owner."""
-
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> CreatorSceneService:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
-                config = prepared.effective.config
-                return build_creator_scene_service(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    creator_party_id=creator_party_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
-                    authority_admission=authority_admission,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
-
-
 def compose_activity_module(
     prepared: PreparedEnvironment,
     *,
@@ -904,190 +879,6 @@ def compose_runtime_authority(
                     conninfo,
                     environment_id=config.environment.environment_id,
                     pool_timeout_seconds=(config.database.pool_acquire_timeout_seconds),
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise DatabaseViolation(
-            "DB-ROLE-CREDENTIAL-SCOPE",
-            "the configured PostgreSQL connection is unavailable",
-            status="unavailable",
-            exit_code=3,
-        ) from None
-
-
-def compose_creator_input(
-    prepared: PreparedEnvironment,
-    *,
-    creator_party_id: UUID,
-    authority_admission: Callable[[], RuntimeFence],
-    notifier: CreatorProjectionNotifier | None,
-    subject_state_read: SubjectStateReadPort,
-    wakeups: WorkWakeupBus | None = None,
-    diagnostic: Callable[[str], None] | None = None,
-    fault_injector: Callable[[str], None] | None = None,
-) -> EvidenceAcceptanceTransaction:
-    """Resolve the Runtime credential for the sole Creator input write owner."""
-
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise DatabaseViolation(
-            "DB-CONNECTION-UNAVAILABLE",
-            "the required database credential locator is unavailable",
-            status="unavailable",
-            exit_code=3,
-        )
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> EvidenceAcceptanceTransaction:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise DatabaseViolation(
-                        "DB-CONNECTION-UNAVAILABLE",
-                        "the configured PostgreSQL connection is unavailable",
-                        status="unavailable",
-                        exit_code=3,
-                    ) from None
-                config = prepared.effective.config
-                return build_evidence_acceptance_transaction(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    creator_party_id=creator_party_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
-                    authority_admission=authority_admission,
-                    notifier=notifier,
-                    subject_state=subject_state_read,
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                    fault_injector=fault_injector,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise DatabaseViolation(
-            "DB-ROLE-CREDENTIAL-SCOPE",
-            "the configured PostgreSQL connection is unavailable",
-            status="unavailable",
-            exit_code=3,
-        ) from None
-
-
-def compose_other_human_input(
-    prepared: PreparedEnvironment,
-    *,
-    authority_admission: Callable[[], RuntimeFence],
-    wakeups: WorkWakeupBus | None = None,
-    notifier: CreatorProjectionNotifier | None = None,
-) -> OtherHumanInputService:
-    """Resolve the Runtime credential for the local other-human T-02 owner."""
-
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise DatabaseViolation(
-            "DB-CONNECTION-UNAVAILABLE",
-            "the required database credential locator is unavailable",
-            status="unavailable",
-            exit_code=3,
-        )
-    try:
-        with prepared.credential_port.resolve(
-            locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> OtherHumanInputService:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise DatabaseViolation(
-                        "DB-CONNECTION-UNAVAILABLE",
-                        "the configured PostgreSQL connection is unavailable",
-                        status="unavailable",
-                        exit_code=3,
-                    ) from None
-                config = prepared.effective.config
-                return build_other_human_input_service(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                    wakeups=wakeups,
-                    notifier=notifier,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise DatabaseViolation(
-            "DB-ROLE-CREDENTIAL-SCOPE",
-            "the configured PostgreSQL connection is unavailable",
-            status="unavailable",
-            exit_code=3,
-        ) from None
-
-
-def compose_external_message_input(
-    prepared: PreparedEnvironment,
-    *,
-    authority_admission: Callable[[], RuntimeFence],
-    wakeups: WorkWakeupBus | None = None,
-    notifier: CreatorProjectionNotifier | None = None,
-) -> ExternalMessageInputService:
-    """Resolve Runtime-owned persistence for external conversations."""
-
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise DatabaseViolation(
-            "DB-CONNECTION-UNAVAILABLE",
-            "the required database credential locator is unavailable",
-            status="unavailable",
-            exit_code=3,
-        )
-    try:
-        with prepared.credential_port.resolve(
-            locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> ExternalMessageInputService:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise DatabaseViolation(
-                        "DB-CONNECTION-UNAVAILABLE",
-                        "the configured PostgreSQL connection is unavailable",
-                        status="unavailable",
-                        exit_code=3,
-                    ) from None
-                config = prepared.effective.config
-                return build_external_message_input_service(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                    wakeups=wakeups,
-                    notifier=notifier,
                 )
 
             return handle.consume(create)
@@ -2024,6 +1815,7 @@ def compose_codex_pipeline(
     prepared: PreparedEnvironment,
     *,
     creator_party_id: UUID,
+    creator_input: CreatorInputTransactionPort,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -2069,6 +1861,7 @@ def compose_codex_pipeline(
                     environment_root=prepared.root,
                     run_root=run_root,
                     creator_party_id=creator_party_id,
+                    creator_input=creator_input,
                     notifier=notifier,
                     diagnostic=diagnostic,
                 )
@@ -2090,13 +1883,11 @@ __all__ = (
     "compose_codex_pipeline",
     "compose_context_pipeline",
     "compose_creator_export_service",
-    "compose_creator_input",
-    "compose_creator_scene_service",
     "compose_data_rights_order_service",
     "compose_effect_registration_pipeline",
     "compose_exact_life_query_pipeline",
     "compose_external_content_pipeline",
-    "compose_external_message_input",
+    "compose_interaction_module",
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",
     "compose_material_module",
@@ -2110,7 +1901,6 @@ __all__ = (
     "compose_runtime_authority",
     "compose_runtime_observation",
     "compose_runtime_recovery",
-    "compose_scene_timeline_query",
     "compose_sleep_module",
     "compose_subject_commit_pipeline",
     "compose_subject_state_module",

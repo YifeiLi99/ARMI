@@ -47,6 +47,31 @@ from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_interaction._creator_postgresql import CreatorInputRepository
+from armi_interaction._external import ExternalMessageInputService
+from armi_interaction._external_postgresql import ExternalMessageInputRepository
+from armi_interaction._other_human_postgresql import OtherHumanInputRepository
+from armi_interaction._timeline_postgresql import PostgreSQLSceneTimelineQuery
+from armi_interaction.api import (
+    ConfigureExternalCreatorCommand,
+    CreatorInputAcceptance,
+    ExternalAccountKey,
+    ExternalChannel,
+    ExternalContentRecognitionResult,
+    ExternalContentRecognitionStatus,
+    ExternalConversationKey,
+    ExternalConversationKind,
+    ExternalMediaContent,
+    ExternalMessageKey,
+    ExternalMessagePart,
+    ExternalMessagePartKind,
+    ExternalPartyKey,
+    ExternalVisualRole,
+    ObservedExternalMessage,
+    SceneKey,
+    SceneTimelinePage,
+    SceneTimelineQuery,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -66,33 +91,18 @@ from armi_kernel.application import (
     CapabilityViolation,
     CasStatus,
     CodexDelegatedWorkScope,
-    ConfigureExternalCreatorCommand,
     CreatorCodexTaskCommand,
     CreatorGrantCommand,
     CreatorGrantDecision,
-    CreatorInputAcceptance,
     CreatorReplyDraft,
     CreatorSceneReplyScope,
     CredentialLocator,
     EffectStatus,
-    ExternalAccountKey,
-    ExternalChannel,
-    ExternalContentRecognitionResult,
-    ExternalContentRecognitionStatus,
-    ExternalConversationKey,
-    ExternalConversationKind,
-    ExternalMediaContent,
-    ExternalMessageKey,
-    ExternalMessagePart,
-    ExternalMessagePartKind,
-    ExternalPartyKey,
-    ExternalVisualRole,
     LifeRecordActor,
     LifeRecordKind,
     LifeRecordQuery,
     LifeRecordRetrievalKind,
     ModelResultStatus,
-    ObservedExternalMessage,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
     PersonalityAnchor,
@@ -103,9 +113,6 @@ from armi_kernel.application import (
     RuntimeAuthorityViolation,
     RuntimeFence,
     RuntimeInstanceId,
-    SceneKey,
-    SceneTimelinePage,
-    SceneTimelineQuery,
     WebObservationDraft,
     WebObservationInvocationResult,
     WebObservationRequestId,
@@ -130,7 +137,8 @@ from armi_kernel.contracts import (
 )
 from armi_material.bootstrap import bootstrap_material, bootstrap_material_admin_read
 from armi_memory.bootstrap import bootstrap_memory
-from armi_mood.bootstrap import bootstrap_mood_admin_read
+from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_admin_read
+from armi_prompt.bootstrap import bootstrap_prompt
 from armi_relationship.bootstrap import bootstrap_relationship
 from armi_runtime.adapters.creator_response_inbox import (
     PostgreSQLLocalInbox,
@@ -149,7 +157,7 @@ from armi_runtime.adapters.persistence.birth import (
 from armi_runtime.adapters.persistence.capability_policy import (
     PostgreSQLCreatorGrantPolicy,
 )
-from armi_runtime.adapters.persistence.creator_input import CreatorInputRepository
+from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
 )
@@ -159,13 +167,7 @@ from armi_runtime.adapters.persistence.effect_dispatch import (
 from armi_runtime.adapters.persistence.effect_ledger import (
     PostgreSQLEffectLedgerRepository,
 )
-from armi_runtime.adapters.persistence.external_message_input import (
-    ExternalMessageInputRepository,
-)
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
-from armi_runtime.adapters.persistence.other_human_input import (
-    OtherHumanInputRepository,
-)
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
 )
@@ -178,9 +180,6 @@ from armi_runtime.adapters.persistence.role_policy import (
 )
 from armi_runtime.adapters.persistence.runtime_authority import (
     PostgreSQLRuntimeAuthority,
-)
-from armi_runtime.adapters.persistence.scene_timeline import (
-    PostgreSQLSceneTimelineQuery,
 )
 from armi_runtime.adapters.persistence.schema_gateway import (
     DatabaseViolation,
@@ -207,7 +206,6 @@ from armi_runtime.composition.candidate_validator import (
 from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.external_content_pipeline import ExternalContentPipeline
-from armi_runtime.composition.external_message_input import ExternalMessageInputService
 from armi_runtime.composition.life_opportunity import LifeOpportunityPipeline
 from armi_runtime.composition.model_contract import (
     build_request_bytes,
@@ -635,6 +633,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_inputs=CreatorInputRepository(),
                 other_inputs=OtherHumanInputRepository(),
                 unit_of_work_factory=input_factory,
+                data_rights=DataRightsOrderRepository(),
             )
             await service.open()
             try:
@@ -2401,6 +2400,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     factory,
                     storage=storage,
                     creator_party_id=creator_party_id,
+                    input_repository=CreatorInputRepository(),
                     notifier=None,
                     diagnostic=lambda _event: None,
                 )
@@ -4564,10 +4564,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             gateway = PostgreSQLSceneTimelineQuery(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
+                expected_role=fixture.runtime_role,
                 creator_party_id=scene[1],
                 cursor_key=b"s" * 32,
-                data_root=Path.cwd().resolve(),
-                max_object_bytes=1024 * 1024,
+                storage=ContentAddressedArtifactStore(
+                    Path.cwd().resolve() / "artifacts",
+                    max_object_bytes=1024 * 1024,
+                ),
                 pool_timeout_seconds=2,
             )
             await gateway.open()
@@ -5666,15 +5669,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             subject_state_module = bootstrap_subject_state()
+            mood_module = bootstrap_mood()
+            prompt_module = bootstrap_prompt()
             repository = PostgreSQLSubjectCommitRepository(
-                activity_module.commit,
-                memory_module.commit,
-                material_module.commit,
-                relationship_module.commit,
-                relationship_module.read,
-                relationship_module.policy,
-                sleep_module.commit,
-                subject_state_module.commit,
+                activity_commit=activity_module.commit,
+                memory_commit=memory_module.commit,
+                mood_commit=mood_module.commit,
+                prompt_commit=prompt_module.commit,
+                material_commit=material_module.commit,
+                relationship_commit=relationship_module.commit,
+                relationship_read=relationship_module.read,
+                relationship_policy=relationship_module.policy,
+                sleep_commit=sleep_module.commit,
+                subject_state_commit=subject_state_module.commit,
             )
             await memory_module.open()
             await relationship_module.open()

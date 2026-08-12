@@ -5,14 +5,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, cast, runtime_checkable
+from typing import Protocol, TypeVar, cast, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 
 from .artifacts import ArtifactId
 from .codex_runner import CodexModel, CodexReasoningEffort
-from .creator_input import CreatorInputAcceptance
 from .effects import EffectId
 
 _CODE = re.compile(
@@ -149,9 +148,14 @@ class CreatorCodexTaskCommand:
             raise CodexDelegationViolation("CODEX-TASK-REQUEST-SIZE")
 
 
+_CreatorCodexAcceptanceT_co = TypeVar("_CreatorCodexAcceptanceT_co", covariant=True)
+
+
 @runtime_checkable
-class CreatorCodexTaskAdmissionPort(Protocol):
-    async def accept(self, command: CreatorCodexTaskCommand) -> CreatorInputAcceptance:
+class CreatorCodexTaskAdmissionPort(Protocol[_CreatorCodexAcceptanceT_co]):
+    async def accept(
+        self, command: CreatorCodexTaskCommand
+    ) -> _CreatorCodexAcceptanceT_co:
         """Accept one Creator-authored task into the isolated Codex cognition path."""
         ...
 

@@ -10,16 +10,18 @@ from uuid import uuid4
 
 import httpx
 import rfc8785
-from armi_kernel.application import (
-    CredentialLocator,
-    CredentialPort,
-    CredentialPurpose,
+from armi_interaction.api import (
     ExternalContentRecognitionPort,
     ExternalContentRecognitionRequest,
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
     ExternalMessagePartKind,
     ExternalMessageViolation,
+)
+from armi_kernel.application import (
+    CredentialLocator,
+    CredentialPort,
+    CredentialPurpose,
 )
 
 _PURPOSE = CredentialPurpose("speech.recognition")

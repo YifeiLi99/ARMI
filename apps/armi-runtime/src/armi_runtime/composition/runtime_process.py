@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, cast
 from uuid import uuid7
 
-from armi_kernel.application import CreatorInputCommand, CreatorInputViolation
+from armi_interaction.api import CreatorInputCommand, CreatorInputViolation
 from armi_kernel.contracts import ContractViolation, IdempotencyKey, TraceId
 
 from .runtime_errors import RuntimeViolation

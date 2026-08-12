@@ -14,6 +14,9 @@ from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
+from armi_interaction.api import (
+    SceneKey,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -33,7 +36,6 @@ from armi_kernel.application import (
     OtherHumanReplyDraft,
     PublishedArtifact,
     RuntimeFence,
-    SceneKey,
     SubjectCommitResult,
     SubjectCommitViolation,
     WebResearchRequestDraft,

@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
-from armi_kernel.application import (
+from armi_interaction.api import (
     ExternalContentRecognitionResult,
     ExternalMessagePartKind,
     ExternalMessageViolation,
     ExternalVisualRole,
+)
+from armi_kernel.application import (
     WorkDraft,
     WorkId,
     WorkLease,

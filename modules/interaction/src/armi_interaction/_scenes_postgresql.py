@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from armi_kernel.application import (
+from armi_kernel.contracts import Instant
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from ._scene_contract import (
     CreatorSceneCollection,
     CreatorSceneView,
     SceneKey,
     SceneQueryViolation,
     SceneStatus,
 )
-from armi_kernel.contracts import Instant
-
-from .unit_of_work import PostgreSQLUnitOfWork
 
 
 class CreatorSceneRepository:
@@ -21,11 +21,11 @@ class CreatorSceneRepository:
 
     async def list(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         creator_party_id: UUID,
     ) -> CreatorSceneCollection:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         rows = await (
             await connection.execute(
                 """
@@ -56,11 +56,11 @@ class CreatorSceneRepository:
 
     async def subject_id(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         creator_party_id: UUID,
     ) -> UUID:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -89,14 +89,14 @@ class CreatorSceneRepository:
 
     async def create(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         scene_id: UUID,
         subject_id: UUID,
         creator_party_id: UUID,
         scene_key: SceneKey,
     ) -> CreatorSceneView:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -124,13 +124,13 @@ class CreatorSceneRepository:
 
     async def set_status(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         creator_party_id: UUID,
         scene_key: SceneKey,
         target_status: SceneStatus,
     ) -> tuple[UUID, CreatorSceneView, bool]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """

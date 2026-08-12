@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid7
 
-from armi_kernel.application import (
+from armi_kernel.contracts import Digest
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from ._creator_contract import (
     CreatorInputAcceptance,
+    CreatorInputContext,
     CreatorInputViolation,
     CreatorInteractionId,
     CreatorOperation,
@@ -15,16 +18,6 @@ from armi_kernel.application import (
     EvidenceId,
     OpportunityId,
 )
-from armi_kernel.contracts import Digest
-
-from .unit_of_work import PostgreSQLUnitOfWork
-
-
-@dataclass(frozen=True, slots=True)
-class CreatorInputContext:
-    subject_id: UUID
-    scene_id: UUID
-    creator_party_id: UUID
 
 
 class CreatorInputRepository:
@@ -34,11 +27,11 @@ class CreatorInputRepository:
 
     async def lock_scene(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         scene_id: UUID,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -55,12 +48,12 @@ class CreatorInputRepository:
 
     async def context(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         scene_key: str,
         creator_party_id: UUID,
     ) -> CreatorInputContext:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -91,13 +84,13 @@ class CreatorInputRepository:
 
     async def existing(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         context: CreatorInputContext,
         idempotency_key: str,
         request_digest: Digest,
     ) -> CreatorInputAcceptance | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -134,7 +127,7 @@ class CreatorInputRepository:
 
     async def create(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         context: CreatorInputContext,
         idempotency_key: str,
@@ -146,7 +139,7 @@ class CreatorInputRepository:
         external_message_key: str | None = None,
         addressed_to_subject: bool | None = None,
     ) -> CreatorInputAcceptance:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         interaction_id = uuid7()
         evidence_id = uuid7()
         opportunity_id = uuid7()
@@ -279,12 +272,12 @@ class CreatorInputRepository:
 
     async def operation(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         opportunity_id: OpportunityId,
         creator_party_id: UUID,
     ) -> CreatorOperation:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """

@@ -9,8 +9,8 @@ from uuid import UUID
 
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
 
-from .creator_input import EvidenceId, OpportunityId
-from .scenes import SceneKey, SceneStatus
+from ._creator_contract import EvidenceId, OpportunityId
+from ._scene_contract import SceneKey, SceneStatus
 
 _KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", re.ASCII)
 _MAX_MESSAGE_BYTES = 256 * 1024

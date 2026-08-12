@@ -9,7 +9,11 @@ from uuid import UUID
 
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
 
-from .other_human_input import OtherHumanPartyKey
+
+@runtime_checkable
+class DataRightsPartyKey(Protocol):
+    @property
+    def value(self) -> str: ...
 
 
 class DataRightsRequesterKind(StrEnum):
@@ -194,7 +198,7 @@ class DataRightsOrderPort(Protocol):
 
     async def request_other_human(
         self,
-        party_key: OtherHumanPartyKey,
+        party_key: DataRightsPartyKey,
         command: DataRightsOrderCommand,
     ) -> DataRightsOrderResult: ...
 
@@ -202,7 +206,7 @@ class DataRightsOrderPort(Protocol):
 
     async def get_other_human(
         self,
-        party_key: OtherHumanPartyKey,
+        party_key: DataRightsPartyKey,
         order_id: UUID,
     ) -> DataRightsOrderResult | None: ...
 
@@ -211,11 +215,11 @@ class DataRightsOrderPort(Protocol):
     async def detail_creator(self, order_id: UUID) -> DataRightsOrderDetail | None: ...
 
     async def list_other_human(
-        self, party_key: OtherHumanPartyKey
+        self, party_key: DataRightsPartyKey
     ) -> tuple[DataRightsOrderDetail, ...]: ...
 
     async def detail_other_human(
-        self, party_key: OtherHumanPartyKey, order_id: UUID
+        self, party_key: DataRightsPartyKey, order_id: UUID
     ) -> DataRightsOrderDetail | None: ...
 
 
@@ -228,6 +232,7 @@ __all__ = (
     "DataRightsOrderKind",
     "DataRightsOrderPort",
     "DataRightsOrderResult",
+    "DataRightsPartyKey",
     "DataRightsRequesterKind",
     "DataRightsScopeKind",
     "DataRightsViolation",

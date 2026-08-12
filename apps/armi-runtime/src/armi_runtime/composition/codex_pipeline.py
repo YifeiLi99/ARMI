@@ -18,6 +18,11 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_interaction.api import (
+    CreatorInputAcceptance,
+    CreatorInputContext,
+    CreatorInputTransactionPort,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -44,7 +49,6 @@ from armi_kernel.application import (
     CreatorCodexTaskAdmissionPort,
     CreatorCodexTaskCommand,
     CreatorEventResourceKind,
-    CreatorInputAcceptance,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
 )
@@ -56,10 +60,6 @@ from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRe
 from armi_runtime.adapters.persistence.codex_delegation import (
     CodexDispatchSnapshot,
     PostgreSQLCodexDelegationRepository,
-)
-from armi_runtime.adapters.persistence.creator_input import (
-    CreatorInputContext,
-    CreatorInputRepository,
 )
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWork,
@@ -76,7 +76,7 @@ def _ignore_diagnostic(_event: str) -> None:
 
 class CodexTaskSourceGateway(
     CodexTaskSourceAdmissionPort,
-    CreatorCodexTaskAdmissionPort,
+    CreatorCodexTaskAdmissionPort[CreatorInputAcceptance],
 ):
     __slots__ = (
         "_catalog",
@@ -95,6 +95,7 @@ class CodexTaskSourceGateway(
         *,
         storage: ContentAddressedArtifactStore,
         creator_party_id: UUID,
+        input_repository: CreatorInputTransactionPort,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic,
     ) -> None:
@@ -104,7 +105,7 @@ class CodexTaskSourceGateway(
         self._notifier = notifier
         self._diagnostic = diagnostic
         self._repository = PostgreSQLCodexDelegationRepository()
-        self._input_repository = CreatorInputRepository()
+        self._input_repository = input_repository
         self._catalog = ArtifactCatalogRepository()
 
     async def admit(self, draft: CodexTaskSourceDraft) -> CodexTaskSourceId:
@@ -316,6 +317,7 @@ class CodexEffectPipeline:
         environment_root: Path,
         run_root: Path,
         creator_party_id: UUID,
+        creator_input: CreatorInputTransactionPort,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
@@ -332,6 +334,7 @@ class CodexEffectPipeline:
             factory,
             storage=storage,
             creator_party_id=creator_party_id,
+            input_repository=creator_input,
             notifier=notifier,
             diagnostic=self._diagnostic,
         )

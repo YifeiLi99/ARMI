@@ -9,8 +9,7 @@ import zlib
 from pathlib import Path
 
 import httpx
-from armi_kernel.application import (
-    CredentialLocator,
+from armi_interaction.api import (
     ExternalContentRecognitionRequest,
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
@@ -18,6 +17,9 @@ from armi_kernel.application import (
     ExternalMessagePartKind,
     ExternalMessageViolation,
     ExternalVisualRole,
+)
+from armi_kernel.application import (
+    CredentialLocator,
 )
 from armi_kernel.contracts import TraceId
 from armi_runtime.adapters.model.doubao_speech import (

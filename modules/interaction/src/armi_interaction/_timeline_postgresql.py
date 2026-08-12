@@ -7,7 +7,6 @@ import hashlib
 import hmac
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
@@ -15,24 +14,25 @@ import psycopg
 import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
-    PROJECTION_VERSION,
     ArtifactId,
     ArtifactIntegrityStatus,
     ArtifactPrivacyScope,
     ArtifactRef,
     ArtifactViolation,
     AuditResultStatus,
+)
+from armi_kernel.contracts import Digest, Instant, OpaqueCursor
+from psycopg.pq import TransactionStatus
+from psycopg_pool import AsyncConnectionPool, PoolTimeout
+
+from ._scene_contract import (
+    PROJECTION_VERSION,
     SceneQueryViolation,
     SceneTimelineItem,
     SceneTimelinePage,
     SceneTimelineQuery,
     TimelineItemId,
 )
-from armi_kernel.contracts import Digest, Instant, OpaqueCursor
-from psycopg.pq import TransactionStatus
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
-
-from .role_policy import physical_role_name
 
 _SEARCH_PATH = "pg_catalog, armi"
 
@@ -197,19 +197,16 @@ class PostgreSQLSceneTimelineQuery:
         conninfo: str,
         *,
         environment_id: UUID,
+        expected_role: str,
         creator_party_id: UUID,
         cursor_key: bytes,
-        data_root: Path,
-        max_object_bytes: int,
+        storage: ContentAddressedArtifactStore,
         pool_timeout_seconds: int,
     ) -> None:
         self._creator_party_id = creator_party_id
-        self._expected_role = physical_role_name(environment_id, "runtime")
+        self._expected_role = expected_role
         self._pool_timeout_seconds = pool_timeout_seconds
-        self._storage = ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        )
+        self._storage = storage
         self._codec = SceneTimelineCursorCodec(
             key=cursor_key,
             environment_id=environment_id,

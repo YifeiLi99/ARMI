@@ -26,10 +26,10 @@ from armi_kernel.application import (
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResult,
+    DataRightsPartyKey,
     DataRightsRequesterKind,
     DataRightsScopeKind,
     DataRightsViolation,
-    OtherHumanPartyKey,
     RuntimeFence,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose
@@ -97,7 +97,7 @@ class DataRightsOrderService(DataRightsOrderPort):
 
     async def request_other_human(
         self,
-        party_key: OtherHumanPartyKey,
+        party_key: DataRightsPartyKey,
         command: DataRightsOrderCommand,
     ) -> DataRightsOrderResult:
         return await self._request(
@@ -115,7 +115,7 @@ class DataRightsOrderService(DataRightsOrderPort):
 
     async def get_other_human(
         self,
-        party_key: OtherHumanPartyKey,
+        party_key: DataRightsPartyKey,
         order_id: UUID,
     ) -> DataRightsOrderResult | None:
         return await self._get(
@@ -128,7 +128,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self,
         *,
         requester_kind: DataRightsRequesterKind,
-        party_key: OtherHumanPartyKey | None,
+        party_key: DataRightsPartyKey | None,
         command: DataRightsOrderCommand,
     ) -> DataRightsOrderResult:
         result = await self._record_request(
@@ -176,17 +176,17 @@ class DataRightsOrderService(DataRightsOrderPort):
         return await self._detail(order_id=order_id, requester_party_id=None)
 
     async def list_other_human(
-        self, party_key: OtherHumanPartyKey
+        self, party_key: DataRightsPartyKey
     ) -> tuple[DataRightsOrderDetail, ...]:
         return await self._list_for_other(party_key)
 
     async def detail_other_human(
-        self, party_key: OtherHumanPartyKey, order_id: UUID
+        self, party_key: DataRightsPartyKey, order_id: UUID
     ) -> DataRightsOrderDetail | None:
         return await self._detail_for_other(party_key, order_id)
 
     async def _list_for_other(
-        self, party_key: OtherHumanPartyKey
+        self, party_key: DataRightsPartyKey
     ) -> tuple[DataRightsOrderDetail, ...]:
         try:
             async with self._uow_factory.unit_of_work(read_only=True) as unit:
@@ -200,7 +200,7 @@ class DataRightsOrderService(DataRightsOrderPort):
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def _detail_for_other(
-        self, party_key: OtherHumanPartyKey, order_id: UUID
+        self, party_key: DataRightsPartyKey, order_id: UUID
     ) -> DataRightsOrderDetail | None:
         try:
             async with self._uow_factory.unit_of_work(read_only=True) as unit:
@@ -299,7 +299,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self,
         *,
         requester_kind: DataRightsRequesterKind,
-        party_key: OtherHumanPartyKey | None,
+        party_key: DataRightsPartyKey | None,
         command: DataRightsOrderCommand,
     ) -> DataRightsOrderResult:
         try:
@@ -382,7 +382,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self,
         *,
         requester_kind: DataRightsRequesterKind,
-        party_key: OtherHumanPartyKey | None,
+        party_key: DataRightsPartyKey | None,
         order_id: UUID,
     ) -> DataRightsOrderResult | None:
         try:
@@ -405,7 +405,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self,
         unit_of_work: PostgreSQLUnitOfWork,
         requester_kind: DataRightsRequesterKind,
-        party_key: OtherHumanPartyKey | None,
+        party_key: DataRightsPartyKey | None,
     ) -> UUID:
         if requester_kind is DataRightsRequesterKind.CREATOR:
             return await self._repository.creator_party(

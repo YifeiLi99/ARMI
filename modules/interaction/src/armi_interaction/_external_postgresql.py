@@ -8,6 +8,16 @@ from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
+    WorkDraft,
+    WorkId,
+    WorkOwner,
+    WorkPayloadRef,
+)
+from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from ._creator_contract import CreatorInputContext
+from ._external_contract import (
     ConfigureExternalCreatorCommand,
     ExternalConversationKind,
     ExternalCreatorBinding,
@@ -15,16 +25,8 @@ from armi_kernel.application import (
     ExternalMessageInteractionId,
     ExternalMessageViolation,
     ObservedExternalMessage,
-    WorkDraft,
-    WorkId,
-    WorkOwner,
-    WorkPayloadRef,
 )
-from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
-
-from .creator_input import CreatorInputContext
-from .other_human_input import OtherHumanInputContext
-from .unit_of_work import PostgreSQLUnitOfWork
+from ._other_human_postgresql import OtherHumanInputContext
 
 _PersonBinding = tuple[UUID, UUID, Literal["creator", "other_human"], UUID | None]
 
@@ -61,12 +63,12 @@ class ExternalMessageInputRepository:
 
     async def configure_creator(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         command: ConfigureExternalCreatorCommand,
         scene_key: str,
     ) -> ExternalCreatorBinding:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         creator = await (
             await connection.execute(
                 """
@@ -166,14 +168,14 @@ class ExternalMessageInputRepository:
 
     async def bind_message(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         command: ObservedExternalMessage,
         person_identity_key: str,
         conversation_identity_key: str,
         scene_key: str,
     ) -> ExternalMessageInputContext:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         person = await (
             await connection.execute(
                 """
@@ -247,13 +249,13 @@ class ExternalMessageInputRepository:
 
     async def existing_external(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         context: ExternalMessageInputContext,
         idempotency_key: str,
         request_digest: Digest,
     ) -> ExternalMessageInputAcceptance | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -280,7 +282,7 @@ class ExternalMessageInputRepository:
             return None
         if str(row[3]) != request_digest.value:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-IDEMPOTENCY-MISMATCH")
-        from armi_kernel.application import EvidenceId, OpportunityId
+        from ._creator_contract import EvidenceId, OpportunityId
 
         return ExternalMessageInputAcceptance(
             context.conversation_binding_id,
@@ -297,13 +299,13 @@ class ExternalMessageInputRepository:
 
     async def add_parts(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         interaction_id: UUID,
         command: ObservedExternalMessage,
         media_status: str,
     ) -> tuple[UUID, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         part_ids: list[UUID] = []
         for ordinal, part in enumerate(command.parts, start=1):
             part_id = uuid7()
@@ -341,7 +343,7 @@ class ExternalMessageInputRepository:
 
     async def create_deferred(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         context: ExternalMessageInputContext,
         command: ObservedExternalMessage,
@@ -350,7 +352,7 @@ class ExternalMessageInputRepository:
         content_digest: Digest,
         recognition_status: str,
     ) -> ExternalMessageInputAcceptance:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         interaction_id = uuid7()
         purpose = (
             "creator_message"

@@ -22,6 +22,7 @@
     "modules/subject-state/src",
     "modules/mood/src",
     "modules/prompt/src",
+    "modules/interaction/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -42,6 +43,7 @@
     "modules/subject-state/src",
     "modules/mood/src",
     "modules/prompt/src",
+    "modules/interaction/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",
