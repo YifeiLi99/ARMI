@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import cast
 from uuid import uuid7
 
 from armi_activity.api import (
@@ -34,6 +33,7 @@ from armi_kernel.contracts import (
 from armi_material.api import MaterialReadPort
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 from armi_sleep.api import SleepReadPort
+from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -47,6 +47,7 @@ class PostgreSQLLifeOpportunityRepository:
         "_relationship_policy",
         "_relationships",
         "_sleep",
+        "_subject_state",
     )
 
     def __init__(
@@ -56,12 +57,14 @@ class PostgreSQLLifeOpportunityRepository:
         sleep: SleepReadPort,
         activities: ActivityReadPort,
         materials: MaterialReadPort,
+        subject_state: SubjectStateReadPort,
     ) -> None:
         self._activities = activities
         self._materials = materials
         self._relationships = relationships
         self._relationship_policy = relationship_policy
         self._sleep = sleep
+        self._subject_state = subject_state
 
     async def admit_generation_available(
         self,
@@ -261,8 +264,7 @@ class PostgreSQLLifeOpportunityRepository:
         state = await (
             await connection.execute(
                 """
-                SELECT revision.semantic_payload,
-                       EXISTS (
+                SELECT EXISTS (
                            SELECT 1 FROM armi.opportunities
                            WHERE subject_id = %s
                              AND purpose = 'consider_activity_attention'
@@ -273,15 +275,11 @@ class PostgreSQLLifeOpportunityRepository:
                             'completed', 'stale', 'failed', 'cancelled',
                             'candidate_rejected'
                         ))
-                FROM armi.subject_component_heads AS head
-                JOIN armi.subject_component_revisions AS revision
-                  ON revision.component_revision_id = head.current_revision_id
-                WHERE head.subject_id = %s AND head.component_kind = 'life_mode'
                 """,
-                (fence.subject_id, fence.subject_id),
+                (fence.subject_id,),
             )
         ).fetchone()
-        if state is None or not isinstance(state[0], dict):
+        if state is None:
             raise LifeViolation("LIFE-SCHEDULER-STATE")
         if maintenance is not None:
             return OpportunityAdmissionOutcome(
@@ -289,16 +287,14 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-BACKPRESSURE-MAINTENANCE",
             )
-        life_mode = cast(dict[str, object], state[0])
-        active_values = life_mode.get("active_activities")
-        if type(active_values) is not list:
-            raise LifeViolation("LIFE-SCHEDULER-FOCUS")
-        active_list = cast(list[object], active_values)
-        if len(active_list) > 1:
-            raise LifeViolation("LIFE-SCHEDULER-FOCUS")
         try:
-            active_ids = tuple(ActivityId.from_wire(value) for value in active_list)
-        except ContractViolation:
+            life_mode = await self._subject_state.life_mode(
+                unit_of_work.transaction, subject_id=fence.subject_id
+            )
+            active_ids = tuple(
+                ActivityId(value) for value in life_mode.active_activity_ids
+            )
+        except ContractViolation, SubjectStateViolation:
             raise LifeViolation("LIFE-SCHEDULER-FOCUS") from None
         heads = await self._activities.scheduling_heads(
             unit_of_work.transaction, subject_id=fence.subject_id
@@ -308,9 +304,9 @@ class PostgreSQLLifeOpportunityRepository:
                 datetime.now(UTC),
                 heads,
                 active_ids,
-                bool(state[1]),
+                bool(state[0]),
                 model_concurrency,
-                int(state[2]),
+                int(state[1]),
             )
         )
         if decision.disposition is not ActivitySchedulingDisposition.ADMIT:
@@ -457,8 +453,7 @@ class PostgreSQLLifeOpportunityRepository:
         state = await (
             await connection.execute(
                 """
-                SELECT revision.semantic_payload,
-                       EXISTS (
+                SELECT EXISTS (
                            SELECT 1 FROM armi.opportunities
                            WHERE subject_id = %s
                              AND purpose = 'consider_activity_internal_work'
@@ -469,15 +464,11 @@ class PostgreSQLLifeOpportunityRepository:
                             'completed', 'stale', 'failed', 'cancelled',
                             'candidate_rejected'
                         ))
-                FROM armi.subject_component_heads AS head
-                JOIN armi.subject_component_revisions AS revision
-                  ON revision.component_revision_id = head.current_revision_id
-                WHERE head.subject_id = %s AND head.component_kind = 'life_mode'
                 """,
-                (fence.subject_id, fence.subject_id),
+                (fence.subject_id,),
             )
         ).fetchone()
-        if state is None or not isinstance(state[0], dict):
+        if state is None:
             raise LifeViolation("LIFE-SCHEDULER-STATE")
         if maintenance is not None:
             return OpportunityAdmissionOutcome(
@@ -485,30 +476,32 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-BACKPRESSURE-MAINTENANCE",
             )
-        if bool(state[1]):
+        if bool(state[0]):
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
                 "LIFE-BACKPRESSURE-INTERNAL-WORK-OUTSTANDING",
             )
-        if int(state[2]) >= model_concurrency - 1:
+        if int(state[1]) >= model_concurrency - 1:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
                 "LIFE-BACKPRESSURE-COGNITION-CAPACITY",
             )
-        active_values = cast(dict[str, object], state[0]).get("active_activities")
-        if type(active_values) is not list:
-            raise LifeViolation("LIFE-SCHEDULER-FOCUS")
-        active_list = cast(list[object], active_values)
-        if len(active_list) != 1:
+        try:
+            life_mode = await self._subject_state.life_mode(
+                unit_of_work.transaction, subject_id=fence.subject_id
+            )
+        except SubjectStateViolation:
+            raise LifeViolation("LIFE-SCHEDULER-FOCUS") from None
+        if len(life_mode.active_activity_ids) != 1:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
                 "LIFE-SCHEDULER-IDLE",
             )
         try:
-            activity_id = ActivityId.from_wire(active_list[0])
+            activity_id = ActivityId(life_mode.active_activity_ids[0])
         except ContractViolation:
             raise LifeViolation("LIFE-SCHEDULER-FOCUS") from None
         row = await self._activities.focused_work_head(

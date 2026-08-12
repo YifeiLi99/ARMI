@@ -12,6 +12,7 @@ from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
 from armi_postgresql_contract.catalog_fingerprint import (
     database_catalog_digest,
 )
+from armi_subject_state.api import SubjectStateAdminReadPort
 from psycopg import sql
 from psycopg.abc import QueryNoTemplate
 
@@ -31,7 +32,7 @@ def _safe(value: Any) -> Any:
 class AdminObservationGateway:
     """Execute only static, bounded SELECT and environment registration statements."""
 
-    __slots__ = ("_conninfo", "_expected_role", "_materials")
+    __slots__ = ("_conninfo", "_expected_role", "_materials", "_subject_state")
 
     def __init__(
         self,
@@ -39,10 +40,12 @@ class AdminObservationGateway:
         *,
         expected_role: str,
         materials: MaterialAdminReadPort,
+        subject_state: SubjectStateAdminReadPort,
     ) -> None:
         self._conninfo = conninfo
         self._expected_role = expected_role
         self._materials = materials
+        self._subject_state = subject_state
 
     def environment(self) -> dict[str, Any] | None:
         row = self._one(
@@ -140,30 +143,19 @@ class AdminObservationGateway:
             "current_generation_id",
             "current_bundle_activation_id",
         )
-        rows = self._all(
-            "SELECT head.component_kind, head.component_version, "
-            "revision.privacy_scope"
-            + (", revision.semantic_payload" if private else "")
-            + " FROM armi.subject_component_heads AS head "
-            "JOIN armi.subject_component_revisions AS revision "
-            "ON revision.component_revision_id = head.current_revision_id "
-            "ORDER BY head.component_kind"
-        )
-        component_columns = (
-            "component_kind",
-            "component_version",
-            "privacy_scope",
-            *(("payload",) if private else ()),
-        )
+        components = self._subject_state.current_components(private=private)
         result = {
             "subject": dict(
                 zip(columns, (_safe(value) for value in subject), strict=True)
             ),
             "components": [
-                dict(
-                    zip(component_columns, (_safe(value) for value in row), strict=True)
-                )
-                for row in rows
+                {
+                    "component_kind": item.kind.value,
+                    "component_version": item.version,
+                    "privacy_scope": item.privacy_scope,
+                    **({"payload": _safe(item.payload)} if private else {}),
+                }
+                for item in components
             ],
         }
         if private:

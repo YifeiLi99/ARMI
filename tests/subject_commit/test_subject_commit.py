@@ -14,13 +14,16 @@ from armi_kernel.application import (
     SubjectCommitId,
     SubjectCommitResult,
     SubjectCommitViolation,
-    SubjectComponentKind,
-    SubjectComponentSummary,
-    SubjectSummary,
 )
 from armi_kernel.contracts import Digest
-from armi_runtime.adapters.persistence.subject_commit import _component_heads_are_stale
 from armi_runtime.composition.subject_commit_contract import parse_subject_change_set
+from armi_subject_state.api import (
+    SubjectComponentSummary,
+    SubjectStateKind,
+    SubjectStateViolation,
+    SubjectSummary,
+    default_subject_state_cognition,
+)
 
 
 def _change_set(*, disposition: str = "change") -> bytes:
@@ -85,15 +88,24 @@ def test_change_set_parser_is_strict_and_deterministic() -> None:
     assert first.canonical_bytes == second.canonical_bytes == value
     assert first.base_subject_version == 0
     assert len(first.experiences) == 1
-    assert len(first.components) == 1
+    state = tuple(item for item in first.owner_drafts if item.owner == "self")
+    assert len(state) == 1
+    assert (
+        default_subject_state_cognition()
+        .decode(state[0].canonical_payload)
+        .expected_version
+        == 1
+    )
 
 
-def test_t03_rechecks_component_head_before_any_subject_change() -> None:
+def test_legacy_component_is_bound_to_subject_state_owner() -> None:
     change_set = parse_subject_change_set(_change_set())
-    owner = change_set.components[0].owner
-    assert not _component_heads_are_stale({owner: 1}, change_set)
-    assert _component_heads_are_stale({owner: 2}, change_set)
-    assert _component_heads_are_stale({}, change_set)
+    draft = change_set.owner_drafts[0]
+    assert draft.owner == "self"
+    assert (
+        default_subject_state_cognition().decode(draft.canonical_payload).kind
+        is SubjectStateKind.SELF
+    )
 
 
 @pytest.mark.parametrize(
@@ -114,19 +126,17 @@ def test_subject_summary_is_private_and_ordered() -> None:
     summary = SubjectSummary(
         2,
         (
-            SubjectComponentSummary(SubjectComponentKind.SELF, 2, "armi.self.v1"),
-            SubjectComponentSummary(SubjectComponentKind.MIND, 1, "armi.mind.v1"),
-            SubjectComponentSummary(
-                SubjectComponentKind.LIFE_MODE, 1, "armi.life-mode.v1"
-            ),
+            SubjectComponentSummary(SubjectStateKind.SELF, 2, "armi.self.v1"),
+            SubjectComponentSummary(SubjectStateKind.MIND, 1, "armi.mind.v1"),
+            SubjectComponentSummary(SubjectStateKind.LIFE_MODE, 1, "armi.life-mode.v1"),
         ),
-        SubjectCommitId(uuid7()),
+        uuid7(),
         datetime.now(UTC),
     )
     assert summary.subject_version == 2
     assert all(value.content_visibility == "private" for value in summary.components)
-    with pytest.raises(SubjectCommitViolation, match="CON-SUBJECT-SUMMARY"):
-        SubjectComponentSummary(SubjectComponentKind.SELF, 2, "armi.mind.v1")
+    with pytest.raises(SubjectStateViolation, match="SUBJECT-STATE-SUMMARY"):
+        SubjectComponentSummary(SubjectStateKind.SELF, 2, "armi.mind.v1")
 
 
 def test_commit_result_requires_exact_applied_shape_and_redacts_error() -> None:

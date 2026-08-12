@@ -19,6 +19,7 @@
     "modules/sleep/src",
     "modules/activity/src",
     "modules/material/src",
+    "modules/subject-state/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -36,6 +37,7 @@
     "modules/sleep/src",
     "modules/activity/src",
     "modules/material/src",
+    "modules/subject-state/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

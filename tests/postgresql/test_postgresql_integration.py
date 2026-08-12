@@ -221,6 +221,10 @@ from armi_runtime.composition.web_search_pipeline import build_web_search_pipeli
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from armi_sleep.api import CreatorMaintenanceViolation
 from armi_sleep.bootstrap import bootstrap_sleep
+from armi_subject_state.bootstrap import (
+    bootstrap_subject_state,
+    bootstrap_subject_state_admin_read,
+)
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -1970,6 +1974,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 expected_role=physical_role_name(fixture.environment_id, "runtime"),
                 creator_party_id=manifest.creator_party_id,
                 pool_timeout_seconds=2,
+                focus=bootstrap_subject_state().read,
             )
             await activity_module.open()
             material_module = bootstrap_material(
@@ -1997,6 +2002,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     relationship_policy=relationship_module.policy,
                     sleep_maintenance=sleep_module.maintenance,
                     sleep_read=sleep_module.read,
+                    subject_state_read=bootstrap_subject_state().read,
                     maintenance_consideration_seconds=1,
                     maintenance_deadline_seconds=120,
                 )
@@ -2125,6 +2131,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 expected_role=physical_role_name(fixture.environment_id, "runtime"),
                 creator_party_id=creator_party_id,
                 pool_timeout_seconds=2,
+                focus=bootstrap_subject_state().read,
             )
             material_module = bootstrap_material(
                 fixture.runtime_dsn,
@@ -2148,6 +2155,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 materials=material_module.read,
                 memories=memory_module.read,
                 relationships=relationship_module.read,
+                subject_state=bootstrap_subject_state().read,
             )
             await life_records.open()
             try:
@@ -2269,6 +2277,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 expected_role=physical_role_name(fixture.environment_id, "runtime"),
                 creator_party_id=creator_party_id,
                 pool_timeout_seconds=2,
+                focus=bootstrap_subject_state().read,
             )
             await activity_module.open()
             material_module = bootstrap_material(
@@ -2295,6 +2304,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 relationship_policy=relationship_module.policy,
                 sleep_maintenance=sleep_module.maintenance,
                 sleep_read=sleep_module.read,
+                subject_state_read=bootstrap_subject_state().read,
             )
             await pipeline.open()
             try:
@@ -2510,6 +2520,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.admin_role_dsn,
                 expected_role=fixture.admin_role,
                 artifact_root=Path.cwd() / "data" / "artifacts",
+            ),
+            subject_state=bootstrap_subject_state_admin_read(
+                fixture.admin_role_dsn,
+                expected_role=fixture.admin_role,
             ),
         )
         observation.register_environment(
@@ -5039,7 +5053,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 if validation.change_set is None or not (
                     validation.change_set.experiences
-                    or validation.change_set.components
+                    or validation.change_set.owner_drafts
                     or validation.change_set.capability_requests
                     or validation.change_set.action_choices
                 ):
@@ -5419,7 +5433,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     candidate_contract_version,
                     artifact_ids["change_set"],
                     len(change_set.experiences)
-                    + len(change_set.components)
+                    + len(change_set.owner_drafts)
                     + len(change_set.capability_requests)
                     + len(change_set.action_choices),
                     ids["runtime"],
@@ -5454,6 +5468,47 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         ids["context_item"],
                     ),
                 )
+            for ordinal, draft in enumerate(change_set.owner_drafts, 1):
+                connection.execute(
+                    """
+                    INSERT INTO armi.cognitive_candidate_validation_items (
+                        candidate_validation_id, proposal_ref, atomic_group_ref,
+                        owner_kind, fact_class, validation_status, ordinal)
+                        VALUES (%s, %s, %s, %s, %s, 'accepted', %s)
+                    """,
+                    (
+                        ids["validation"],
+                        draft.proposal_ref,
+                        draft.atomic_group_ref,
+                        draft.owner,
+                        draft.fact_class.value,
+                        len(change_set.experiences) + ordinal,
+                    ),
+                )
+                for basis_ordinal in draft.basis_ordinals:
+                    context_item_id = (
+                        ids["context_item"]
+                        if basis_ordinal == 1
+                        else (
+                            ids["context_scene"]
+                            if basis_ordinal == 2
+                            else ids["context_capability"]
+                        )
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO armi.cognitive_candidate_basis_links (
+                            candidate_validation_id, proposal_ref,
+                            context_item_id, ordinal
+                        ) VALUES (%s, %s, %s, %s)
+                        """,
+                        (
+                            ids["validation"],
+                            draft.proposal_ref,
+                            context_item_id,
+                            basis_ordinal,
+                        ),
+                    )
             for ordinal, request in enumerate(change_set.capability_requests, 1):
                 connection.execute(
                     """
@@ -5467,7 +5522,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         request.proposal_ref,
                         request.atomic_group_ref,
                         len(change_set.experiences)
-                        + len(change_set.components)
+                        + len(change_set.owner_drafts)
                         + ordinal,
                     ),
                 )
@@ -5508,7 +5563,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         action.proposal_ref,
                         action.atomic_group_ref,
                         len(change_set.experiences)
-                        + len(change_set.components)
+                        + len(change_set.owner_drafts)
                         + len(change_set.capability_requests)
                         + ordinal,
                     ),
@@ -5595,14 +5650,26 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 expected_role=physical_role_name(fixture.environment_id, "runtime"),
                 creator_party_id=creator_party_id,
                 pool_timeout_seconds=2,
+                focus=bootstrap_subject_state().read,
             )
+            material_module = bootstrap_material(
+                fixture.runtime_dsn,
+                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                creator_party_id=creator_party_id,
+                data_root=Path.cwd(),
+                max_object_bytes=1024 * 1024,
+                pool_timeout_seconds=2,
+            )
+            subject_state_module = bootstrap_subject_state()
             repository = PostgreSQLSubjectCommitRepository(
                 activity_module.commit,
                 memory_module.commit,
+                material_module.commit,
                 relationship_module.commit,
                 relationship_module.read,
                 relationship_module.policy,
                 sleep_module.commit,
+                subject_state_module.commit,
             )
             await memory_module.open()
             await relationship_module.open()

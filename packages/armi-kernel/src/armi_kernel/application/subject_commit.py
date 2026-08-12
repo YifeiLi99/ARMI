@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -20,12 +19,6 @@ class CandidateApplicationStatus(StrEnum):
     NO_ACTION = "no_action"
     NEED_INFORMATION = "need_information"
     STALE = "stale"
-
-
-class SubjectComponentKind(StrEnum):
-    SELF = "self"
-    MIND = "mind"
-    LIFE_MODE = "life_mode"
 
 
 class SubjectCommitViolation(RuntimeError):
@@ -74,60 +67,6 @@ class CandidateApplicationId:
 
     def __str__(self) -> str:
         return str(self.value)
-
-
-@dataclass(frozen=True, slots=True)
-class SubjectComponentSummary:
-    kind: SubjectComponentKind
-    version: int
-    schema_version: str
-    content_visibility: str = "private"
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.kind) is not SubjectComponentKind
-            or type(self.version) is not int
-            or self.version <= 0
-            or self.schema_version
-            not in {"armi.self.v1", "armi.mind.v1", "armi.life-mode.v1"}
-            or self.content_visibility != "private"
-        ):
-            raise SubjectCommitViolation("CON-SUBJECT-SUMMARY")
-        expected = {
-            SubjectComponentKind.SELF: "armi.self.v1",
-            SubjectComponentKind.MIND: "armi.mind.v1",
-            SubjectComponentKind.LIFE_MODE: "armi.life-mode.v1",
-        }[self.kind]
-        if self.schema_version != expected:
-            raise SubjectCommitViolation("CON-SUBJECT-SUMMARY")
-
-
-@dataclass(frozen=True, slots=True)
-class SubjectSummary:
-    subject_version: int
-    components: tuple[SubjectComponentSummary, ...]
-    latest_commit_ref: SubjectCommitId | None
-    observed_at: datetime
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.subject_version) is not int
-            or self.subject_version < 0
-            or type(self.components) is not tuple
-            or tuple(component.kind for component in self.components)
-            != (
-                SubjectComponentKind.SELF,
-                SubjectComponentKind.MIND,
-                SubjectComponentKind.LIFE_MODE,
-            )
-            or (
-                self.latest_commit_ref is not None
-                and type(self.latest_commit_ref) is not SubjectCommitId
-            )
-            or type(self.observed_at) is not datetime
-            or self.observed_at.tzinfo is None
-        ):
-            raise SubjectCommitViolation("CON-SUBJECT-SUMMARY")
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,7 +126,4 @@ __all__ = (
     "SubjectCommitPort",
     "SubjectCommitResult",
     "SubjectCommitViolation",
-    "SubjectComponentKind",
-    "SubjectComponentSummary",
-    "SubjectSummary",
 )

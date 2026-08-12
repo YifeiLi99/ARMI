@@ -14,6 +14,7 @@ from armi_material.api import (
     MaterialAdminSnapshot,
     MaterialViolation,
 )
+from armi_subject_state.api import SubjectStateAdminComponent
 
 
 class _Materials:
@@ -31,6 +32,14 @@ class _BrokenMaterials:
         raise MaterialViolation("MATERIAL-OBSERVATION-ARTIFACT")
 
 
+class _SubjectState:
+    def current_components(
+        self, *, private: bool
+    ) -> tuple[SubjectStateAdminComponent, ...]:
+        del private
+        return ()
+
+
 class _Observation(AdminObservationGateway):
     def __init__(
         self,
@@ -42,6 +51,7 @@ class _Observation(AdminObservationGateway):
             "postgresql://unused",
             expected_role="armi_test_admin",
             materials=materials,
+            subject_state=_SubjectState(),
         )
         self.subject = subject
 

@@ -16,6 +16,7 @@ from psycopg_pool import AsyncConnectionPool, PoolTimeout
 from .api import (
     ActivityAttentionRootState,
     ActivityCandidateSnapshot,
+    ActivityFocusReadPort,
     ActivityHeadSnapshot,
     ActivityLifeRecordItem,
     ActivityOutreachSource,
@@ -56,6 +57,7 @@ class PostgreSQLActivityRead:
     __slots__ = (
         "_creator_party_id",
         "_expected_role",
+        "_focus",
         "_pool",
         "_pool_timeout_seconds",
     )
@@ -67,10 +69,12 @@ class PostgreSQLActivityRead:
         expected_role: str,
         creator_party_id: UUID,
         pool_timeout_seconds: int,
+        focus: ActivityFocusReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._expected_role = expected_role
         self._pool_timeout_seconds = pool_timeout_seconds
+        self._focus = focus
 
         async def check(
             connection: psycopg.AsyncConnection[tuple[Any, ...]],
@@ -540,44 +544,27 @@ class PostgreSQLActivityRead:
     async def _scope(
         self, connection: psycopg.AsyncConnection[tuple[Any, ...]]
     ) -> tuple[UUID, frozenset[str]]:
-        creator = await (
+        row = await (
             await connection.execute(
                 """
-                SELECT 1 FROM armi.parties
-                WHERE party_id = %s AND party_kind = 'creator'
-                  AND creator_role = 'unique_primary_creator' AND status = 'active'
+                SELECT subject.subject_id
+                FROM armi.subjects AS subject
+                JOIN armi.parties AS creator
+                  ON creator.party_id = %s
+                 AND creator.party_kind = 'creator'
+                 AND creator.creator_role = 'unique_primary_creator'
+                 AND creator.status = 'active'
+                WHERE subject.singleton_key = 1
                 """,
                 (self._creator_party_id,),
             )
         ).fetchone()
-        row = await (
-            await connection.execute(
-                """
-                SELECT subject.subject_id, revision.semantic_payload
-                FROM armi.subjects AS subject
-                JOIN armi.subject_component_heads AS head
-                  ON head.subject_id = subject.subject_id
-                 AND head.component_kind = 'life_mode'
-                JOIN armi.subject_component_revisions AS revision
-                  ON revision.component_revision_id = head.current_revision_id
-                WHERE subject.singleton_key = 1
-                """
-            )
-        ).fetchone()
-        if creator is None or row is None or not isinstance(row[0], UUID):
+        if row is None or not isinstance(row[0], UUID):
             raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
-        payload = row[1]
-        if not isinstance(payload, dict):
-            raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
-        active = cast(dict[str, object], payload).get("active_activities")
-        if type(active) is not list:
-            raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
-        active_values = cast(list[object], active)
-        if len(active_values) > 1 or any(
-            type(item) is not str for item in active_values
-        ):
-            raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
-        return row[0], frozenset(cast(list[str], active_values))
+        active_activity_ids = await self._focus.active_activity_ids(
+            connection, subject_id=row[0]
+        )
+        return row[0], frozenset(str(item) for item in active_activity_ids)
 
     @staticmethod
     def _activity(row: tuple[Any, ...], focused: frozenset[str]) -> CreatorActivityItem:

@@ -14,10 +14,6 @@ from armi_kernel.application import (
     CreatorOperationPhase,
     EvidenceId,
     OpportunityId,
-    SubjectCommitId,
-    SubjectComponentKind,
-    SubjectComponentSummary,
-    SubjectSummary,
 )
 from armi_kernel.contracts import Digest
 
@@ -531,65 +527,6 @@ class CreatorInputRepository:
             }
             else None,
         )
-
-    async def subject_summary(
-        self,
-        unit_of_work: PostgreSQLUnitOfWork,
-        *,
-        creator_party_id: UUID,
-    ) -> SubjectSummary:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        rows = await (
-            await connection.execute(
-                """
-                SELECT subject.subject_version, head.component_kind,
-                       head.component_version, commit.subject_commit_id,
-                       statement_timestamp()
-                FROM armi.subjects AS subject
-                JOIN armi.parties AS creator
-                  ON creator.party_id = %s
-                 AND creator.party_kind = 'creator'
-                 AND creator.creator_role = 'unique_primary_creator'
-                 AND creator.status = 'active'
-                JOIN armi.subject_component_heads AS head
-                  ON head.subject_id = subject.subject_id
-                LEFT JOIN LATERAL (
-                    SELECT subject_commit_id
-                    FROM armi.subject_commits
-                    WHERE subject_id = subject.subject_id
-                    ORDER BY new_subject_version DESC
-                    LIMIT 1
-                ) AS commit ON true
-                WHERE subject.singleton_key = 1 AND subject.status = 'active'
-                ORDER BY CASE head.component_kind
-                    WHEN 'self' THEN 1 WHEN 'mind' THEN 2 ELSE 3 END
-                """,
-                (creator_party_id,),
-            )
-        ).fetchall()
-        if len(rows) != 3:
-            raise CreatorInputViolation("DB-SUBJECT-SUMMARY")
-        schema_by_kind = {
-            "self": "armi.self.v1",
-            "mind": "armi.mind.v1",
-            "life_mode": "armi.life-mode.v1",
-        }
-        try:
-            return SubjectSummary(
-                int(rows[0][0]),
-                tuple(
-                    SubjectComponentSummary(
-                        SubjectComponentKind(str(row[1])),
-                        int(row[2]),
-                        schema_by_kind[str(row[1])],
-                    )
-                    for row in rows
-                ),
-                SubjectCommitId(rows[0][3]) if rows[0][3] is not None else None,
-                rows[0][4],
-            )
-        except KeyError, TypeError, ValueError:
-            raise CreatorInputViolation("DB-SUBJECT-SUMMARY") from None
 
 
 def _acceptance(

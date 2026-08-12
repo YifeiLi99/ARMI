@@ -14,7 +14,7 @@ from uuid import UUID
 
 import psycopg
 import rfc8785
-from psycopg.types.json import Jsonb
+from armi_subject_state.api import SubjectStateAdminCorrectionPort
 from psycopg_pool import PoolTimeout
 
 from .role_session import AdminRoleBoundPool, AdminRoleSessionError
@@ -41,7 +41,13 @@ def _digest(value: object) -> str:
 class AdminCorrectionGateway:
     """Apply only the five versioned S037 correction handlers."""
 
-    __slots__ = ("_conninfo", "_environment_id", "_expected_role", "_incarnation")
+    __slots__ = (
+        "_conninfo",
+        "_environment_id",
+        "_expected_role",
+        "_incarnation",
+        "_subject_state",
+    )
 
     def __init__(
         self,
@@ -50,11 +56,13 @@ class AdminCorrectionGateway:
         expected_role: str,
         environment_id: str,
         incarnation: int,
+        subject_state: SubjectStateAdminCorrectionPort,
     ) -> None:
         self._conninfo = conninfo
         self._expected_role = expected_role
         self._environment_id = environment_id
         self._incarnation = incarnation
+        self._subject_state = subject_state
 
     def preview(
         self,
@@ -403,8 +411,8 @@ class AdminCorrectionGateway:
             connection, spec, result_id=result_id, for_update=for_update
         )
 
-    @staticmethod
     def _component_snapshot(
+        self,
         connection: psycopg.Connection[Any],
         spec: dict[str, Any],
         *,
@@ -412,32 +420,24 @@ class AdminCorrectionGateway:
         result_id: str,
         for_update: bool,
     ) -> dict[str, Any]:
-        suffix = " FOR UPDATE OF head" if for_update else ""
-        row = connection.execute(
-            "SELECT head.current_revision_id, head.component_version, "
-            "revision.semantic_payload, "
-            "(SELECT max(candidate.component_version) "
-            " FROM armi.subject_component_revisions AS candidate "
-            " WHERE candidate.subject_id = head.subject_id "
-            " AND candidate.component_kind = head.component_kind) "
-            "FROM armi.subject_component_heads AS head "
-            "JOIN armi.subject_component_revisions AS revision "
-            "ON revision.component_revision_id = head.current_revision_id "
-            "WHERE head.subject_id = %s AND head.component_kind = %s" + suffix,
-            (subject_id, spec["component_kind"]),
-        ).fetchone()
-        if row is None:
+        head = self._subject_state.current_head(
+            connection,
+            subject_id=subject_id,
+            kind=str(spec["component_kind"]),
+            for_update=for_update,
+        )
+        if head is None:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-COMPONENT-NOT-FOUND")
-        if int(row[1]) != int(spec["expected_component_version"]):
+        if head.current_version != int(spec["expected_component_version"]):
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-COMPONENT-VERSION")
         before = _digest(
             {
-                "revision_id": str(row[0]),
-                "component_version": int(row[1]),
+                "revision_id": str(head.current_revision_id),
+                "component_version": head.current_version,
             }
         )
         if spec["correction_kind"] == "replace_subject_component":
-            next_version = int(row[3]) + 1
+            next_version = head.maximum_version + 1
             after = _digest(
                 {
                     "revision_id": result_id,
@@ -445,18 +445,17 @@ class AdminCorrectionGateway:
                 }
             )
             target = {
-                "current_revision_id": str(row[0]),
-                "current_version": int(row[1]),
+                "current_revision_id": str(head.current_revision_id),
+                "current_version": head.current_version,
                 "next_version": next_version,
             }
         else:
-            target_row = connection.execute(
-                "SELECT component_revision_id, component_version "
-                "FROM armi.subject_component_revisions "
-                "WHERE component_revision_id = %s AND subject_id = %s "
-                "AND component_kind = %s",
-                (spec["target_revision_id"], subject_id, spec["component_kind"]),
-            ).fetchone()
+            target_row = self._subject_state.revision(
+                connection,
+                revision_id=str(spec["target_revision_id"]),
+                subject_id=subject_id,
+                kind=str(spec["component_kind"]),
+            )
             if target_row is None:
                 raise AdminCorrectionGatewayError("ADMIN-CORRECTION-REVISION-NOT-FOUND")
             after = _digest(
@@ -466,8 +465,8 @@ class AdminCorrectionGateway:
                 }
             )
             target = {
-                "current_revision_id": str(row[0]),
-                "current_version": int(row[1]),
+                "current_revision_id": str(head.current_revision_id),
+                "current_version": head.current_version,
                 "target_revision_id": str(target_row[0]),
                 "target_version": int(target_row[1]),
             }
@@ -475,7 +474,7 @@ class AdminCorrectionGateway:
             "target_identity": _digest(
                 {"component_kind": spec["component_kind"], "subject_id": subject_id}
             ),
-            "target_versions": {"component": int(row[1])},
+            "target_versions": {"component": head.current_version},
             "target_count": 1,
             "dependency_count": 2,
             "side_work_required": False,
@@ -711,53 +710,26 @@ class AdminCorrectionGateway:
         kind = cast(CorrectionKind, spec["correction_kind"])
         handler = cast(dict[str, Any], snapshot["handler"])
         if kind == "replace_subject_component":
-            connection.execute(
-                "INSERT INTO armi.subject_component_revisions ("
-                "component_revision_id, subject_id, component_kind, component_version, "
-                "previous_revision_id, origin_kind, origin_ref, subject_commit_id, "
-                "proposal_ref, semantic_payload, privacy_scope) "
-                "VALUES (%s, %s, %s, %s, %s, 'admin_correction', %s, NULL, NULL, %s, 'private')",
-                (
-                    snapshot["result_id"],
-                    snapshot["subject_id"],
-                    spec["component_kind"],
-                    handler["next_version"],
-                    handler["current_revision_id"],
-                    snapshot["result_id"],
-                    Jsonb(spec["replacement"]),
-                ),
-            )
-            revision_id = snapshot["result_id"]
-            changed = connection.execute(
-                "UPDATE armi.subject_component_heads SET current_revision_id = %s, "
-                "component_version = %s WHERE subject_id = %s AND component_kind = %s "
-                "AND current_revision_id = %s AND component_version = %s",
-                (
-                    revision_id,
-                    handler["next_version"],
-                    snapshot["subject_id"],
-                    spec["component_kind"],
-                    handler["current_revision_id"],
-                    handler["current_version"],
-                ),
-            ).rowcount
-            if changed != 1:
+            if not self._subject_state.replace(
+                connection,
+                revision_id=str(snapshot["result_id"]),
+                subject_id=str(snapshot["subject_id"]),
+                kind=str(spec["component_kind"]),
+                version=int(handler["next_version"]),
+                previous_revision_id=str(handler["current_revision_id"]),
+                replacement=spec["replacement"],
+            ):
                 raise AdminCorrectionGatewayError("ADMIN-CORRECTION-COMPONENT-CAS")
         elif kind == "repair_subject_component_head":
-            changed = connection.execute(
-                "UPDATE armi.subject_component_heads SET current_revision_id = %s, "
-                "component_version = %s WHERE subject_id = %s AND component_kind = %s "
-                "AND current_revision_id = %s AND component_version = %s",
-                (
-                    handler["target_revision_id"],
-                    handler["target_version"],
-                    snapshot["subject_id"],
-                    spec["component_kind"],
-                    handler["current_revision_id"],
-                    handler["current_version"],
-                ),
-            ).rowcount
-            if changed != 1:
+            if not self._subject_state.repair_head(
+                connection,
+                subject_id=str(snapshot["subject_id"]),
+                kind=str(spec["component_kind"]),
+                current_revision_id=str(handler["current_revision_id"]),
+                current_version=int(handler["current_version"]),
+                target_revision_id=str(handler["target_revision_id"]),
+                target_version=int(handler["target_version"]),
+            ):
                 raise AdminCorrectionGatewayError("ADMIN-CORRECTION-COMPONENT-CAS")
         elif kind == "delete_uncommitted_creator_input":
             self._delete_input(connection, snapshot, handler)
@@ -921,14 +893,9 @@ class AdminCorrectionGateway:
     ) -> str:
         kind = status_spec["correction_kind"]
         if kind in {"replace_subject_component", "repair_subject_component_head"}:
-            row = connection.execute(
-                "SELECT head.current_revision_id, head.component_version "
-                "FROM armi.subject_component_heads AS head "
-                "JOIN armi.subject_component_revisions AS revision "
-                "ON revision.component_revision_id = head.current_revision_id "
-                "WHERE head.component_kind = %s",
-                (status_spec["component_kind"],),
-            ).fetchone()
+            row = self._subject_state.find_current(
+                connection, kind=str(status_spec["component_kind"])
+            )
             if row is None:
                 return _digest({"missing": True})
             return _digest(

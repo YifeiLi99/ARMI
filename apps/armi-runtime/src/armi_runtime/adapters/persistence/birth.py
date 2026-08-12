@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID, uuid7
@@ -10,37 +9,9 @@ from uuid import UUID, uuid7
 import psycopg
 from armi_kernel.application import BirthManifest, BirthResult, BirthViolation
 from armi_kernel.contracts import Digest
+from armi_subject_state.api import SubjectStateBirthPort, default_subject_state_birth
 
 from .unit_of_work import PostgreSQLUnitOfWork
-
-_SELF: dict[str, object] = {
-    "schema_version": "armi.self.v1",
-    "identity_kind": "electronic_person",
-    "creator_role_awareness": "unique_primary_creator",
-    "name": None,
-    "self_description": None,
-    "interests": [],
-    "values": [],
-    "preferences": [],
-    "goals": [],
-    "self_narrative": None,
-    "tensions": [],
-}
-_MIND: dict[str, object] = {
-    "schema_version": "armi.mind.v1",
-    "understanding": [],
-    "attention": [],
-    "emotions": [],
-    "thoughts": [],
-    "wishes": [],
-    "motivations": [],
-    "mood": None,
-}
-_LIFE_MODE: dict[str, object] = {
-    "schema_version": "armi.life-mode.v1",
-    "mode": "awake",
-    "active_activities": [],
-}
 
 
 class ContinuityState(StrEnum):
@@ -83,14 +54,6 @@ def probe_continuity(
                         WHERE document.subject_id = subject.subject_id
                     ),
                     (
-                        SELECT count(*) FROM armi.subject_component_heads
-                        WHERE subject_id = subject.subject_id
-                    ),
-                    (
-                        SELECT count(*) FROM armi.subject_component_revisions
-                        WHERE subject_id = subject.subject_id
-                    ),
-                    (
                         SELECT count(*) FROM armi.interaction_scenes
                         WHERE subject_id = subject.subject_id
                           AND scene_key = 'default'
@@ -115,8 +78,6 @@ def probe_continuity(
                       + (SELECT count(*) FROM armi.parties)
                       + (SELECT count(*) FROM armi.prompt_documents)
                       + (SELECT count(*) FROM armi.prompt_revisions)
-                      + (SELECT count(*) FROM armi.subject_component_heads)
-                      + (SELECT count(*) FROM armi.subject_component_revisions)
                       + (SELECT count(*) FROM armi.interaction_scenes)
                       + (SELECT count(*) FROM armi.scene_timeline_items)
                     """
@@ -134,13 +95,7 @@ def probe_continuity(
     if str(row[1]) != birth_contract_digest.value:
         return ContinuityState.INVALID
     counts = tuple(int(value) for value in row[2:])
-    if (
-        counts[0:3] != (1, 2, 3)
-        or counts[3] < 1
-        or counts[4] != 3
-        or counts[5] < 3
-        or counts[6] != 1
-    ):
+    if counts[0:3] != (1, 2, 3) or counts[3] < 1 or counts[4] != 1:
         return ContinuityState.INVALID
     return ContinuityState.BORN
 
@@ -154,7 +109,10 @@ class BirthArtifacts:
 class BirthRepository:
     """Write all birth facts through the caller's active SERIALIZABLE UoW."""
 
-    __slots__ = ()
+    __slots__ = ("_subject_state",)
+
+    def __init__(self, subject_state: SubjectStateBirthPort | None = None) -> None:
+        self._subject_state = subject_state or default_subject_state_birth()
 
     async def lock_environment(
         self,
@@ -226,7 +184,6 @@ class BirthRepository:
         creator_document_id = uuid7()
         subject_document_id = uuid7()
         anchor_revision_id = uuid7()
-        component_revisions = {kind: uuid7() for kind in ("self", "mind", "life_mode")}
         await connection.execute(
             """
             INSERT INTO armi.subjects (
@@ -333,36 +290,9 @@ class BirthRepository:
                 manifest.creator_party_id,
             ),
         )
-        for kind, payload in (
-            ("self", _SELF),
-            ("mind", _MIND),
-            ("life_mode", _LIFE_MODE),
-        ):
-            await connection.execute(
-                """
-                INSERT INTO armi.subject_component_revisions (
-                    component_revision_id, subject_id, component_kind,
-                    component_version, origin_kind, origin_ref,
-                    semantic_payload, privacy_scope
-                ) VALUES (%s, %s, %s, 1, 'bootstrap', %s, %s::jsonb, 'private')
-                """,
-                (
-                    component_revisions[kind],
-                    subject_id,
-                    kind,
-                    subject_id,
-                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
-                ),
-            )
-            await connection.execute(
-                """
-                INSERT INTO armi.subject_component_heads (
-                    subject_id, component_kind, current_revision_id,
-                    component_version
-                ) VALUES (%s, %s, %s, 1)
-                """,
-                (subject_id, kind, component_revisions[kind]),
-            )
+        await self._subject_state.initialize(
+            unit_of_work.transaction, subject_id=subject_id
+        )
         return BirthResult(
             subject_id=subject_id,
             life_generation_id=generation_id,

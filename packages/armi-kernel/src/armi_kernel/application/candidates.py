@@ -158,32 +158,6 @@ class CandidateExperienceDraft:
 
 
 @dataclass(frozen=True, slots=True)
-class CandidateComponentDraft:
-    proposal_ref: str
-    atomic_group_ref: str
-    basis_ordinals: tuple[int, ...]
-    fact_class: CandidateFactClass
-    owner: CandidateOwner
-    expected_version: int
-    canonical_next_state: bytes
-
-    def __post_init__(self) -> None:
-        _validate_proposal(
-            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
-        )
-        if (
-            type(self.fact_class) is not CandidateFactClass
-            or self.owner
-            not in {CandidateOwner.SELF, CandidateOwner.MIND, CandidateOwner.LIFE_MODE}
-            or type(self.expected_version) is not int
-            or self.expected_version <= 0
-            or type(self.canonical_next_state) is not bytes
-            or not self.canonical_next_state
-        ):
-            raise CandidateViolation("CON-CANDIDATE-COMPONENT")
-
-
-@dataclass(frozen=True, slots=True)
 class CandidateOwnerDraft:
     """Opaque proposal handed from a business owner to the subject pipeline."""
 
@@ -308,7 +282,6 @@ class SubjectChangeSet:
     context_digest: Digest
     disposition: CandidateDisposition
     experiences: tuple[CandidateExperienceDraft, ...]
-    components: tuple[CandidateComponentDraft, ...]
     capability_requests: tuple[CapabilityRequestDraft, ...]
     action_choices: tuple[ResponseChoiceDraft, ...]
     web_research_requests: tuple[WebResearchRequestDraft, ...]
@@ -419,7 +392,6 @@ def _optional_text(value: str | None, maximum: int) -> bool:
 
 __all__ = (
     "CandidateBasis",
-    "CandidateComponentDraft",
     "CandidateDisposition",
     "CandidateExactLifeQueryDraft",
     "CandidateExperienceDraft",

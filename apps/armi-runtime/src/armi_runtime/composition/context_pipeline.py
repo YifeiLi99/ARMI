@@ -50,6 +50,7 @@ from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import SleepReadPort
+from armi_subject_state.api import SubjectStateReadPort
 
 from armi_runtime.adapters.model.volcengine_embedding import (
     VolcengineArkEmbeddingAdapter,
@@ -133,6 +134,7 @@ class ContextPipeline(OpportunitySelector):
         material_projection: MaterialProjectionPort,
         relationship_read: RelationshipReadPort,
         sleep_read: SleepReadPort,
+        subject_state_read: SubjectStateReadPort,
         policy_version: str = CONTEXT_POLICY_VERSION,
         web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
@@ -144,7 +146,11 @@ class ContextPipeline(OpportunitySelector):
         self._policy_version = policy_version
         self._web_search_active = web_search_active
         self._repository = PostgreSQLContextRepository(
-            relationship_read, sleep_read, activity_read, memories=memory_read
+            relationship_read,
+            sleep_read,
+            activity_read,
+            memories=memory_read,
+            subject_state=subject_state_read,
         )
         self._catalog = ArtifactCatalogRepository()
         self._compiler = DeterministicContextCompiler()
@@ -1308,6 +1314,7 @@ def build_context_pipeline(
     material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
+    subject_state_read: SubjectStateReadPort,
     web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -1335,6 +1342,7 @@ def build_context_pipeline(
         material_projection=material_projection,
         relationship_read=relationship_read,
         sleep_read=sleep_read,
+        subject_state_read=subject_state_read,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,

@@ -50,6 +50,7 @@ from armi_relationship.api import (
     RelationshipReadPort,
 )
 from armi_sleep.api import SleepCognitionPort, SleepCommitPort
+from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateCommitPort
 
 from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
@@ -104,6 +105,7 @@ class SubjectCommitPipeline:
         "_sleep_cognition",
         "_stop",
         "_storage",
+        "_subject_state_cognition",
         "_wakeups",
         "_work",
     )
@@ -125,6 +127,8 @@ class SubjectCommitPipeline:
         relationship_policy: RelationshipPolicyPort,
         sleep_cognition: SleepCognitionPort,
         sleep_commit: SleepCommitPort,
+        subject_state_cognition: SubjectStateCognitionPort,
+        subject_state_commit: SubjectStateCommitPort,
         notifier: CreatorProjectionNotifier | None,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
@@ -139,6 +143,7 @@ class SubjectCommitPipeline:
         self._material_cognition = material_cognition
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
+        self._subject_state_cognition = subject_state_cognition
         self._repository = PostgreSQLSubjectCommitRepository(
             activity_commit,
             memory_commit,
@@ -147,6 +152,7 @@ class SubjectCommitPipeline:
             relationship_read,
             relationship_policy,
             sleep_commit,
+            subject_state_commit,
         )
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
@@ -192,6 +198,7 @@ class SubjectCommitPipeline:
                 self._sleep_cognition,
                 self._activity_cognition,
                 self._material_cognition,
+                self._subject_state_cognition,
             )
             replies = tuple(
                 item
@@ -700,6 +707,8 @@ def build_subject_commit_pipeline(
     relationship_policy: RelationshipPolicyPort,
     sleep_cognition: SleepCognitionPort,
     sleep_commit: SleepCommitPort,
+    subject_state_cognition: SubjectStateCognitionPort,
+    subject_state_commit: SubjectStateCommitPort,
     notifier: CreatorProjectionNotifier | None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -731,6 +740,8 @@ def build_subject_commit_pipeline(
         relationship_policy=relationship_policy,
         sleep_cognition=sleep_cognition,
         sleep_commit=sleep_commit,
+        subject_state_cognition=subject_state_cognition,
+        subject_state_commit=subject_state_commit,
         notifier=notifier,
         wakeups=wakeups,
         diagnostic=diagnostic,

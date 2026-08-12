@@ -68,6 +68,7 @@ from armi_relationship.api import (
     RelationshipStatus,
 )
 from armi_sleep.api import MaintenancePhase, SleepCognitionPort, SleepReadPort
+from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
 
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
@@ -125,6 +126,7 @@ class CandidateValidationPipeline:
         "_sleep_cognition",
         "_stop",
         "_storage",
+        "_subject_state_cognition",
         "_wakeups",
         "_web_search_active",
         "_work",
@@ -145,6 +147,8 @@ class CandidateValidationPipeline:
         relationship_read: RelationshipReadPort,
         sleep_cognition: SleepCognitionPort,
         sleep_read: SleepReadPort,
+        subject_state_cognition: SubjectStateCognitionPort,
+        subject_state_read: SubjectStateReadPort,
         web_search_active: bool = False,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
@@ -156,6 +160,7 @@ class CandidateValidationPipeline:
         self._material_cognition = material_cognition
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
+        self._subject_state_cognition = subject_state_cognition
         self._web_search_active = web_search_active
         self._catalog = ArtifactCatalogRepository()
         self._repository = PostgreSQLCandidateValidationRepository(
@@ -164,6 +169,7 @@ class CandidateValidationPipeline:
             activity_read,
             memories=memory_read,
             materials=material_read,
+            subject_state=subject_state_read,
         )
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
@@ -327,6 +333,7 @@ class CandidateValidationPipeline:
                 memory_cognition=self._memory_cognition,
                 relationship_cognition=self._relationship_cognition,
                 sleep_cognition=self._sleep_cognition,
+                subject_state_cognition=self._subject_state_cognition,
             )
             result = validator.validate(candidate_bytes, bases=snapshot.bases)
             published = (
@@ -533,6 +540,8 @@ def build_candidate_validation_pipeline(
     relationship_read: RelationshipReadPort,
     sleep_cognition: SleepCognitionPort,
     sleep_read: SleepReadPort,
+    subject_state_cognition: SubjectStateCognitionPort,
+    subject_state_read: SubjectStateReadPort,
     web_search_active: bool = False,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
@@ -562,6 +571,8 @@ def build_candidate_validation_pipeline(
         relationship_read=relationship_read,
         sleep_cognition=sleep_cognition,
         sleep_read=sleep_read,
+        subject_state_cognition=subject_state_cognition,
+        subject_state_read=subject_state_read,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,

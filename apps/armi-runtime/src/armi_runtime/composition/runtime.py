@@ -101,6 +101,7 @@ from .database import (
     compose_scene_timeline_query,
     compose_sleep_module,
     compose_subject_commit_pipeline,
+    compose_subject_state_module,
     compose_web_research_admission_pipeline,
     compose_web_search_pipeline,
     inspect_creator_context,
@@ -194,6 +195,7 @@ async def _serve(
     memory_module = None
     material_module = None
     sleep_module = None
+    subject_state_module = None
     creator_prompt_service = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
@@ -224,6 +226,8 @@ async def _serve(
 
     if continuity is ContinuityState.BORN:
         try:
+            subject_state_module = compose_subject_state_module()
+            await subject_state_module.open()
             authority_port = compose_runtime_authority(prepared)
             await authority_port.open()
             authority = RuntimeAuthorityController(
@@ -246,6 +250,7 @@ async def _serve(
             recovery_port = compose_runtime_recovery(
                 prepared,
                 authority_admission=authority.require_writable,
+                subject_state_read=subject_state_module.read,
             )
             await recovery_port.open()
             recovery = await recovery_port.recover()
@@ -321,6 +326,7 @@ async def _serve(
             activity_module = compose_activity_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
+                subject_state=subject_state_module.read,
             )
             await activity_module.open()
             relationship_module = compose_relationship_module(
@@ -348,6 +354,7 @@ async def _serve(
                 memory_read=memory_module.read,
                 material_read=material_module.read,
                 relationship_read=relationship_module.read,
+                subject_state_read=subject_state_module.read,
             )
             await life_record_query.open()
             other_human_record_query = compose_other_human_record_query(
@@ -410,6 +417,7 @@ async def _serve(
                 creator_party_id=creator_context.party_id,
                 authority_admission=authority.require_writable,
                 notifier=creator_events,
+                subject_state_read=subject_state_module.read,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -462,6 +470,7 @@ async def _serve(
                 relationship_policy=relationship_module.policy,
                 sleep_maintenance=sleep_module.maintenance,
                 sleep_read=sleep_module.read,
+                subject_state_read=subject_state_module.read,
                 wakeups=work_wakeups,
                 notifier=creator_events,
             )
@@ -475,6 +484,7 @@ async def _serve(
                 material_projection=material_module.projection,
                 relationship_read=relationship_module.read,
                 sleep_read=sleep_module.read,
+                subject_state_read=subject_state_module.read,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -495,6 +505,8 @@ async def _serve(
                 relationship_read=relationship_module.read,
                 sleep_cognition=sleep_module.cognition,
                 sleep_read=sleep_module.read,
+                subject_state_cognition=subject_state_module.cognition,
+                subject_state_read=subject_state_module.read,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -517,6 +529,8 @@ async def _serve(
                 relationship_policy=relationship_module.policy,
                 sleep_cognition=sleep_module.cognition,
                 sleep_commit=sleep_module.commit,
+                subject_state_cognition=subject_state_module.cognition,
+                subject_state_commit=subject_state_module.commit,
                 notifier=creator_events,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
@@ -719,6 +733,8 @@ async def _serve(
                 await memory_module.close()
             if material_module is not None:
                 await material_module.close()
+            if subject_state_module is not None:
+                await subject_state_module.close()
             if creator_prompt_service is not None:
                 await creator_prompt_service.close()
             if creator_export_service is not None:
@@ -966,6 +982,8 @@ async def _serve(
             await memory_module.close()
         if material_module is not None:
             await material_module.close()
+        if subject_state_module is not None:
+            await subject_state_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:
@@ -1278,6 +1296,8 @@ async def _serve(
             await memory_module.close()
         if material_module is not None:
             await material_module.close()
+        if subject_state_module is not None:
+            await subject_state_module.close()
         if creator_prompt_service is not None:
             await creator_prompt_service.close()
         if creator_export_service is not None:

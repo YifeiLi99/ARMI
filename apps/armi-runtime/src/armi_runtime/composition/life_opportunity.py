@@ -25,6 +25,7 @@ from armi_kernel.contracts import Instant
 from armi_material.api import MaterialReadPort
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 from armi_sleep.api import SleepMaintenancePort, SleepReadPort, SleepViolation
+from armi_subject_state.api import SubjectStateReadPort
 
 from armi_runtime.adapters.persistence.life_opportunity import (
     PostgreSQLLifeOpportunityRepository,
@@ -153,6 +154,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
         relationship_policy: RelationshipPolicyPort,
         sleep_maintenance: SleepMaintenancePort,
         sleep_read: SleepReadPort,
+        subject_state_read: SubjectStateReadPort,
         wakeups: WorkWakeupBus | None = None,
         model_concurrency: int = 2,
         maintenance_consideration_seconds: int = 57_600,
@@ -168,6 +170,7 @@ class LifeOpportunityPipeline(LifeOpportunitySourcePort):
             sleep_read,
             activity_read,
             material_read,
+            subject_state_read,
         )
         self._stop = asyncio.Event()
         self._wakeups = wakeups or WorkWakeupBus()
@@ -324,6 +327,7 @@ def compose_life_opportunity_pipeline(
     relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
     sleep_read: SleepReadPort,
+    subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
@@ -340,6 +344,7 @@ def compose_life_opportunity_pipeline(
         relationship_policy=relationship_policy,
         sleep_maintenance=sleep_maintenance,
         sleep_read=sleep_read,
+        subject_state_read=subject_state_read,
         wakeups=wakeups,
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,
@@ -367,6 +372,7 @@ def build_life_opportunity_pipeline(
     relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
     sleep_read: SleepReadPort,
+    subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
@@ -392,6 +398,7 @@ def build_life_opportunity_pipeline(
         relationship_policy=relationship_policy,
         sleep_maintenance=sleep_maintenance,
         sleep_read=sleep_read,
+        subject_state_read=subject_state_read,
         wakeups=wakeups,
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,

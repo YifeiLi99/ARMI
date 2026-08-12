@@ -8,7 +8,12 @@ from uuid import UUID
 from ._application import ActivityApplication
 from ._commit import PostgreSQLActivityCommit
 from ._postgresql import PostgreSQLActivityRead
-from .api import ActivityCognitionPort, ActivityCommitPort, ActivityReadPort
+from .api import (
+    ActivityCognitionPort,
+    ActivityCommitPort,
+    ActivityFocusReadPort,
+    ActivityReadPort,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,12 +36,14 @@ def bootstrap_activity(
     expected_role: str,
     creator_party_id: UUID,
     pool_timeout_seconds: int,
+    focus: ActivityFocusReadPort,
 ) -> ActivityModule:
     query = PostgreSQLActivityRead(
         conninfo,
         expected_role=expected_role,
         creator_party_id=creator_party_id,
         pool_timeout_seconds=pool_timeout_seconds,
+        focus=focus,
     )
     cognition = ActivityApplication()
     return ActivityModule(query, cognition, PostgreSQLActivityCommit(cognition), query)

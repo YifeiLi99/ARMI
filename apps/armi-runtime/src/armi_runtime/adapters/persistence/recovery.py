@@ -33,6 +33,7 @@ from armi_kernel.application import (
     RuntimeFence,
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_subject_state.api import SubjectStateReadPort, default_subject_state_read
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
@@ -111,6 +112,7 @@ class PostgreSQLRuntimeRecovery:
         "_pool",
         "_pool_timeout_seconds",
         "_storage",
+        "_subject_state",
     )
 
     def __init__(
@@ -122,11 +124,13 @@ class PostgreSQLRuntimeRecovery:
         max_object_bytes: int,
         pool_timeout_seconds: int,
         authority_admission: Callable[[], RuntimeFence],
+        subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._environment_id = environment_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
         self._admission = authority_admission
+        self._subject_state = subject_state or default_subject_state_read()
         self._storage = ContentAddressedArtifactStore(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
@@ -334,12 +338,6 @@ class PostgreSQLRuntimeRecovery:
                     prompt_revision.content_artifact_id,
                     (
                         SELECT count(*)
-                        FROM armi.subject_component_heads AS head
-                        WHERE head.subject_id = subject.subject_id
-                          AND head.component_kind IN ('self', 'mind', 'life_mode')
-                    ),
-                    (
-                        SELECT count(*)
                         FROM armi.interaction_scenes AS scene
                         JOIN armi.parties AS creator
                           ON creator.party_id = scene.primary_party_id
@@ -374,8 +372,11 @@ class PostgreSQLRuntimeRecovery:
             or row[0] != fence.subject_id
             or row[1] != fence.life_generation_id
             or row[2] != fence.bundle_activation_id
-            or int(row[4]) != 3
-            or int(row[5]) != 1
+            or int(row[4]) != 1
+            or await self._subject_state.current_head_count(
+                connection, subject_id=fence.subject_id
+            )
+            != 3
         ):
             findings.append(
                 RecoveryFinding(

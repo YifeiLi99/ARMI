@@ -522,6 +522,13 @@ class CreatorActivityTimeline:
 
 
 @runtime_checkable
+class ActivityFocusReadPort(Protocol):
+    async def active_activity_ids(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[UUID, ...]: ...
+
+
+@runtime_checkable
 class ActivityReadPort(Protocol):
     async def list_current(self) -> CreatorActivityPage: ...
     async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline: ...
@@ -629,6 +636,7 @@ __all__ = (
     "ActivityCommitContext",
     "ActivityCommitPort",
     "ActivityCommitResult",
+    "ActivityFocusReadPort",
     "ActivityHeadSnapshot",
     "ActivityLifeRecordItem",
     "ActivityOutreachSource",

@@ -19,7 +19,6 @@ from armi_activity.api import (
     default_activity_cognition,
 )
 from armi_kernel.application import (
-    CandidateComponentDraft,
     CandidateDisposition,
     CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
@@ -98,6 +97,13 @@ from armi_sleep.api import (
     SleepViolation,
     default_sleep_cognition,
 )
+from armi_subject_state.api import (
+    CandidateSubjectStateDraft,
+    SubjectStateCognitionPort,
+    SubjectStateKind,
+    SubjectStateViolation,
+    default_subject_state_cognition,
+)
 
 _TOP_KEYS_V1 = {
     "schema_version",
@@ -137,6 +143,7 @@ _TOP_KEYS_V23 = (_TOP_KEYS_V22 - {"memories", "memory_revisions"}) | {
 _TOP_KEYS_V24 = _TOP_KEYS_V23 - {"sleep_decisions", "maintenance_decisions"}
 _TOP_KEYS_V25 = _TOP_KEYS_V24 - {"activities", "activity_decisions"}
 _TOP_KEYS_V26 = _TOP_KEYS_V25 - {"materials"}
+_TOP_KEYS_V27 = _TOP_KEYS_V26 - {"components"}
 
 
 def parse_subject_change_set(
@@ -146,11 +153,15 @@ def parse_subject_change_set(
     sleep_cognition: SleepCognitionPort | None = None,
     activity_cognition: ActivityCognitionPort | None = None,
     material_cognition: MaterialCognitionPort | None = None,
+    subject_state_cognition: SubjectStateCognitionPort | None = None,
 ) -> SubjectChangeSet:
     memory_cognition = memory_cognition or default_memory_cognition()
     sleep_cognition = sleep_cognition or default_sleep_cognition()
     activity_cognition = activity_cognition or default_activity_cognition()
     material_cognition = material_cognition or default_material_cognition()
+    subject_state_cognition = (
+        subject_state_cognition or default_subject_state_cognition()
+    )
     try:
         raw = json.loads(value)
         if type(raw) is not dict:
@@ -183,11 +194,14 @@ def parse_subject_change_set(
             "armi.subject-change-set.v24",
             "armi.subject-change-set.v25",
             "armi.subject-change-set.v26",
+            "armi.subject-change-set.v27",
         }:
             raise ValueError
         version = document["schema_version"]
         expected_keys = (
-            _TOP_KEYS_V26
+            _TOP_KEYS_V27
+            if version.endswith(".v27")
+            else _TOP_KEYS_V26
             if version.endswith(".v26")
             else _TOP_KEYS_V25
             if version.endswith(".v25")
@@ -253,7 +267,7 @@ def parse_subject_change_set(
             _experience(item) for item in _array(document["experiences"], 16)
         )
         components = tuple(
-            _component(item) for item in _array(document["components"], 12)
+            _component(item) for item in _array(document.get("components", []), 12)
         )
         capability_requests = tuple(
             _capability(item)
@@ -317,16 +331,20 @@ def parse_subject_change_set(
                 _owner_draft(item)
                 for item in _array(
                     document.get("owner_drafts", []),
-                    8 if version.endswith((".v23", ".v24", ".v25", ".v26")) else 1,
+                    12
+                    if version.endswith(".v27")
+                    else 8
+                    if version.endswith((".v23", ".v24", ".v25", ".v26"))
+                    else 1,
                 )
             )
-            if version.endswith((".v22", ".v23", ".v24", ".v25", ".v26"))
+            if version.endswith((".v22", ".v23", ".v24", ".v25", ".v26", ".v27"))
             else tuple(
                 _bind_legacy_relationship(item, relationship_cognition)
                 for item in relationships
             )
         )
-        if version.endswith((".v22", ".v23", ".v24", ".v25", ".v26")):
+        if version.endswith((".v22", ".v23", ".v24", ".v25", ".v26", ".v27")):
             for draft in parsed_owner_drafts:
                 if draft.owner == CandidateOwner.MEMORY.value:
                     decoded_memory = memory_cognition.decode(draft.canonical_payload)
@@ -364,7 +382,7 @@ def parse_subject_change_set(
                     ):
                         raise ValueError
                 elif draft.owner == CandidateOwner.ACTIVITY.value and version.endswith(
-                    (".v25", ".v26")
+                    (".v25", ".v26", ".v27")
                 ):
                     decoded_activity = activity_cognition.decode(
                         draft.canonical_payload
@@ -380,7 +398,7 @@ def parse_subject_change_set(
                     ):
                         raise ValueError
                 elif draft.owner == CandidateOwner.MATERIAL.value and version.endswith(
-                    ".v26"
+                    (".v26", ".v27")
                 ):
                     if (
                         material_cognition.bind_legacy(
@@ -389,8 +407,23 @@ def parse_subject_change_set(
                         != draft
                     ):
                         raise ValueError
+                elif draft.owner in {
+                    CandidateOwner.SELF.value,
+                    CandidateOwner.MIND.value,
+                    CandidateOwner.LIFE_MODE.value,
+                } and version.endswith(".v27"):
+                    if (
+                        subject_state_cognition.bind(
+                            subject_state_cognition.decode(draft.canonical_payload)
+                        )
+                        != draft
+                    ):
+                        raise ValueError
                 else:
                     raise ValueError
+        component_owner_drafts = tuple(
+            subject_state_cognition.bind(item) for item in components
+        )
         memory_owner_drafts = (
             *(memory_cognition.bind_legacy(item, revision=False) for item in memories),
             *(
@@ -441,6 +474,7 @@ def parse_subject_change_set(
             material_cognition.bind_legacy(item) for item in materials
         )
         owner_drafts = (
+            *component_owner_drafts,
             *memory_owner_drafts,
             *sleep_owner_drafts,
             *activity_owner_drafts,
@@ -469,7 +503,6 @@ def parse_subject_change_set(
             Digest(_text(base["context_digest"])),
             CandidateDisposition(_text(document["disposition"])),
             experiences,
-            components,
             capability_requests,
             action_choices,
             web_research_requests,
@@ -483,7 +516,6 @@ def parse_subject_change_set(
             item.proposal_ref
             for item in (
                 *experiences,
-                *components,
                 *capability_requests,
                 *action_choices,
                 *web_research_requests,
@@ -523,7 +555,6 @@ def parse_subject_change_set(
             raise ValueError
         change_material = (
             result.experiences
-            or result.components
             or result.capability_requests
             or result.web_research_requests
             or result.codex_delegations
@@ -738,6 +769,7 @@ def parse_subject_change_set(
         SleepViolation,
         ActivityViolation,
         MaterialViolation,
+        SubjectStateViolation,
         KeyError,
         TypeError,
         ValueError,
@@ -929,7 +961,16 @@ def _owner_draft(value: object) -> CandidateOwnerDraft:
         },
     )
     owner = _text(item["owner"])
-    if owner not in {"activity", "material", "memory", "relationship", "sleep"}:
+    if owner not in {
+        "activity",
+        "life_mode",
+        "material",
+        "memory",
+        "mind",
+        "relationship",
+        "self",
+        "sleep",
+    }:
         raise ValueError
     return CandidateOwnerDraft(
         _text(item["proposal_ref"]),
@@ -1237,7 +1278,7 @@ def _maintenance_decision(value: object) -> CandidateMaintenanceDecisionDraft:
     )
 
 
-def _component(value: object) -> CandidateComponentDraft:
+def _component(value: object) -> CandidateSubjectStateDraft:
     item = _object(
         value,
         {
@@ -1251,12 +1292,12 @@ def _component(value: object) -> CandidateComponentDraft:
         },
     )
     next_state = rfc8785.dumps(item["next_state"])
-    return CandidateComponentDraft(
+    return CandidateSubjectStateDraft(
         _text(item["proposal_ref"]),
         _text(item["atomic_group_ref"]),
         _ordinals(item["basis_ordinals"]),
         CandidateFactClass(_text(item["fact_class"])),
-        CandidateOwner(_text(item["owner"])),
+        SubjectStateKind(_text(item["owner"])),
         _positive(item["expected_version"]),
         next_state,
     )

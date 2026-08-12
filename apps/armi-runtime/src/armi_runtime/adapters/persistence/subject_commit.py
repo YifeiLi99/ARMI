@@ -27,7 +27,6 @@ from armi_kernel.application import (
     CandidateApplicationStatus,
     CandidateDisposition,
     CandidateExactLifeQueryDraft,
-    CandidateOwner,
     CapabilityRequestDraft,
     CodexDelegationDraft,
     CreatorReplyDraft,
@@ -73,6 +72,7 @@ from armi_sleep.api import (
     SleepCommitPort,
     SleepViolation,
 )
+from armi_subject_state.api import SubjectStateCommitPort, SubjectStateViolation
 
 from .subject_prompt_commit import (
     apply_subject_prompts,
@@ -156,6 +156,7 @@ class PostgreSQLSubjectCommitRepository:
         "_relationship_policy",
         "_relationships",
         "_sleep_commit",
+        "_subject_state_commit",
     )
 
     def __init__(
@@ -167,6 +168,7 @@ class PostgreSQLSubjectCommitRepository:
         relationship_read: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
         sleep_commit: SleepCommitPort,
+        subject_state_commit: SubjectStateCommitPort,
     ) -> None:
         self._activity_commit = activity_commit
         self._memory_commit = memory_commit
@@ -175,6 +177,7 @@ class PostgreSQLSubjectCommitRepository:
         self._relationships = relationship_read
         self._relationship_policy = relationship_policy
         self._sleep_commit = sleep_commit
+        self._subject_state_commit = subject_state_commit
 
     async def settle_stale(
         self,
@@ -526,7 +529,11 @@ class PostgreSQLSubjectCommitRepository:
         ).fetchone()
         if subject is None:
             raise SubjectCommitViolation("SUBJECT-IDENTITY")
-        heads = await _lock_heads(connection, snapshot.subject_id, change_set)
+        subject_state_heads_current = await self._subject_state_commit.heads_match(
+            unit_of_work.transaction,
+            subject_id=snapshot.subject_id,
+            drafts=change_set.owner_drafts,
+        )
         try:
             activity_heads_current = await self._activity_commit.heads_match(
                 unit_of_work.transaction,
@@ -573,7 +580,7 @@ class PostgreSQLSubjectCommitRepository:
             or int(subject[1]) != change_set.base_state_epoch
             or subject[2] != change_set.generation_id
             or subject[3] != change_set.bundle_activation_id
-            or _component_heads_are_stale(heads, change_set)
+            or not subject_state_heads_current
             or not activity_heads_current
             or not memory_heads_current
             or not material_heads_current
@@ -632,7 +639,6 @@ class PostgreSQLSubjectCommitRepository:
             )
         if (
             not change_set.experiences
-            and not change_set.components
             and not change_set.capability_requests
             and not change_set.action_choices
             and not change_set.web_research_requests
@@ -798,67 +804,17 @@ class PostgreSQLSubjectCommitRepository:
                 )
             )
 
-        for component in sorted(
-            change_set.components, key=lambda item: item.owner.value
-        ):
-            head = await (
-                await connection.execute(
-                    """
-                    SELECT current_revision_id, component_version
-                    FROM armi.subject_component_heads
-                    WHERE subject_id = %s AND component_kind = %s
-                    """,
-                    (snapshot.subject_id, component.owner.value),
-                )
-            ).fetchone()
-            if head is None or int(head[1]) != component.expected_version:
-                raise SubjectCommitViolation("SUBJECT-HEAD-STALE")
-            revision_id = uuid7()
-            await connection.execute(
-                """
-                INSERT INTO armi.subject_component_revisions (
-                    component_revision_id, subject_id, component_kind,
-                    component_version, previous_revision_id, origin_kind,
-                    origin_ref, subject_commit_id, proposal_ref,
-                    semantic_payload, privacy_scope
-                ) VALUES (
-                    %s, %s, %s, %s, %s, 'subject_commit', %s,
-                    %s, %s, %s::jsonb, 'private'
-                )
-                """,
-                (
-                    revision_id,
-                    snapshot.subject_id,
-                    component.owner.value,
-                    component.expected_version + 1,
-                    head[0],
-                    commit_id.value,
-                    commit_id.value,
-                    component.proposal_ref,
-                    component.canonical_next_state.decode("utf-8"),
-                ),
+        try:
+            await self._subject_state_commit.commit(
+                unit_of_work.transaction,
+                subject_id=snapshot.subject_id,
+                commit_id=commit_id.value,
+                drafts=change_set.owner_drafts,
             )
-            updated = await (
-                await connection.execute(
-                    """
-                    UPDATE armi.subject_component_heads
-                    SET current_revision_id = %s, component_version = %s
-                    WHERE subject_id = %s AND component_kind = %s
-                      AND current_revision_id = %s AND component_version = %s
-                    RETURNING subject_id
-                    """,
-                    (
-                        revision_id,
-                        component.expected_version + 1,
-                        snapshot.subject_id,
-                        component.owner.value,
-                        head[0],
-                        component.expected_version,
-                    ),
-                )
-            ).fetchone()
-            if updated is None:
-                raise SubjectCommitViolation("SUBJECT-HEAD-STALE")
+        except SubjectStateViolation as error:
+            raise SubjectCommitViolation(
+                f"SUBJECT-{error.code.removeprefix('SUBJECT-STATE-')}"
+            ) from None
 
         await apply_subject_prompts(
             connection,
@@ -892,10 +848,12 @@ class PostgreSQLSubjectCommitRepository:
                 f"SUBJECT-{error.code.removeprefix('ACTIVITY-')}"
             ) from None
         if activity_result.update_focus:
-            await _update_life_focus(
-                connection,
-                snapshot=snapshot,
-                commit_id=commit_id,
+            if activity_result.focus_proposal_ref is None:
+                raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
+            await self._subject_state_commit.update_life_focus(
+                unit_of_work.transaction,
+                subject_id=snapshot.subject_id,
+                commit_id=commit_id.value,
                 activity_id=activity_result.focus_activity_id,
                 proposal_ref=activity_result.focus_proposal_ref,
             )
@@ -1422,43 +1380,6 @@ async def _insert_application(
     )
 
 
-async def _lock_heads(
-    connection: Any,
-    subject_id: UUID,
-    change_set: SubjectChangeSet,
-) -> dict[CandidateOwner, int]:
-    owners = sorted(
-        {component.owner for component in change_set.components},
-        key=lambda item: item.value,
-    )
-    result: dict[CandidateOwner, int] = {}
-    for owner in owners:
-        row = await (
-            await connection.execute(
-                """
-                SELECT component_version
-                FROM armi.subject_component_heads
-                WHERE subject_id = %s AND component_kind = %s
-                FOR UPDATE
-                """,
-                (subject_id, owner.value),
-            )
-        ).fetchone()
-        if row is None:
-            raise SubjectCommitViolation("SUBJECT-HEAD-MISSING")
-        result[owner] = int(row[0])
-    return result
-
-
-def _component_heads_are_stale(
-    heads: dict[CandidateOwner, int], change_set: SubjectChangeSet
-) -> bool:
-    return any(
-        heads.get(component.owner) != component.expected_version
-        for component in change_set.components
-    )
-
-
 async def _evidence_links(
     connection: Any,
     *,
@@ -1493,80 +1414,6 @@ async def _evidence_links(
         )
     ).fetchall()
     return [(row[0], row[1], row[2]) for row in rows]
-
-
-async def _update_life_focus(
-    connection: Any,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    activity_id: UUID | None,
-    proposal_ref: str | None,
-) -> None:
-    if proposal_ref is None:
-        raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
-    head = await (
-        await connection.execute(
-            """
-            SELECT head.current_revision_id, head.component_version,
-                   revision.semantic_payload
-            FROM armi.subject_component_heads AS head
-            JOIN armi.subject_component_revisions AS revision
-              ON revision.component_revision_id = head.current_revision_id
-            WHERE head.subject_id = %s AND head.component_kind = 'life_mode'
-            FOR UPDATE OF head
-            """,
-            (snapshot.subject_id,),
-        )
-    ).fetchone()
-    if head is None or not isinstance(head[2], dict):
-        raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
-    payload = cast(dict[str, object], head[2]).copy()
-    active = payload.get("active_activities")
-    if type(active) is not list:
-        raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
-    active_values = cast(list[object], active)
-    if len(active_values) > 1:
-        raise SubjectCommitViolation("SUBJECT-LIFE-MODE")
-    payload["active_activities"] = [] if activity_id is None else [str(activity_id)]
-    canonical = rfc8785.dumps(cast(Any, payload))
-    revision_id = uuid7()
-    await connection.execute(
-        """
-        INSERT INTO armi.subject_component_revisions (
-            component_revision_id, subject_id, component_kind,
-            component_version, previous_revision_id, origin_kind, origin_ref,
-            subject_commit_id, proposal_ref, semantic_payload, privacy_scope
-        ) VALUES (
-            %s, %s, 'life_mode', %s, %s, 'subject_commit', %s,
-            %s, %s, %s::jsonb, 'private'
-        )
-        """,
-        (
-            revision_id,
-            snapshot.subject_id,
-            int(head[1]) + 1,
-            head[0],
-            commit_id.value,
-            commit_id.value,
-            proposal_ref,
-            canonical.decode("utf-8"),
-        ),
-    )
-    updated = await (
-        await connection.execute(
-            """
-            UPDATE armi.subject_component_heads
-            SET current_revision_id = %s, component_version = component_version + 1
-            WHERE subject_id = %s AND component_kind = 'life_mode'
-              AND current_revision_id = %s AND component_version = %s
-            RETURNING subject_id
-            """,
-            (revision_id, snapshot.subject_id, head[0], int(head[1])),
-        )
-    ).fetchone()
-    if updated is None:
-        raise SubjectCommitViolation("SUBJECT-LIFE-MODE-STALE")
 
 
 async def _insert_capability_requests(

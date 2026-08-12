@@ -19,6 +19,7 @@ from armi_runtime.adapters.persistence.life_opportunity import (
     PostgreSQLLifeOpportunityRepository,
 )
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWork
+from armi_subject_state.api import LifeModeHead
 
 
 class _Relationships:
@@ -41,12 +42,31 @@ class _SleepRead:
         return None
 
 
+class _SubjectState:
+    async def active_activity_ids(
+        self, transaction: object, *, subject_id: UUID
+    ) -> tuple[UUID, ...]:
+        return (
+            await self.life_mode(transaction, subject_id=subject_id)
+        ).active_activity_ids
+
+    async def life_mode(self, transaction: object, *, subject_id: UUID) -> LifeModeHead:
+        del subject_id
+        active_activity = getattr(transaction, "_activity_id", None)
+        return LifeModeHead(
+            uuid7(),
+            1,
+            () if active_activity is None else (cast(UUID, active_activity),),
+        )
+
+
 def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepository:
     activity = bootstrap_activity(
         "postgresql://unused",
         expected_role="unused",
         creator_party_id=uuid7(),
         pool_timeout_seconds=1,
+        focus=cast(Any, _SubjectState()),
     )
     material = bootstrap_material(
         "postgresql://unused",
@@ -62,6 +82,7 @@ def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepositor
         cast(Any, _SleepRead()),
         activity.read,
         material.read,
+        cast(Any, _SubjectState()),
     )
 
 
@@ -184,6 +205,11 @@ class _InternalWorkConnection:
         statement: str,
         parameters: tuple[object, ...] = (),
     ) -> _Cursor:
+        if (
+            "SELECT EXISTS (" in statement
+            and "purpose = 'consider_activity_internal_work'" in statement
+        ):
+            return _Cursor((False, 0))
         if "SELECT revision.semantic_payload" in statement:
             return _Cursor(
                 (
@@ -257,6 +283,11 @@ class _AttentionRetryConnection:
         statement: str,
         parameters: tuple[object, ...] = (),
     ) -> _Cursor:
+        if (
+            "SELECT EXISTS (" in statement
+            and "purpose = 'consider_activity_attention'" in statement
+        ):
+            return _Cursor((False, 0))
         if "SELECT revision.semantic_payload" in statement:
             return _Cursor(({"active_activities": []}, False, 0, False))
         if "max(previous.available_after)" in statement:

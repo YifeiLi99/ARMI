@@ -40,6 +40,7 @@ from armi_kernel.contracts import (
 from armi_memory.api import MemoryReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import MaintenancePhase, SleepReadPort
+from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
 
 from .artifact_catalog import ArtifactCatalogRepository
 from .capability_context import CapabilityStatePayload, load_capability_state_payloads
@@ -157,7 +158,14 @@ class ContextEpisodeSnapshot:
 class PostgreSQLContextRepository:
     """Own SQL for selecting, freezing and settling one Context episode."""
 
-    __slots__ = ("_activities", "_catalog", "_memories", "_relationships", "_sleep")
+    __slots__ = (
+        "_activities",
+        "_catalog",
+        "_memories",
+        "_relationships",
+        "_sleep",
+        "_subject_state",
+    )
 
     def __init__(
         self,
@@ -165,12 +173,14 @@ class PostgreSQLContextRepository:
         sleep: SleepReadPort,
         activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
+        subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
         self._catalog = ArtifactCatalogRepository()
         self._memories = memories
         self._relationships = relationships
         self._sleep = sleep
+        self._subject_state = subject_state
 
     async def select_one(
         self,
@@ -520,36 +530,20 @@ class PostgreSQLContextRepository:
         ).fetchone()
         if row is None:
             raise ContextViolation("CTX-WORK-STALE")
-        components = await (
-            await connection.execute(
-                """
-                SELECT
-                    head.component_kind,
-                    revision.component_revision_id,
-                    head.component_version,
-                    revision.semantic_payload
-                FROM armi.subject_component_heads AS head
-                JOIN armi.subject_component_revisions AS revision
-                  ON revision.component_revision_id = head.current_revision_id
-                WHERE head.subject_id = %s
-                ORDER BY
-                    CASE head.component_kind
-                        WHEN 'self' THEN 1
-                        WHEN 'mind' THEN 2
-                        WHEN 'life_mode' THEN 3
-                    END
-                """,
-                (row[2],),
+        if self._subject_state is None:
+            raise ContextViolation("CTX-SUBJECT-STATE-OWNER")
+        try:
+            components = await self._subject_state.current_heads(
+                unit_of_work.transaction, subject_id=row[2]
             )
-        ).fetchall()
-        if tuple(item[0] for item in components) != ("self", "mind", "life_mode"):
-            raise ContextViolation("CTX-SOURCE-MISSING")
+        except SubjectStateViolation:
+            raise ContextViolation("CTX-SOURCE-MISSING") from None
         component_payloads = tuple(
             (
-                str(item[0]),
-                item[1],
-                int(item[2]),
-                rfc8785.dumps(item[3]),
+                item.kind.value,
+                item.current_revision_id,
+                item.version,
+                item.canonical_state,
             )
             for item in components
         )

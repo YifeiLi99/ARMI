@@ -30,6 +30,7 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_relationship.api import RelationshipReadPort
+from armi_subject_state.api import SubjectStateReadPort
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
@@ -157,6 +158,7 @@ class PostgreSQLLifeRecordQuery:
         "_pool",
         "_pool_timeout_seconds",
         "_relationships",
+        "_subject_state",
     )
 
     def __init__(
@@ -171,6 +173,7 @@ class PostgreSQLLifeRecordQuery:
         materials: MaterialReadPort,
         memories: MemoryReadPort | None = None,
         relationships: RelationshipReadPort,
+        subject_state: SubjectStateReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._activities = activities
@@ -179,6 +182,7 @@ class PostgreSQLLifeRecordQuery:
         self._pool_timeout_seconds = pool_timeout_seconds
         self._memories = memories
         self._relationships = relationships
+        self._subject_state = subject_state
         self._codec = LifeRecordCursorCodec(
             key=cursor_key,
             environment_id=environment_id,
@@ -325,24 +329,6 @@ class PostgreSQLLifeRecordQuery:
                             ORDER BY experience.accepted_at DESC, experience.experience_id DESC
                             LIMIT (SELECT branch_limit FROM query_input)
                             )
-                            UNION ALL
-                            (
-                            SELECT revision.component_revision_id,
-                                   'self_change'::text,
-                                   left(revision.semantic_payload::text, 4096),
-                                   revision.origin_kind,
-                                   revision.created_at,
-                                   NULL::boolean
-                            FROM armi.subject_component_revisions AS revision
-                            CROSS JOIN query_input AS query
-                            WHERE revision.subject_id = query.subject_id
-                              AND revision.component_kind = 'self'
-                              AND (query.record_kind IS NULL OR query.record_kind = 'self_change')
-                              AND (query.query_text IS NULL OR revision.semantic_payload::text ILIKE '%%' || query.query_text || '%%')
-                              AND (query.before_at IS NULL OR (revision.created_at, 'self_change'::text, revision.component_revision_id) < (query.before_at, query.before_kind, query.before_id))
-                            ORDER BY revision.created_at DESC, revision.component_revision_id DESC
-                            LIMIT (SELECT branch_limit FROM query_input)
-                            )
                         )
                         SELECT record_ref, record_kind, summary, source_kind,
                                occurred_at, naturally_recallable
@@ -367,6 +353,19 @@ class PostgreSQLLifeRecordQuery:
                 rows = cast(
                     list[tuple[UUID, str, str, str, datetime, bool | None]],
                     rows,
+                )
+                subject_state_rows = (
+                    await self._subject_state.life_record_branch(
+                        connection,
+                        subject_id=subject_id,
+                        query_text=request.query_text,
+                        before=None
+                        if boundary is None
+                        else (boundary[0].value, boundary[1], boundary[2]),
+                        limit=request.limit + 1,
+                    )
+                    if request.record_kind in {None, LifeRecordKind.SELF_CHANGE}
+                    else ()
                 )
                 memory_rows = (
                     await memories.life_record_branch(
@@ -428,6 +427,17 @@ class PostgreSQLLifeRecordQuery:
         ]
         combined_rows: list[tuple[UUID, str, str, str, datetime, bool | None]] = [
             *rows,
+            *(
+                (
+                    item.revision_id,
+                    "self_change",
+                    item.summary,
+                    item.source_kind,
+                    item.occurred_at,
+                    None,
+                )
+                for item in subject_state_rows
+            ),
             *(
                 (
                     item.activity_id,

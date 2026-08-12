@@ -36,9 +36,13 @@ from armi_kernel.application import (
     PublishedArtifact,
     RuntimeFence,
     SceneKey,
-    SubjectSummary,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
+from armi_subject_state.api import (
+    SubjectStateReadPort,
+    SubjectStateViolation,
+    SubjectSummary,
+)
 
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
@@ -84,6 +88,7 @@ class EvidenceAcceptanceTransaction(
         "_notifier",
         "_repository",
         "_storage",
+        "_subject_state",
         "_uow_factory",
         "_wakeups",
     )
@@ -97,6 +102,7 @@ class EvidenceAcceptanceTransaction(
         repository: CreatorInputRepository,
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
         notifier: CreatorProjectionNotifier | None,
+        subject_state: SubjectStateReadPort,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
@@ -110,6 +116,7 @@ class EvidenceAcceptanceTransaction(
         self._repository = repository
         self._uow_factory = unit_of_work_factory
         self._notifier = notifier
+        self._subject_state = subject_state
         self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._fault_injector = fault_injector or _ignore_diagnostic
@@ -216,11 +223,11 @@ class EvidenceAcceptanceTransaction(
             async with self._uow_factory.unit_of_work(
                 read_only=True,
             ) as unit_of_work:
-                return await self._repository.subject_summary(
-                    unit_of_work,
+                return await self._subject_state.creator_summary(
+                    unit_of_work.transaction,
                     creator_party_id=self._creator_party_id,
                 )
-        except CreatorInputViolation:
+        except CreatorInputViolation, SubjectStateViolation:
             raise
         except DatabaseTransactionError:
             raise CreatorInputViolation("DB-SUBJECT-SUMMARY") from None
@@ -398,6 +405,7 @@ def build_evidence_acceptance_transaction(
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
+    subject_state: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
@@ -421,6 +429,7 @@ def build_evidence_acceptance_transaction(
         repository=CreatorInputRepository(),
         unit_of_work_factory=factory,
         notifier=notifier,
+        subject_state=subject_state,
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,

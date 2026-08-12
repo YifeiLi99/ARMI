@@ -72,6 +72,16 @@ from armi_sleep.api import (
     SleepReadPort,
 )
 from armi_sleep.bootstrap import SleepModule, bootstrap_sleep
+from armi_subject_state.api import (
+    SubjectStateCognitionPort,
+    SubjectStateCommitPort,
+    SubjectStateReadPort,
+)
+from armi_subject_state.bootstrap import (
+    SubjectStateModule,
+    bootstrap_subject_state,
+    probe_subject_state_counts,
+)
 
 from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
@@ -327,10 +337,15 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     return ContinuityState.INVALID
-                return probe_continuity(
+                state = probe_continuity(
                     conninfo,
                     birth_contract_digest=digests["birth_contract_digest"],
                 )
+                if state is ContinuityState.BORN:
+                    heads, revisions = probe_subject_state_counts(conninfo)
+                    if heads != 3 or revisions < 3:
+                        return ContinuityState.INVALID
+                return state
 
             return handle.consume(invoke)
     except ConfigurationViolation:
@@ -517,6 +532,7 @@ def compose_activity_module(
     prepared: PreparedEnvironment,
     *,
     creator_party_id: UUID,
+    subject_state: SubjectStateReadPort,
 ) -> ActivityModule:
     """Resolve and bind the one active Activity owner implementation."""
 
@@ -542,11 +558,18 @@ def compose_activity_module(
                     ),
                     creator_party_id=creator_party_id,
                     pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    focus=subject_state,
                 )
 
             return handle.consume(create)
     except ConfigurationViolation:
         raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
+
+
+def compose_subject_state_module() -> SubjectStateModule:
+    """Bind the sole active Self, Mind, and life-mode owner."""
+
+    return bootstrap_subject_state()
 
 
 def compose_life_record_query(
@@ -558,6 +581,7 @@ def compose_life_record_query(
     memory_read: MemoryReadPort,
     material_read: MaterialReadPort,
     relationship_read: RelationshipReadPort,
+    subject_state_read: SubjectStateReadPort,
 ) -> PostgreSQLLifeRecordQuery:
     """Resolve the shared read-only exact-life and memory projection."""
 
@@ -586,6 +610,7 @@ def compose_life_record_query(
                     materials=material_read,
                     memories=memory_read,
                     relationships=relationship_read,
+                    subject_state=subject_state_read,
                 )
 
             return handle.consume(create)
@@ -883,6 +908,7 @@ def compose_creator_input(
     creator_party_id: UUID,
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
+    subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
@@ -930,6 +956,7 @@ def compose_creator_input(
                     ),
                     authority_admission=authority_admission,
                     notifier=notifier,
+                    subject_state=subject_state_read,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
                     fault_injector=fault_injector,
@@ -1273,6 +1300,7 @@ def compose_life_opportunity_pipeline(
     sleep_maintenance: SleepMaintenancePort,
     sleep_read: SleepReadPort,
     material_read: MaterialReadPort,
+    subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> LifeOpportunityPipeline:
@@ -1311,6 +1339,7 @@ def compose_life_opportunity_pipeline(
                     sleep_maintenance=sleep_maintenance,
                     sleep_read=sleep_read,
                     material_read=material_read,
+                    subject_state_read=subject_state_read,
                     wakeups=wakeups,
                     notifier=notifier,
                     model_concurrency=config.model.concurrency,
@@ -1337,6 +1366,7 @@ def compose_context_pipeline(
     material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
+    subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ContextPipeline:
@@ -1392,6 +1422,7 @@ def compose_context_pipeline(
                     material_projection=material_projection,
                     relationship_read=relationship_read,
                     sleep_read=sleep_read,
+                    subject_state_read=subject_state_read,
                     web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1627,6 +1658,8 @@ def compose_candidate_validation_pipeline(
     relationship_read: RelationshipReadPort,
     sleep_cognition: SleepCognitionPort,
     sleep_read: SleepReadPort,
+    subject_state_cognition: SubjectStateCognitionPort,
+    subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CandidateValidationPipeline:
@@ -1671,6 +1704,8 @@ def compose_candidate_validation_pipeline(
                     relationship_read=relationship_read,
                     sleep_cognition=sleep_cognition,
                     sleep_read=sleep_read,
+                    subject_state_cognition=subject_state_cognition,
+                    subject_state_read=subject_state_read,
                     web_search_active=prepared.effective.config.web.enabled,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1697,6 +1732,8 @@ def compose_subject_commit_pipeline(
     relationship_policy: RelationshipPolicyPort,
     sleep_cognition: SleepCognitionPort,
     sleep_commit: SleepCommitPort,
+    subject_state_cognition: SubjectStateCognitionPort,
+    subject_state_commit: SubjectStateCommitPort,
     notifier: CreatorProjectionNotifier | None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -1741,6 +1778,8 @@ def compose_subject_commit_pipeline(
                     relationship_policy=relationship_policy,
                     sleep_cognition=sleep_cognition,
                     sleep_commit=sleep_commit,
+                    subject_state_cognition=subject_state_cognition,
+                    subject_state_commit=subject_state_commit,
                     notifier=notifier,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -1838,6 +1877,7 @@ def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
     authority_admission: Callable[[], RuntimeFence],
+    subject_state_read: SubjectStateReadPort,
 ) -> PostgreSQLRuntimeRecovery:
     """Resolve the Runtime credential for the fenced startup recovery gateway."""
 
@@ -1873,6 +1913,7 @@ def compose_runtime_recovery(
                     max_object_bytes=config.artifacts.max_object_bytes,
                     pool_timeout_seconds=(config.database.pool_acquire_timeout_seconds),
                     authority_admission=authority_admission,
+                    subject_state=subject_state_read,
                 )
 
             return handle.consume(create)
@@ -2027,6 +2068,7 @@ __all__ = (
     "compose_scene_timeline_query",
     "compose_sleep_module",
     "compose_subject_commit_pipeline",
+    "compose_subject_state_module",
     "compose_web_research_admission_pipeline",
     "compose_web_search_pipeline",
     "inspect_creator_context",

@@ -17,6 +17,7 @@ members = [
     "armi-runtime",
     "armi-runtime-foundation",
     "armi-sleep",
+    "armi-subject-state",
     "armi-workspace",
 ]
 build-constraints = [
@@ -115,6 +116,7 @@ dependencies = [
     { name = "armi-kernel" },
     { name = "armi-material" },
     { name = "armi-postgresql-contract" },
+    { name = "armi-subject-state" },
     { name = "mcp" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
@@ -128,6 +130,7 @@ requires-dist = [
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
+    { name = "armi-subject-state", editable = "modules/subject-state" },
     { name = "mcp", specifier = "==2.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
@@ -260,6 +263,7 @@ dependencies = [
     { name = "armi-relationship" },
     { name = "armi-runtime-foundation" },
     { name = "armi-sleep" },
+    { name = "armi-subject-state" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "openai" },
@@ -288,6 +292,7 @@ requires-dist = [
     { name = "armi-relationship", editable = "modules/relationship" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "armi-sleep", editable = "modules/sleep" },
+    { name = "armi-subject-state", editable = "modules/subject-state" },
     { name = "fastapi", specifier = "==0.140.13" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "openai", specifier = "==2.49.0" },
@@ -312,6 +317,27 @@ source = { editable = "packages/armi-runtime-foundation" }
 name = "armi-sleep"
 version = "0.0.0"
 source = { editable = "modules/sleep" }
+dependencies = [
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
+    { name = "psycopg-pool", specifier = "==3.3.1" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
+name = "armi-subject-state"
+version = "0.0.0"
+source = { editable = "modules/subject-state" }
 dependencies = [
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },

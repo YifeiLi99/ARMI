@@ -251,7 +251,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         or formal_choice.kind is not FormalNoActionKind.NO_ACTION
         or formal_choice.reason is not FormalNoActionReason.SUBJECTIVE_SILENCE
         or change_set.experiences
-        or change_set.components
+        or change_set.owner_drafts
         or change_set.capability_requests
     )
     return {
@@ -272,7 +272,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
             formal_choice.reason.value if formal_choice is not None else None
         ),
         "experience_count": len(change_set.experiences) if change_set else None,
-        "component_count": len(change_set.components) if change_set else None,
+        "owner_draft_count": len(change_set.owner_drafts) if change_set else None,
         "capability_request_count": (
             len(change_set.capability_requests) if change_set else None
         ),

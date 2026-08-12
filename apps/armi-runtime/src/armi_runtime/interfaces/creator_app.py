@@ -78,7 +78,6 @@ from armi_kernel.application import (
     SceneStatus,
     SceneTimelineQuery,
     SceneTimelineQueryPort,
-    SubjectSummary,
 )
 from armi_kernel.contracts import (
     AcceptedOutcome,
@@ -110,6 +109,7 @@ from armi_sleep.api import (
     CreatorMaintenanceQueryPort,
     CreatorMaintenanceViolation,
 )
+from armi_subject_state.api import SubjectSummary
 from fastapi import FastAPI, Request
 from fastapi.responses import (
     JSONResponse,

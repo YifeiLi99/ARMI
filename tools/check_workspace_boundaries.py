@@ -151,6 +151,19 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-subject-state",
+        module="armi_subject_state",
+        project_dir=Path("modules/subject-state"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
@@ -167,6 +180,7 @@ DISTRIBUTIONS = (
             "armi-sleep==0.0.0",
             "armi-activity==0.0.0",
             "armi-material==0.0.0",
+            "armi-subject-state==0.0.0",
             "fastapi==0.140.13",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -191,6 +205,7 @@ DISTRIBUTIONS = (
             "armi-artifact-store==0.0.0",
             "armi-kernel==0.0.0",
             "armi-material==0.0.0",
+            "armi-subject-state==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "mcp==2.0.0",
             "psycopg[binary]==3.3.4",
@@ -808,6 +823,13 @@ def _check_import(
         "armi-material": frozenset(
             {"armi_material", "armi_material.api", "armi_material.bootstrap"}
         ),
+        "armi-subject-state": frozenset(
+            {
+                "armi_subject_state",
+                "armi_subject_state.api",
+                "armi_subject_state.bootstrap",
+            }
+        ),
     }
     if crosses_distribution and target_distribution in public_modules:
         if (
@@ -867,6 +889,20 @@ def _check_import(
                     path,
                     line,
                     "material bootstrap is reserved for Runtime/Admin composition",
+                )
+            )
+        if imported_module == "armi_subject_state.bootstrap" and not (
+            source_module.startswith("armi_runtime.composition")
+            or source_module == "armi_admin.application.control_plane"
+            or source_module == "armi_admin.application.corrections"
+            or source_module == "armi_admin.mcp.service"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "subject-state bootstrap is reserved for Runtime/Admin composition",
                 )
             )
         if imported_module not in public_modules[target_distribution]:
@@ -1024,6 +1060,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_material.api": root / "modules/material/src/armi_material/api.py",
         "armi_material.bootstrap": root
         / "modules/material/src/armi_material/bootstrap.py",
+        "armi_subject_state": root
+        / "modules/subject-state/src/armi_subject_state/__init__.py",
+        "armi_subject_state.api": root
+        / "modules/subject-state/src/armi_subject_state/api.py",
+        "armi_subject_state.bootstrap": root
+        / "modules/subject-state/src/armi_subject_state/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1145,6 +1187,24 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "life-material table SQL is owned by armi-material",
                     )
                 )
+            if (
+                distribution.name != "armi-subject-state"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:subject_component_heads|subject_component_revisions)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-SUBJECT-STATE-SQL",
+                        relative,
+                        1,
+                        "subject-state table SQL is owned by armi-subject-state",
+                    )
+                )
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -1177,6 +1237,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "material_module.cognition",
             "material_module.commit",
             "material_module.projection",
+        ),
+        "subject state": (
+            "subject_state_module = compose_subject_state_module()",
+            "subject_state_module.read",
+            "subject_state_module.cognition",
+            "subject_state_module.commit",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

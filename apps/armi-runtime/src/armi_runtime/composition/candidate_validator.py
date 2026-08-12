@@ -21,7 +21,6 @@ from armi_activity.api import (
 )
 from armi_kernel.application import (
     CandidateBasis,
-    CandidateComponentDraft,
     CandidateDisposition,
     CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
@@ -101,6 +100,12 @@ from armi_sleep.api import (
     SleepCognitionPort,
     SleepDecisionKind,
     default_sleep_cognition,
+)
+from armi_subject_state.api import (
+    CandidateSubjectStateDraft,
+    SubjectStateCognitionPort,
+    SubjectStateKind,
+    default_subject_state_cognition,
 )
 from pydantic import ValidationError
 
@@ -245,12 +250,11 @@ ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
 MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
 MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
 RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v26"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v27"
 MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
 PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
 EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
 MAINTENANCE_CHANGE_SET_VERSION = "armi.subject-change-set.v19"
-OTHER_HUMAN_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -522,6 +526,7 @@ class DeterministicCandidateValidator:
         "_memory_cognition",
         "_relationship_cognition",
         "_sleep_cognition",
+        "_subject_state_cognition",
     )
 
     def __init__(
@@ -532,6 +537,7 @@ class DeterministicCandidateValidator:
         memory_cognition: MemoryCognitionPort | None = None,
         relationship_cognition: RelationshipCognitionPort | None = None,
         sleep_cognition: SleepCognitionPort | None = None,
+        subject_state_cognition: SubjectStateCognitionPort | None = None,
     ) -> None:
         self._context = context
         self._activity_cognition = activity_cognition or default_activity_cognition()
@@ -539,6 +545,9 @@ class DeterministicCandidateValidator:
         self._memory_cognition = memory_cognition or default_memory_cognition()
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition or default_sleep_cognition()
+        self._subject_state_cognition = (
+            subject_state_cognition or default_subject_state_cognition()
+        )
 
     def _bind_relationship(
         self, value: CandidateRelationshipDraft
@@ -764,7 +773,7 @@ class DeterministicCandidateValidator:
             | CandidateLifeMaterialDraft
             | CandidateSubjectPromptDraft
             | CandidateExactLifeQueryDraft
-            | CandidateComponentDraft
+            | CandidateOwnerDraft
             | CapabilityRequestDraft
             | CreatorReplyDraft
             | FormalNoActionDraft
@@ -847,14 +856,18 @@ class DeterministicCandidateValidator:
                     next_bytes = rfc8785.dumps(
                         cast(Any, component.payload.next_state.model_dump(mode="json"))
                     )
-                    accepted[proposal.proposal_ref] = CandidateComponentDraft(
-                        proposal.proposal_ref,
-                        proposal.atomic_group_ref,
-                        tuple(basis.ordinal for basis in proposal_bases),
-                        CandidateFactClass(component.payload.fact_class),
-                        owner,
-                        component.payload.expected_version,
-                        next_bytes,
+                    accepted[proposal.proposal_ref] = (
+                        self._subject_state_cognition.bind(
+                            CandidateSubjectStateDraft(
+                                proposal.proposal_ref,
+                                proposal.atomic_group_ref,
+                                tuple(basis.ordinal for basis in proposal_bases),
+                                CandidateFactClass(component.payload.fact_class),
+                                SubjectStateKind(owner.value),
+                                component.payload.expected_version,
+                                next_bytes,
+                            )
+                        )
                     )
                     continue
             if failure is None and owner is CandidateOwner.CAPABILITY:
@@ -1006,11 +1019,12 @@ class DeterministicCandidateValidator:
 
         for proposal_ref, draft in tuple(accepted.items()):
             if (
-                isinstance(
-                    draft, (CandidateComponentDraft, CandidateSubjectPromptDraft)
+                isinstance(draft, CandidateSubjectPromptDraft)
+                or (
+                    isinstance(draft, CandidateOwnerDraft)
+                    and draft.owner in {"self", "mind", "life_mode"}
                 )
-                and draft.atomic_group_ref not in group_experiences
-            ):
+            ) and draft.atomic_group_ref not in group_experiences:
                 rejected[proposal_ref] = CandidateRejection(
                     proposal_ref,
                     draft.atomic_group_ref,
@@ -1067,11 +1081,6 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateExperienceDraft)
         )
-        components = tuple(
-            value
-            for _, value in sorted(accepted.items())
-            if isinstance(value, CandidateComponentDraft)
-        )
         memories = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -1088,6 +1097,11 @@ class DeterministicCandidateValidator:
             if isinstance(value, CandidateRelationshipDraft)
         )
         owner_drafts = (
+            *(
+                value
+                for _, value in sorted(accepted.items())
+                if isinstance(value, CandidateOwnerDraft)
+            ),
             *(
                 self._memory_cognition.bind_legacy(value, revision=False)
                 for value in memories
@@ -1201,7 +1215,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [_experience_wire(item) for item in experiences],
-            "components": [_component_wire(item) for item in components],
             "capability_requests": [
                 _capability_wire(item) for item in capability_requests
             ],
@@ -1331,7 +1344,6 @@ class DeterministicCandidateValidator:
             self._context.context_digest,
             disposition,
             experiences,
-            components,
             capability_requests,
             action_choices,
             web_research_requests,
@@ -1475,13 +1487,8 @@ class DeterministicCandidateValidator:
                     self._context.other_party_id,
                 ),
             )
-        change_set_version = (
-            ACTIVE_CHANGE_SET_VERSION
-            if relationship is not None
-            else OTHER_HUMAN_CHANGE_SET_VERSION
-        )
         value: dict[str, object] = {
-            "schema_version": change_set_version,
+            "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
             "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
@@ -1494,7 +1501,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [] if experience is None else [_experience_wire(experience)],
-            "components": [],
             "capability_requests": [],
             "action_choices": [_action_wire(item) for item in action_choices],
             "web_research_requests": [],
@@ -1508,31 +1514,23 @@ class DeterministicCandidateValidator:
             "exact_life_queries": [],
             "rejections": [],
         }
-        if change_set_version == OTHER_HUMAN_CHANGE_SET_VERSION:
-            value["materials"] = []
-        if change_set_version != ACTIVE_CHANGE_SET_VERSION:
-            value["memories"] = []
-            value["memory_revisions"] = []
-            value["activities"] = []
-            value["activity_decisions"] = []
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
-            canonical,
-            self._context.subject_id,
-            self._context.generation_id,
-            self._context.episode_id,
-            self._context.model_attempt_id,
-            self._context.base_subject_version,
-            self._context.base_state_epoch,
-            self._context.bundle_activation_id,
-            self._context.context_digest,
-            disposition,
-            () if experience is None else (experience,),
-            (),
-            (),
-            action_choices,
-            (),
-            (),
+            canonical_bytes=canonical,
+            subject_id=self._context.subject_id,
+            generation_id=self._context.generation_id,
+            episode_id=self._context.episode_id,
+            model_attempt_id=self._context.model_attempt_id,
+            base_subject_version=self._context.base_subject_version,
+            base_state_epoch=self._context.base_state_epoch,
+            bundle_activation_id=self._context.bundle_activation_id,
+            context_digest=self._context.context_digest,
+            disposition=disposition,
+            experiences=() if experience is None else (experience,),
+            capability_requests=(),
+            action_choices=action_choices,
+            web_research_requests=(),
+            rejections=(),
             owner_drafts=(
                 () if relationship is None else (self._bind_relationship(relationship),)
             ),
@@ -1610,7 +1608,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [],
-            "components": [],
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
@@ -1703,7 +1700,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [],
-            "components": [],
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
@@ -1813,7 +1809,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [],
-            "components": [],
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
@@ -1956,7 +1951,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
-            "components": [],
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
@@ -1979,7 +1973,6 @@ class DeterministicCandidateValidator:
             context_digest=context.context_digest,
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
-            components=(),
             capability_requests=(),
             action_choices=(),
             web_research_requests=(),
@@ -2110,7 +2103,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
-            "components": [],
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
@@ -2133,7 +2125,6 @@ class DeterministicCandidateValidator:
             context_digest=context.context_digest,
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
-            components=(),
             capability_requests=(),
             action_choices=(),
             web_research_requests=(),
@@ -4231,7 +4222,7 @@ def _draft_owner(
     | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
-    | CandidateComponentDraft
+    | CandidateOwnerDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
     | FormalNoActionDraft
@@ -4258,7 +4249,7 @@ def _draft_owner(
         return CandidateOwner.WEB_RESEARCH
     if isinstance(draft, CodexDelegationDraft):
         return CandidateOwner.CODEX_DELEGATION
-    return draft.owner
+    return CandidateOwner(draft.owner)
 
 
 def _draft_fact_class(
@@ -4269,7 +4260,7 @@ def _draft_fact_class(
     | CandidateLifeMaterialDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
-    | CandidateComponentDraft
+    | CandidateOwnerDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
     | FormalNoActionDraft
@@ -4510,18 +4501,6 @@ def _codex_delegation_wire(value: CodexDelegationDraft) -> dict[str, object]:
         "capability_kind": value.capability_kind,
         "operation": value.operation,
         "purpose": value.purpose,
-    }
-
-
-def _component_wire(value: CandidateComponentDraft) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "fact_class": value.fact_class.value,
-        "owner": value.owner.value,
-        "expected_version": value.expected_version,
-        "next_state": json.loads(value.canonical_next_state),
     }
 
 

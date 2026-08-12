@@ -27,6 +27,7 @@ from armi_kernel.application import (
     TransactionIsolation,
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
+from armi_subject_state.bootstrap import bootstrap_subject_state
 
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
@@ -249,7 +250,7 @@ async def execute_birth_with_conninfo(
     transaction = BirthTransaction(
         storage,
         ArtifactCatalogRepository(),
-        BirthRepository(),
+        BirthRepository(bootstrap_subject_state().birth),
         factory,
     )
     await factory.open()

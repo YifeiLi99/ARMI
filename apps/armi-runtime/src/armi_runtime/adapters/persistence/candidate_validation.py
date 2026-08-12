@@ -7,7 +7,6 @@ from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
-import rfc8785
 from armi_activity.api import ActivityReadPort
 from armi_kernel.application import (
     ArtifactId,
@@ -20,7 +19,6 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     CandidateBasis,
-    CandidateComponentDraft,
     CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
@@ -62,6 +60,7 @@ from armi_memory.api import (
 )
 from armi_relationship.api import RelationshipReadPort
 from armi_sleep.api import SleepReadPort
+from armi_subject_state.api import SubjectStateReadPort
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -137,7 +136,14 @@ class CandidateEpisodeSnapshot:
 class PostgreSQLCandidateValidationRepository:
     """Freeze validation input and atomically preserve its result."""
 
-    __slots__ = ("_activities", "_materials", "_memories", "_relationships", "_sleep")
+    __slots__ = (
+        "_activities",
+        "_materials",
+        "_memories",
+        "_relationships",
+        "_sleep",
+        "_subject_state",
+    )
 
     def __init__(
         self,
@@ -146,12 +152,14 @@ class PostgreSQLCandidateValidationRepository:
         activities: ActivityReadPort,
         memories: MemoryReadPort | None = None,
         materials: MaterialReadPort | None = None,
+        subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
         self._memories = memories
         self._materials = materials
         self._relationships = relationships
         self._sleep = sleep
+        self._subject_state = subject_state
 
     async def snapshot(
         self,
@@ -262,28 +270,16 @@ class PostgreSQLCandidateValidationRepository:
                 )
             )
             basis_item_ids.append((int(item[1]), item[0]))
-        component_rows = await (
-            await connection.execute(
-                """
-                SELECT
-                    head.component_kind,
-                    head.component_version,
-                    revision.semantic_payload
-                FROM armi.subject_component_heads AS head
-                JOIN armi.subject_component_revisions AS revision
-                  ON revision.component_revision_id = head.current_revision_id
-                WHERE head.subject_id = %s
-                  AND head.component_kind IN ('self', 'mind', 'life_mode')
-                ORDER BY head.component_kind
-                """,
-                (row[2],),
-            )
-        ).fetchall()
+        if self._subject_state is None:
+            raise CandidateViolation("CANDIDATE-SUBJECT-STATE-OWNER")
+        component_rows = await self._subject_state.current_heads(
+            unit_of_work.transaction, subject_id=row[2]
+        )
         components = tuple(
             (
-                CandidateOwner(str(item[0])),
-                int(item[1]),
-                rfc8785.dumps(item[2]),
+                CandidateOwner(item.kind.value),
+                item.version,
+                item.canonical_state,
             )
             for item in component_rows
         )
@@ -758,7 +754,6 @@ async def _insert_items(
                     CandidateMemoryDraft,
                     CandidateMemoryRevisionDraft,
                     CandidateOwnerDraft,
-                    CandidateComponentDraft,
                     CandidateRejection,
                 ),
             )
@@ -813,7 +808,6 @@ def _validation_drafts(
     | CandidateOwnerDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
-    | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
     | OtherHumanReplyDraft
@@ -829,7 +823,6 @@ def _validation_drafts(
         *change_set.owner_drafts,
         *change_set.prompts,
         *change_set.exact_life_queries,
-        *change_set.components,
         *change_set.capability_requests,
         *change_set.action_choices,
         *change_set.web_research_requests,
@@ -845,7 +838,6 @@ def _owner(
     | CandidateOwnerDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
-    | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
     | OtherHumanReplyDraft
@@ -891,7 +883,6 @@ def _implicit_fact_class(
     | CandidateOwnerDraft
     | CandidateSubjectPromptDraft
     | CandidateExactLifeQueryDraft
-    | CandidateComponentDraft
     | CapabilityRequestDraft
     | CreatorReplyDraft
     | OtherHumanReplyDraft
@@ -908,7 +899,6 @@ def _implicit_fact_class(
             CandidateMemoryDraft,
             CandidateMemoryRevisionDraft,
             CandidateOwnerDraft,
-            CandidateComponentDraft,
             CandidateSubjectPromptDraft,
             CandidateExactLifeQueryDraft,
             CandidateRejection,
