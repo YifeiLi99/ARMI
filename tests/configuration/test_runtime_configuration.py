@@ -68,6 +68,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             )
         self.assertEqual(effective.config.database.pool_min, 2)
         self.assertEqual(effective.config.database.pool_max, 24)
+        self.assertFalse(effective.config.model.semantic_recall_enabled)
         self.assertEqual(effective.config.artifacts.orphan_grace_seconds, 172_800)
         self.assertEqual(
             effective.applied_sources,

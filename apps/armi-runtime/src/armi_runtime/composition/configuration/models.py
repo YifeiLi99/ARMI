@@ -144,6 +144,7 @@ class RuntimeLeaseConfig(LeaseConfig):
 class ModelConfig(_FrozenModel):
     concurrency: PositiveInt = 2
     attempt_timeout_seconds: PositiveInt = 180
+    semantic_recall_enabled: bool = False
 
 
 class WebConfig(_FrozenModel):

@@ -22,6 +22,7 @@ max_deadline_seconds = 3600
 [model]
 concurrency = 2
 attempt_timeout_seconds = 180
+semantic_recall_enabled = false
 
 [web]
 concurrency = 1

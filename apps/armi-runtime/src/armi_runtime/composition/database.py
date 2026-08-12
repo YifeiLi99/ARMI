@@ -1209,8 +1209,10 @@ def compose_context_pipeline(
     """Resolve the Runtime credential for the active S023 selector and worker."""
 
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    embedding_locator = prepared.effective.config.secret_locators.get(
-        MODEL_LOCATOR_NAME
+    embedding_locator = (
+        prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
+        if prepared.effective.config.model.semantic_recall_enabled
+        else None
     )
     if locator is None:
         raise DatabaseViolation(
