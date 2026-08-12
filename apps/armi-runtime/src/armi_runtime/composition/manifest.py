@@ -70,7 +70,7 @@ def build_composition_manifest() -> dict[str, object]:
             if seam_id == "M0-SEAM-CREATOR-UI"
             else "armi.creator-projection-workbench.v1"
             if seam_id == "M0-SEAM-CREATOR-PROJECTION"
-            else "armi.context-compiler.layered-v2"
+            else "armi.context-compiler.deterministic-v1"
             if seam_id == "M0-SEAM-CONTEXT"
             else "armi.model-adapter.volcengine-ark-responses-v1"
             if seam_id == "M0-SEAM-MODEL"
