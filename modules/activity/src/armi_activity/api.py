@@ -9,7 +9,6 @@ from typing import Final, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
-from armi_kernel.contracts import ActivityId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._domain import (
@@ -63,6 +62,15 @@ class ActivityViolation(RuntimeError):
 
 def _uuid7(value: object) -> bool:
     return type(value) is UUID and value.version == 7
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityId:
+    value: UUID
+
+    def __post_init__(self) -> None:
+        if not _uuid7(self.value):
+            raise ActivityViolation("ACTIVITY-ID")
 
 
 def _instant(value: object) -> bool:
@@ -631,6 +639,7 @@ __all__ = (
     "ActivityCommitResult",
     "ActivityFocusReadPort",
     "ActivityHeadSnapshot",
+    "ActivityId",
     "ActivityLifeRecordItem",
     "ActivityOutreachSource",
     "ActivityReadPort",

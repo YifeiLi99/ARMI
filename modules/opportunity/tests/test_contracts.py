@@ -8,13 +8,14 @@ from uuid import uuid7
 import pytest
 from armi_activity.api import (
     ActivityHeadSnapshot,
+    ActivityId,
     ActivityScheduler,
     ActivitySchedulingDisposition,
     ActivitySchedulingSnapshot,
     ActivityStatus,
     ActivityWaitingKind,
 )
-from armi_kernel.contracts import ActivityId, Digest
+from armi_kernel.contracts import Digest
 from armi_opportunity.api import (
     CreatorOutreachPolicy,
     LifeOpportunitySourceKind,

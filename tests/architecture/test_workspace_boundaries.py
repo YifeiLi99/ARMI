@@ -83,7 +83,6 @@ PUBLIC_EXPORTS = {
     "armi_kernel.contracts": frozenset(
         {
             "CONTRACT_VERSION",
-            "CommandEnvelope",
             "ContractViolation",
             "SubjectId",
         }

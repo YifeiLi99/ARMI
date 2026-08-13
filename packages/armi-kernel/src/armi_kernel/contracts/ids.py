@@ -54,16 +54,6 @@ class SceneId(_UuidV7):
 
 
 @dataclass(frozen=True, slots=True)
-class ActivityId(_UuidV7):
-    """Stable activity identity."""
-
-
-@dataclass(frozen=True, slots=True)
-class CommandId(_UuidV7):
-    """One command invocation identity."""
-
-
-@dataclass(frozen=True, slots=True)
 class ResultRef(_UuidV7):
     """Durable result reference."""
 

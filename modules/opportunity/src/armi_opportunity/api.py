@@ -9,8 +9,9 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_activity.api import ActivityId
 from armi_kernel.application import CognitiveEpisodeId
-from armi_kernel.contracts import ActivityId, Digest
+from armi_kernel.contracts import Digest
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)

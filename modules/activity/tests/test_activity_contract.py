@@ -9,6 +9,7 @@ import pytest
 from armi_activity.api import (
     ActivityAttentionDecisionKind,
     ActivityHeadSnapshot,
+    ActivityId,
     ActivityScheduler,
     ActivitySchedulingDisposition,
     ActivitySchedulingSnapshot,
@@ -19,7 +20,6 @@ from armi_activity.api import (
 )
 from armi_activity.bootstrap import bootstrap_activity_cognition
 from armi_kernel.application import CandidateFactClass
-from armi_kernel.contracts import ActivityId
 
 
 def test_activity_create_and_decision_round_trip_as_opaque_owner_drafts() -> None:

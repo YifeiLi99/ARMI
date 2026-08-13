@@ -1,25 +1,6 @@
 {
   "contract_version": "1.0",
   "valid": {
-    "command": {
-      "contract_version": "1.0",
-      "command_id": "018f3f7d-8b2a-7c4d-8e9f-0123456789ab",
-      "idempotency_key": "birth.accept:0001",
-      "request_digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "actor": {
-        "kind": "creator",
-        "actor_id": "creator:primary",
-        "authentication": "local.session"
-      },
-      "subject_id": "018f3f7d-8b2a-7c4d-8e9f-1123456789ab",
-      "scene_id": "018f3f7d-8b2a-7c4d-8e9f-2123456789ab",
-      "purpose": "birth.acceptance",
-      "requested_at": "2026-07-29T16:00:00+08:00",
-      "trace_id": "0123456789abcdef0123456789abcdef",
-      "payload": {
-        "note": "accept durable input"
-      }
-    },
     "outcomes": [
       {
         "contract_version": "1.0",

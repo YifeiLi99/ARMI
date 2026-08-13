@@ -1,11 +1,8 @@
 """The only public cross-distribution transport contract entry point."""
 
 from ._codec import CONTRACT_VERSION, ContractViolation
-from .envelopes import ActorRef, CommandEnvelope
 from .errors import ErrorCategory, ErrorDescriptor
 from .ids import (
-    ActivityId,
-    CommandId,
     ErrorInstanceId,
     ResultRef,
     SceneId,
@@ -29,11 +26,7 @@ from .values import Digest, IdempotencyKey, Instant, OpaqueCursor, Purpose
 __all__ = (
     "CONTRACT_VERSION",
     "AcceptedOutcome",
-    "ActivityId",
-    "ActorRef",
     "AppliedOutcome",
-    "CommandEnvelope",
-    "CommandId",
     "CompletedOutcome",
     "ContractViolation",
     "Digest",

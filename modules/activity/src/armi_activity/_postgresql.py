@@ -8,7 +8,6 @@ from uuid import UUID
 
 import psycopg
 import rfc8785
-from armi_kernel.contracts import ActivityId
 from armi_runtime_foundation import PostgreSQLTransaction
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
@@ -18,6 +17,7 @@ from .api import (
     ActivityCandidateSnapshot,
     ActivityFocusReadPort,
     ActivityHeadSnapshot,
+    ActivityId,
     ActivityLifeRecordItem,
     ActivityOutreachSource,
     ActivityStatus,

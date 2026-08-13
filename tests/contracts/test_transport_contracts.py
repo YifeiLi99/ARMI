@@ -14,7 +14,6 @@ from armi_kernel.contracts import (
     CONTRACT_VERSION,
     AcceptedOutcome,
     AppliedOutcome,
-    CommandEnvelope,
     CompletedOutcome,
     ContractViolation,
     Digest,
@@ -53,19 +52,6 @@ OUTCOME_DECODERS = {
 }
 
 
-def _decode_payload(value: object) -> tuple[str]:
-    if not isinstance(value, dict) or set(value) != {"note"}:
-        raise ContractViolation("CON-PAYLOAD", "payload must contain only note")
-    note = value["note"]
-    if not isinstance(note, str):
-        raise ContractViolation("CON-PAYLOAD", "note must be a string")
-    return (note,)
-
-
-def _encode_payload(value: tuple[str]) -> dict[str, object]:
-    return {"note": value[0]}
-
-
 def _assert_code(expected: str, action) -> None:
     with pytest.raises(ContractViolation) as raised:
         action()
@@ -96,13 +82,6 @@ def _reject_invalid(kind: object, value: object) -> object:
 
 def test_contract_version_and_public_values_round_trip() -> None:
     assert CONTRACT_VERSION == "1.0"
-    command_wire = cast(dict[str, object], VALID["command"])
-    command = CommandEnvelope.from_wire(command_wire, payload_decoder=_decode_payload)
-    normalized = command.to_wire(payload_encoder=_encode_payload)
-    assert normalized["requested_at"] == "2026-07-29T08:00:00.000000Z"
-    assert normalized["payload"] == command_wire["payload"]
-    assert command.scene_id is not None
-    assert command.activity_id is None
     assert Digest.from_bytes(b"ARMI").to_wire().startswith("sha256:")
     assert IdempotencyKey.from_wire("retry:0001").to_wire() == "retry:0001"
     assert Purpose.from_wire("birth.acceptance").to_wire() == "birth.acceptance"
@@ -167,17 +146,17 @@ def test_shared_invalid_vectors_have_stable_rejection_codes() -> None:
 
 
 def test_unknown_missing_and_variant_fields_are_rejected() -> None:
-    command = copy.deepcopy(cast(dict[str, object], VALID["command"]))
-    command["extra"] = True
+    page = copy.deepcopy(cast(dict[str, object], VALID["page_request"]))
+    page["extra"] = True
     _assert_code(
         "CON-FIELD-UNKNOWN",
-        lambda: CommandEnvelope.from_wire(command, payload_decoder=_decode_payload),
+        lambda: PageRequest.from_wire(page),
     )
-    del command["extra"]
-    del command["trace_id"]
+    del page["extra"]
+    del page["limit"]
     _assert_code(
         "CON-FIELD-MISSING",
-        lambda: CommandEnvelope.from_wire(command, payload_decoder=_decode_payload),
+        lambda: PageRequest.from_wire(page),
     )
 
     accepted = copy.deepcopy(cast(list[dict[str, object]], VALID["outcomes"])[0])

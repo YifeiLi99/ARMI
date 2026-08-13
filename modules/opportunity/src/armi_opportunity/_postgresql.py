@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 from armi_activity.api import (
+    ActivityId,
     ActivityReadPort,
     ActivityScheduler,
     ActivitySchedulingDisposition,
@@ -19,7 +20,6 @@ from armi_kernel.application import (
     AuditSensitivity,
 )
 from armi_kernel.contracts import (
-    ActivityId,
     ContractViolation,
     Purpose,
     SubjectId,
