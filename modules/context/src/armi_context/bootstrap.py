@@ -18,9 +18,11 @@ from armi_subject_state.api import SubjectStateReadPort
 
 from ._application import ContextPipeline
 from ._embedding_application import ContextEmbeddingPipeline
+from ._embedding_postgresql import PostgreSQLContextProjectionInvalidation
 from .api import (
     ContextArtifactCatalogPort,
     ContextEmbeddingRuntimePort,
+    ContextProjectionInvalidationPort,
     ContextRuntimePort,
     ContextWakeupPort,
     EmbeddingPort,
@@ -89,4 +91,12 @@ def bootstrap_context_embedding(
     )
 
 
-__all__ = ("bootstrap_context", "bootstrap_context_embedding")
+def bootstrap_context_projection_invalidation() -> ContextProjectionInvalidationPort:
+    return PostgreSQLContextProjectionInvalidation()
+
+
+__all__ = (
+    "bootstrap_context",
+    "bootstrap_context_embedding",
+    "bootstrap_context_projection_invalidation",
+)

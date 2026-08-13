@@ -13,6 +13,7 @@ from armi_kernel.application import (
 )
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
 )
 
 from ._export_contract import (
@@ -55,6 +56,17 @@ class DataRightsInteractionGate(Protocol):
 
 
 @runtime_checkable
+class DataRightsProjectionInvalidationPort(Protocol):
+    async def invalidate(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        source_kind: str,
+        source_refs: tuple[UUID, ...],
+    ) -> None: ...
+
+
+@runtime_checkable
 class DataRightsUnitOfWorkFactory(Protocol):
     @property
     def environment_id(self) -> UUID: ...
@@ -87,6 +99,7 @@ __all__ = (
     "DataRightsOrderPort",
     "DataRightsOrderResult",
     "DataRightsPartyKey",
+    "DataRightsProjectionInvalidationPort",
     "DataRightsRequesterKind",
     "DataRightsScopeKind",
     "DataRightsUnitOfWorkFactory",

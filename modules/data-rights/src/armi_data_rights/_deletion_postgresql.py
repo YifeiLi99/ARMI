@@ -24,7 +24,7 @@ from armi_relationship.api import RelationshipDataRightsParticipant
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from psycopg import sql
 
-from .api import DataRightsViolation
+from .api import DataRightsProjectionInvalidationPort, DataRightsViolation
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,15 +35,17 @@ class DeletionArtifactItem:
 
 
 class LocalDataDeletionRepository:
-    __slots__ = ("_memories", "_relationships")
+    __slots__ = ("_context_projections", "_memories", "_relationships")
 
     def __init__(
         self,
         memories: MemoryDataRightsParticipant,
         relationships: RelationshipDataRightsParticipant,
+        context_projections: DataRightsProjectionInvalidationPort,
     ) -> None:
         self._memories = memories
         self._relationships = relationships
+        self._context_projections = context_projections
 
     async def pending_order_ids(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork
@@ -110,8 +112,10 @@ class LocalDataDeletionRepository:
                    ON CONFLICT (deletion_order_id,target_kind,target_ref) DO NOTHING""",
                 (uuid7(), order_id, memory_id),
             )
-        await self._memories.clear_projections(
-            unit_of_work.transaction, memory_ids=memory_ids
+        await self._context_projections.invalidate(
+            unit_of_work.transaction,
+            source_kind="subjective_memory",
+            source_refs=memory_ids,
         )
         relationship_ids = await self._relationships.find_for_party(
             unit_of_work.transaction, party_id
@@ -134,17 +138,6 @@ class LocalDataDeletionRepository:
                 order_id=order_id,
                 tombstoned_at=datetime.now(UTC),
             )
-        await connection.execute(
-            """
-            DELETE FROM armi.context_embedding_projections AS projection
-            USING armi.deletion_items AS item
-            WHERE item.deletion_order_id = %s
-              AND item.target_kind = 'memory'
-              AND item.target_ref = projection.source_ref
-              AND projection.source_kind = 'subjective_memory'
-            """,
-            (order_id,),
-        )
         artifact_ids = await self._related_artifact_ids(connection, party_id)
         reference_columns = await self._artifact_reference_columns(connection)
         items: list[DeletionArtifactItem] = []

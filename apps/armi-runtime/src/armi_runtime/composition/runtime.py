@@ -84,6 +84,7 @@ from .database import (
     compose_codex_pipeline,
     compose_context_embedding_pipeline,
     compose_context_pipeline,
+    compose_context_projection_invalidation,
     compose_data_rights_module,
     compose_effect_grant_cancellation,
     compose_effect_registration_pipeline,
@@ -408,12 +409,14 @@ async def _serve(
                 creator_party_id=creator_context.party_id,
             )
             await sleep_module.open()
+            context_projection_invalidation = compose_context_projection_invalidation()
             data_rights_module = compose_data_rights_module(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
                 memory_data_rights=memory_module.data_rights,
                 relationship_data_rights=relationship_module.data_rights,
+                context_projections=context_projection_invalidation,
                 notifier=creator_events,
             )
             await data_rights_module.open()
@@ -540,6 +543,7 @@ async def _serve(
                 activity_commit=activity_module.commit,
                 capability_commit=capability_policy.commit,
                 capability_read=capability_policy.read,
+                context_projections=context_projection_invalidation,
                 evidence=evidence_module.write,
                 memory_commit=memory_module.commit,
                 memory_cognition=memory_module.cognition,

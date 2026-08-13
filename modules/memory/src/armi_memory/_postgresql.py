@@ -599,11 +599,6 @@ class PostgreSQLMemoryOwner:
             ).fetchone()
             if updated is None:
                 raise MemoryViolation("MEMORY-HEAD-STALE")
-            if value.accessibility is MemoryAccessibility.FORGOTTEN:
-                await transaction.execute(
-                    "DELETE FROM armi.context_embedding_projections WHERE source_kind='subjective_memory' AND source_ref=%s",
-                    (value.memory_id,),
-                )
             if value.related_memory_id is not None:
                 related = await (
                     await transaction.execute(
@@ -790,16 +785,6 @@ class PostgreSQLMemoryOwner:
             )
         ).fetchall()
         return tuple(row[0] for row in rows)
-
-    async def clear_projections(
-        self, transaction: PostgreSQLTransaction, *, memory_ids: tuple[UUID, ...]
-    ) -> None:
-        if memory_ids:
-            await transaction.execute(
-                """DELETE FROM armi.context_embedding_projections
-                   WHERE source_kind='subjective_memory' AND source_ref=ANY(%s)""",
-                (list(memory_ids),),
-            )
 
 
 __all__ = ("PostgreSQLMemoryOwner",)

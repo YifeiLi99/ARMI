@@ -25,6 +25,10 @@ from armi_codex.api import (
     CodexDelegationViolation,
 )
 from armi_cognition.api import SubjectChangeSet
+from armi_context.api import (
+    ContextProjectionInvalidationPort,
+    ContextProjectionSourceRef,
+)
 from armi_evidence.api import EvidenceId, EvidenceWritePort, ExperienceEvidenceLink
 from armi_expression.api import (
     ExpressionCommitContext,
@@ -216,6 +220,7 @@ class PostgreSQLSubjectCommitRepository:
         "_capability_commit",
         "_capability_read",
         "_codex_commit",
+        "_context_projections",
         "_evidence",
         "_expression_commit",
         "_material_commit",
@@ -235,6 +240,7 @@ class PostgreSQLSubjectCommitRepository:
         capability_commit: CapabilityCommitPort,
         capability_read: CapabilityReadPort,
         codex_commit: CodexCommitPort,
+        context_projections: ContextProjectionInvalidationPort,
         evidence: EvidenceWritePort,
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
@@ -251,6 +257,7 @@ class PostgreSQLSubjectCommitRepository:
         self._capability_commit = capability_commit
         self._capability_read = capability_read
         self._codex_commit = codex_commit
+        self._context_projections = context_projections
         self._evidence = evidence
         self._expression_commit = expression_commit
         self._memory_commit = memory_commit
@@ -878,6 +885,17 @@ class PostgreSQLSubjectCommitRepository:
             raise SubjectCommitViolation(
                 f"SUBJECT-{error.code.removeprefix('MATERIAL-')}"
             ) from None
+        await self._context_projections.invalidate(
+            unit_of_work.transaction,
+            tuple(
+                ContextProjectionSourceRef("subjective_memory", memory_id)
+                for memory_id in committed_memory_ids
+            )
+            + tuple(
+                ContextProjectionSourceRef("life_material", material_id)
+                for material_id in committed_material_ids
+            ),
+        )
         for material_id in committed_material_ids:
             await unit_of_work.audit.append(
                 _audit(

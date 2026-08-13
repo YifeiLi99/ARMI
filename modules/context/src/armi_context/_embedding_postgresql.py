@@ -17,10 +17,10 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from ._postgresql import ContextMaterialSource
-from .api import EmbeddingResponse, RecallStatus
+from .api import ContextProjectionSourceRef, EmbeddingResponse, RecallStatus
 
 _WORK_KIND = "context.embedding.project"
 _EMBEDDING_BINDING_ID = "armi.embedding.volcengine-ark-doubao-vision-250615-v1"
@@ -354,8 +354,23 @@ class PostgreSQLContextEmbeddingRepository:
         return RecalledContext(status, tuple(memory_values), tuple(material_values))
 
 
+class PostgreSQLContextProjectionInvalidation:
+    async def invalidate(
+        self,
+        transaction: PostgreSQLTransaction,
+        sources: tuple[ContextProjectionSourceRef, ...],
+    ) -> None:
+        for source in sources:
+            await transaction.execute(
+                """DELETE FROM armi.context_embedding_projections
+                   WHERE source_kind=%s AND source_ref=%s""",
+                (source.source_kind, source.source_ref),
+            )
+
+
 __all__ = (
     "EmbeddingProjectionSource",
     "PostgreSQLContextEmbeddingRepository",
+    "PostgreSQLContextProjectionInvalidation",
     "RecalledContext",
 )

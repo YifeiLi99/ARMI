@@ -17,7 +17,7 @@ from armi_kernel.application import (
     PublishedArtifact,
 )
 from armi_kernel.contracts import Instant, Purpose
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^CTX-[A-Z0-9-]+$", re.ASCII)
@@ -339,6 +339,25 @@ class ContextEmbeddingRuntimePort(Protocol):
     async def run_worker(self) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ContextProjectionSourceRef:
+    source_kind: str
+    source_ref: UUID
+
+    def __post_init__(self) -> None:
+        _require_token(self.source_kind)
+        _require_uuid7(self.source_ref)
+
+
+@runtime_checkable
+class ContextProjectionInvalidationPort(Protocol):
+    async def invalidate(
+        self,
+        transaction: PostgreSQLTransaction,
+        sources: tuple[ContextProjectionSourceRef, ...],
+    ) -> None: ...
+
+
 def _require_uuid7(value: object) -> None:
     if type(value) is not UUID or value.version != 7:
         raise ContextViolation("CTX-ID")
@@ -360,6 +379,8 @@ __all__ = (
     "ContextItemDisposition",
     "ContextItemResult",
     "ContextLayer",
+    "ContextProjectionInvalidationPort",
+    "ContextProjectionSourceRef",
     "ContextRequest",
     "ContextRequirement",
     "ContextResult",

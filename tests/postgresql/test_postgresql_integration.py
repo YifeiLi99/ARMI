@@ -378,6 +378,12 @@ async def _artifact_chunks(*values: bytes) -> AsyncIterator[bytes]:
         yield value
 
 
+class _ContextProjectionInvalidation:
+    async def invalidate(self, transaction: Any, sources: Any) -> None:
+        del transaction, sources
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class DatabaseFixture:
     database: str
@@ -5809,6 +5815,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 capability_commit=capability_module.commit,
                 capability_read=capability_module.read,
                 codex_commit=bootstrap_codex_commit(),
+                context_projections=_ContextProjectionInvalidation(),
                 evidence=bootstrap_evidence().write,
                 expression_commit=expression_module.commit,
                 memory_commit=memory_module.commit,

@@ -20,6 +20,7 @@ from .api import (
     DataRightsArtifactStorePort,
     DataRightsInteractionGate,
     DataRightsOrderPort,
+    DataRightsProjectionInvalidationPort,
     DataRightsUnitOfWorkFactory,
 )
 
@@ -57,11 +58,14 @@ def bootstrap_data_rights(
     storage: DataRightsArtifactStorePort,
     memory: MemoryDataRightsParticipant,
     relationship: RelationshipDataRightsParticipant,
+    context_projections: DataRightsProjectionInvalidationPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     gate = DataRightsOrderRepository()
     deletion = LocalDataDeletionExecutor(
-        repository=LocalDataDeletionRepository(memory, relationship),
+        repository=LocalDataDeletionRepository(
+            memory, relationship, context_projections
+        ),
         storage=storage,
         unit_of_work_factory=unit_of_work_factory,
     )

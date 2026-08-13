@@ -222,11 +222,6 @@ class PostgreSQLMaterialCommit:
                 ).fetchone()
                 if updated is None:
                     raise MaterialViolation("MATERIAL-HEAD-STALE")
-                if material.revision_kind is LifeMaterialRevisionKind.DELETED:
-                    await transaction.execute(
-                        "DELETE FROM armi.context_embedding_projections WHERE source_kind='life_material' AND source_ref=%s",
-                        (material.material_id,),
-                    )
             affected.append(material.material_id)
         return tuple(affected)
 

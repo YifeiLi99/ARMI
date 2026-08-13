@@ -39,11 +39,20 @@ from armi_cognition.bootstrap import (
 from armi_context.api import (
     EMBEDDING_DIMENSIONS,
     ContextEmbeddingRuntimePort,
+    ContextProjectionInvalidationPort,
+    ContextProjectionSourceRef,
     ContextRuntimePort,
     EmbeddingBinding,
 )
-from armi_context.bootstrap import bootstrap_context, bootstrap_context_embedding
-from armi_data_rights.api import DataRightsInteractionGate
+from armi_context.bootstrap import (
+    bootstrap_context,
+    bootstrap_context_embedding,
+    bootstrap_context_projection_invalidation,
+)
+from armi_data_rights.api import (
+    DataRightsInteractionGate,
+    DataRightsProjectionInvalidationPort,
+)
 from armi_data_rights.bootstrap import DataRightsModule, bootstrap_data_rights
 from armi_effect.api import (
     ActionAdapterPort,
@@ -115,6 +124,7 @@ from armi_relationship.api import (
     RelationshipReadPort,
 )
 from armi_relationship.bootstrap import RelationshipModule, bootstrap_relationship
+from armi_runtime_foundation import PostgreSQLTransaction
 from armi_sleep.api import (
     SleepCognitionPort,
     SleepCommitPort,
@@ -815,6 +825,26 @@ def compose_prompt_module(
     )
 
 
+class _DataRightsContextProjectionInvalidation(DataRightsProjectionInvalidationPort):
+    def __init__(self, target: ContextProjectionInvalidationPort) -> None:
+        self._target = target
+
+    async def invalidate(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        source_kind: str,
+        source_refs: tuple[UUID, ...],
+    ) -> None:
+        await self._target.invalidate(
+            transaction,
+            tuple(
+                ContextProjectionSourceRef(source_kind, source_ref)
+                for source_ref in source_refs
+            ),
+        )
+
+
 def compose_data_rights_module(
     prepared: PreparedEnvironment,
     *,
@@ -822,6 +852,7 @@ def compose_data_rights_module(
     creator_party_id: UUID,
     memory_data_rights: MemoryDataRightsParticipant,
     relationship_data_rights: RelationshipDataRightsParticipant,
+    context_projections: ContextProjectionInvalidationPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     config = prepared.effective.config
@@ -835,8 +866,15 @@ def compose_data_rights_module(
         ),
         memory=memory_data_rights,
         relationship=relationship_data_rights,
+        context_projections=_DataRightsContextProjectionInvalidation(
+            context_projections
+        ),
         notifier=notifier,
     )
+
+
+def compose_context_projection_invalidation() -> ContextProjectionInvalidationPort:
+    return bootstrap_context_projection_invalidation()
 
 
 def compose_life_opportunity_pipeline(
@@ -1145,6 +1183,7 @@ def compose_subject_commit_pipeline(
     activity_commit: ActivityCommitPort,
     capability_commit: CapabilityCommitPort,
     capability_read: CapabilityReadPort,
+    context_projections: ContextProjectionInvalidationPort,
     evidence: EvidenceWritePort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
@@ -1194,6 +1233,7 @@ def compose_subject_commit_pipeline(
         capability_commit=capability_commit,
         capability_read=capability_read,
         codex_commit=bootstrap_codex_commit(),
+        context_projections=context_projections,
         evidence=evidence,
         expression_commit=expression.commit,
         memory_commit=memory_commit,
