@@ -122,6 +122,17 @@ class InteractionIdentityPort(Protocol):
 
 
 @runtime_checkable
+class InteractionBirthPort(Protocol):
+    async def initialize(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        creator_party_id: UUID,
+    ) -> None: ...
+
+
+@runtime_checkable
 class CreatorInteractionPort(
     CreatorInputAcceptancePort,
     CreatorOperationQueryPort,
@@ -335,6 +346,7 @@ __all__ = (
     "ExternalRecognitionSnapshot",
     "ExternalVisualRole",
     "InteractionArtifactCatalogPort",
+    "InteractionBirthPort",
     "InteractionDataRightsGate",
     "InteractionEffectDeliveryPort",
     "InteractionIdentityPort",

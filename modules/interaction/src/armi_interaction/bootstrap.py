@@ -13,6 +13,7 @@ from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 from armi_subject_state.api import SubjectStateReadPort
 
+from ._birth_postgresql import PostgreSQLInteractionBirth
 from ._creator import EvidenceAcceptanceTransaction
 from ._creator_postgresql import CreatorInputRepository
 from ._external import ExternalMessageInputService
@@ -31,6 +32,7 @@ from .api import (
     CreatorScenePort,
     ExternalMessageInputPort,
     InteractionArtifactCatalogPort,
+    InteractionBirthPort,
     InteractionDataRightsGate,
     InteractionEffectDeliveryPort,
     InteractionIdentityPort,
@@ -44,6 +46,10 @@ from .api import (
 
 def bootstrap_interaction_identity() -> InteractionIdentityPort:
     return PostgreSQLInteractionIdentity()
+
+
+def bootstrap_interaction_birth() -> InteractionBirthPort:
+    return PostgreSQLInteractionBirth()
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,5 +157,6 @@ def bootstrap_interaction(
 __all__ = (
     "InteractionModule",
     "bootstrap_interaction",
+    "bootstrap_interaction_birth",
     "bootstrap_interaction_identity",
 )

@@ -11,6 +11,7 @@ from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_interaction.bootstrap import bootstrap_interaction_birth
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -255,6 +256,7 @@ async def execute_birth_with_conninfo(
             bootstrap_subject_state().birth,
             bootstrap_mood().birth,
             bootstrap_prompt().birth,
+            bootstrap_interaction_birth(),
         ),
         factory,
     )

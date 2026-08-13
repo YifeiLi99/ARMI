@@ -7,6 +7,7 @@ from enum import StrEnum
 from uuid import UUID, uuid7
 
 import psycopg
+from armi_interaction.api import InteractionBirthPort
 from armi_kernel.application import BirthManifest, BirthResult, BirthViolation
 from armi_kernel.contracts import Digest
 from armi_mood.api import MoodBirthPort
@@ -119,17 +120,19 @@ class BirthArtifacts:
 class BirthRepository:
     """Write all birth facts through the caller's active SERIALIZABLE UoW."""
 
-    __slots__ = ("_mood", "_prompts", "_subject_state")
+    __slots__ = ("_interaction", "_mood", "_prompts", "_subject_state")
 
     def __init__(
         self,
         subject_state: SubjectStateBirthPort,
         mood: MoodBirthPort,
         prompts: PromptBirthPort,
+        interaction: InteractionBirthPort,
     ) -> None:
         self._subject_state = subject_state
         self._prompts = prompts
         self._mood = mood
+        self._interaction = interaction
 
     async def lock_environment(
         self,
@@ -195,8 +198,6 @@ class BirthRepository:
         subject_id = uuid7()
         generation_id = uuid7()
         activation_id = uuid7()
-        subject_party_id = uuid7()
-        default_scene_id = uuid7()
         await connection.execute(
             """
             INSERT INTO armi.subjects (
@@ -223,15 +224,10 @@ class BirthRepository:
             """,
             (generation_id, subject_id),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.parties (
-                party_id, party_kind, represented_subject_id, creator_role
-            ) VALUES
-                (%s, 'subject', %s, NULL),
-                (%s, 'creator', NULL, 'unique_primary_creator')
-            """,
-            (subject_party_id, subject_id, manifest.creator_party_id),
+        await self._interaction.initialize(
+            unit_of_work.transaction,
+            subject_id=subject_id,
+            creator_party_id=manifest.creator_party_id,
         )
         await connection.execute(
             """
@@ -249,24 +245,6 @@ class BirthRepository:
                 manifest.birth_contract_digest.value,
                 manifest.creator_party_id,
             ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.interaction_scenes (
-                scene_id, subject_id, scene_key, scene_kind,
-                primary_party_id, audience_scope, current_status) VALUES (
-                %s, %s, 'default', 'creator_dialogue',
-                %s, 'creator', 'open')
-            """,
-            (default_scene_id, subject_id, manifest.creator_party_id),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.scene_participants (
-                scene_id, subject_id, party_id, participant_role
-            ) VALUES (%s, %s, %s, 'primary')
-            """,
-            (default_scene_id, subject_id, manifest.creator_party_id),
         )
         await self._prompts.initialize(
             unit_of_work.transaction,

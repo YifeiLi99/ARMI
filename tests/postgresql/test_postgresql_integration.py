@@ -125,6 +125,7 @@ from armi_interaction.api import (
     SceneTimelinePage,
     SceneTimelineQuery,
 )
+from armi_interaction.bootstrap import bootstrap_interaction_birth
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -271,6 +272,7 @@ def _birth_repository() -> BirthRepository:
         bootstrap_subject_state().birth,
         bootstrap_mood().birth,
         bootstrap_prompt().birth,
+        bootstrap_interaction_birth(),
     )
 
 
