@@ -69,12 +69,9 @@ from armi_kernel.application import (
     CredentialPort,
     CredentialPurpose,
     LifeRecordQueryPort,
-    LifeRecordQueryViolation,
     ModelBinding,
     ModelViolation,
-    OtherHumanRecordViolation,
     RuntimeFence,
-    SubjectCommitViolation,
 )
 from armi_material.api import (
     MaterialCognitionPort,
@@ -568,8 +565,9 @@ def compose_mood_module() -> MoodModule:
 
 
 def compose_life_record_query(
-    prepared: PreparedEnvironment,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
+    environment_id: UUID,
     creator_party_id: UUID,
     cursor_key: bytes,
     activity_read: ActivityReadPort,
@@ -580,37 +578,17 @@ def compose_life_record_query(
 ) -> PostgreSQLLifeRecordQuery:
     """Resolve the shared read-only exact-life and memory projection."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> PostgreSQLLifeRecordQuery:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
-                config = prepared.effective.config
-                return PostgreSQLLifeRecordQuery(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    creator_party_id=creator_party_id,
-                    cursor_key=cursor_key,
-                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    activities=activity_read,
-                    materials=material_read,
-                    memories=memory_read,
-                    relationships=relationship_read,
-                    subject_state=subject_state_read,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
+    return PostgreSQLLifeRecordQuery(
+        unit_of_work_factory,
+        environment_id=environment_id,
+        creator_party_id=creator_party_id,
+        cursor_key=cursor_key,
+        activities=activity_read,
+        materials=material_read,
+        memories=memory_read,
+        relationships=relationship_read,
+        subject_state=subject_state_read,
+    )
 
 
 def compose_material_module(
@@ -631,89 +609,41 @@ def compose_material_module(
 
 
 def compose_other_human_record_query(
-    prepared: PreparedEnvironment,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
+    environment_id: UUID,
     cursor_key: bytes,
+    data_root: Path,
+    max_object_bytes: int,
 ) -> PostgreSQLOtherHumanRecordQuery:
     """Resolve the read-only Creator record projection for other humans."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> PostgreSQLOtherHumanRecordQuery:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise OtherHumanRecordViolation(
-                        "OTHER-HUMAN-RECORD-UNAVAILABLE"
-                    ) from None
-                config = prepared.effective.config
-                return PostgreSQLOtherHumanRecordQuery(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    cursor_key=cursor_key,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
+    return PostgreSQLOtherHumanRecordQuery(
+        unit_of_work_factory,
+        environment_id=environment_id,
+        cursor_key=cursor_key,
+        data_root=data_root,
+        max_object_bytes=max_object_bytes,
+    )
 
 
 def compose_exact_life_query_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     query: LifeRecordQueryPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ExactLifeQueryPipeline:
-    database_locator = prepared.effective.config.secret_locators.get(
-        RUNTIME_LOCATOR_NAME
+    config = prepared.effective.config
+    return build_exact_life_query_pipeline(
+        unit_of_work_factory,
+        data_root=prepared.data_root,
+        max_object_bytes=config.artifacts.max_object_bytes,
+        query=query,
+        wakeups=wakeups,
+        diagnostic=diagnostic,
     )
-    if database_locator is None:
-        raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            database_locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> ExactLifeQueryPipeline:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
-                config = prepared.effective.config
-                return build_exact_life_query_pipeline(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
-                    authority_admission=authority_admission,
-                    query=query,
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
 
 
 def compose_relationship_module(
@@ -1253,7 +1183,7 @@ def compose_candidate_validation_pipeline(
 def compose_subject_commit_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
     capability_commit: CapabilityCommitPort,
@@ -1282,78 +1212,54 @@ def compose_subject_commit_pipeline(
 ) -> SubjectCommitPipeline:
     """Resolve the Runtime credential for the sole active T-03 coordinator."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise SubjectCommitViolation("SUBJECT-DATABASE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> SubjectCommitPipeline:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise SubjectCommitViolation("SUBJECT-DATABASE") from None
-                config = prepared.effective.config
-                expression = bootstrap_expression(
-                    relationship_read,
-                    relationship_policy,
-                    bootstrap_expression_effect_registration(),
-                )
-                return build_subject_commit_pipeline(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                    change_set_codec=bootstrap_cognition_change_set_codec(
-                        activity=activity_cognition,
-                        material=material_cognition,
-                        memory=memory_cognition,
-                        mood=mood_cognition,
-                        prompt=prompt_cognition,
-                        relationship=relationship_cognition,
-                        sleep=sleep_cognition,
-                        subject_state=subject_state_cognition,
-                    ),
-                    activity_cognition=activity_cognition,
-                    activity_commit=activity_commit,
-                    capability_commit=capability_commit,
-                    capability_read=capability_read,
-                    codex_commit=bootstrap_codex_commit(),
-                    evidence=evidence,
-                    expression_commit=expression.commit,
-                    memory_commit=memory_commit,
-                    memory_cognition=memory_cognition,
-                    mood_commit=mood_commit,
-                    mood_cognition=mood_cognition,
-                    opportunity_transition=bootstrap_opportunity_transition(),
-                    prompt_cognition=prompt_cognition,
-                    prompt_commit=prompt_commit,
-                    material_cognition=material_cognition,
-                    material_commit=material_commit,
-                    relationship_cognition=relationship_cognition,
-                    relationship_commit=relationship_commit,
-                    sleep_cognition=sleep_cognition,
-                    sleep_commit=sleep_commit,
-                    subject_state_cognition=subject_state_cognition,
-                    subject_state_commit=subject_state_commit,
-                    web_research_commit=bootstrap_web_research_commit(),
-                    notifier=notifier,
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                    fault_injector=fault_injector,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise SubjectCommitViolation("SUBJECT-DATABASE") from None
+    config = prepared.effective.config
+    expression = bootstrap_expression(
+        relationship_read,
+        relationship_policy,
+        bootstrap_expression_effect_registration(),
+    )
+    return build_subject_commit_pipeline(
+        unit_of_work_factory,
+        data_root=prepared.data_root,
+        max_object_bytes=config.artifacts.max_object_bytes,
+        change_set_codec=bootstrap_cognition_change_set_codec(
+            activity=activity_cognition,
+            material=material_cognition,
+            memory=memory_cognition,
+            mood=mood_cognition,
+            prompt=prompt_cognition,
+            relationship=relationship_cognition,
+            sleep=sleep_cognition,
+            subject_state=subject_state_cognition,
+        ),
+        activity_cognition=activity_cognition,
+        activity_commit=activity_commit,
+        capability_commit=capability_commit,
+        capability_read=capability_read,
+        codex_commit=bootstrap_codex_commit(),
+        evidence=evidence,
+        expression_commit=expression.commit,
+        memory_commit=memory_commit,
+        memory_cognition=memory_cognition,
+        mood_commit=mood_commit,
+        mood_cognition=mood_cognition,
+        opportunity_transition=bootstrap_opportunity_transition(),
+        prompt_cognition=prompt_cognition,
+        prompt_commit=prompt_commit,
+        material_cognition=material_cognition,
+        material_commit=material_commit,
+        relationship_cognition=relationship_cognition,
+        relationship_commit=relationship_commit,
+        sleep_cognition=sleep_cognition,
+        sleep_commit=sleep_commit,
+        subject_state_cognition=subject_state_cognition,
+        subject_state_commit=subject_state_commit,
+        web_research_commit=bootstrap_web_research_commit(),
+        notifier=notifier,
+        wakeups=wakeups,
+        diagnostic=diagnostic,
+        fault_injector=fault_injector,
+    )
 
 
 def compose_effect_grant_cancellation() -> EffectGrantCancellationPort:

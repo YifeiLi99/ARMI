@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any, cast
-from uuid import UUID, uuid7
+from uuid import uuid7
 
 import rfc8785
 from armi_artifact_store.content_store import (
@@ -23,7 +23,6 @@ from armi_kernel.application import (
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
-    RuntimeFence,
     WorkLease,
     WorkViolation,
 )
@@ -95,16 +94,12 @@ class ExactLifeQueryPipeline:
 
     async def open(self) -> None:
         try:
-            await self._factory.open()
             await self._storage.prepare()
-        except DatabaseTransactionError:
-            raise LifeRecordQueryViolation("LIFE-QUERY-DATABASE") from None
         except ArtifactViolation:
             raise LifeRecordQueryViolation("LIFE-QUERY-ARTIFACT") from None
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()
@@ -278,29 +273,14 @@ async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
 
 
 def build_exact_life_query_pipeline(
-    conninfo: str,
+    factory: PostgreSQLUnitOfWorkFactory,
     *,
-    environment_id: UUID,
     data_root: Path,
     max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
     query: LifeRecordQueryPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> ExactLifeQueryPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
     return ExactLifeQueryPipeline(
         factory=factory,
         storage=ContentAddressedArtifactStore(

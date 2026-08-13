@@ -370,7 +370,8 @@ async def _serve(
             )
             await material_module.open()
             life_record_query = compose_life_record_query(
-                prepared,
+                runtime_unit_of_work_factory,
+                environment_id=config.environment.environment_id,
                 creator_party_id=creator_context.party_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
                 activity_read=activity_module.read,
@@ -381,13 +382,16 @@ async def _serve(
             )
             await life_record_query.open()
             other_human_record_query = compose_other_human_record_query(
-                prepared,
+                runtime_unit_of_work_factory,
+                environment_id=config.environment.environment_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
+                data_root=prepared.data_root,
+                max_object_bytes=config.artifacts.max_object_bytes,
             )
             await other_human_record_query.open()
             exact_life_query_pipeline = compose_exact_life_query_pipeline(
                 prepared,
-                authority_admission=authority.require_writable,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 query=life_record_query,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
@@ -528,7 +532,7 @@ async def _serve(
             await candidate_pipeline.open()
             subject_commit_pipeline = compose_subject_commit_pipeline(
                 prepared,
-                authority_admission=authority.require_writable,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_cognition=activity_module.cognition,
                 activity_commit=activity_module.commit,
                 capability_commit=capability_policy.commit,

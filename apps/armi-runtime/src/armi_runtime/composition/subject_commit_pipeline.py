@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
-from uuid import UUID, uuid7
+from uuid import uuid7
 
 from armi_activity.api import ActivityCognitionPort, ActivityCommitPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
@@ -42,7 +42,6 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     PublishedArtifact,
-    RuntimeFence,
     SubjectCommitResult,
     SubjectCommitViolation,
     WorkLease,
@@ -194,15 +193,10 @@ class SubjectCommitPipeline:
         self._fault_injector = fault_injector or _ignore_diagnostic
 
     async def open(self) -> None:
-        try:
-            await self._factory.open()
-            await self._storage.prepare()
-        except DatabaseTransactionError:
-            raise SubjectCommitViolation("SUBJECT-DATABASE") from None
+        await self._storage.prepare()
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()
@@ -714,16 +708,10 @@ class SubjectCommitPipeline:
 
 
 def build_subject_commit_pipeline(
-    conninfo: str,
+    factory: PostgreSQLUnitOfWorkFactory,
     *,
-    environment_id: UUID,
     data_root: Path,
     max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
     change_set_codec: SubjectChangeSetCodec,
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
@@ -753,15 +741,6 @@ def build_subject_commit_pipeline(
     diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
 ) -> SubjectCommitPipeline:
-    factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
     return SubjectCommitPipeline(
         factory=factory,
         storage=ContentAddressedArtifactStore(

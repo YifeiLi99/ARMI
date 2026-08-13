@@ -2213,11 +2213,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await activity_module.open()
             await material_module.open()
             life_records = PostgreSQLLifeRecordQuery(
-                fixture.runtime_dsn,
+                factory,
                 environment_id=fixture.environment_id,
                 creator_party_id=creator_party_id,
                 cursor_key=hashlib.sha256(b"p0-s022-life-record-cursor-key").digest(),
-                pool_timeout_seconds=2,
                 activities=activity_module.read,
                 materials=material_module.read,
                 memories=memory_module.read,
@@ -6048,20 +6047,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         async def exercise_policy() -> tuple[
             str, int, str, str, int, int, str, str, str
         ]:
+            policy_factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                authority_admission=lambda: fence,
+            )
             policy = bootstrap_capability(
-                PostgreSQLUnitOfWorkFactory(
-                    fixture.runtime_dsn,
-                    environment_id=fixture.environment_id,
-                    pool_min=1,
-                    pool_max=1,
-                    acquire_timeout_seconds=2,
-                    statement_timeout_seconds=5,
-                    authority_admission=lambda: fence,
-                ),
+                policy_factory,
                 environment_id=fixture.environment_id,
                 cursor_key=b"s027-capability-policy-cursor-key",
                 effect_cancellation=bootstrap_effect_grant_cancellation(),
             )
+            await policy_factory.open()
             await policy.open()
             try:
                 page = await policy.list_requests(
@@ -6277,6 +6278,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             finally:
                 await policy.close()
+                await policy_factory.close()
 
         policy_result = asyncio.run(
             exercise_policy(),

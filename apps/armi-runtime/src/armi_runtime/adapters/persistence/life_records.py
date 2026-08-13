@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import Any, cast
 from uuid import UUID
 
-import psycopg
 import rfc8785
 from armi_activity.api import ActivityReadPort
 from armi_kernel.application import (
@@ -30,13 +29,12 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_relationship.api import RelationshipReadPort
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
+    RuntimeTransactionFailure,
+)
 from armi_subject_state.api import SubjectStateReadPort
-from psycopg.pq import TransactionStatus
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
-
-from .role_policy import physical_role_name
-
-_SEARCH_PATH = "pg_catalog, armi"
 
 
 def _b64encode(value: bytes) -> str:
@@ -130,21 +128,6 @@ class LifeRecordCursorCodec:
         return {key: payload[key] for key in boundary_keys}
 
 
-async def _configure(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-) -> None:
-    await connection.set_autocommit(True)
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
-async def _reset(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
-    if connection.info.transaction_status != TransactionStatus.IDLE:
-        await connection.rollback()
-    await connection.execute("RESET ROLE")
-    await connection.execute("RESET ALL")
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
 class PostgreSQLLifeRecordQuery:
     """Read current life facts without changing memory or subject state."""
 
@@ -152,23 +135,20 @@ class PostgreSQLLifeRecordQuery:
         "_activities",
         "_codec",
         "_creator_party_id",
-        "_expected_role",
+        "_factory",
         "_materials",
         "_memories",
-        "_pool",
-        "_pool_timeout_seconds",
         "_relationships",
         "_subject_state",
     )
 
     def __init__(
         self,
-        conninfo: str,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
         environment_id: UUID,
         creator_party_id: UUID,
         cursor_key: bytes,
-        pool_timeout_seconds: int,
         activities: ActivityReadPort,
         materials: MaterialReadPort,
         memories: MemoryReadPort | None = None,
@@ -177,9 +157,8 @@ class PostgreSQLLifeRecordQuery:
     ) -> None:
         self._creator_party_id = creator_party_id
         self._activities = activities
-        self._expected_role = physical_role_name(environment_id, "runtime")
+        self._factory = factory
         self._materials = materials
-        self._pool_timeout_seconds = pool_timeout_seconds
         self._memories = memories
         self._relationships = relationships
         self._subject_state = subject_state
@@ -189,37 +168,11 @@ class PostgreSQLLifeRecordQuery:
             creator_party_id=creator_party_id,
         )
 
-        async def check(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-        ) -> None:
-            row = await (
-                await connection.execute(
-                    "SELECT session_user, current_user, current_setting('search_path')"
-                )
-            ).fetchone()
-            if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
-                raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
-
-        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
-            conninfo,
-            min_size=1,
-            max_size=1,
-            open=False,
-            configure=_configure,
-            check=check,
-            reset=_reset,
-            timeout=float(pool_timeout_seconds),
-            name="armi-life-record-query",
-        )
-
     async def open(self) -> None:
-        try:
-            await self._pool.open(wait=True)
-        except psycopg.Error, PoolTimeout:
-            raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._pool.close()
+        return None
 
     async def query(self, request: LifeRecordQuery) -> LifeRecordPage:
         if request.record_kind is LifeRecordKind.MEMORY and self._memories is None:
@@ -257,13 +210,8 @@ class PostgreSQLLifeRecordQuery:
             ):
                 raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID")
         try:
-            async with (
-                self._pool.connection(
-                    timeout=float(self._pool_timeout_seconds)
-                ) as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("SET TRANSACTION READ ONLY")
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                connection = unit_of_work.transaction
                 subject_id = await self._scope(connection, request.actor)
                 generation_row = await (
                     await connection.execute(
@@ -397,7 +345,7 @@ class PostgreSQLLifeRecordQuery:
                 )
         except LifeRecordQueryViolation:
             raise
-        except psycopg.Error, PoolTimeout:
+        except RuntimeTransactionFailure:
             raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE") from None
         relationship_rows: list[tuple[UUID, str, str, str, datetime, bool | None]] = [
             (
@@ -532,7 +480,7 @@ class PostgreSQLLifeRecordQuery:
 
     async def _scope(
         self,
-        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        connection: PostgreSQLTransaction,
         actor: LifeRecordActor,
     ) -> UUID:
         if actor is LifeRecordActor.CREATOR:
