@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -89,6 +90,33 @@ class DataRightsSubjectEpochPort(Protocol):
 
 
 @runtime_checkable
+class DataRightsMemoryPort(Protocol):
+    async def find_for_party(
+        self,
+        transaction: PostgreSQLTransaction,
+        party_id: UUID,
+    ) -> tuple[UUID, ...]: ...
+
+
+@runtime_checkable
+class DataRightsRelationshipPort(Protocol):
+    async def find_for_party(
+        self,
+        transaction: PostgreSQLTransaction,
+        party_id: UUID,
+    ) -> tuple[UUID, ...]: ...
+
+    async def tombstone(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        relationship_id: UUID,
+        order_id: UUID,
+        tombstoned_at: datetime,
+    ) -> None: ...
+
+
+@runtime_checkable
 class DataRightsUnitOfWorkFactory(Protocol):
     @property
     def environment_id(self) -> UUID: ...
@@ -115,6 +143,7 @@ __all__ = (
     "DataRightsExecutionStatus",
     "DataRightsInteractionGate",
     "DataRightsItemStatus",
+    "DataRightsMemoryPort",
     "DataRightsOrderCommand",
     "DataRightsOrderDetail",
     "DataRightsOrderKind",
@@ -123,6 +152,7 @@ __all__ = (
     "DataRightsPartyIdentityPort",
     "DataRightsPartyKey",
     "DataRightsProjectionInvalidationPort",
+    "DataRightsRelationshipPort",
     "DataRightsRequesterKind",
     "DataRightsScopeKind",
     "DataRightsSubjectEpochPort",

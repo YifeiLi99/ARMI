@@ -336,8 +336,6 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-artifact-store==0.0.0",
             "armi-kernel==0.0.0",
-            "armi-memory==0.0.0",
-            "armi-relationship==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "psycopg[binary]==3.3.4",
             "rfc8785==0.1.4",
@@ -1110,8 +1108,6 @@ def _check_import(
                 "armi-artifact-store",
                 "armi-data-rights",
                 "armi-kernel",
-                "armi-memory",
-                "armi-relationship",
                 "armi-runtime-foundation",
             }
         )

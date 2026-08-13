@@ -323,8 +323,6 @@ source = { editable = "modules/data-rights" }
 dependencies = [
     { name = "armi-artifact-store" },
     { name = "armi-kernel" },
-    { name = "armi-memory" },
-    { name = "armi-relationship" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
     { name = "rfc8785" },
@@ -334,8 +332,6 @@ dependencies = [
 requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
-    { name = "armi-memory", editable = "modules/memory" },
-    { name = "armi-relationship", editable = "modules/relationship" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "rfc8785", specifier = "==0.1.4" },

@@ -18,12 +18,15 @@ from armi_kernel.application import (
     AuditSensitivity,
 )
 from armi_kernel.contracts import Purpose, TraceId
-from armi_memory.api import MemoryDataRightsParticipant
-from armi_relationship.api import RelationshipDataRightsParticipant
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from psycopg import sql
 
-from .api import DataRightsProjectionInvalidationPort, DataRightsViolation
+from .api import (
+    DataRightsMemoryPort,
+    DataRightsProjectionInvalidationPort,
+    DataRightsRelationshipPort,
+    DataRightsViolation,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,8 +41,8 @@ class LocalDataDeletionRepository:
 
     def __init__(
         self,
-        memories: MemoryDataRightsParticipant,
-        relationships: RelationshipDataRightsParticipant,
+        memories: DataRightsMemoryPort,
+        relationships: DataRightsRelationshipPort,
         context_projections: DataRightsProjectionInvalidationPort,
         catalog: ArtifactCatalogPort,
     ) -> None:

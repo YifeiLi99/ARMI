@@ -8,8 +8,6 @@ from uuid import UUID
 
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_kernel.application import CreatorProjectionNotifier
-from armi_memory.api import MemoryDataRightsParticipant
-from armi_relationship.api import RelationshipDataRightsParticipant
 
 from ._application import DataRightsOrderService
 from ._creator_export import CreatorExportService
@@ -20,9 +18,11 @@ from .api import (
     CreatorExportPort,
     DataRightsArtifactStorePort,
     DataRightsInteractionGate,
+    DataRightsMemoryPort,
     DataRightsOrderPort,
     DataRightsPartyIdentityPort,
     DataRightsProjectionInvalidationPort,
+    DataRightsRelationshipPort,
     DataRightsSubjectEpochPort,
     DataRightsUnitOfWorkFactory,
 )
@@ -77,8 +77,8 @@ def bootstrap_data_rights(
     data_root: Path,
     unit_of_work_factory: DataRightsUnitOfWorkFactory,
     storage: DataRightsArtifactStorePort,
-    memory: MemoryDataRightsParticipant,
-    relationship: RelationshipDataRightsParticipant,
+    memory: DataRightsMemoryPort,
+    relationship: DataRightsRelationshipPort,
     context_projections: DataRightsProjectionInvalidationPort,
     core: DataRightsCore,
     parties: DataRightsPartyIdentityPort,
