@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_interaction.api import (
@@ -15,9 +15,15 @@ from armi_interaction.api import (
     ExternalMessageViolation,
     ExternalVisualRole,
 )
-from armi_kernel.application import ArtifactId, PublishedArtifact, WorkLease, WorkRecord
+from armi_kernel.application import (
+    ArtifactId,
+    ArtifactRegistration,
+    PublishedArtifact,
+    WorkLease,
+    WorkRecord,
+)
 from armi_kernel.contracts import TraceId
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, StopSignal
 
 _SOURCE_KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
@@ -187,7 +193,7 @@ class PerceptionArtifactCatalogPort(Protocol):
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
         published: PublishedArtifact,
-    ) -> Any: ...
+    ) -> ArtifactRegistration: ...
 
 
 @runtime_checkable
@@ -213,7 +219,7 @@ class PerceptionWakeupPort(Protocol):
         channel: str,
         after_version: int,
         *,
-        stop: Any,
+        stop: StopSignal,
         timeout_seconds: float,
     ) -> int: ...
 

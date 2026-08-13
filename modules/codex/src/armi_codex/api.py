@@ -10,7 +10,7 @@ from armi_interaction.api import CreatorInputAcceptance
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPort,
-    ArtifactRef,
+    ArtifactRegistration,
     PublishedArtifact,
 )
 from armi_kernel.contracts import TraceId
@@ -90,22 +90,13 @@ class CodexArtifactStorePort(ArtifactPort, Protocol):
 
 
 @runtime_checkable
-class CodexArtifactRegistration(Protocol):
-    @property
-    def ref(self) -> ArtifactRef: ...
-
-    @property
-    def inserted(self) -> bool: ...
-
-
-@runtime_checkable
 class CodexArtifactCatalogPort(Protocol):
     async def register(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
         published: PublishedArtifact,
-    ) -> CodexArtifactRegistration: ...
+    ) -> ArtifactRegistration: ...
 
 
 @runtime_checkable
@@ -129,7 +120,6 @@ class CodexRuntimePort(CodexDelegationPort, Protocol):
 
 __all__ = (
     "CodexArtifactCatalogPort",
-    "CodexArtifactRegistration",
     "CodexArtifactStorePort",
     "CodexCleanupStatus",
     "CodexCommitContext",

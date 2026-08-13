@@ -2,7 +2,6 @@
 
 from .api import (
     WebArtifactCatalogPort,
-    WebArtifactRegistration,
     WebArtifactStorePort,
     WebEvidenceAcceptancePort,
     WebEvidenceAcceptanceResult,
@@ -38,7 +37,6 @@ from .api import (
 
 __all__ = (
     "WebArtifactCatalogPort",
-    "WebArtifactRegistration",
     "WebArtifactStorePort",
     "WebEvidenceAcceptancePort",
     "WebEvidenceAcceptanceResult",

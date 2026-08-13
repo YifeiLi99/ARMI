@@ -6,6 +6,7 @@ from .transactions import (
     PostgreSQLTransaction,
     PostgreSQLTransactionAccess,
     RuntimeTransactionFailure,
+    StopSignal,
 )
 
 __all__ = (
@@ -14,4 +15,5 @@ __all__ = (
     "PostgreSQLTransaction",
     "PostgreSQLTransactionAccess",
     "RuntimeTransactionFailure",
+    "StopSignal",
 )

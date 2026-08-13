@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Any
 
 from armi_kernel.application import (
@@ -11,6 +10,7 @@ from armi_kernel.application import (
     ArtifactIntegrityStatus,
     ArtifactPrivacyScope,
     ArtifactRef,
+    ArtifactRegistration,
     ArtifactViolation,
     PublishedArtifact,
 )
@@ -26,12 +26,6 @@ _SELECT_COLUMNS = """
     privacy_scope,
     integrity_status
 """
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactRegistration:
-    ref: ArtifactRef
-    inserted: bool
 
 
 class ArtifactCatalogRepository:

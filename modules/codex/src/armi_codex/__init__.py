@@ -2,7 +2,6 @@
 
 from .api import (
     CodexArtifactCatalogPort,
-    CodexArtifactRegistration,
     CodexArtifactStorePort,
     CodexCleanupStatus,
     CodexCommitContext,
@@ -36,7 +35,6 @@ from .api import (
 
 __all__ = (
     "CodexArtifactCatalogPort",
-    "CodexArtifactRegistration",
     "CodexArtifactStorePort",
     "CodexCleanupStatus",
     "CodexCommitContext",

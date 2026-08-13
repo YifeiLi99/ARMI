@@ -8,8 +8,13 @@ members = [
     "armi-adapter-qq",
     "armi-admin",
     "armi-artifact-store",
-    "armi-channel-napcat",
     "armi-capability",
+    "armi-channel-napcat",
+    "armi-codex",
+    "armi-cognition",
+    "armi-context",
+    "armi-data-rights",
+    "armi-effect",
     "armi-evidence",
     "armi-expression",
     "armi-interaction",
@@ -17,6 +22,7 @@ members = [
     "armi-material",
     "armi-memory",
     "armi-mood",
+    "armi-opportunity",
     "armi-perception",
     "armi-postgresql-contract",
     "armi-prompt",
@@ -25,6 +31,7 @@ members = [
     "armi-runtime-foundation",
     "armi-sleep",
     "armi-subject-state",
+    "armi-web-observation",
     "armi-workspace",
 ]
 build-constraints = [
@@ -171,17 +178,6 @@ requires-dist = [
 ]
 
 [[package]]
-name = "armi-channel-napcat"
-version = "0.0.0"
-source = { editable = "packages/armi-channel-napcat" }
-dependencies = [
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "httpx", specifier = "==0.28.1" }]
-
-[[package]]
 name = "armi-capability"
 version = "0.0.0"
 source = { editable = "modules/capability" }
@@ -195,6 +191,42 @@ dependencies = [
 requires-dist = [
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
+name = "armi-channel-napcat"
+version = "0.0.0"
+source = { editable = "packages/armi-channel-napcat" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "httpx", specifier = "==0.28.1" }]
+
+[[package]]
+name = "armi-codex"
+version = "0.0.0"
+source = { editable = "modules/codex" }
+dependencies = [
+    { name = "armi-effect" },
+    { name = "armi-evidence" },
+    { name = "armi-interaction" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "openai-codex" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-effect", editable = "modules/effect" },
+    { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-interaction", editable = "modules/interaction" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "openai-codex", specifier = "==0.144.4" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
 
@@ -240,31 +272,6 @@ requires-dist = [
     { name = "armi-subject-state", editable = "modules/subject-state" },
     { name = "armi-web-observation", editable = "modules/web-observation" },
     { name = "pydantic", specifier = "==2.13.4" },
-    { name = "rfc8785", specifier = "==0.1.4" },
-]
-
-[[package]]
-name = "armi-codex"
-version = "0.0.0"
-source = { editable = "modules/codex" }
-dependencies = [
-    { name = "armi-effect" },
-    { name = "armi-evidence" },
-    { name = "armi-interaction" },
-    { name = "armi-kernel" },
-    { name = "armi-runtime-foundation" },
-    { name = "openai-codex" },
-    { name = "rfc8785" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "armi-effect", editable = "modules/effect" },
-    { name = "armi-evidence", editable = "modules/evidence" },
-    { name = "armi-interaction", editable = "modules/interaction" },
-    { name = "armi-kernel", editable = "packages/armi-kernel" },
-    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
-    { name = "openai-codex", specifier = "==0.144.4" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
 
@@ -329,19 +336,6 @@ requires-dist = [
 ]
 
 [[package]]
-name = "armi-evidence"
-version = "0.0.0"
-source = { editable = "modules/evidence" }
-dependencies = [
-    { name = "armi-runtime-foundation" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
-]
-
-[[package]]
 name = "armi-effect"
 version = "0.0.0"
 source = { editable = "modules/effect" }
@@ -365,27 +359,15 @@ requires-dist = [
 ]
 
 [[package]]
-name = "armi-web-observation"
+name = "armi-evidence"
 version = "0.0.0"
-source = { editable = "modules/web-observation" }
+source = { editable = "modules/evidence" }
 dependencies = [
-    { name = "armi-evidence" },
-    { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
-    { name = "httpx" },
-    { name = "openai" },
-    { name = "rfc8785" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "armi-evidence", editable = "modules/evidence" },
-    { name = "armi-kernel", editable = "packages/armi-kernel" },
-    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
-    { name = "httpx", specifier = "==0.28.1" },
-    { name = "openai", specifier = "==2.49.0" },
-    { name = "rfc8785", specifier = "==0.1.4" },
-]
+requires-dist = [{ name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" }]
 
 [[package]]
 name = "armi-expression"
@@ -622,12 +604,12 @@ dependencies = [
     { name = "armi-adapter-qq" },
     { name = "armi-artifact-store" },
     { name = "armi-capability" },
-    { name = "armi-cognition" },
     { name = "armi-codex" },
+    { name = "armi-cognition" },
     { name = "armi-context" },
     { name = "armi-data-rights" },
-    { name = "armi-evidence" },
     { name = "armi-effect" },
+    { name = "armi-evidence" },
     { name = "armi-expression" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
@@ -661,12 +643,12 @@ requires-dist = [
     { name = "armi-adapter-qq", editable = "packages/armi-adapter-qq" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-capability", editable = "modules/capability" },
-    { name = "armi-cognition", editable = "modules/cognition" },
     { name = "armi-codex", editable = "modules/codex" },
+    { name = "armi-cognition", editable = "modules/cognition" },
     { name = "armi-context", editable = "modules/context" },
     { name = "armi-data-rights", editable = "modules/data-rights" },
-    { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-effect", editable = "modules/effect" },
+    { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
@@ -737,6 +719,29 @@ requires-dist = [
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
+name = "armi-web-observation"
+version = "0.0.0"
+source = { editable = "modules/web-observation" }
+dependencies = [
+    { name = "armi-evidence" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "httpx" },
+    { name = "openai" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "httpx", specifier = "==0.28.1" },
+    { name = "openai", specifier = "==2.49.0" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
 

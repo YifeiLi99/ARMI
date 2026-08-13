@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import ArtifactId, PublishedArtifact
+from armi_kernel.application import ArtifactId, ArtifactRegistration, PublishedArtifact
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_subject_state.api import SubjectSummary
 
@@ -83,7 +83,7 @@ class InteractionArtifactCatalogPort(Protocol):
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
         published: PublishedArtifact,
-    ) -> Any: ...
+    ) -> ArtifactRegistration: ...
 
 
 @runtime_checkable

@@ -49,6 +49,14 @@ class PostgreSQLRuntimeUnitOfWorkFactory(Protocol):
     def unit_of_work(self, *, read_only: bool = False) -> Any: ...
 
 
+@runtime_checkable
+class StopSignal(Protocol):
+    """Business-neutral cooperative stop signal for long-running workers."""
+
+    def is_set(self) -> bool: ...
+    async def wait(self) -> bool: ...
+
+
 class RuntimeTransactionFailure(RuntimeError):
     """Stable base for redacted transaction failures crossing module boundaries."""
 
@@ -61,4 +69,5 @@ __all__ = (
     "PostgreSQLTransaction",
     "PostgreSQLTransactionAccess",
     "RuntimeTransactionFailure",
+    "StopSignal",
 )

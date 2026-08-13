@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
@@ -249,7 +249,7 @@ class SubjectStateAdminReadPort(Protocol):
 class SubjectStateAdminCorrectionPort(Protocol):
     def current_head(
         self,
-        transaction: Any,
+        transaction: PostgreSQLTransaction,
         *,
         subject_id: str,
         kind: str,
@@ -258,7 +258,7 @@ class SubjectStateAdminCorrectionPort(Protocol):
 
     def revision(
         self,
-        transaction: Any,
+        transaction: PostgreSQLTransaction,
         *,
         revision_id: str,
         subject_id: str,
@@ -267,7 +267,7 @@ class SubjectStateAdminCorrectionPort(Protocol):
 
     def replace(
         self,
-        transaction: Any,
+        transaction: PostgreSQLTransaction,
         *,
         revision_id: str,
         subject_id: str,
@@ -279,7 +279,7 @@ class SubjectStateAdminCorrectionPort(Protocol):
 
     def repair_head(
         self,
-        transaction: Any,
+        transaction: PostgreSQLTransaction,
         *,
         subject_id: str,
         kind: str,
@@ -290,7 +290,7 @@ class SubjectStateAdminCorrectionPort(Protocol):
     ) -> bool: ...
 
     def find_current(
-        self, transaction: Any, *, kind: str
+        self, transaction: PostgreSQLTransaction, *, kind: str
     ) -> tuple[UUID, int] | None: ...
 
 

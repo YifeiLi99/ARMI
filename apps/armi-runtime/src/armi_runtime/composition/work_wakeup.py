@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from armi_runtime_foundation import StopSignal
+
 OPPORTUNITY_AVAILABLE = "opportunity.available"
 CONTEXT_PREPARE = "cognition.context.prepare"
 MODEL_INVOKE = "cognition.model.invoke"
@@ -48,7 +50,7 @@ class WorkWakeupBus:
         channel: str,
         after_version: int,
         *,
-        stop: asyncio.Event,
+        stop: StopSignal,
         timeout_seconds: float,
     ) -> int:
         current = self._pulse(channel)

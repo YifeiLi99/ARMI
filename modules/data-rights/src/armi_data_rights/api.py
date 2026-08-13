@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from contextlib import AbstractAsyncContextManager
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import ArtifactRef, TransactionIsolation
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_kernel.application import (
+    ArtifactRef,
+    TransactionIsolation,
+    VerifiedByteStream,
+)
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+)
 
 from ._export_contract import (
     CreatorExportCommand,
@@ -33,7 +40,7 @@ from ._rights_contract import (
 
 @runtime_checkable
 class DataRightsArtifactStorePort(Protocol):
-    async def open_verified(self, ref: ArtifactRef) -> Any: ...
+    async def open_verified(self, ref: ArtifactRef) -> VerifiedByteStream: ...
 
     async def delete_verified(self, ref: ArtifactRef) -> bool: ...
 
@@ -53,7 +60,6 @@ class DataRightsUnitOfWorkFactory(Protocol):
     def environment_id(self) -> UUID: ...
 
     async def open(self) -> None: ...
-
     async def close(self) -> None: ...
 
     def unit_of_work(
@@ -61,7 +67,7 @@ class DataRightsUnitOfWorkFactory(Protocol):
         *,
         isolation: TransactionIsolation = TransactionIsolation.READ_COMMITTED,
         read_only: bool = False,
-    ) -> Any: ...
+    ) -> AbstractAsyncContextManager[PostgreSQLRuntimeUnitOfWork]: ...
 
 
 __all__ = (

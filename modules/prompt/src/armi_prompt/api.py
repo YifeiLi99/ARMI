@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import ArtifactRef, CandidateFactClass, CandidateOwnerDraft
@@ -276,7 +276,9 @@ class CreatorPromptPort(Protocol):
 
 @runtime_checkable
 class PromptAdminReferencePort(Protocol):
-    def references_artifact(self, transaction: Any, *, artifact_id: str) -> bool: ...
+    def references_artifact(
+        self, transaction: PostgreSQLTransaction, *, artifact_id: str
+    ) -> bool: ...
 
 
 def probe_prompt_continuity(

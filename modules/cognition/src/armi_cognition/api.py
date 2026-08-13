@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactRef,
+    ArtifactRegistration,
     ModelBinding,
     ModelInvocationResult,
     ModelRequest,
@@ -24,22 +24,13 @@ from ._contracts import (
 
 
 @runtime_checkable
-class CognitionArtifactRegistration(Protocol):
-    @property
-    def ref(self) -> ArtifactRef: ...
-
-    @property
-    def inserted(self) -> bool: ...
-
-
-@runtime_checkable
 class CognitionArtifactCatalogPort(Protocol):
     async def register(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
         published: PublishedArtifact,
-    ) -> CognitionArtifactRegistration: ...
+    ) -> ArtifactRegistration: ...
 
 
 class CognitionCandidateValue(Protocol):
@@ -51,7 +42,7 @@ class CognitionCandidateValue(Protocol):
         *,
         mode: str,
         exclude_none: bool = False,
-    ) -> dict[str, Any]: ...
+    ) -> dict[str, object]: ...
 
 
 class CognitionCandidateParser(Protocol):
@@ -78,7 +69,7 @@ class CognitionModelAdapterFactory(Protocol):
         self,
         *,
         binding: ModelBinding,
-        candidate_schema: dict[str, Any],
+        candidate_schema: dict[str, object],
         candidate_parser: CognitionCandidateParser,
         instructions: str | None = None,
         schema_name: str | None = None,
@@ -117,7 +108,6 @@ __all__ = (
     "CandidateValidationStatus",
     "CandidateValidator",
     "CognitionArtifactCatalogPort",
-    "CognitionArtifactRegistration",
     "CognitionCandidateParser",
     "CognitionCandidateValue",
     "CognitionModelAdapterFactory",

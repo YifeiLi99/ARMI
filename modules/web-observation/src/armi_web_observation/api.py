@@ -10,6 +10,7 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactPort,
     ArtifactRef,
+    ArtifactRegistration,
     PublishedArtifact,
 )
 from armi_kernel.contracts import TraceId
@@ -112,27 +113,17 @@ class WebArtifactStorePort(ArtifactPort, Protocol):
 
 
 @runtime_checkable
-class WebArtifactRegistration(Protocol):
-    @property
-    def ref(self) -> ArtifactRef: ...
-
-    @property
-    def inserted(self) -> bool: ...
-
-
-@runtime_checkable
 class WebArtifactCatalogPort(Protocol):
     async def register(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
         published: PublishedArtifact,
-    ) -> WebArtifactRegistration: ...
+    ) -> ArtifactRegistration: ...
 
 
 __all__ = (
     "WebArtifactCatalogPort",
-    "WebArtifactRegistration",
     "WebArtifactStorePort",
     "WebEvidenceAcceptancePort",
     "WebEvidenceAcceptanceResult",

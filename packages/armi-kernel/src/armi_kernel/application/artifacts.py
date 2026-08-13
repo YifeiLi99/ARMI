@@ -120,6 +120,18 @@ class ArtifactRef:
             raise ArtifactViolation("ART-DECLARATION")
 
 
+@dataclass(frozen=True, slots=True)
+class ArtifactRegistration:
+    """Result of idempotently registering one published artifact."""
+
+    ref: ArtifactRef
+    inserted: bool
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not ArtifactRef or type(self.inserted) is not bool:
+            raise ArtifactViolation("ART-DECLARATION")
+
+
 class ArtifactViolation(RuntimeError):
     __slots__ = ("code",)
 
@@ -203,6 +215,7 @@ __all__ = (
     "ArtifactPort",
     "ArtifactPrivacyScope",
     "ArtifactRef",
+    "ArtifactRegistration",
     "ArtifactViolation",
     "PublishedArtifact",
     "StagedArtifact",
