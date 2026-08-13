@@ -301,6 +301,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-evidence==0.0.0",
             "armi-kernel==0.0.0",
+            "armi-opportunity==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -1076,6 +1077,7 @@ def _check_import(
                 None,
                 "armi-evidence",
                 "armi-kernel",
+                "armi-opportunity",
                 "armi-runtime-foundation",
                 "armi-web-observation",
             }

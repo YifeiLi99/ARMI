@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import CredentialLocator, CredentialPort, DurableWorkPort
+from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 
 from ._application import WebSearchPipeline
@@ -36,6 +37,7 @@ def bootstrap_web_observation(
     credential_locator: CredentialLocator,
     manifest_bytes: bytes,
     evidence: EvidenceWritePort,
+    opportunity: OpportunityAdmissionPort,
     diagnostic: Diagnostic | None = None,
 ) -> WebObservationRuntimePort:
     return WebSearchPipeline(
@@ -47,6 +49,7 @@ def bootstrap_web_observation(
         credential_locator=credential_locator,
         manifest_bytes=manifest_bytes,
         evidence=evidence,
+        opportunity=opportunity,
         diagnostic=diagnostic,
     )
 
@@ -58,6 +61,7 @@ def bootstrap_web_research(
     work: DurableWorkPort,
     custody: WebObservationRuntimePort,
     evidence: EvidenceWritePort,
+    opportunity: OpportunityAdmissionPort,
     diagnostic: Diagnostic | None = None,
 ) -> WebResearchRuntimePort:
     return WebResearchAdmissionPipeline(
@@ -66,6 +70,7 @@ def bootstrap_web_research(
         work=work,
         custody=custody,
         evidence=evidence,
+        opportunity=opportunity,
         diagnostic=diagnostic,
     )
 

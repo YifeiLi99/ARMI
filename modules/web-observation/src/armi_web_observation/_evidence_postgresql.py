@@ -28,6 +28,12 @@ from armi_kernel.application import (
     WorkResultRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Purpose, SubjectId, TraceId
+from armi_opportunity.api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._observation_contract import WebObservationAttemptId, WebObservationRequestId
@@ -58,10 +64,15 @@ class WebResearchIntentSnapshot:
 class PostgreSQLWebEvidenceRepository:
     """Own fixed SQL for the inactive S034 admission and evidence path."""
 
-    __slots__ = ("_evidence",)
+    __slots__ = ("_evidence", "_opportunity")
 
-    def __init__(self, evidence: EvidenceWritePort) -> None:
+    def __init__(
+        self,
+        evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
+    ) -> None:
         self._evidence = evidence
+        self._opportunity = opportunity
 
     async def fail_admission(
         self,
@@ -235,7 +246,6 @@ class PostgreSQLWebEvidenceRepository:
             raise WebResearchViolation("WEB-EVIDENCE-SOURCE")
         intent_id = WebResearchIntentId(row[0])
         evidence_id = uuid7()
-        opportunity_id = uuid7()
         await self._evidence.accept(
             unit_of_work,
             EvidenceDraft(
@@ -273,28 +283,21 @@ class PostgreSQLWebEvidenceRepository:
                     source[1].value,
                 ),
             )
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id, evidence_id, subject_id, scene_id,
-                context_party_id, purpose, source_kind, source_ref,
-                source_version, eligibility_status,
-                current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no) VALUES (
-                %s, %s, %s, %s, %s, 'consider_web_evidence',
-                'external_evidence', %s, 1,
-                'eligible', 'open', %s, NULL, 0)
-            """,
-            (
-                opportunity_id,
-                evidence_id,
-                row[1],
-                row[2],
-                row[3],
-                evidence_id,
-                opportunity_id,
+        admitted = await self._opportunity.admit_external_evidence(
+            connection,
+            ExternalEvidenceOpportunityDraft(
+                evidence_id=evidence_id,
+                subject_id=row[1],
+                scene_id=row[2],
+                context_party_id=row[3],
+                purpose=OpportunityPurpose.CONSIDER_WEB_EVIDENCE,
             ),
         )
+        if admitted.status is OpportunityAdmissionStatus.REJECTED:
+            raise WebResearchViolation("WEB-EVIDENCE-ADMISSION")
+        opportunity_id = admitted.opportunity_id
+        if opportunity_id is None:
+            raise WebResearchViolation("WEB-EVIDENCE-ADMISSION")
         await connection.execute(
             """
             UPDATE armi.web_research_intents

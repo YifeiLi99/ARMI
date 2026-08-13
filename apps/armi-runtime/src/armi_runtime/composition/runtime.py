@@ -639,6 +639,7 @@ async def _serve(
                             prepared,
                             authority_admission=authority.require_writable,
                             evidence=evidence_module.write,
+                            opportunity=opportunity_admission,
                             diagnostic=lambda event: diagnostic.emit(
                                 event,
                                 result_code="WEB_SEARCH_CUSTODY",
@@ -650,6 +651,7 @@ async def _serve(
                             authority_admission=authority.require_writable,
                             custody=web_search_pipeline,
                             evidence=evidence_module.write,
+                            opportunity=opportunity_admission,
                             diagnostic=lambda event: diagnostic.emit(
                                 event,
                                 result_code="WEB_RESEARCH_ADMISSION",

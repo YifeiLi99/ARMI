@@ -731,6 +731,7 @@ source = { editable = "modules/web-observation" }
 dependencies = [
     { name = "armi-evidence" },
     { name = "armi-kernel" },
+    { name = "armi-opportunity" },
     { name = "armi-runtime-foundation" },
     { name = "httpx" },
     { name = "openai" },
@@ -741,6 +742,7 @@ dependencies = [
 requires-dist = [
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-opportunity", editable = "modules/opportunity" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "openai", specifier = "==2.49.0" },

@@ -3486,6 +3486,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
                 manifest_bytes=Path("configs/web-search.yaml").read_bytes(),
                 evidence=bootstrap_evidence().write,
+                opportunity=bootstrap_opportunity_admission(),
                 diagnostic=None,
             )
 

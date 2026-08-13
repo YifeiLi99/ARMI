@@ -14,6 +14,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
+from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RuntimeTransactionFailure,
@@ -61,12 +62,13 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         work: DurableWorkPort,
         custody: WebObservationAdmissionPort,
         evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
         self._custody = custody
-        self._repository = PostgreSQLWebEvidenceRepository(evidence)
+        self._repository = PostgreSQLWebEvidenceRepository(evidence, opportunity)
         self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()

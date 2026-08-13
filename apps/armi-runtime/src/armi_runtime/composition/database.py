@@ -1486,6 +1486,7 @@ def compose_web_search_pipeline(
     *,
     authority_admission: Callable[[], RuntimeFence],
     evidence: EvidenceWritePort,
+    opportunity: OpportunityAdmissionPort,
     diagnostic: Callable[[str], None] | None = None,
 ) -> WebObservationRuntimePort:
     """Resolve the fixed database and Ark credentials for S033 custody."""
@@ -1537,6 +1538,7 @@ def compose_web_search_pipeline(
                     credential_locator=model_locator,
                     manifest_bytes=manifest_bytes,
                     evidence=evidence,
+                    opportunity=opportunity,
                     diagnostic=diagnostic,
                 )
 
@@ -1551,6 +1553,7 @@ def compose_web_research_admission_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     custody: WebObservationRuntimePort,
     evidence: EvidenceWritePort,
+    opportunity: OpportunityAdmissionPort,
     diagnostic: Callable[[str], None] | None = None,
 ) -> WebResearchRuntimePort:
     """Resolve the active S034 intent-to-custody worker."""
@@ -1594,6 +1597,7 @@ def compose_web_research_admission_pipeline(
                     work=PostgreSQLDurableWorkGateway(factory),
                     custody=custody,
                     evidence=evidence,
+                    opportunity=opportunity,
                     diagnostic=diagnostic,
                 )
 

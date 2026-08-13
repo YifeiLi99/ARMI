@@ -37,6 +37,7 @@ from armi_kernel.contracts import (
     Purpose,
     TraceId,
 )
+from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -110,6 +111,7 @@ class WebSearchPipeline:
         credential_locator: CredentialLocator,
         manifest_bytes: bytes,
         evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
@@ -118,7 +120,9 @@ class WebSearchPipeline:
         self._policy = load_custody_policy(manifest_bytes)
         self._catalog = catalog
         self._repository = PostgreSQLWebObservationRepository()
-        self._evidence_repository = PostgreSQLWebEvidenceRepository(evidence)
+        self._evidence_repository = PostgreSQLWebEvidenceRepository(
+            evidence, opportunity
+        )
         self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
