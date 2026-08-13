@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 from armi_artifact_store.api import ArtifactAdminPort, ArtifactCatalogPort
+from armi_data_rights.api import DataRightsParticipant
 from armi_runtime_foundation import (
     EmptyRecoveryParticipant,
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -16,6 +17,7 @@ from armi_runtime_foundation import (
 from ._admin import PostgreSQLMaterialAdminRead
 from ._application import MaterialApplication
 from ._commit import PostgreSQLMaterialCommit
+from ._data_rights import PostgreSQLMaterialDataRightsParticipant
 from ._postgresql import PostgreSQLMaterialOwner
 from .api import (
     MaterialAdminReadPort,
@@ -73,6 +75,10 @@ def bootstrap_material_cognition() -> MaterialCognitionPort:
     return MaterialApplication()
 
 
+def bootstrap_material_data_rights() -> DataRightsParticipant:
+    return PostgreSQLMaterialDataRightsParticipant()
+
+
 def bootstrap_material_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("material")
 
@@ -82,5 +88,6 @@ __all__ = (
     "bootstrap_material",
     "bootstrap_material_admin_read",
     "bootstrap_material_cognition",
+    "bootstrap_material_data_rights",
     "bootstrap_material_recovery",
 )

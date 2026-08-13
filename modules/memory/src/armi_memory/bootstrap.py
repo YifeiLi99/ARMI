@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from armi_data_rights.api import DataRightsParticipant, DataRightsVisibilityPort
 from armi_runtime_foundation import (
     EmptyRecoveryParticipant,
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -12,11 +13,11 @@ from armi_runtime_foundation import (
 )
 
 from ._application import MemoryApplication
+from ._data_rights import PostgreSQLMemoryDataRightsParticipant
 from ._postgresql import PostgreSQLMemoryOwner
 from .api import (
     MemoryCognitionPort,
     MemoryCommitPort,
-    MemoryDataRightsParticipant,
     MemoryProjectionPort,
     MemoryReadPort,
 )
@@ -28,7 +29,7 @@ class MemoryModule:
     cognition: MemoryCognitionPort
     commit: MemoryCommitPort
     projection: MemoryProjectionPort
-    data_rights: MemoryDataRightsParticipant
+    data_rights: DataRightsParticipant
     _owner: PostgreSQLMemoryOwner
 
     async def open(self) -> None:
@@ -45,6 +46,7 @@ def bootstrap_memory(
     creator_party_id: UUID,
     subject_id: UUID,
     cursor_key: bytes,
+    visibility: DataRightsVisibilityPort,
 ) -> MemoryModule:
     application = MemoryApplication()
     owner = PostgreSQLMemoryOwner(
@@ -53,12 +55,24 @@ def bootstrap_memory(
         creator_party_id=creator_party_id,
         subject_id=subject_id,
         cursor_key=cursor_key,
+        visibility=visibility,
     )
-    return MemoryModule(owner, application, owner, owner, owner, owner)
+    return MemoryModule(
+        owner,
+        application,
+        owner,
+        owner,
+        PostgreSQLMemoryDataRightsParticipant(),
+        owner,
+    )
 
 
 def bootstrap_memory_cognition() -> MemoryCognitionPort:
     return MemoryApplication()
+
+
+def bootstrap_memory_data_rights() -> DataRightsParticipant:
+    return PostgreSQLMemoryDataRightsParticipant()
 
 
 def bootstrap_memory_recovery() -> RecoveryParticipant:
@@ -69,5 +83,6 @@ __all__ = (
     "MemoryModule",
     "bootstrap_memory",
     "bootstrap_memory_cognition",
+    "bootstrap_memory_data_rights",
     "bootstrap_memory_recovery",
 )

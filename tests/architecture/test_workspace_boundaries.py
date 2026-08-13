@@ -140,7 +140,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
         self.assertIn("unregistered table: armi.unregistered_fact", errors)
         self.assertIn("stale registry table: armi.subjects", errors)
 
-    def test_cognition_context_batch_reaches_owner_sql_budget(self) -> None:
+    def test_data_rights_batch_reaches_owner_sql_budget(self) -> None:
         accesses = scan_repository_foreign_table_accesses(ROOT)
         production = tuple(
             item
@@ -148,13 +148,14 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             if "/runtime_resources/schema/baseline/" not in item.path
             and "/runtime_resources/schema/alembic/versions/" not in item.path
         )
-        self.assertLessEqual(len(accesses), 254)
-        self.assertLessEqual(len(production), 230)
+        self.assertLessEqual(len(accesses), 151)
+        self.assertLessEqual(len(production), 128)
         self.assertFalse(
             tuple(
                 item
                 for item in production
-                if item.source_owner in {"cognition", "context"}
+                if item.source_owner == "data-rights"
+                or item.table_owner == "data-rights"
             )
         )
 

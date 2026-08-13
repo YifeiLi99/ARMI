@@ -69,7 +69,6 @@ from armi_context.api import (
     ContextCognitionReadPort,
     ContextEmbeddingRuntimePort,
     ContextProjectionInvalidationPort,
-    ContextProjectionSourceRef,
     ContextRuntimePort,
     EmbeddingBinding,
 )
@@ -85,8 +84,8 @@ from armi_data_rights.api import (
     DataRightsCognitionGate,
     DataRightsEffectGate,
     DataRightsInteractionGate,
-    DataRightsProjectionInvalidationPort,
     DataRightsSubjectCommitGate,
+    DataRightsVisibilityPort,
 )
 from armi_data_rights.bootstrap import (
     DataRightsCore,
@@ -175,7 +174,6 @@ from armi_memory.api import (
     MemoryCandidateContextPort,
     MemoryCognitionPort,
     MemoryCommitPort,
-    MemoryDataRightsParticipant,
     MemoryProjectionPort,
     MemoryReadPort,
 )
@@ -220,7 +218,6 @@ from armi_prompt.bootstrap import (
 from armi_relationship.api import (
     RelationshipCognitionPort,
     RelationshipCommitPort,
-    RelationshipDataRightsParticipant,
     RelationshipPolicyPort,
     RelationshipReadPort,
 )
@@ -230,7 +227,6 @@ from armi_relationship.bootstrap import (
     bootstrap_relationship_recovery,
 )
 from armi_runtime_foundation import (
-    PostgreSQLTransaction,
     RecoveryOwnerIdentity,
     RecoveryParticipant,
 )
@@ -318,6 +314,7 @@ from armi_runtime.application.operation_assembler import (
 from .birth_manifest import packaged_birth_digests
 from .config_assets import runtime_config_path
 from .configuration import ConfigurationViolation
+from .data_rights import compose_data_rights_participants
 from .environment import PreparedEnvironment
 from .exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
@@ -626,6 +623,7 @@ def compose_interaction_module(
     evidence_read: EvidenceReadPort,
     opportunity: OpportunityAdmissionPort,
     data_rights: DataRightsInteractionGate,
+    visibility: DataRightsVisibilityPort,
     identity: InteractionIdentityPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -646,6 +644,7 @@ def compose_interaction_module(
         codex_task_projection=bootstrap_codex_timeline_projection(),
         catalog=bootstrap_artifact_catalog(),
         data_rights=data_rights,
+        visibility=visibility,
         identity=identity,
         subject_state=subject_state_read,
         evidence=evidence,
@@ -696,6 +695,7 @@ def compose_life_record_query(
     material_read: MaterialReadPort,
     relationship_read: RelationshipReadPort,
     subject_state_read: SubjectStateReadPort,
+    visibility: DataRightsVisibilityPort,
 ) -> PostgreSQLLifeRecordQuery:
     """Resolve the shared read-only exact-life and memory projection."""
 
@@ -709,6 +709,7 @@ def compose_life_record_query(
         memories=memory_read,
         relationships=relationship_read,
         subject_state=subject_state_read,
+        visibility=visibility,
     )
 
 
@@ -737,6 +738,7 @@ def compose_other_human_record_query(
     cursor_key: bytes,
     data_root: Path,
     max_object_bytes: int,
+    visibility: DataRightsVisibilityPort,
 ) -> PostgreSQLOtherHumanRecordQuery:
     """Resolve the read-only Creator record projection for other humans."""
 
@@ -746,6 +748,7 @@ def compose_other_human_record_query(
         cursor_key=cursor_key,
         data_root=data_root,
         max_object_bytes=max_object_bytes,
+        visibility=visibility,
     )
 
 
@@ -780,12 +783,14 @@ def compose_relationship_module(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
     creator_party_id: UUID,
+    visibility: DataRightsVisibilityPort,
 ) -> RelationshipModule:
     """Resolve and bind the one active relationship owner implementation."""
 
     return bootstrap_relationship(
         unit_of_work_factory,
         creator_party_id=creator_party_id,
+        visibility=visibility,
     )
 
 
@@ -848,6 +853,7 @@ def compose_memory_module(
     creator_party_id: UUID,
     subject_id: UUID,
     cursor_key: bytes,
+    visibility: DataRightsVisibilityPort,
 ) -> MemoryModule:
     """Resolve and bind the one active subjective-memory owner implementation."""
 
@@ -857,6 +863,7 @@ def compose_memory_module(
         creator_party_id=creator_party_id,
         subject_id=subject_id,
         cursor_key=cursor_key,
+        visibility=visibility,
     )
 
 
@@ -994,40 +1001,6 @@ def compose_prompt_module(
     )
 
 
-class _DataRightsContextProjectionInvalidation(DataRightsProjectionInvalidationPort):
-    def __init__(self, target: ContextProjectionInvalidationPort) -> None:
-        self._target = target
-
-    async def invalidate(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        source_kind: str,
-        source_refs: tuple[UUID, ...],
-    ) -> None:
-        await self._target.invalidate(
-            transaction,
-            tuple(
-                ContextProjectionSourceRef(source_kind, source_ref)
-                for source_ref in source_refs
-            ),
-        )
-
-
-class _DataRightsSubjectEpoch:
-    async def advance(
-        self,
-        transaction: PostgreSQLTransaction,
-    ) -> None:
-        await transaction.execute(
-            """
-            UPDATE armi.subjects
-            SET state_epoch = state_epoch + 1
-            WHERE singleton_key = 1
-            """
-        )
-
-
 def compose_interaction_identity() -> InteractionIdentityPort:
     return bootstrap_interaction_identity()
 
@@ -1041,14 +1014,16 @@ def compose_data_rights_module(
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     creator_party_id: UUID,
-    memory_data_rights: MemoryDataRightsParticipant,
-    relationship_data_rights: RelationshipDataRightsParticipant,
-    context_projections: ContextProjectionInvalidationPort,
     core: DataRightsCore,
     parties: InteractionIdentityPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     config = prepared.effective.config
+    catalog = bootstrap_artifact_catalog()
+    participants = compose_data_rights_participants(
+        data_rights=core.participant,
+        catalog=catalog,
+    )
     return bootstrap_data_rights(
         creator_party_id=creator_party_id,
         data_root=prepared.data_root,
@@ -1057,15 +1032,10 @@ def compose_data_rights_module(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        memory=memory_data_rights,
-        relationship=relationship_data_rights,
-        context_projections=_DataRightsContextProjectionInvalidation(
-            context_projections
-        ),
         core=core,
         parties=parties,
-        subject_epoch=_DataRightsSubjectEpoch(),
-        catalog=bootstrap_artifact_catalog(),
+        catalog=catalog,
+        participants=participants,
         notifier=notifier,
     )
 

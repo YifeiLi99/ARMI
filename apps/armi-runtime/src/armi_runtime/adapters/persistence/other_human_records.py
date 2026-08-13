@@ -13,6 +13,7 @@ from uuid import UUID
 
 import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_data_rights.api import DataRightsVisibilityPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -112,7 +113,7 @@ class OtherHumanRecordCursorCodec:
 
 
 class PostgreSQLOtherHumanRecordQuery:
-    __slots__ = ("_codec", "_factory", "_storage")
+    __slots__ = ("_codec", "_factory", "_storage", "_visibility")
 
     def __init__(
         self,
@@ -122,6 +123,7 @@ class PostgreSQLOtherHumanRecordQuery:
         cursor_key: bytes,
         data_root: Path,
         max_object_bytes: int,
+        visibility: DataRightsVisibilityPort,
     ) -> None:
         self._codec = OtherHumanRecordCursorCodec(
             key=cursor_key, environment_id=environment_id
@@ -130,6 +132,7 @@ class PostgreSQLOtherHumanRecordQuery:
         self._storage = ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         )
+        self._visibility = visibility
 
     async def open(self) -> None:
         return None
@@ -173,19 +176,15 @@ class PostgreSQLOtherHumanRecordQuery:
              AND artifact.privacy_scope = 'private'
              AND artifact.retention_status = 'retained'
             WHERE party.party_kind = 'other_human'
-              AND NOT EXISTS (
-                  SELECT 1 FROM armi.deletion_orders AS deletion_order
-                  WHERE deletion_order.requester_party_id = party.party_id
-                    AND deletion_order.order_kind = 'delete_related'
-                    AND deletion_order.status = 'effective'
-              ) {clause}
+              {clause}
             GROUP BY party.party_id, party.declared_identity_key, party.display_label
             ORDER BY party.party_id DESC LIMIT %s
             """,
             parameters,
         )
         more = len(rows) > limit
-        visible = rows[:limit]
+        visible_ids = await self._visible_party_ids(tuple(row[0] for row in rows))
+        visible = tuple(row for row in rows if row[0] in visible_ids)[:limit]
         items = tuple(self._party(row) for row in visible)
         next_cursor = (
             self._codec.encode("parties", "all", {"before_id": str(visible[-1][0])})
@@ -220,17 +219,11 @@ class PostgreSQLOtherHumanRecordQuery:
              AND artifact.privacy_scope = 'private'
              AND artifact.retention_status = 'retained'
             WHERE party.party_id = %s AND party.party_kind = 'other_human'
-              AND NOT EXISTS (
-                  SELECT 1 FROM armi.deletion_orders AS deletion_order
-                  WHERE deletion_order.requester_party_id = party.party_id
-                    AND deletion_order.order_kind = 'delete_related'
-                    AND deletion_order.status = 'effective'
-              )
             GROUP BY party.party_id, party.declared_identity_key, party.display_label
             """,
             (party_id,),
         )
-        if party_row is None:
+        if party_row is None or not await self._party_visible(party_id):
             raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-NOT-VISIBLE")
         boundary: UUID | None = None
         scope = str(party_id)
@@ -264,12 +257,6 @@ class PostgreSQLOtherHumanRecordQuery:
              AND artifact.retention_status = 'retained'
             WHERE scene.primary_party_id = %s
               AND scene.scene_kind = 'other_human_dialogue' {clause}
-              AND NOT EXISTS (
-                  SELECT 1 FROM armi.deletion_orders AS deletion_order
-                  WHERE deletion_order.requester_party_id = scene.primary_party_id
-                    AND deletion_order.order_kind = 'delete_related'
-                    AND deletion_order.status = 'effective'
-              )
             GROUP BY scene.scene_id, scene.scene_key, scene.current_status
             ORDER BY scene.scene_id DESC LIMIT %s
             """,
@@ -307,16 +294,10 @@ class PostgreSQLOtherHumanRecordQuery:
              AND party.party_kind = 'other_human'
             WHERE scene.scene_id = %s AND scene.primary_party_id = %s
               AND scene.scene_kind = 'other_human_dialogue'
-              AND NOT EXISTS (
-                  SELECT 1 FROM armi.deletion_orders AS deletion_order
-                  WHERE deletion_order.requester_party_id = scene.primary_party_id
-                    AND deletion_order.order_kind = 'delete_related'
-                    AND deletion_order.status = 'effective'
-              )
             """,
             (scene_id, party_id),
         )
-        if visible is None:
+        if visible is None or not await self._party_visible(party_id):
             raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-NOT-VISIBLE")
         scope = f"{party_id}:{scene_id}"
         boundary: tuple[Instant, UUID] | None = None
@@ -364,12 +345,6 @@ class PostgreSQLOtherHumanRecordQuery:
             WHERE scene.primary_party_id = %s AND scene.scene_id = %s
               AND scene.scene_kind = 'other_human_dialogue'
               AND item.source_kind IN ('other_human_input', 'other_human_response')
-              AND NOT EXISTS (
-                  SELECT 1 FROM armi.deletion_orders AS deletion_order
-                  WHERE deletion_order.requester_party_id = scene.primary_party_id
-                    AND deletion_order.order_kind = 'delete_related'
-                    AND deletion_order.status = 'effective'
-              )
               {clause}
             ORDER BY item.occurred_at DESC, item.timeline_item_id DESC LIMIT %s
             """,
@@ -432,6 +407,23 @@ class PostgreSQLOtherHumanRecordQuery:
                         sql.SQL(cast(LiteralString, statement)), parameters
                     )
                 ).fetchall()
+        except RuntimeTransactionFailure:
+            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
+
+    async def _party_visible(self, party_id: UUID) -> bool:
+        return party_id in await self._visible_party_ids((party_id,))
+
+    async def _visible_party_ids(self, party_ids: tuple[UUID, ...]) -> frozenset[UUID]:
+        try:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                visible: set[UUID] = set()
+                for party_id in party_ids:
+                    restrictions = await self._visibility.party_restrictions(
+                        unit_of_work.transaction, party_id
+                    )
+                    if "delete_related" not in restrictions:
+                        visible.add(party_id)
+                return frozenset(visible)
         except RuntimeTransactionFailure:
             raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
 

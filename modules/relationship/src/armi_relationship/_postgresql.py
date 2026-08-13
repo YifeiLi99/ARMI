@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_data_rights.api import DataRightsVisibilityPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
@@ -45,16 +45,18 @@ _PAGE_SIZE = 100
 
 
 class PostgreSQLRelationshipOwner:
-    __slots__ = ("_creator_party_id", "_factory")
+    __slots__ = ("_creator_party_id", "_factory", "_visibility")
 
     def __init__(
         self,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
         creator_party_id: UUID,
+        visibility: DataRightsVisibilityPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
+        self._visibility = visibility
 
     async def open(self) -> None:
         return None
@@ -444,24 +446,10 @@ class PostgreSQLRelationshipOwner:
                 validation_id=validation_id,
                 experience_ids=experience_ids,
                 relationship=relationship,
+                visibility=self._visibility,
             )
             affected.append(relationship.relationship_id)
         return tuple(affected)
-
-    async def find_for_party(
-        self, transaction: PostgreSQLTransaction, party_id: UUID
-    ) -> tuple[UUID, ...]:
-        rows = await (
-            await transaction.execute(
-                """
-                SELECT relationship_id FROM armi.relationships
-                WHERE other_party_id = %s AND tombstoned_at IS NULL
-                ORDER BY relationship_id
-                """,
-                (party_id,),
-            )
-        ).fetchall()
-        return tuple(row[0] for row in rows)
 
     async def affected_relationship_ids(
         self, transaction: PostgreSQLTransaction, validation_id: UUID
@@ -477,28 +465,6 @@ class PostgreSQLRelationshipOwner:
         ).fetchall()
         return tuple(row[0] for row in rows)
 
-    async def tombstone(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        relationship_id: UUID,
-        order_id: UUID,
-        tombstoned_at: datetime,
-    ) -> None:
-        row = await (
-            await transaction.execute(
-                """
-                UPDATE armi.relationships
-                SET tombstoned_at = %s, tombstone_order_id = %s
-                WHERE relationship_id = %s AND tombstoned_at IS NULL
-                RETURNING relationship_id
-                """,
-                (tombstoned_at, order_id, relationship_id),
-            )
-        ).fetchone()
-        if row is None:
-            raise RelationshipViolation("RELATIONSHIP-TOMBSTONE-STALE")
-
 
 async def _commit_one(
     connection: PostgreSQLTransaction,
@@ -509,6 +475,7 @@ async def _commit_one(
     validation_id: UUID,
     experience_ids: dict[str, UUID],
     relationship: CandidateRelationshipDraft,
+    visibility: DataRightsVisibilityPort,
 ) -> None:
     source_experience_id = experience_ids.get(relationship.source_experience_ref)
     if source_experience_id is None:
@@ -581,17 +548,9 @@ async def _commit_one(
         current_boundaries = decode_boundaries(row[6])
         current_issues = decode_issues(row[7])
         if relationship.reopen:
-            hard_order = await (
-                await connection.execute(
-                    """
-                    SELECT 1 FROM armi.deletion_orders
-                    WHERE requester_party_id = %s AND status = 'effective'
-                      AND order_kind IN ('stop_contact', 'stop_use', 'delete_related')
-                    LIMIT 1
-                    """,
-                    (relationship.other_party_id,),
-                )
-            ).fetchone()
+            restrictions = await visibility.party_restrictions(
+                connection, relationship.other_party_id
+            )
             reused_experience = await (
                 await connection.execute(
                     """
@@ -602,7 +561,7 @@ async def _commit_one(
                 )
             ).fetchone()
             if (
-                hard_order is not None
+                bool(restrictions & {"stop_contact", "stop_use", "delete_related"})
                 or reused_experience is not None
                 or relationship.interpretation == str(row[5])
                 or any(item.kind.value == "exit" for item in relationship.boundaries)

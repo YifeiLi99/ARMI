@@ -7,8 +7,9 @@ from typing import Any
 from uuid import UUID
 
 from armi_kernel.contracts import Digest, Instant
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
+from ._participant_contract import DataRightsVisibilityPort
 from .api import (
     DataRightsExecutionStatus,
     DataRightsOrderKind,
@@ -44,7 +45,7 @@ class DataRightsDeletionItemSnapshot:
     completed_at: Instant | None
 
 
-class DataRightsOrderRepository:
+class DataRightsOrderRepository(DataRightsVisibilityPort):
     __slots__ = ()
 
     async def find_existing(
@@ -290,6 +291,54 @@ class DataRightsOrderRepository:
     ) -> bool:
         """Apply the same contact/use/delete boundary to effect admission and dispatch."""
         return await self.blocks_new_interaction(unit_of_work, requester_party_id)
+
+    async def party_restrictions(
+        self, transaction: PostgreSQLTransaction, party_id: UUID
+    ) -> frozenset[str]:
+        rows = await (
+            await transaction.execute(
+                """
+                SELECT order_kind FROM armi.deletion_orders
+                WHERE requester_party_id = %s AND status = 'effective'
+                ORDER BY order_kind
+                """,
+                (party_id,),
+            )
+        ).fetchall()
+        return frozenset(str(row[0]) for row in rows)
+
+    async def hidden_targets(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        target_kind: str,
+        target_refs: tuple[UUID, ...],
+    ) -> frozenset[UUID]:
+        if target_kind not in {
+            "interaction",
+            "evidence",
+            "experience",
+            "memory",
+            "relationship",
+            "scene",
+            "artifact",
+            "effect",
+        }:
+            raise DataRightsViolation("DATA-RIGHTS-TARGET-KIND")
+        if not target_refs:
+            return frozenset()
+        rows = await (
+            await transaction.execute(
+                """
+                SELECT target_ref FROM armi.deletion_items
+                WHERE target_kind = %s AND target_ref = ANY(%s::uuid[])
+                  AND result_status IN ('completed', 'partial')
+                ORDER BY target_ref
+                """,
+                (target_kind, target_refs),
+            )
+        ).fetchall()
+        return frozenset(row[0] for row in rows)
 
     async def blocks_cognition(
         self,

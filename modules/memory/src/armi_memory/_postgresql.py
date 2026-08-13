@@ -13,6 +13,7 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_data_rights.api import DataRightsVisibilityPort
 from armi_kernel.application import CandidateFactClass
 from armi_kernel.contracts import Instant, OpaqueCursor
 from armi_runtime_foundation import (
@@ -115,12 +116,14 @@ class PostgreSQLMemoryOwner:
         creator_party_id: UUID,
         subject_id: UUID,
         cursor_key: bytes,
+        visibility: DataRightsVisibilityPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
         self._codec = _CursorCodec(cursor_key, environment_id, creator_party_id)
         self._application = MemoryApplication()
         self._subject_id = subject_id
+        self._visibility = visibility
 
     async def open(self) -> None:
         return None
@@ -163,19 +166,21 @@ class PostgreSQLMemoryOwner:
                   ON revision.memory_revision_id=memory.current_revision_id
                 WHERE memory.subject_id=%s AND memory.life_generation_id=%s
                   AND revision.accessibility IN ('available','faded')
-                  AND NOT EXISTS (
-                    SELECT 1 FROM armi.deletion_items AS item
-                    WHERE item.target_kind='memory'
-                      AND item.target_ref=memory.memory_id
-                      AND item.result_status IN ('completed','partial'))
                 ORDER BY CASE revision.accessibility WHEN 'available' THEN 1 ELSE 2 END,
                          revision.created_at DESC, memory.memory_id
                 LIMIT %s
                 """,
-                (subject_id, generation_id, limit),
+                (subject_id, generation_id, limit * 4),
             )
         ).fetchall()
-        return tuple(self._context_item(row) for row in rows)
+        hidden = await self._visibility.hidden_targets(
+            transaction,
+            target_kind="memory",
+            target_refs=tuple(row[0] for row in rows),
+        )
+        return tuple(self._context_item(row) for row in rows if row[0] not in hidden)[
+            :limit
+        ]
 
     async def candidate_context(
         self,
@@ -241,10 +246,6 @@ class PostgreSQLMemoryOwner:
                   AND (%s::text IS NULL OR revision.summary ILIKE '%%' || %s || '%%')
                   AND (%s::timestamptz IS NULL OR
                        (revision.created_at, 'memory'::text, memory.memory_id) < (%s,%s,%s))
-                  AND NOT EXISTS (
-                    SELECT 1 FROM armi.deletion_items AS item
-                    WHERE item.target_kind='memory' AND item.target_ref=memory.memory_id
-                      AND item.result_status IN ('completed','partial'))
                 ORDER BY revision.created_at DESC, memory.memory_id DESC LIMIT %s
                 """,
                 (
@@ -259,9 +260,15 @@ class PostgreSQLMemoryOwner:
                 ),
             )
         ).fetchall()
+        hidden = await self._visibility.hidden_targets(
+            transaction,
+            target_kind="memory",
+            target_refs=tuple(row[0] for row in rows),
+        )
         return tuple(
             MemoryLifeRecordItem(row[0], str(row[1]), str(row[2]), row[3], bool(row[4]))
             for row in rows
+            if row[0] not in hidden
         )
 
     def _creator_subject(self) -> UUID:
@@ -301,9 +308,6 @@ class PostgreSQLMemoryOwner:
                       AND (%s::text IS NULL OR revision.summary ILIKE '%%'||%s||'%%')
                       AND (%s::timestamptz IS NULL OR
                            (revision.created_at,memory.memory_id)<(%s,%s))
-                      AND NOT EXISTS (SELECT 1 FROM armi.deletion_items AS item
-                        WHERE item.target_kind='memory' AND item.target_ref=memory.memory_id
-                          AND item.result_status IN ('completed','partial'))
                     ORDER BY revision.created_at DESC,memory.memory_id DESC LIMIT %s
                     """,
                     (
@@ -317,7 +321,12 @@ class PostgreSQLMemoryOwner:
                     ),
                 )
             ).fetchall()
-        visible = rows[:limit]
+            hidden = await self._visibility.hidden_targets(
+                connection,
+                target_kind="memory",
+                target_refs=tuple(row[0] for row in rows),
+            )
+        visible = tuple(row for row in rows if row[0] not in hidden)[:limit]
         next_cursor = None
         if len(rows) > limit and visible:
             next_cursor = self._codec.encode(
@@ -365,14 +374,16 @@ class PostgreSQLMemoryOwner:
             exists = await (
                 await connection.execute(
                     """SELECT 1 FROM armi.subjective_memories AS memory
-                       WHERE memory.memory_id=%s AND memory.subject_id=%s
-                         AND NOT EXISTS (SELECT 1 FROM armi.deletion_items AS item
-                           WHERE item.target_kind='memory' AND item.target_ref=memory.memory_id
-                             AND item.result_status IN ('completed','partial'))""",
+                       WHERE memory.memory_id=%s AND memory.subject_id=%s""",
                     (memory_id, subject_id),
                 )
             ).fetchone()
-            if exists is None:
+            hidden = await self._visibility.hidden_targets(
+                connection,
+                target_kind="memory",
+                target_refs=(memory_id,),
+            )
+            if exists is None or memory_id in hidden:
                 raise MemoryViolation("MEMORY-QUERY-NOT-FOUND")
             rows = await (
                 await connection.execute(
@@ -664,22 +675,6 @@ class PostgreSQLMemoryOwner:
                 row[0], row[1], row[2], int(row[3]), str(row[4])
             )
         )
-
-    async def find_for_party(
-        self, transaction: PostgreSQLTransaction, party_id: UUID
-    ) -> tuple[UUID, ...]:
-        rows = await (
-            await transaction.execute(
-                """SELECT DISTINCT revision.memory_id
-                   FROM armi.subjective_memory_revisions AS revision
-                   JOIN armi.experience_evidence_links AS link
-                     ON link.experience_id=revision.source_experience_id
-                   JOIN armi.external_evidence AS evidence ON evidence.evidence_id=link.evidence_id
-                   WHERE evidence.context_party_id=%s ORDER BY revision.memory_id""",
-                (party_id,),
-            )
-        ).fetchall()
-        return tuple(row[0] for row in rows)
 
 
 __all__ = ("PostgreSQLMemoryOwner",)

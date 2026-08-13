@@ -1188,13 +1188,18 @@
             "type": "boolean"
           },
           "projection_version": {
-            "const": "creator-export.v1",
+            "const": "creator-export.v2",
             "title": "Projection Version",
             "type": "string"
           },
-          "row_count": {
+          "record_count": {
             "minimum": 0.0,
-            "title": "Row Count",
+            "title": "Record Count",
+            "type": "integer"
+          },
+          "segment_count": {
+            "minimum": 0.0,
+            "title": "Segment Count",
             "type": "integer"
           },
           "status": {
@@ -1206,11 +1211,6 @@
             ],
             "title": "Status",
             "type": "string"
-          },
-          "table_count": {
-            "minimum": 0.0,
-            "title": "Table Count",
-            "type": "integer"
           }
         },
         "required": [
@@ -1220,8 +1220,8 @@
           "status",
           "directory_name",
           "destination_path",
-          "table_count",
-          "row_count",
+          "segment_count",
+          "record_count",
           "artifact_count",
           "missing_artifacts",
           "error_code",

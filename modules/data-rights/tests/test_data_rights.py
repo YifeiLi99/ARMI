@@ -132,7 +132,7 @@ def test_delete_related_tracks_pending_and_terminal_s015_execution() -> None:
 
 
 def test_deletion_item_retry_only_updates_a_granted_settlement_column() -> None:
-    statement = inspect.getsource(LocalDataDeletionRepository.prepare)
+    statement = inspect.getsource(LocalDataDeletionRepository._insert_target)
     assert "SET result_status = armi.deletion_items.result_status" in statement
     assert "SET target_ref = EXCLUDED.target_ref" not in statement
 

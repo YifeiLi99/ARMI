@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_data_rights.api import DataRightsParticipant, DataRightsVisibilityPort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_kernel.application import CreatorProjectionNotifier
 from armi_opportunity.api import OpportunityAdmissionPort
@@ -22,6 +23,7 @@ from ._birth_postgresql import PostgreSQLInteractionBirth
 from ._context_postgresql import PostgreSQLInteractionContextRead
 from ._creator import EvidenceAcceptanceTransaction
 from ._creator_postgresql import CreatorInputRepository
+from ._data_rights import PostgreSQLInteractionDataRightsParticipant
 from ._external import ExternalMessageInputService
 from ._external_postgresql import ExternalMessageInputRepository
 from ._identity_postgresql import PostgreSQLInteractionIdentity
@@ -127,6 +129,7 @@ def bootstrap_interaction(
     codex_task_projection: SceneTimelineCodexTaskProjectionPort,
     catalog: InteractionArtifactCatalogPort,
     data_rights: InteractionDataRightsGate,
+    visibility: DataRightsVisibilityPort,
     subject_state: SubjectStateReadPort,
     evidence: EvidenceWritePort,
     evidence_read: EvidenceReadPort,
@@ -184,6 +187,7 @@ def bootstrap_interaction(
         cursor_key=cursor_key,
         storage=storage,
         codex_tasks=codex_task_projection,
+        visibility=visibility,
     )
     perception = PostgreSQLInteractionPerception()
     actions = bootstrap_interaction_action_ports()
@@ -203,6 +207,10 @@ def bootstrap_interaction(
     )
 
 
+def bootstrap_interaction_data_rights() -> DataRightsParticipant:
+    return PostgreSQLInteractionDataRightsParticipant()
+
+
 def bootstrap_interaction_recovery() -> RecoveryParticipant:
     return InteractionRecoveryParticipant()
 
@@ -216,6 +224,7 @@ __all__ = (
     "bootstrap_interaction_admin",
     "bootstrap_interaction_birth",
     "bootstrap_interaction_cognition",
+    "bootstrap_interaction_data_rights",
     "bootstrap_interaction_identity",
     "bootstrap_interaction_recovery",
     "bootstrap_interaction_subject_commit",

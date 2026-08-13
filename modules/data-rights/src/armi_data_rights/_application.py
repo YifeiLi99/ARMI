@@ -37,7 +37,6 @@ from .api import (
     DataRightsPartyKey,
     DataRightsRequesterKind,
     DataRightsScopeKind,
-    DataRightsSubjectEpochPort,
     DataRightsUnitOfWorkFactory,
     DataRightsViolation,
 )
@@ -50,7 +49,6 @@ class DataRightsOrderService(DataRightsOrderPort):
         "_notifier",
         "_parties",
         "_repository",
-        "_subject_epoch",
         "_uow_factory",
     )
 
@@ -62,7 +60,6 @@ class DataRightsOrderService(DataRightsOrderPort):
         repository: DataRightsOrderRepository,
         unit_of_work_factory: DataRightsUnitOfWorkFactory,
         parties: DataRightsPartyIdentityPort,
-        subject_epoch: DataRightsSubjectEpochPort,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         if creator_party_id.version != 7:
@@ -73,7 +70,6 @@ class DataRightsOrderService(DataRightsOrderPort):
         self._uow_factory = unit_of_work_factory
         self._notifier = notifier
         self._parties = parties
-        self._subject_epoch = subject_epoch
 
     async def open(self) -> None:
         try:
@@ -350,8 +346,6 @@ class DataRightsOrderService(DataRightsOrderPort):
                     request_digest=request_digest,
                     trace_id=command.trace_id.value,
                 )
-                if command.order_kind is DataRightsOrderKind.DELETE_RELATED:
-                    await self._subject_epoch.advance(unit_of_work.transaction)
                 await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),

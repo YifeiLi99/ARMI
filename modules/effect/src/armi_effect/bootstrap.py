@@ -10,7 +10,7 @@ from armi_capability.api import (
     CapabilityAdmissionPort,
     CapabilityDispatchAuthorizationPort,
 )
-from armi_data_rights.api import DataRightsEffectGate
+from armi_data_rights.api import DataRightsEffectGate, DataRightsParticipant
 from armi_expression.api import (
     ExpressionEffectLinkPort,
     ExpressionEffectRegistrationPort,
@@ -27,6 +27,7 @@ from armi_runtime_foundation import (
 from ._admin import PostgreSQLEffectAdmin
 from ._application import EffectRegistrationPipeline
 from ._codex_postgresql import PostgreSQLEffectCodexLifecycle
+from ._data_rights import PostgreSQLEffectDataRightsParticipant
 from ._grant import (
     PostgreSQLEffectDispatchBoundary,
     PostgreSQLEffectGrantCancellation,
@@ -144,6 +145,10 @@ def bootstrap_response_admission(
     )
 
 
+def bootstrap_effect_data_rights() -> DataRightsParticipant:
+    return PostgreSQLEffectDataRightsParticipant()
+
+
 def bootstrap_effect_recovery() -> RecoveryParticipant:
     return EffectRecoveryParticipant()
 
@@ -155,6 +160,7 @@ def bootstrap_effect_operation_read() -> EffectOperationReadPort:
 __all__ = (
     "bootstrap_effect_admin",
     "bootstrap_effect_codex_lifecycle",
+    "bootstrap_effect_data_rights",
     "bootstrap_effect_dispatch_boundary",
     "bootstrap_effect_grant_cancellation",
     "bootstrap_effect_operation_read",

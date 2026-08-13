@@ -800,8 +800,8 @@ class _CreatorExport:
             ),
             directory_name=command.directory_name,
             destination_path=f"data/exports/{command.directory_name}",
-            table_count=39,
-            row_count=120,
+            segment_count=39,
+            record_count=120,
             artifact_count=4,
             missing_artifacts=(Digest.from_bytes(b"missing").value,) if partial else (),
             error_code=None,
@@ -1468,7 +1468,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
         self.assertEqual(exported.status_code, 201)
         self.assertEqual(exported.json()["status"], "completed")
-        self.assertEqual(exported.json()["table_count"], 39)
+        self.assertEqual(exported.json()["segment_count"], 39)
         self.assertEqual(queried.status_code, 200)
         self.assertEqual(queried.json()["export_id"], exported.json()["export_id"])
         self.assertEqual(invalid.status_code, 400)

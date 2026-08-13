@@ -9,6 +9,7 @@ from armi_activity.api import ActivityCognitionPort, ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
 from armi_codex.api import CodexTaskSourceReadPort
 from armi_context.api import ContextCognitionReadPort
+from armi_data_rights.api import DataRightsParticipant
 from armi_evidence.api import EvidenceReadPort
 from armi_interaction.api import InteractionCognitionReadPort
 from armi_kernel.application import DurableWorkPort
@@ -40,6 +41,7 @@ from ._admin import PostgreSQLCognitionAdmin
 from ._candidate_application import CandidateValidationPipeline
 from ._change_set_codec import parse_subject_change_set
 from ._context_postgresql import PostgreSQLCognitionContextLifecycle
+from ._data_rights import PostgreSQLCognitionDataRightsParticipant
 from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
 from ._model_application import ModelPipeline
 from ._recovery import CognitionRecoveryParticipant
@@ -250,6 +252,10 @@ def bootstrap_cognition_candidate(
     )
 
 
+def bootstrap_cognition_data_rights() -> DataRightsParticipant:
+    return PostgreSQLCognitionDataRightsParticipant()
+
+
 def bootstrap_cognition_recovery() -> RecoveryParticipant:
     return CognitionRecoveryParticipant()
 
@@ -259,6 +265,7 @@ __all__ = (
     "bootstrap_cognition_candidate",
     "bootstrap_cognition_change_set_codec",
     "bootstrap_cognition_context",
+    "bootstrap_cognition_data_rights",
     "bootstrap_cognition_exact_life_query",
     "bootstrap_cognition_model",
     "bootstrap_cognition_operation",

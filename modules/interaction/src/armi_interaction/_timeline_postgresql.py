@@ -12,6 +12,7 @@ from uuid import UUID
 
 import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_data_rights.api import DataRightsVisibilityPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -172,6 +173,7 @@ class PostgreSQLSceneTimelineQuery:
         "_creator_party_id",
         "_factory",
         "_storage",
+        "_visibility",
     )
 
     def __init__(
@@ -183,11 +185,13 @@ class PostgreSQLSceneTimelineQuery:
         cursor_key: bytes,
         storage: ContentAddressedArtifactStore,
         codex_tasks: SceneTimelineCodexTaskProjectionPort,
+        visibility: DataRightsVisibilityPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
         self._storage = storage
         self._codex_tasks = codex_tasks
+        self._visibility = visibility
         self._codec = SceneTimelineCursorCodec(
             key=cursor_key,
             environment_id=environment_id,
@@ -204,6 +208,11 @@ class PostgreSQLSceneTimelineQuery:
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
+                restrictions = await self._visibility.party_restrictions(
+                    connection, self._creator_party_id
+                )
+                if "delete_related" in restrictions:
+                    raise SceneQueryViolation("SCENE-NOT-VISIBLE")
                 scene_rows = await (
                     await connection.execute(
                         """
@@ -221,12 +230,6 @@ class PostgreSQLSceneTimelineQuery:
                           AND scene.scene_kind = 'creator_dialogue'
                           AND scene.audience_scope = 'creator'
                           AND creator.party_id = %s
-                          AND NOT EXISTS (
-                              SELECT 1 FROM armi.deletion_orders AS deletion_order
-                              WHERE deletion_order.requester_party_id = creator.party_id
-                                AND deletion_order.order_kind = 'delete_related'
-                                AND deletion_order.status = 'effective'
-                          )
                         """,
                         (request.scene_key.value, self._creator_party_id),
                     )

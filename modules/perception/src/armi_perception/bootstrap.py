@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_data_rights.api import DataRightsParticipant
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_interaction.api import ExternalMessagePartKind, InteractionPerceptionPort
 from armi_opportunity.api import OpportunityAdmissionPort
@@ -16,6 +17,7 @@ from armi_runtime_foundation import (
 
 from ._admin import PostgreSQLPerceptionAdmin
 from ._application import Diagnostic, ExternalContentPipeline
+from ._data_rights import PostgreSQLPerceptionDataRightsParticipant
 from ._recognizer import ExternalContentRecognizer
 from ._recovery import PerceptionRecoveryParticipant
 from .api import (
@@ -86,6 +88,10 @@ def bootstrap_perception(
     return PerceptionModule(worker)
 
 
+def bootstrap_perception_data_rights() -> DataRightsParticipant:
+    return PostgreSQLPerceptionDataRightsParticipant()
+
+
 def bootstrap_perception_recovery() -> RecoveryParticipant:
     return PerceptionRecoveryParticipant()
 
@@ -94,5 +100,6 @@ __all__ = (
     "PerceptionModule",
     "bootstrap_perception",
     "bootstrap_perception_admin",
+    "bootstrap_perception_data_rights",
     "bootstrap_perception_recovery",
 )

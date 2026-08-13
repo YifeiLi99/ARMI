@@ -1111,13 +1111,13 @@ class CreatorExportRequest(_StrictWireModel):
 
 class CreatorExportResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-export.v1"]
+    projection_version: Literal["creator-export.v2"]
     export_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     status: Literal["running", "completed", "partial", "failed"]
     directory_name: Annotated[str, Field(min_length=1, max_length=64)]
     destination_path: Annotated[str, Field(min_length=1, max_length=4096)]
-    table_count: Annotated[int, Field(ge=0)]
-    row_count: Annotated[int, Field(ge=0)]
+    segment_count: Annotated[int, Field(ge=0)]
+    record_count: Annotated[int, Field(ge=0)]
     artifact_count: Annotated[int, Field(ge=0)]
     missing_artifacts: Annotated[
         list[Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]],

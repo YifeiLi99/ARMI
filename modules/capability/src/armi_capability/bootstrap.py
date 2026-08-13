@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from armi_data_rights.api import DataRightsParticipant
 from armi_kernel.application import CreatorProjectionNotifier
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
 )
 
+from ._data_rights import PostgreSQLCapabilityDataRightsParticipant
 from ._postgresql import PostgreSQLCreatorGrantPolicy
 from ._recovery import CapabilityRecoveryParticipant
 from .api import (
@@ -95,6 +97,10 @@ def bootstrap_capability(
     )
 
 
+def bootstrap_capability_data_rights() -> DataRightsParticipant:
+    return PostgreSQLCapabilityDataRightsParticipant()
+
+
 def bootstrap_capability_recovery() -> RecoveryParticipant:
     return CapabilityRecoveryParticipant()
 
@@ -102,5 +108,6 @@ def bootstrap_capability_recovery() -> RecoveryParticipant:
 __all__ = (
     "CapabilityModule",
     "bootstrap_capability",
+    "bootstrap_capability_data_rights",
     "bootstrap_capability_recovery",
 )

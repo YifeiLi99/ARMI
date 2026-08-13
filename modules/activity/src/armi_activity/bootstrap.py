@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from armi_data_rights.api import DataRightsParticipant
 from armi_runtime_foundation import (
     EmptyRecoveryParticipant,
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -13,6 +14,7 @@ from armi_runtime_foundation import (
 
 from ._application import ActivityApplication
 from ._commit import PostgreSQLActivityCommit
+from ._data_rights import PostgreSQLActivityDataRightsParticipant
 from ._postgresql import PostgreSQLActivityRead
 from .api import (
     ActivityCognitionPort,
@@ -55,6 +57,10 @@ def bootstrap_activity_cognition() -> ActivityCognitionPort:
     return ActivityApplication()
 
 
+def bootstrap_activity_data_rights() -> DataRightsParticipant:
+    return PostgreSQLActivityDataRightsParticipant()
+
+
 def bootstrap_activity_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("activity")
 
@@ -63,5 +69,6 @@ __all__ = (
     "ActivityModule",
     "bootstrap_activity",
     "bootstrap_activity_cognition",
+    "bootstrap_activity_data_rights",
     "bootstrap_activity_recovery",
 )

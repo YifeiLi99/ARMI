@@ -9,11 +9,10 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_artifact_store.api import ArtifactCatalogPort
 from armi_kernel.application import (
     ArtifactRef,
     ArtifactViolation,
@@ -26,7 +25,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest, ErrorCategory, Instant, Purpose, TraceId
 from armi_runtime_foundation import RuntimeTransactionFailure
-from psycopg import sql
 
 from .api import (
     CreatorExportCommand,
@@ -35,10 +33,13 @@ from .api import (
     CreatorExportStatus,
     CreatorExportViolation,
     DataRightsArtifactStorePort,
+    DataRightsExportScope,
+    DataRightsOwnerIdentity,
+    DataRightsParticipant,
     DataRightsUnitOfWorkFactory,
 )
 
-_EXPORT_FORMAT = "armi.creator-local-export.v1"
+_EXPORT_FORMAT = "armi.creator-export.v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,10 +49,21 @@ class _ArtifactSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class _SegmentSnapshot:
+    owner: DataRightsOwnerIdentity
+    schema_version: int
+    name: str
+    path: str
+    media_type: str
+    record_count: int
+    digest: Digest
+
+
+@dataclass(frozen=True, slots=True)
 class _SnapshotResult:
-    tables: tuple[dict[str, Any], ...]
+    segments: tuple[_SegmentSnapshot, ...]
     artifacts: tuple[_ArtifactSnapshot, ...]
-    row_count: int
+    record_count: int
     snapshot_at: str
 
 
@@ -59,9 +71,9 @@ class CreatorExportService(CreatorExportPort):
     """Persist an idempotent export record and materialize one restricted directory."""
 
     __slots__ = (
-        "_catalog",
         "_creator_party_id",
         "_exports_root",
+        "_participants",
         "_storage",
         "_uow_factory",
     )
@@ -73,7 +85,7 @@ class CreatorExportService(CreatorExportPort):
         data_root: Path,
         storage: DataRightsArtifactStorePort,
         unit_of_work_factory: DataRightsUnitOfWorkFactory,
-        catalog: ArtifactCatalogPort,
+        participants: tuple[DataRightsParticipant, ...],
     ) -> None:
         if creator_party_id.version != 7 or not data_root.is_absolute():
             raise CreatorExportViolation("CREATOR-EXPORT-COMPOSITION")
@@ -81,11 +93,20 @@ class CreatorExportService(CreatorExportPort):
         self._exports_root = data_root / "exports"
         self._storage = storage
         self._uow_factory = unit_of_work_factory
-        self._catalog = catalog
+        self._participants = participants
 
     async def open(self) -> None:
         try:
             await asyncio.to_thread(self._prepare_root)
+            async with self._uow_factory.unit_of_work() as unit_of_work:
+                await unit_of_work.transaction.execute(
+                    """UPDATE armi.creator_exports
+                       SET status = 'failed',
+                           error_code = 'CREATOR-EXPORT-INTERRUPTED',
+                           completed_at = statement_timestamp()
+                       WHERE creator_party_id = %s AND status = 'running'""",
+                    (self._creator_party_id,),
+                )
         except RuntimeTransactionFailure, OSError:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
@@ -137,8 +158,8 @@ class CreatorExportService(CreatorExportPort):
                 export_id=export_id,
                 trace_id=command.trace_id,
                 status=status,
-                table_count=len(snapshot.tables),
-                row_count=snapshot.row_count,
+                segment_count=len(snapshot.segments),
+                record_count=snapshot.record_count,
                 artifact_count=copied,
                 missing=missing,
                 error_code=None,
@@ -171,7 +192,15 @@ class CreatorExportService(CreatorExportPort):
                 ).fetchone()
         except RuntimeTransactionFailure:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
-        return None if row is None else self._result(row, newly_created=False)
+        if row is None:
+            return None
+        result = self._result(row, newly_created=False)
+        if result.status in {
+            CreatorExportStatus.COMPLETED,
+            CreatorExportStatus.PARTIAL,
+        }:
+            await asyncio.to_thread(self._verify_published_format, result)
+        return result
 
     async def _register(
         self,
@@ -251,11 +280,13 @@ class CreatorExportService(CreatorExportPort):
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
     async def _write_snapshot(self, staging: Path) -> _SnapshotResult:
-        database_dir = staging / "database"
-        await asyncio.to_thread(database_dir.mkdir)
-        tables: list[dict[str, Any]] = []
+        owners_dir = staging / "owners"
+        await asyncio.to_thread(owners_dir.mkdir)
+        segments: list[_SegmentSnapshot] = []
         artifacts: tuple[_ArtifactSnapshot, ...] = ()
         total_rows = 0
+        artifact_by_id: dict[UUID, _ArtifactSnapshot] = {}
+        seen_paths: set[str] = set()
         try:
             async with self._uow_factory.unit_of_work(
                 isolation=TransactionIsolation.REPEATABLE_READ,
@@ -268,51 +299,52 @@ class CreatorExportService(CreatorExportPort):
                 if snapshot_row is None:
                     raise CreatorExportViolation("CREATOR-EXPORT-SNAPSHOT")
                 snapshot_at = str(snapshot_row[0])
-                table_rows = await (
-                    await connection.execute(
-                        """
-                        SELECT table_name
-                        FROM information_schema.tables
-                        WHERE table_schema = 'armi' AND table_type = 'BASE TABLE'
-                        ORDER BY table_name
-                        """
-                    )
-                ).fetchall()
-                for (table_name_value,) in table_rows:
-                    table_name = str(table_name_value)
-                    rows = await (
-                        await connection.execute(
-                            sql.SQL(
-                                "SELECT to_jsonb(source) FROM {} AS source "
-                                "ORDER BY to_jsonb(source)::text"
-                            ).format(sql.Identifier("armi", table_name))
+                scope = DataRightsExportScope(self._creator_party_id)
+                for participant in self._participants:
+                    owner = participant.owner_identity
+                    owner_dir = owners_dir / owner.value
+                    await asyncio.to_thread(owner_dir.mkdir, exist_ok=True)
+                    for segment in await participant.export(connection, scope):
+                        if segment.owner_identity != owner:
+                            raise CreatorExportViolation("CREATOR-EXPORT-OWNER")
+                        relative_path = (
+                            f"owners/{owner.value}/{segment.segment_name}.jsonl"
                         )
-                    ).fetchall()
-                    payload = b"".join(rfc8785.dumps(row[0]) + b"\n" for row in rows)
-                    relative_path = f"database/{table_name}.jsonl"
-                    await asyncio.to_thread(
-                        (staging / relative_path).write_bytes,
-                        payload,
-                    )
-                    tables.append(
-                        {
-                            "name": table_name,
-                            "role": _table_role(table_name),
-                            "path": relative_path,
-                            "row_count": len(rows),
-                        }
-                    )
-                    total_rows += len(rows)
+                        if relative_path in seen_paths:
+                            raise CreatorExportViolation("CREATOR-EXPORT-SEGMENT")
+                        seen_paths.add(relative_path)
+                        records: list[bytes] = []
+                        while batch := await segment.records.read_batch():
+                            records.extend(record.value for record in batch)
+                        payload = b"".join(records)
+                        await asyncio.to_thread(
+                            (staging / relative_path).write_bytes, payload
+                        )
+                        segments.append(
+                            _SegmentSnapshot(
+                                owner,
+                                segment.schema_version.value,
+                                segment.segment_name,
+                                relative_path,
+                                segment.media_type,
+                                len(records),
+                                Digest.from_bytes(payload),
+                            )
+                        )
+                        total_rows += len(records)
+                        for ref in segment.artifact_refs:
+                            artifact_by_id[ref.artifact_id.value] = _ArtifactSnapshot(
+                                ref, ref.logical_kind
+                            )
                 artifacts = tuple(
-                    _ArtifactSnapshot(ref, ref.logical_kind)
-                    for ref in await self._catalog.all_refs(unit_of_work)
+                    artifact_by_id[key] for key in sorted(artifact_by_id, key=str)
                 )
         except RuntimeTransactionFailure:
             raise
         return _SnapshotResult(
-            tables=tuple(tables),
+            segments=tuple(segments),
             artifacts=artifacts,
-            row_count=total_rows,
+            record_count=total_rows,
             snapshot_at=snapshot_at,
         )
 
@@ -347,8 +379,8 @@ class CreatorExportService(CreatorExportPort):
         export_id: UUID,
         trace_id: TraceId,
         status: CreatorExportStatus,
-        table_count: int,
-        row_count: int,
+        segment_count: int,
+        record_count: int,
         artifact_count: int,
         missing: tuple[str, ...],
         error_code: str | None,
@@ -373,8 +405,8 @@ class CreatorExportService(CreatorExportPort):
                         """,
                         (
                             status.value,
-                            table_count,
-                            row_count,
+                            segment_count,
+                            record_count,
                             artifact_count,
                             json.dumps(missing),
                             error_code,
@@ -417,8 +449,8 @@ class CreatorExportService(CreatorExportPort):
             export_id=export_id,
             trace_id=trace_id,
             status=CreatorExportStatus.FAILED,
-            table_count=0,
-            row_count=0,
+            segment_count=0,
+            record_count=0,
             artifact_count=0,
             missing=(),
             error_code="CREATOR-EXPORT-FAILED",
@@ -433,7 +465,7 @@ class CreatorExportService(CreatorExportPort):
         copied: int,
         missing: tuple[str, ...],
         status: CreatorExportStatus,
-    ) -> dict[str, Any]:
+    ) -> dict[str, object]:
         return {
             "format": _EXPORT_FORMAT,
             "export_id": str(export_id),
@@ -442,15 +474,19 @@ class CreatorExportService(CreatorExportPort):
             .isoformat(timespec="microseconds")
             .replace("+00:00", "Z"),
             "database_snapshot_at": snapshot.snapshot_at,
-            "scope": {
-                "database": "all_current_armi_base_tables",
-                "artifacts": "all_registered_retained_artifacts",
-                "includes_derived_data": True,
-                "derived_data_is_authoritative": False,
-            },
-            "exclusions": [],
+            "scope": "owner-authored-current-local-data",
             "directory_name": command.directory_name,
-            "tables": list(snapshot.tables),
+            "segments": [
+                {
+                    "owner": segment.owner.value,
+                    "schema_version": segment.schema_version,
+                    "path": segment.path,
+                    "media_type": segment.media_type,
+                    "record_count": segment.record_count,
+                    "digest": segment.digest.value,
+                }
+                for segment in snapshot.segments
+            ],
             "artifacts": {
                 "registered": len(snapshot.artifacts),
                 "copied": copied,
@@ -472,6 +508,18 @@ class CreatorExportService(CreatorExportPort):
         if self._exports_root.is_symlink() or not self._exports_root.is_dir():
             raise OSError("unsafe export root")
 
+    def _verify_published_format(self, result: CreatorExportResult) -> None:
+        manifest_path = self._destination(result.directory_name) / "manifest.json"
+        try:
+            manifest_value = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except OSError, json.JSONDecodeError:
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED") from None
+        if not isinstance(manifest_value, dict):
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+        manifest = cast(dict[str, object], manifest_value)
+        if manifest.get("format") != _EXPORT_FORMAT:
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+
     @staticmethod
     def _create_staging(staging: Path, destination: Path) -> None:
         if destination.exists() or destination.is_symlink() or staging.exists():
@@ -479,19 +527,24 @@ class CreatorExportService(CreatorExportPort):
         staging.mkdir(parents=False)
 
     @staticmethod
-    def _result(row: tuple[Any, ...], *, newly_created: bool) -> CreatorExportResult:
+    def _result(row: tuple[object, ...], *, newly_created: bool) -> CreatorExportResult:
+        missing_artifacts = cast(tuple[str, ...] | list[str], row[7])
+        created_at = cast(datetime, row[9])
+        completed_at = cast(datetime | None, row[10])
         return CreatorExportResult(
             export_id=UUID(str(row[0])),
             status=CreatorExportStatus(str(row[1])),
             directory_name=str(row[2]),
             destination_path=str(row[3]),
-            table_count=int(row[4]),
-            row_count=int(row[5]),
-            artifact_count=int(row[6]),
-            missing_artifacts=tuple(str(item) for item in row[7]),
+            segment_count=int(cast(int | str, row[4])),
+            record_count=int(cast(int | str, row[5])),
+            artifact_count=int(cast(int | str, row[6])),
+            missing_artifacts=tuple(missing_artifacts),
             error_code=None if row[8] is None else str(row[8]),
-            created_at=Instant(row[9].astimezone(UTC)),
-            completed_at=None if row[10] is None else Instant(row[10].astimezone(UTC)),
+            created_at=Instant(created_at.astimezone(UTC)),
+            completed_at=(
+                None if completed_at is None else Instant(completed_at.astimezone(UTC))
+            ),
             newly_created=newly_created,
         )
 
@@ -517,17 +570,7 @@ class CreatorExportService(CreatorExportPort):
         )
 
 
-def _table_role(table_name: str) -> str:
-    if table_name in {"audit_events", "effect_attempts", "web_evidence_items"}:
-        return "audit_or_evidence"
-    if table_name.endswith(("_projections", "_snapshots")):
-        return "derived_projection"
-    if table_name in {"runtime_instances", "runtime_leases", "outbox_entries"}:
-        return "runtime_operation"
-    return "authoritative_or_durable_record"
-
-
-def _pretty_json(value: dict[str, Any]) -> bytes:
+def _pretty_json(value: dict[str, object]) -> bytes:
     return (
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")

@@ -13,6 +13,7 @@ from uuid import UUID
 
 import rfc8785
 from armi_activity.api import ActivityReadPort
+from armi_data_rights.api import DataRightsVisibilityPort
 from armi_kernel.application import (
     LifeRecordActor,
     LifeRecordItem,
@@ -140,6 +141,7 @@ class PostgreSQLLifeRecordQuery:
         "_memories",
         "_relationships",
         "_subject_state",
+        "_visibility",
     )
 
     def __init__(
@@ -154,6 +156,7 @@ class PostgreSQLLifeRecordQuery:
         memories: MemoryReadPort | None = None,
         relationships: RelationshipReadPort,
         subject_state: SubjectStateReadPort,
+        visibility: DataRightsVisibilityPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._activities = activities
@@ -162,6 +165,7 @@ class PostgreSQLLifeRecordQuery:
         self._memories = memories
         self._relationships = relationships
         self._subject_state = subject_state
+        self._visibility = visibility
         self._codec = LifeRecordCursorCodec(
             key=cursor_key,
             environment_id=environment_id,
@@ -268,12 +272,6 @@ class PostgreSQLLifeRecordQuery:
                               AND (query.record_kind IS NULL OR query.record_kind = 'conversation')
                               AND (query.query_text IS NULL OR experience.first_person_gist ILIKE '%%' || query.query_text || '%%')
                               AND (query.before_at IS NULL OR (experience.accepted_at, 'conversation'::text, experience.experience_id) < (query.before_at, query.before_kind, query.before_id))
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM armi.deletion_items AS deletion_item
-                                  WHERE deletion_item.target_kind = 'experience'
-                                    AND deletion_item.target_ref = experience.experience_id
-                                    AND deletion_item.result_status IN ('completed', 'partial')
-                              )
                             ORDER BY experience.accepted_at DESC, experience.experience_id DESC
                             LIMIT (SELECT branch_limit FROM query_input)
                             )
@@ -302,6 +300,12 @@ class PostgreSQLLifeRecordQuery:
                     list[tuple[UUID, str, str, str, datetime, bool | None]],
                     rows,
                 )
+                hidden_experiences = await self._visibility.hidden_targets(
+                    connection,
+                    target_kind="experience",
+                    target_refs=tuple(row[0] for row in rows),
+                )
+                rows = [row for row in rows if row[0] not in hidden_experiences]
                 subject_state_rows = (
                     await self._subject_state.life_record_branch(
                         connection,

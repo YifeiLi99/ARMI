@@ -65,6 +65,10 @@ class ArtifactCatalogPort(Protocol):
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork
     ) -> tuple[ArtifactRef, ...]: ...
 
+    async def all_refs_in(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[ArtifactRef, ...]: ...
+
     async def retained_ref(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from armi_activity.api import ActivityReadPort
+from armi_data_rights.api import DataRightsParticipant
 from armi_kernel.application import CreatorProjectionNotifier
 from armi_material.api import MaterialReadPort
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
@@ -15,6 +16,7 @@ from armi_subject_state.api import SubjectStateReadPort
 
 from ._admin import PostgreSQLOpportunityAdmin
 from ._application import compose_opportunity_pipeline
+from ._data_rights import PostgreSQLOpportunityDataRightsParticipant
 from ._owner import PostgreSQLOpportunityOwner
 from ._recovery import OpportunityRecoveryParticipant
 from .api import (
@@ -92,6 +94,10 @@ def bootstrap_opportunity(
     )
 
 
+def bootstrap_opportunity_data_rights() -> DataRightsParticipant:
+    return PostgreSQLOpportunityDataRightsParticipant()
+
+
 def bootstrap_opportunity_recovery() -> RecoveryParticipant:
     return OpportunityRecoveryParticipant()
 
@@ -102,6 +108,7 @@ __all__ = (
     "bootstrap_opportunity_admission",
     "bootstrap_opportunity_cognition",
     "bootstrap_opportunity_context",
+    "bootstrap_opportunity_data_rights",
     "bootstrap_opportunity_operation",
     "bootstrap_opportunity_recovery",
     "bootstrap_opportunity_transition",

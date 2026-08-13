@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
-from datetime import datetime
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -23,6 +22,26 @@ from ._export_contract import (
     CreatorExportResult,
     CreatorExportStatus,
     CreatorExportViolation,
+)
+from ._participant_contract import (
+    DataRightsApplyContribution,
+    DataRightsApplyRequest,
+    DataRightsArtifactUsage,
+    DataRightsCanonicalRecord,
+    DataRightsContributionVersion,
+    DataRightsDiscoveryContribution,
+    DataRightsDiscoveryRequest,
+    DataRightsExportScope,
+    DataRightsExportSegment,
+    DataRightsOwnerIdentity,
+    DataRightsParticipant,
+    DataRightsParticipantViolation,
+    DataRightsRecordBatchStream,
+    DataRightsRelatedRef,
+    DataRightsTargetRef,
+    DataRightsTupleRecordStream,
+    DataRightsVisibilityPort,
+    EmptyDataRightsParticipant,
 )
 from ._rights_contract import (
     DataRightsDeletionItemResult,
@@ -89,17 +108,6 @@ class DataRightsEffectGate(Protocol):
 
 
 @runtime_checkable
-class DataRightsProjectionInvalidationPort(Protocol):
-    async def invalidate(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        source_kind: str,
-        source_refs: tuple[UUID, ...],
-    ) -> None: ...
-
-
-@runtime_checkable
 class DataRightsPartyIdentityPort(Protocol):
     async def creator_party(
         self,
@@ -114,38 +122,6 @@ class DataRightsPartyIdentityPort(Protocol):
         *,
         declared_identity_key: str,
     ) -> UUID | None: ...
-
-
-@runtime_checkable
-class DataRightsSubjectEpochPort(Protocol):
-    async def advance(self, transaction: PostgreSQLTransaction) -> None: ...
-
-
-@runtime_checkable
-class DataRightsMemoryPort(Protocol):
-    async def find_for_party(
-        self,
-        transaction: PostgreSQLTransaction,
-        party_id: UUID,
-    ) -> tuple[UUID, ...]: ...
-
-
-@runtime_checkable
-class DataRightsRelationshipPort(Protocol):
-    async def find_for_party(
-        self,
-        transaction: PostgreSQLTransaction,
-        party_id: UUID,
-    ) -> tuple[UUID, ...]: ...
-
-    async def tombstone(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        relationship_id: UUID,
-        order_id: UUID,
-        tombstoned_at: datetime,
-    ) -> None: ...
 
 
 @runtime_checkable
@@ -170,27 +146,41 @@ __all__ = (
     "CreatorExportResult",
     "CreatorExportStatus",
     "CreatorExportViolation",
+    "DataRightsApplyContribution",
+    "DataRightsApplyRequest",
     "DataRightsArtifactStorePort",
+    "DataRightsArtifactUsage",
+    "DataRightsCanonicalRecord",
     "DataRightsCognitionGate",
+    "DataRightsContributionVersion",
     "DataRightsDeletionItemResult",
+    "DataRightsDiscoveryContribution",
+    "DataRightsDiscoveryRequest",
     "DataRightsEffectGate",
     "DataRightsExecutionStatus",
+    "DataRightsExportScope",
+    "DataRightsExportSegment",
     "DataRightsInteractionGate",
     "DataRightsItemStatus",
-    "DataRightsMemoryPort",
     "DataRightsOrderCommand",
     "DataRightsOrderDetail",
     "DataRightsOrderKind",
     "DataRightsOrderPort",
     "DataRightsOrderResult",
+    "DataRightsOwnerIdentity",
+    "DataRightsParticipant",
+    "DataRightsParticipantViolation",
     "DataRightsPartyIdentityPort",
     "DataRightsPartyKey",
-    "DataRightsProjectionInvalidationPort",
-    "DataRightsRelationshipPort",
+    "DataRightsRecordBatchStream",
+    "DataRightsRelatedRef",
     "DataRightsRequesterKind",
     "DataRightsScopeKind",
     "DataRightsSubjectCommitGate",
-    "DataRightsSubjectEpochPort",
+    "DataRightsTargetRef",
+    "DataRightsTupleRecordStream",
     "DataRightsUnitOfWorkFactory",
     "DataRightsViolation",
+    "DataRightsVisibilityPort",
+    "EmptyDataRightsParticipant",
 )

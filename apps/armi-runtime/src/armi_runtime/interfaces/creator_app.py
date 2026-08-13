@@ -676,13 +676,13 @@ def _creator_prompt_error(error: CreatorPromptViolation) -> JSONResponse:
 def _creator_export_response(result: CreatorExportResult) -> CreatorExportResponse:
     return CreatorExportResponse(
         contract_version="1.0",
-        projection_version="creator-export.v1",
+        projection_version="creator-export.v2",
         export_id=str(result.export_id),
         status=result.status.value,
         directory_name=result.directory_name,
         destination_path=result.destination_path,
-        table_count=result.table_count,
-        row_count=result.row_count,
+        segment_count=result.segment_count,
+        record_count=result.record_count,
         artifact_count=result.artifact_count,
         missing_artifacts=list(result.missing_artifacts),
         error_code=result.error_code,

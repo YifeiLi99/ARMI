@@ -370,6 +370,7 @@ async def _serve(
             )
             evidence_module = compose_evidence_module()
             await evidence_module.open()
+            data_rights_core = compose_data_rights_core()
             activity_module = compose_activity_module(
                 runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
@@ -379,6 +380,7 @@ async def _serve(
             relationship_module = compose_relationship_module(
                 runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
+                visibility=data_rights_core.visibility,
             )
             await relationship_module.open()
             creator_relationship_query = relationship_module.read
@@ -388,6 +390,7 @@ async def _serve(
                 creator_party_id=creator_context.party_id,
                 subject_id=authority.require_writable().subject_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
+                visibility=data_rights_core.visibility,
             )
             await memory_module.open()
             material_module = compose_material_module(
@@ -407,6 +410,7 @@ async def _serve(
                 material_read=material_module.read,
                 relationship_read=relationship_module.read,
                 subject_state_read=subject_state_module.read,
+                visibility=data_rights_core.visibility,
             )
             await life_record_query.open()
             other_human_record_query = compose_other_human_record_query(
@@ -415,6 +419,7 @@ async def _serve(
                 cursor_key=derive_timeline_cursor_key(prepared),
                 data_root=prepared.data_root,
                 max_object_bytes=config.artifacts.max_object_bytes,
+                visibility=data_rights_core.visibility,
             )
             await other_human_record_query.open()
             opportunity_admission = compose_opportunity_admission()
@@ -437,7 +442,6 @@ async def _serve(
             )
             await sleep_module.open()
             context_projection_invalidation = compose_context_projection_invalidation()
-            data_rights_core = compose_data_rights_core()
             interaction_module = compose_interaction_module(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
@@ -449,6 +453,7 @@ async def _serve(
                 evidence_read=evidence_module.read,
                 opportunity=opportunity_admission,
                 data_rights=data_rights_core.gate,
+                visibility=data_rights_core.visibility,
                 identity=interaction_identity,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
@@ -462,9 +467,6 @@ async def _serve(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
-                memory_data_rights=memory_module.data_rights,
-                relationship_data_rights=relationship_module.data_rights,
-                context_projections=context_projection_invalidation,
                 core=data_rights_core,
                 parties=interaction_module.identity,
                 notifier=creator_events,

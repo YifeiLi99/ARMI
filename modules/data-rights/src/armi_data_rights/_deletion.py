@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from armi_kernel.application import ArtifactViolation
+from armi_kernel.application import ArtifactViolation, TransactionIsolation
 from armi_runtime_foundation import RuntimeTransactionFailure
 
 from ._deletion_postgresql import LocalDataDeletionRepository
@@ -40,7 +40,9 @@ class LocalDataDeletionExecutor:
 
     async def execute(self, order_id: UUID) -> None:
         try:
-            async with self._uow_factory.unit_of_work() as unit_of_work:
+            async with self._uow_factory.unit_of_work(
+                isolation=TransactionIsolation.SERIALIZABLE
+            ) as unit_of_work:
                 artifacts = await self._repository.prepare(unit_of_work, order_id)
             for item in artifacts:
                 completed = False
@@ -49,7 +51,9 @@ class LocalDataDeletionExecutor:
                     completed = True
                 except ArtifactViolation:
                     completed = False
-                async with self._uow_factory.unit_of_work() as unit_of_work:
+                async with self._uow_factory.unit_of_work(
+                    isolation=TransactionIsolation.SERIALIZABLE
+                ) as unit_of_work:
                     await self._repository.settle_artifact(
                         unit_of_work,
                         order_id=order_id,
@@ -57,7 +61,9 @@ class LocalDataDeletionExecutor:
                         artifact_id=item.ref.artifact_id.value,
                         completed=completed,
                     )
-            async with self._uow_factory.unit_of_work() as unit_of_work:
+            async with self._uow_factory.unit_of_work(
+                isolation=TransactionIsolation.SERIALIZABLE
+            ) as unit_of_work:
                 await self._repository.finalize(unit_of_work, order_id)
         except DataRightsViolation:
             raise

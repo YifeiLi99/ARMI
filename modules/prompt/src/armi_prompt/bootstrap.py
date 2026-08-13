@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from armi_data_rights.api import DataRightsParticipant
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
@@ -14,6 +15,7 @@ from armi_runtime_foundation import (
 from ._application import PromptApplication
 from ._creator import CreatorPromptService
 from ._creator_postgresql import CreatorPromptRepository
+from ._data_rights import PostgreSQLPromptDataRightsParticipant
 from ._postgresql import PostgreSQLPromptAdmin, PostgreSQLPromptOwner
 from ._recovery import PromptRecoveryParticipant
 from .api import (
@@ -89,6 +91,10 @@ def bootstrap_prompt_cognition() -> PromptCognitionPort:
     return PromptApplication()
 
 
+def bootstrap_prompt_data_rights() -> DataRightsParticipant:
+    return PostgreSQLPromptDataRightsParticipant()
+
+
 def bootstrap_prompt_recovery(read: PromptReadPort) -> RecoveryParticipant:
     return PromptRecoveryParticipant(read)
 
@@ -98,5 +104,6 @@ __all__ = (
     "bootstrap_prompt",
     "bootstrap_prompt_admin_reference",
     "bootstrap_prompt_cognition",
+    "bootstrap_prompt_data_rights",
     "bootstrap_prompt_recovery",
 )

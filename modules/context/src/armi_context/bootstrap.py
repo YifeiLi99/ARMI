@@ -9,6 +9,7 @@ from armi_activity.api import ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
 from armi_capability.api import CapabilityReadPort
 from armi_codex.api import CodexTaskSourceReadPort
+from armi_data_rights.api import DataRightsParticipant
 from armi_effect.api import EffectOperationReadPort
 from armi_evidence.api import EvidenceReadPort
 from armi_expression.api import ExpressionIntentReadPort
@@ -37,6 +38,7 @@ from armi_subject_state.api import SubjectStateReadPort
 
 from ._application import ContextPipeline
 from ._candidate_read import PostgreSQLContextCandidateRead
+from ._data_rights import PostgreSQLContextDataRightsParticipant
 from ._embedding_application import ContextEmbeddingPipeline
 from ._embedding_postgresql import PostgreSQLContextProjectionInvalidation
 from .api import (
@@ -141,6 +143,10 @@ def bootstrap_context_projection_invalidation() -> ContextProjectionInvalidation
     return PostgreSQLContextProjectionInvalidation()
 
 
+def bootstrap_context_data_rights() -> DataRightsParticipant:
+    return PostgreSQLContextDataRightsParticipant()
+
+
 def bootstrap_context_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("context")
 
@@ -161,6 +167,7 @@ __all__ = (
     "ContextCandidateReadPorts",
     "bootstrap_context",
     "bootstrap_context_candidate_read",
+    "bootstrap_context_data_rights",
     "bootstrap_context_embedding",
     "bootstrap_context_projection_invalidation",
     "bootstrap_context_recovery",

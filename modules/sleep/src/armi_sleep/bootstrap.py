@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from armi_data_rights.api import DataRightsParticipant
 from armi_runtime_foundation import (
     EmptyRecoveryParticipant,
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -13,6 +14,7 @@ from armi_runtime_foundation import (
 
 from ._application import SleepApplication
 from ._commit import PostgreSQLSleepCommit
+from ._data_rights import PostgreSQLSleepDataRightsParticipant
 from ._maintenance import PostgreSQLMaintenanceRepository
 from ._postgresql import PostgreSQLSleepRead
 from .api import (
@@ -61,6 +63,10 @@ def bootstrap_sleep_cognition() -> SleepCognitionPort:
     return SleepApplication()
 
 
+def bootstrap_sleep_data_rights() -> DataRightsParticipant:
+    return PostgreSQLSleepDataRightsParticipant()
+
+
 def bootstrap_sleep_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("sleep")
 
@@ -69,5 +75,6 @@ __all__ = (
     "SleepModule",
     "bootstrap_sleep",
     "bootstrap_sleep_cognition",
+    "bootstrap_sleep_data_rights",
     "bootstrap_sleep_recovery",
 )

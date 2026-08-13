@@ -73,6 +73,42 @@ def _artifact(content: bytes) -> _ArtifactSnapshot:
 
 
 class CreatorExportContractTests(unittest.TestCase):
+    def test_completed_v1_directory_is_not_presented_as_v2(self) -> None:
+        now = Instant(datetime.now(UTC))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            published = root / "exports" / "legacy"
+            published.mkdir(parents=True)
+            published.joinpath("manifest.json").write_text(
+                '{"format":"armi.creator-export.v1"}\n', encoding="utf-8"
+            )
+            service = CreatorExportService(
+                creator_party_id=uuid7(),
+                data_root=root,
+                storage=_Storage({}),  # type: ignore[arg-type]
+                unit_of_work_factory=object(),  # type: ignore[arg-type]
+                participants=(),
+            )
+            result = CreatorExportResult(
+                uuid7(),
+                CreatorExportStatus.COMPLETED,
+                "legacy",
+                str(published),
+                1,
+                1,
+                0,
+                (),
+                None,
+                now,
+                now,
+                False,
+            )
+            with self.assertRaises(CreatorExportViolation) as raised:
+                service._verify_published_format(  # pyright: ignore[reportPrivateUsage]
+                    result
+                )
+            self.assertEqual(raised.exception.code, "CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+
     def test_failed_export_settlement_failure_is_not_suppressed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service = CreatorExportService(
@@ -80,7 +116,7 @@ class CreatorExportContractTests(unittest.TestCase):
                 data_root=Path(directory).resolve(),
                 storage=_Storage({}),  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
-                catalog=object(),  # type: ignore[arg-type]
+                participants=(),
             )
             with (
                 patch.object(
@@ -141,7 +177,7 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
                 data_root=root,
                 storage=storage,  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
-                catalog=object(),  # type: ignore[arg-type]
+                participants=(),
             )
             staging = root / "staging"
             staging.mkdir()
@@ -169,7 +205,7 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
                 data_root=root,
                 storage=storage,  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
-                catalog=object(),  # type: ignore[arg-type]
+                participants=(),
             )
             staging = root / "staging"
             staging.mkdir()
@@ -199,7 +235,7 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
                 data_root=root,
                 storage=storage,  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
-                catalog=object(),  # type: ignore[arg-type]
+                participants=(),
             )
             staging = root / "staging"
             staging.mkdir()

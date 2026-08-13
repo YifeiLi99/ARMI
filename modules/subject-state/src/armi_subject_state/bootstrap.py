@@ -2,10 +2,12 @@
 
 from dataclasses import dataclass
 
+from armi_data_rights.api import DataRightsParticipant
 from armi_runtime_foundation import RecoveryParticipant
 
 from ._admin import PostgreSQLSubjectStateAdmin
 from ._application import SubjectStateApplication
+from ._data_rights import PostgreSQLSubjectStateDataRightsParticipant
 from ._postgresql import PostgreSQLSubjectStateOwner, probe_subject_state_counts
 from ._recovery import SubjectStateRecoveryParticipant
 from .api import (
@@ -51,6 +53,10 @@ def bootstrap_subject_state_admin_read() -> SubjectStateAdminReadPort:
     return PostgreSQLSubjectStateAdmin()
 
 
+def bootstrap_subject_state_data_rights() -> DataRightsParticipant:
+    return PostgreSQLSubjectStateDataRightsParticipant()
+
+
 def bootstrap_subject_state_recovery(read: SubjectStateReadPort) -> RecoveryParticipant:
     return SubjectStateRecoveryParticipant(read)
 
@@ -61,6 +67,7 @@ __all__ = (
     "bootstrap_subject_state_admin_correction",
     "bootstrap_subject_state_admin_read",
     "bootstrap_subject_state_cognition",
+    "bootstrap_subject_state_data_rights",
     "bootstrap_subject_state_recovery",
     "probe_subject_state_counts",
 )

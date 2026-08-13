@@ -581,21 +581,6 @@ class RelationshipCommitPort(Protocol):
     ) -> tuple[UUID, ...]: ...
 
 
-@runtime_checkable
-class RelationshipDataRightsParticipant(Protocol):
-    async def find_for_party(
-        self, transaction: PostgreSQLTransaction, party_id: UUID
-    ) -> tuple[UUID, ...]: ...
-    async def tombstone(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        relationship_id: UUID,
-        order_id: UUID,
-        tombstoned_at: datetime,
-    ) -> None: ...
-
-
 __all__ = (
     "RELATIONSHIP_MECHANISM_IDENTITY",
     "RELATIONSHIP_PROJECTION_VERSION",
@@ -616,7 +601,6 @@ __all__ = (
     "RelationshipCommitmentEventKind",
     "RelationshipCommitmentStatus",
     "RelationshipContextBundle",
-    "RelationshipDataRightsParticipant",
     "RelationshipFact",
     "RelationshipFactKind",
     "RelationshipFactOperation",

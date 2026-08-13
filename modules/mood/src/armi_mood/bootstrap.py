@@ -2,10 +2,12 @@
 
 from dataclasses import dataclass
 
+from armi_data_rights.api import DataRightsParticipant
 from armi_runtime_foundation import RecoveryParticipant
 
 from ._admin import PostgreSQLMoodAdmin
 from ._application import MoodApplication
+from ._data_rights import PostgreSQLMoodDataRightsParticipant
 from ._postgresql import PostgreSQLMoodOwner
 from ._recovery import MoodRecoveryParticipant
 from .api import (
@@ -51,6 +53,10 @@ def bootstrap_mood_admin_read() -> MoodAdminReadPort:
     return PostgreSQLMoodAdmin()
 
 
+def bootstrap_mood_data_rights() -> DataRightsParticipant:
+    return PostgreSQLMoodDataRightsParticipant()
+
+
 def bootstrap_mood_recovery(read: MoodReadPort) -> RecoveryParticipant:
     return MoodRecoveryParticipant(read)
 
@@ -61,5 +67,6 @@ __all__ = (
     "bootstrap_mood_admin_correction",
     "bootstrap_mood_admin_read",
     "bootstrap_mood_cognition",
+    "bootstrap_mood_data_rights",
     "bootstrap_mood_recovery",
 )

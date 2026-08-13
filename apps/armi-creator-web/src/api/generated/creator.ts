@@ -1104,16 +1104,16 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-export.v1";
-      /** Row Count */
-      row_count: number;
+      projection_version: "creator-export.v2";
+      /** Record Count */
+      record_count: number;
+      /** Segment Count */
+      segment_count: number;
       /**
        * Status
        * @enum {string}
        */
       status: "running" | "completed" | "partial" | "failed";
-      /** Table Count */
-      table_count: number;
     };
     /** CreatorInputAcceptanceDetails */
     CreatorInputAcceptanceDetails: {

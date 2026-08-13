@@ -75,8 +75,8 @@ export function ExportPanel({ token, onUnauthorized }: ExportPanelProps) {
         }}
       >
         <p className="field-note">
-          结果只写入 Runtime 的 data/exports
-          目录。它包含同一时点的数据库快照和所有已登记制品；不执行上传、加密或恢复。
+          结果只写入 Runtime 的 data/exports 目录。它包含同一时点的 owner
+          分段记录和相关制品；不执行上传、加密或恢复。
         </p>
         <label htmlFor="creator-export-directory">导出目录名</label>
         <input
@@ -101,9 +101,9 @@ export function ExportPanel({ token, onUnauthorized }: ExportPanelProps) {
             <dd>{result.status}</dd>
           </div>
           <div>
-            <dt>数据库</dt>
+            <dt>Owner 数据</dt>
             <dd>
-              {result.table_count} 张表，{result.row_count} 行
+              {result.segment_count} 个分段，{result.record_count} 条记录
             </dd>
           </div>
           <div>

@@ -2093,6 +2093,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             relationship_module = bootstrap_relationship(
                 factories[0],
                 creator_party_id=manifest.creator_party_id,
+                visibility=bootstrap_data_rights_core().visibility,
             )
             await relationship_module.open()
             activity_module = bootstrap_activity(
@@ -2250,6 +2251,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             relationship_module = bootstrap_relationship(
                 factory,
                 creator_party_id=creator_party_id,
+                visibility=bootstrap_data_rights_core().visibility,
             )
             memory_module = bootstrap_memory(
                 factory,
@@ -2257,6 +2259,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_party_id=creator_party_id,
                 subject_id=born.subject_id,
                 cursor_key=hashlib.sha256(b"p0-s022-life-record-cursor-key").digest(),
+                visibility=bootstrap_data_rights_core().visibility,
             )
             activity_module = bootstrap_activity(
                 factory,
@@ -2285,6 +2288,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 memories=memory_module.read,
                 relationships=relationship_module.read,
                 subject_state=bootstrap_subject_state().read,
+                visibility=bootstrap_data_rights_core().visibility,
             )
             await life_records.open()
             try:
@@ -2398,6 +2402,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             relationship_module = bootstrap_relationship(
                 maintenance_factory,
                 creator_party_id=creator_party_id,
+                visibility=bootstrap_data_rights_core().visibility,
             )
             await relationship_module.open()
             activity_module = bootstrap_activity(
@@ -2557,6 +2562,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     cursor_key=b"c" * 32,
                     storage=storage,
                     codex_tasks=bootstrap_codex_timeline_projection(),
+                    visibility=bootstrap_data_rights_core().visibility,
                 )
                 await timeline_query.open()
                 try:
@@ -4736,6 +4742,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     max_object_bytes=1024 * 1024,
                 ),
                 codex_tasks=bootstrap_codex_timeline_projection(),
+                visibility=bootstrap_data_rights_core().visibility,
             )
             await factory.open()
             await gateway.open()
@@ -5817,6 +5824,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             relationship_module = bootstrap_relationship(
                 factory,
                 creator_party_id=creator_party_id,
+                visibility=bootstrap_data_rights_core().visibility,
             )
             memory_module = bootstrap_memory(
                 factory,
@@ -5824,6 +5832,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_party_id=creator_party_id,
                 subject_id=born.subject_id,
                 cursor_key=hashlib.sha256(b"t03-memory-cursor-key").digest(),
+                visibility=bootstrap_data_rights_core().visibility,
             )
             sleep_module = bootstrap_sleep(
                 factory,

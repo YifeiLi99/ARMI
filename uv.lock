@@ -88,6 +88,7 @@ name = "armi-activity"
 version = "0.0.0"
 source = { editable = "modules/activity" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
@@ -97,6 +98,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -204,6 +206,7 @@ name = "armi-capability"
 version = "0.0.0"
 source = { editable = "modules/capability" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "rfc8785" },
@@ -211,6 +214,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "rfc8785", specifier = "==0.1.4" },
@@ -233,6 +237,7 @@ version = "0.0.0"
 source = { editable = "modules/codex" }
 dependencies = [
     { name = "armi-artifact-store" },
+    { name = "armi-data-rights" },
     { name = "armi-effect" },
     { name = "armi-evidence" },
     { name = "armi-expression" },
@@ -247,6 +252,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-effect", editable = "modules/effect" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-expression", editable = "modules/expression" },
@@ -268,6 +274,7 @@ dependencies = [
     { name = "armi-capability" },
     { name = "armi-codex" },
     { name = "armi-context" },
+    { name = "armi-data-rights" },
     { name = "armi-evidence" },
     { name = "armi-expression" },
     { name = "armi-interaction" },
@@ -293,6 +300,7 @@ requires-dist = [
     { name = "armi-capability", editable = "modules/capability" },
     { name = "armi-codex", editable = "modules/codex" },
     { name = "armi-context", editable = "modules/context" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-interaction", editable = "modules/interaction" },
@@ -320,6 +328,7 @@ dependencies = [
     { name = "armi-artifact-store" },
     { name = "armi-capability" },
     { name = "armi-codex" },
+    { name = "armi-data-rights" },
     { name = "armi-effect" },
     { name = "armi-evidence" },
     { name = "armi-expression" },
@@ -343,6 +352,7 @@ requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-capability", editable = "modules/capability" },
     { name = "armi-codex", editable = "modules/codex" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-effect", editable = "modules/effect" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-expression", editable = "modules/expression" },
@@ -415,17 +425,24 @@ name = "armi-evidence"
 version = "0.0.0"
 source = { editable = "modules/evidence" }
 dependencies = [
+    { name = "armi-data-rights" },
+    { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" }]
+requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+]
 
 [[package]]
 name = "armi-expression"
 version = "0.0.0"
 source = { editable = "modules/expression" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-relationship" },
@@ -435,6 +452,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-relationship", editable = "modules/relationship" },
@@ -448,6 +466,7 @@ version = "0.0.0"
 source = { editable = "modules/interaction" }
 dependencies = [
     { name = "armi-artifact-store" },
+    { name = "armi-data-rights" },
     { name = "armi-evidence" },
     { name = "armi-kernel" },
     { name = "armi-opportunity" },
@@ -461,6 +480,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-opportunity", editable = "modules/opportunity" },
@@ -488,6 +508,7 @@ version = "0.0.0"
 source = { editable = "modules/material" }
 dependencies = [
     { name = "armi-artifact-store" },
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
@@ -498,6 +519,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -510,6 +532,7 @@ name = "armi-memory"
 version = "0.0.0"
 source = { editable = "modules/memory" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
@@ -519,6 +542,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -531,6 +555,7 @@ name = "armi-mood"
 version = "0.0.0"
 source = { editable = "modules/mood" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
@@ -540,6 +565,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -553,6 +579,7 @@ version = "0.0.0"
 source = { editable = "modules/opportunity" }
 dependencies = [
     { name = "armi-activity" },
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-material" },
     { name = "armi-relationship" },
@@ -564,6 +591,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-activity", editable = "modules/activity" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-relationship", editable = "modules/relationship" },
@@ -578,6 +606,7 @@ version = "0.0.0"
 source = { editable = "modules/perception" }
 dependencies = [
     { name = "armi-artifact-store" },
+    { name = "armi-data-rights" },
     { name = "armi-evidence" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
@@ -592,6 +621,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
@@ -613,6 +643,7 @@ name = "armi-prompt"
 version = "0.0.0"
 source = { editable = "modules/prompt" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
@@ -621,6 +652,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -632,6 +664,7 @@ name = "armi-relationship"
 version = "0.0.0"
 source = { editable = "modules/relationship" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
@@ -642,6 +675,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -741,6 +775,7 @@ name = "armi-sleep"
 version = "0.0.0"
 source = { editable = "modules/sleep" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
@@ -750,6 +785,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -762,6 +798,7 @@ name = "armi-subject-state"
 version = "0.0.0"
 source = { editable = "modules/subject-state" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
@@ -771,6 +808,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -783,6 +821,7 @@ name = "armi-web-observation"
 version = "0.0.0"
 source = { editable = "modules/web-observation" }
 dependencies = [
+    { name = "armi-data-rights" },
     { name = "armi-evidence" },
     { name = "armi-kernel" },
     { name = "armi-opportunity" },
@@ -794,6 +833,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-opportunity", editable = "modules/opportunity" },

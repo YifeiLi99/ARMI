@@ -53,8 +53,8 @@ class CreatorExportResult:
     status: CreatorExportStatus
     directory_name: str
     destination_path: str
-    table_count: int
-    row_count: int
+    segment_count: int
+    record_count: int
     artifact_count: int
     missing_artifacts: tuple[str, ...]
     error_code: str | None
@@ -72,7 +72,11 @@ class CreatorExportResult:
             or type(self.status) is not CreatorExportStatus
             or any(
                 type(value) is not int or value < 0
-                for value in (self.table_count, self.row_count, self.artifact_count)
+                for value in (
+                    self.segment_count,
+                    self.record_count,
+                    self.artifact_count,
+                )
             )
             or type(self.missing_artifacts) is not tuple
             or any(

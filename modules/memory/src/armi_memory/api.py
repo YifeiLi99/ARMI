@@ -435,13 +435,6 @@ class MemoryProjectionPort(Protocol):
     ) -> MemoryProjectionSource | None: ...
 
 
-@runtime_checkable
-class MemoryDataRightsParticipant(Protocol):
-    async def find_for_party(
-        self, transaction: PostgreSQLTransaction, party_id: UUID
-    ) -> tuple[UUID, ...]: ...
-
-
 def _memory_source_supported(
     source_kind: MemorySourceKind, fact_class: CandidateFactClass
 ) -> bool:
@@ -480,7 +473,6 @@ __all__ = (
     "MemoryCognitionPort",
     "MemoryCommitPort",
     "MemoryContextItem",
-    "MemoryDataRightsParticipant",
     "MemoryFormationRequest",
     "MemoryLifeRecordItem",
     "MemoryProjectionPort",

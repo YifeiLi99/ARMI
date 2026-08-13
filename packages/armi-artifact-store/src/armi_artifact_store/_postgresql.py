@@ -92,8 +92,13 @@ class PostgreSQLArtifactCatalog:
     async def all_refs(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork
     ) -> tuple[ArtifactRef, ...]:
+        return await self.all_refs_in(unit_of_work.transaction)
+
+    async def all_refs_in(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[ArtifactRef, ...]:
         rows = await (
-            await unit_of_work.transaction.execute(
+            await transaction.execute(
                 """SELECT artifact_id,content_digest,byte_size,media_type,
                           logical_kind,privacy_scope,integrity_status
                    FROM armi.artifacts

@@ -15,11 +15,13 @@ from pathlib import Path
 
 try:
     from tools.schema_ownership import (
+        TABLE_OWNERSHIP,
         ownership_registry_errors,
         scan_repository_foreign_table_accesses,
     )
 except ModuleNotFoundError:  # Direct execution places tools/ first on sys.path.
     from schema_ownership import (
+        TABLE_OWNERSHIP,
         ownership_registry_errors,
         scan_repository_foreign_table_accesses,
     )
@@ -481,6 +483,30 @@ DISTRIBUTIONS = (
     ),
 )
 
+DATA_RIGHTS_PARTICIPANT_DISTRIBUTIONS = frozenset(
+    {
+        "armi-activity",
+        "armi-capability",
+        "armi-codex",
+        "armi-cognition",
+        "armi-context",
+        "armi-effect",
+        "armi-evidence",
+        "armi-expression",
+        "armi-interaction",
+        "armi-material",
+        "armi-memory",
+        "armi-mood",
+        "armi-opportunity",
+        "armi-perception",
+        "armi-prompt",
+        "armi-relationship",
+        "armi-sleep",
+        "armi-subject-state",
+        "armi-web-observation",
+    }
+)
+
 EXPECTED_MEMBERS = [
     distribution.project_dir.as_posix() for distribution in DISTRIBUTIONS
 ]
@@ -633,6 +659,16 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
         if not isinstance(project, dict) or not isinstance(build_system, dict):
             continue
         runtime_distribution = distribution.name == "armi-runtime"
+        expected_dependencies = distribution.dependencies
+        if distribution.name == "armi-evidence":
+            expected_dependencies = ("armi-kernel==0.0.0", *expected_dependencies)
+        if distribution.name in DATA_RIGHTS_PARTICIPANT_DISTRIBUTIONS:
+            data_rights_dependency = "armi-data-rights==0.0.0"
+            if data_rights_dependency not in expected_dependencies:
+                expected_dependencies = (
+                    data_rights_dependency,
+                    *expected_dependencies,
+                )
         expected_fields = (
             ("project.name", project.get("name"), distribution.name),
             ("project.version", project.get("version"), WORKSPACE_VERSION),
@@ -640,7 +676,7 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
             (
                 "project.dependencies",
                 project.get("dependencies"),
-                list(distribution.dependencies),
+                list(expected_dependencies),
             ),
             (
                 "project.scripts",
@@ -1197,6 +1233,13 @@ def _check_import(
             }
         )
     )
+    if (
+        target_distribution == "armi-data-rights"
+        and source_distribution in DATA_RIGHTS_PARTICIPANT_DISTRIBUTIONS
+    ):
+        reverse_dependency = False
+    if source_distribution == "armi-evidence" and target_distribution == "armi-kernel":
+        reverse_dependency = False
     if reverse_dependency:
         violations.append(
             Violation(
@@ -2364,29 +2407,99 @@ def check_repository(root: Path) -> list[Violation]:
         )
         for error in ownership_registry_errors(schema_root)
     )
+    export_tables: dict[str, list[tuple[str, Path]]] = {}
+    participant_sources = (
+        *root.glob("modules/*/src/armi_*/_data_rights.py"),
+        root / "modules/data-rights/src/armi_data_rights/_data_rights_participant.py",
+        root / "apps/armi-runtime/src/armi_runtime/composition/data_rights.py",
+    )
+    for participant_path in participant_sources:
+        if not participant_path.exists():
+            continue
+        tree = ast.parse(participant_path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            segment_value: ast.expr | None = None
+            if (
+                isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name)
+                    and target.id in {"_SEGMENTS", "_RUNTIME_SEGMENTS"}
+                    for target in node.targets
+                )
+            ) or (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id in {"_SEGMENTS", "_RUNTIME_SEGMENTS"}
+            ):
+                segment_value = node.value
+            if segment_value is None:
+                continue
+            value = ast.literal_eval(segment_value)
+            for segment_name, statement in value:
+                tables = re.findall(r"\bFROM\s+armi\.([a-z][a-z0-9_]*)", statement)
+                if len(tables) != 1 or tables[0] != segment_name:
+                    violations.append(
+                        Violation(
+                            "ARC-DATA-RIGHTS-EXPORT-SEGMENT",
+                            _relative(participant_path, root),
+                            node.lineno,
+                            f"segment {segment_name!r} must select its matching owner table",
+                        )
+                    )
+                    continue
+                export_tables.setdefault(tables[0], []).append(
+                    (segment_name, participant_path)
+                )
+    export_tables["artifacts"] = [
+        (
+            "artifacts",
+            root / "apps/armi-runtime/src/armi_runtime/composition/data_rights.py",
+        )
+    ]
+    for table in TABLE_OWNERSHIP:
+        mappings = export_tables.get(table, [])
+        if len(mappings) != 1:
+            violations.append(
+                Violation(
+                    "ARC-DATA-RIGHTS-EXPORT-COVERAGE",
+                    _relative(registry_path, root),
+                    1,
+                    f"armi.{table} must map to exactly one owner export segment",
+                )
+            )
     foreign_accesses = scan_repository_foreign_table_accesses(root)
     production_accesses = tuple(
         access for access in foreign_accesses if "/schema/" not in access.path
     )
-    if len(foreign_accesses) > 191:
+    if len(foreign_accesses) > 151:
         violations.append(
             Violation(
                 "ARC-SQL-OWNER-BUDGET",
                 _relative(registry_path, root),
                 1,
-                f"foreign SQL budget exceeded: raw={len(foreign_accesses)} > 191",
+                f"foreign SQL budget exceeded: raw={len(foreign_accesses)} > 151",
             )
         )
-    if len(production_accesses) > 168:
+    if len(production_accesses) > 128:
         violations.append(
             Violation(
                 "ARC-SQL-OWNER-BUDGET",
                 _relative(registry_path, root),
                 1,
                 "foreign SQL budget exceeded: "
-                f"production={len(production_accesses)} > 168",
+                f"production={len(production_accesses)} > 128",
             )
         )
+    for access in production_accesses:
+        if access.table_owner == "data-rights":
+            violations.append(
+                Violation(
+                    "ARC-DATA-RIGHTS-PRIVATE-SQL",
+                    access.path,
+                    access.line,
+                    f"armi.{access.table} must be read through Data Rights ports",
+                )
+            )
     admin_accesses = tuple(
         access for access in foreign_accesses if access.source_owner == "admin"
     )

@@ -12,6 +12,7 @@ from armi_runtime_foundation import EmptyRecoveryParticipant, RecoveryParticipan
 
 from ._application import DataRightsOrderService
 from ._creator_export import CreatorExportService
+from ._data_rights_participant import PostgreSQLDataRightsParticipant
 from ._deletion import LocalDataDeletionExecutor
 from ._deletion_postgresql import LocalDataDeletionRepository
 from ._postgresql import DataRightsOrderRepository
@@ -21,14 +22,12 @@ from .api import (
     DataRightsCognitionGate,
     DataRightsEffectGate,
     DataRightsInteractionGate,
-    DataRightsMemoryPort,
     DataRightsOrderPort,
+    DataRightsParticipant,
     DataRightsPartyIdentityPort,
-    DataRightsProjectionInvalidationPort,
-    DataRightsRelationshipPort,
     DataRightsSubjectCommitGate,
-    DataRightsSubjectEpochPort,
     DataRightsUnitOfWorkFactory,
+    DataRightsVisibilityPort,
 )
 
 
@@ -51,6 +50,14 @@ class DataRightsCore:
     def cognition_gate(self) -> DataRightsCognitionGate:
         return self._gate
 
+    @property
+    def visibility(self) -> DataRightsVisibilityPort:
+        return self._gate
+
+    @property
+    def participant(self) -> DataRightsParticipant:
+        return PostgreSQLDataRightsParticipant()
+
     def seal(self) -> DataRightsOrderRepository:
         if self._sealed:
             raise RuntimeError("data rights core is already sealed")
@@ -66,6 +73,8 @@ class DataRightsModule:
     subject_commit: DataRightsSubjectCommitGate
     effect_gate: DataRightsEffectGate
     cognition: DataRightsCognitionGate
+    visibility: DataRightsVisibilityPort
+    participant: DataRightsParticipant
     _orders: DataRightsOrderService
     _exports: CreatorExportService
 
@@ -92,19 +101,17 @@ def bootstrap_data_rights(
     data_root: Path,
     unit_of_work_factory: DataRightsUnitOfWorkFactory,
     storage: DataRightsArtifactStorePort,
-    memory: DataRightsMemoryPort,
-    relationship: DataRightsRelationshipPort,
-    context_projections: DataRightsProjectionInvalidationPort,
     core: DataRightsCore,
     parties: DataRightsPartyIdentityPort,
-    subject_epoch: DataRightsSubjectEpochPort,
     catalog: ArtifactCatalogPort,
+    participants: tuple[DataRightsParticipant, ...],
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     gate = core.seal()
     deletion = LocalDataDeletionExecutor(
         repository=LocalDataDeletionRepository(
-            memory, relationship, context_projections, catalog
+            catalog,
+            participants,
         ),
         storage=storage,
         unit_of_work_factory=unit_of_work_factory,
@@ -116,16 +123,26 @@ def bootstrap_data_rights(
         unit_of_work_factory=unit_of_work_factory,
         notifier=notifier,
         parties=parties,
-        subject_epoch=subject_epoch,
     )
     exports = CreatorExportService(
         creator_party_id=creator_party_id,
         data_root=data_root,
         storage=storage,
         unit_of_work_factory=unit_of_work_factory,
-        catalog=catalog,
+        participants=participants,
     )
-    return DataRightsModule(orders, exports, gate, gate, gate, gate, orders, exports)
+    return DataRightsModule(
+        orders,
+        exports,
+        gate,
+        gate,
+        gate,
+        gate,
+        gate,
+        PostgreSQLDataRightsParticipant(),
+        orders,
+        exports,
+    )
 
 
 def bootstrap_data_rights_recovery() -> RecoveryParticipant:

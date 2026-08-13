@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from armi_artifact_store.api import ArtifactCatalogPort
+from armi_data_rights.api import DataRightsParticipant
 from armi_effect.api import EffectCodexLifecyclePort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_expression.api import ExpressionCommitPort, ExpressionIntentReadPort
@@ -28,6 +29,7 @@ from ._application import CodexEffectPipeline
 from ._codec import decode_task, encode_result
 from ._commit import PostgreSQLCodexCommit
 from ._custody_codec import encode_custodied_result
+from ._data_rights import PostgreSQLCodexDataRightsParticipant
 from ._read_postgresql import PostgreSQLCodexReadOwner
 from ._recovery import CodexRecoveryParticipant
 from ._runner import IsolatedCodexRunner
@@ -136,6 +138,10 @@ encode_runner_result = encode_result
 encode_custodied_runner_result = encode_custodied_result
 
 
+def bootstrap_codex_data_rights() -> DataRightsParticipant:
+    return PostgreSQLCodexDataRightsParticipant()
+
+
 def bootstrap_codex_recovery() -> RecoveryParticipant:
     return CodexRecoveryParticipant()
 
@@ -145,6 +151,7 @@ __all__ = (
     "bootstrap_codex",
     "bootstrap_codex_admin",
     "bootstrap_codex_commit",
+    "bootstrap_codex_data_rights",
     "bootstrap_codex_read_ports",
     "bootstrap_codex_recovery",
     "bootstrap_codex_runner",
