@@ -108,7 +108,15 @@ def DeterministicCandidateValidator(
 
 def parse_subject_change_set(value: bytes) -> Any:
     return _parse_subject_change_set(
-        value, RelationshipApplication(), mood_cognition=default_mood_cognition()
+        value,
+        RelationshipApplication(),
+        default_memory_cognition(),
+        default_sleep_cognition(),
+        default_activity_cognition(),
+        default_material_cognition(),
+        default_subject_state_cognition(),
+        default_mood_cognition(),
+        default_prompt_cognition(),
     )
 
 

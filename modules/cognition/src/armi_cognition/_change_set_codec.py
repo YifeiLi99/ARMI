@@ -16,7 +16,6 @@ from armi_activity.api import (
     ActivityWaitingKind,
     CandidateActivityDecisionDraft,
     CandidateActivityDraft,
-    default_activity_cognition,
 )
 from armi_capability.api import (
     CapabilityKind,
@@ -54,7 +53,6 @@ from armi_material.api import (
     LifeMaterialStatus,
     MaterialCognitionPort,
     MaterialViolation,
-    default_material_cognition,
 )
 from armi_memory.api import (
     CandidateMemoryDraft,
@@ -65,14 +63,12 @@ from armi_memory.api import (
     MemoryRevisionKind,
     MemorySourceKind,
     MemoryViolation,
-    default_memory_cognition,
 )
-from armi_mood.api import MoodCognitionPort, MoodViolation, default_mood_cognition
+from armi_mood.api import MoodCognitionPort, MoodViolation
 from armi_prompt.api import (
     CandidatePromptDraft,
     PromptCognitionPort,
     PromptViolation,
-    default_prompt_cognition,
 )
 from armi_relationship.api import (
     RELATIONSHIP_MECHANISM_IDENTITY,
@@ -102,14 +98,12 @@ from armi_sleep.api import (
     SleepCognitionPort,
     SleepDecisionKind,
     SleepViolation,
-    default_sleep_cognition,
 )
 from armi_subject_state.api import (
     CandidateSubjectStateDraft,
     SubjectStateCognitionPort,
     SubjectStateKind,
     SubjectStateViolation,
-    default_subject_state_cognition,
 )
 from armi_web_observation.api import WebResearchRequestDraft
 
@@ -160,24 +154,15 @@ _TOP_KEYS_V29 = _TOP_KEYS_V28 - {"prompts"}
 
 def parse_subject_change_set(
     value: bytes,
-    relationship_cognition: RelationshipCognitionPort | None = None,
-    memory_cognition: MemoryCognitionPort | None = None,
-    sleep_cognition: SleepCognitionPort | None = None,
-    activity_cognition: ActivityCognitionPort | None = None,
-    material_cognition: MaterialCognitionPort | None = None,
-    subject_state_cognition: SubjectStateCognitionPort | None = None,
-    mood_cognition: MoodCognitionPort | None = None,
-    prompt_cognition: PromptCognitionPort | None = None,
+    relationship_cognition: RelationshipCognitionPort,
+    memory_cognition: MemoryCognitionPort,
+    sleep_cognition: SleepCognitionPort,
+    activity_cognition: ActivityCognitionPort,
+    material_cognition: MaterialCognitionPort,
+    subject_state_cognition: SubjectStateCognitionPort,
+    mood_cognition: MoodCognitionPort,
+    prompt_cognition: PromptCognitionPort,
 ) -> SubjectChangeSet:
-    memory_cognition = memory_cognition or default_memory_cognition()
-    sleep_cognition = sleep_cognition or default_sleep_cognition()
-    activity_cognition = activity_cognition or default_activity_cognition()
-    material_cognition = material_cognition or default_material_cognition()
-    subject_state_cognition = (
-        subject_state_cognition or default_subject_state_cognition()
-    )
-    mood_cognition = mood_cognition or default_mood_cognition()
-    prompt_cognition = prompt_cognition or default_prompt_cognition()
     try:
         raw = json.loads(value)
         if type(raw) is not dict:
@@ -397,8 +382,7 @@ def parse_subject_change_set(
                         raise ValueError
                 elif draft.owner == CandidateOwner.RELATIONSHIP.value:
                     if (
-                        relationship_cognition is None
-                        or relationship_cognition.bind(
+                        relationship_cognition.bind(
                             relationship_cognition.decode_change_set(
                                 draft.canonical_payload
                             )
