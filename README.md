@@ -41,7 +41,8 @@ packages/armi-adapter-qq/    QQ 与内核统一外部消息端口的独立适配
 apps/armi-runtime/          权威 Runtime、适配器、接口与组合根
 apps/armi-admin/            与日常 Runtime 隔离的管理 MCP
 apps/armi-creator-web/      Creator 本机工作台
-tests/                      单元、契约、集成与旅程测试
+modules/                    独立业务 distribution 及其模块行为与契约测试
+tests/                      跨模块、Runtime、架构、集成与旅程测试
 tools/                      本地数据库、工具链和质量入口
 docs/                       私有叙述性设计与外部研究资料
 ```

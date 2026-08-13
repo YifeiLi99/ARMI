@@ -52,6 +52,7 @@ members = [
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib"]
 asyncio_mode = "strict"
+norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "venv", "src"]
 testpaths = [
     "tests",
     "modules",
