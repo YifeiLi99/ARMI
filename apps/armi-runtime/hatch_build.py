@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+from hatchling.builders.hooks.plugin.interface import (  # pyright: ignore[reportMissingImports]
+    BuildHookInterface,
+)
 
 _CONFIG_NAMES = ("runtime.yaml", "model-bindings.yaml", "web-search.yaml")
 _PACKAGED_DIRECTORY = Path("src/armi_runtime/composition/runtime_resources")
@@ -27,7 +29,9 @@ class CustomBuildHook(BuildHookInterface):
             if not source.is_file():
                 source = packaged_configs / name
             if not source.is_file():
-                raise FileNotFoundError(f"required Runtime configuration is missing: {name}")
+                raise FileNotFoundError(
+                    f"required Runtime configuration is missing: {name}"
+                )
             destination = (
                 _PACKAGED_DIRECTORY / name
                 if self.target_name == "sdist"

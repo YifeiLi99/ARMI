@@ -53,7 +53,7 @@ def validate_candidate(value: CandidatePromptDraft) -> None:
                 )
             )
         )
-    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
         valid_content = False
     if (
         _REF.fullmatch(value.proposal_ref) is None
@@ -103,7 +103,8 @@ def validate_creator_view(value: CreatorPromptView) -> None:
             and value.status is not PromptDocumentStatus.INACTIVE
         )
         or (
-            value.revision_kind in (PromptRevisionKind.CREATED, PromptRevisionKind.REVISED)
+            value.revision_kind
+            in (PromptRevisionKind.CREATED, PromptRevisionKind.REVISED)
             and value.status is not PromptDocumentStatus.ACTIVE
         )
         or (

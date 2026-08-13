@@ -348,7 +348,7 @@ def _request(binding: ModelBinding):
                             ),
                         }
                     ],
-                }
+                },
             ],
         },
         separators=(",", ":"),
@@ -602,8 +602,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
             "schema_version": "armi.compiled-context.v2",
             "purpose": "consider_creator_input",
             "layers": [
-                {"layer": layer, "items": layer_items[layer]}
-                for layer in layer_names
+                {"layer": layer, "items": layer_items[layer]} for layer in layer_names
             ],
         },
         ensure_ascii=False,

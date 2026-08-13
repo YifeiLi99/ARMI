@@ -33,8 +33,7 @@ def _load(root: Path, locator_lines: str):
             f'  data_root: "{root.as_posix()}"\n'
             "creator:\n"
             "  port: 43123\n"
-            +
-            (
+            + (
                 f"secret_locators:\n{locator_lines}"
                 if locator_lines
                 else "secret_locators: {}\n"

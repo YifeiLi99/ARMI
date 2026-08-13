@@ -1515,9 +1515,7 @@ def _semantic_item_content(item_kind: str, content: object) -> object:
             if key in mapping
         }
         if isinstance(grant, dict) and "remaining_uses" in grant:
-            concise["remaining_uses"] = cast(dict[str, object], grant)[
-                "remaining_uses"
-            ]
+            concise["remaining_uses"] = cast(dict[str, object], grant)["remaining_uses"]
         return concise
     return parsed
 
@@ -1762,9 +1760,9 @@ def _dialogue_messages(
             current_creator_text = content
             current_input_ref = str(current_item["ref"])
             groups["current_input"] = []
-        elif isinstance(content, dict) and set(
-            cast(dict[str, object], content)
-        ) == {"text"}:
+        elif isinstance(content, dict) and set(cast(dict[str, object], content)) == {
+            "text"
+        }:
             text = cast(dict[str, object], content).get("text")
             if isinstance(text, str) and text:
                 current_creator_text = text

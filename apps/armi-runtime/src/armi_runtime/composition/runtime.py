@@ -1182,7 +1182,9 @@ async def _serve(
         creator_maintenance_query=(None if sleep_module is None else sleep_module.read),
         creator_relationship_query=creator_relationship_query,
         creator_prompt=None if prompt_module is None else prompt_module.creator,
-        creator_export=(None if data_rights_module is None else data_rights_module.exports),
+        creator_export=(
+            None if data_rights_module is None else data_rights_module.exports
+        ),
         data_rights=(None if data_rights_module is None else data_rights_module.orders),
         creator_emergency_wake=life_opportunity_pipeline,
         creator_events=creator_events,

@@ -58,17 +58,16 @@ def test_yaml_config_rejects_invalid_or_unsafe_yaml(raw: bytes) -> None:
 
 
 def test_json_object_remains_valid_yaml_input() -> None:
-    assert load_yaml_mapping(b'{"schema_version":"armi.example.v1","enabled":true}') == {
+    assert load_yaml_mapping(
+        b'{"schema_version":"armi.example.v1","enabled":true}'
+    ) == {
         "schema_version": "armi.example.v1",
         "enabled": True,
     }
 
 
 def test_runtime_configs_have_one_tracked_source() -> None:
-    packaged = (
-        ROOT
-        / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources"
-    )
+    packaged = ROOT / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources"
     for name in ("runtime.yaml", "model-bindings.yaml", "web-search.yaml"):
         assert (ROOT / "configs" / name).is_file()
         assert not (packaged / name).exists()

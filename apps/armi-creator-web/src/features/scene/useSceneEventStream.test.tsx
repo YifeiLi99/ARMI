@@ -48,21 +48,24 @@ it.each([
   new EventStreamFailure("syntax"),
   new EventStreamFailure("event"),
   new EventStreamFailure("http", 400),
-])("stops automatic reconnect for deterministic stream failures", async (error) => {
-  consumeMock.mockRejectedValue(error);
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+])(
+  "stops automatic reconnect for deterministic stream failures",
+  async (error) => {
+    consumeMock.mockRejectedValue(error);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
 
-  render(<StreamHarness client={client} />);
+    render(<StreamHarness client={client} />);
 
-  await waitFor(() => {
-    expect(screen.getByTestId("stream-state").getAttribute("data-state")).toBe(
-      "disconnected",
-    );
-  });
-  expect(consumeMock).toHaveBeenCalledTimes(1);
-});
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("stream-state").getAttribute("data-state"),
+      ).toBe("disconnected");
+    });
+    expect(consumeMock).toHaveBeenCalledTimes(1);
+  },
+);
 
 it("hands 401 to the authentication owner without reconnecting", async () => {
   const onUnauthorized = vi.fn();
@@ -71,9 +74,7 @@ it("hands 401 to the authentication owner without reconnecting", async () => {
     defaultOptions: { queries: { retry: false } },
   });
 
-  render(
-    <StreamHarness client={client} onUnauthorized={onUnauthorized} />,
-  );
+  render(<StreamHarness client={client} onUnauthorized={onUnauthorized} />);
 
   await waitFor(() => expect(onUnauthorized).toHaveBeenCalledOnce());
   expect(consumeMock).toHaveBeenCalledTimes(1);
@@ -84,25 +85,28 @@ it.each([
   ["server", new EventStreamFailure("http", 503)],
   ["gap", new EventStreamFailure("http", 409)],
   ["eof", undefined],
-] as const)("reconnects after a recoverable %s result", async (_kind, error) => {
-  vi.useFakeTimers();
-  if (error === undefined) {
-    consumeMock.mockResolvedValueOnce(undefined);
-  } else {
-    consumeMock.mockRejectedValueOnce(error);
-  }
-  consumeMock.mockRejectedValueOnce(new EventStreamFailure("event"));
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+] as const)(
+  "reconnects after a recoverable %s result",
+  async (_kind, error) => {
+    vi.useFakeTimers();
+    if (error === undefined) {
+      consumeMock.mockResolvedValueOnce(undefined);
+    } else {
+      consumeMock.mockRejectedValueOnce(error);
+    }
+    consumeMock.mockRejectedValueOnce(new EventStreamFailure("event"));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
 
-  render(<StreamHarness client={client} />);
-  await act(async () => Promise.resolve());
-  act(() => vi.advanceTimersByTime(1000));
-  await act(async () => Promise.resolve());
+    render(<StreamHarness client={client} />);
+    await act(async () => Promise.resolve());
+    act(() => vi.advanceTimersByTime(1000));
+    await act(async () => Promise.resolve());
 
-  expect(consumeMock).toHaveBeenCalledTimes(2);
-});
+    expect(consumeMock).toHaveBeenCalledTimes(2);
+  },
+);
 
 it("removes an opened material body before refetching summaries on invalidation", async () => {
   consumeMock.mockImplementation(

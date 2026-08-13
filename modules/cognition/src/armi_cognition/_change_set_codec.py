@@ -469,9 +469,12 @@ def parse_subject_change_set(
                 elif draft.owner == CandidateOwner.PROMPT.value and version.endswith(
                     ".v29"
                 ):
-                    if prompt_cognition.bind(
-                        prompt_cognition.decode(draft.canonical_payload)
-                    ) != draft:
+                    if (
+                        prompt_cognition.bind(
+                            prompt_cognition.decode(draft.canonical_payload)
+                        )
+                        != draft
+                    ):
                         raise ValueError
                 else:
                     raise ValueError

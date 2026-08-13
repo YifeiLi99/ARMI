@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Self, TypeVar
 from uuid import uuid7
 
 import pytest
@@ -30,6 +31,7 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPurpose,
     ModelViolation,
+    SecretHandle,
 )
 from armi_runtime.adapters.model.volcengine_embedding import (
     VolcengineArkEmbeddingAdapter,
@@ -37,23 +39,31 @@ from armi_runtime.adapters.model.volcengine_embedding import (
 
 ROOT = Path(__file__).resolve().parents[3]
 MODEL_BINDINGS = ROOT / "configs/model-bindings.yaml"
+_ResultT = TypeVar("_ResultT")
 
 
 class _Handle(AbstractContextManager["_Handle"]):
+    @property
+    def closed(self) -> bool:
+        return False
+
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         return None
 
-    def consume(self, operation):
+    def consume(self, operation: Callable[[memoryview], _ResultT]) -> _ResultT:
         return operation(memoryview(b"secret"))
+
+    def close(self) -> None:
+        return None
 
 
 class _Credentials:
     def resolve(
         self, locator: CredentialLocator, purpose: CredentialPurpose
-    ) -> _Handle:
+    ) -> SecretHandle:
         assert locator.identity() == "file:ark"
         assert purpose.value == "model.embedding"
         return _Handle()
@@ -85,9 +95,10 @@ def test_life_material_chunking_is_deterministic_with_fixed_overlap() -> None:
     text = "x" * 2900
     chunks = chunk_life_material(text)
     assert tuple(map(len, chunks)) == (1500, 1500, 200)
-    assert chunks[0][-LIFE_MATERIAL_CHUNK_OVERLAP:] == chunks[1][
-        :LIFE_MATERIAL_CHUNK_OVERLAP
-    ]
+    assert (
+        chunks[0][-LIFE_MATERIAL_CHUNK_OVERLAP:]
+        == chunks[1][:LIFE_MATERIAL_CHUNK_OVERLAP]
+    )
     assert LIFE_MATERIAL_CHUNK_CHARS == 1500
     assert chunk_life_material(text) == chunks
 

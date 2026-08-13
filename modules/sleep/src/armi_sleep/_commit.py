@@ -138,7 +138,9 @@ class PostgreSQLSleepCommit:
 
     def _decode(
         self, drafts: tuple[CandidateOwnerDraft, ...]
-    ) -> tuple[CandidateSleepDecisionDraft | None, CandidateMaintenanceDecisionDraft | None]:
+    ) -> tuple[
+        CandidateSleepDecisionDraft | None, CandidateMaintenanceDecisionDraft | None
+    ]:
         sleep: CandidateSleepDecisionDraft | None = None
         maintenance: CandidateMaintenanceDecisionDraft | None = None
         for draft in drafts:

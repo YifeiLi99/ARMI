@@ -652,6 +652,22 @@ class _CapabilityPolicy:
         self.request_id = uuid7()
         self.commands: list[CreatorGrantCommand] = []
 
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    def stop(self) -> None:
+        return None
+
+    async def run_expiry_reconciler(self) -> None:
+        return None
+
+    async def expire_once(self, *, limit: int = 100) -> int:
+        del limit
+        return 0
+
     async def list_requests(
         self,
         *,

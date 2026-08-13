@@ -487,9 +487,7 @@ def test_context_includes_current_relationship_or_explicitly_reports_none() -> N
     )
     snapshot = _snapshot(
         (),
-        relationship_payloads=(
-            (relationship_id, 2, payload),
-        ),
+        relationship_payloads=((relationship_id, 2, payload),),
     )
     request = _context_request(
         snapshot,
@@ -511,9 +509,7 @@ def test_context_includes_current_relationship_or_explicitly_reports_none() -> N
         web_search_active=False,
     )
     empty = next(
-        item
-        for item in empty_request.items
-        if item.item_kind == "current_relationship"
+        item for item in empty_request.items if item.item_kind == "current_relationship"
     )
     assert empty.content == '{"status":"none"}'
     assert empty.required
@@ -702,9 +698,7 @@ def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
                 speaker="armi",
                 speaker_label=None,
                 occurred_at=datetime(2026, 8, 6, 10, 1, tzinfo=UTC),
-                ref=SimpleNamespace(
-                    content_digest=Digest.from_bytes(reply_payload)
-                ),
+                ref=SimpleNamespace(content_digest=Digest.from_bytes(reply_payload)),
             ),
         )
         return _context_request(
@@ -795,9 +789,7 @@ def test_context_hides_forgotten_commitment_but_keeps_open_issue() -> None:
                     "forgotten",
                 ),
             ),
-            relationship_issue_payloads=(
-                (uuid7(), 4, issue_payload),
-            ),
+            relationship_issue_payloads=((uuid7(), 4, issue_payload),),
         ),
         None,
         b"fixed prompt",

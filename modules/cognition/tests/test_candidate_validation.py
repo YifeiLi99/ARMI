@@ -951,10 +951,10 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
         components=[],
         memories=[],
         memory_revisions=[],
-            relationships=[],
-            materials=[],
-            prompts=[],
-            maintenance_decisions=[maintenance_wire],
+        relationships=[],
+        materials=[],
+        prompts=[],
+        maintenance_decisions=[maintenance_wire],
     )
     assert _sleep(
         parse_subject_change_set(rfc8785.dumps(cast(Any, historical_v19)))

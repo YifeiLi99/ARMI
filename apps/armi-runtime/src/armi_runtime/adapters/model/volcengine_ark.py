@@ -219,14 +219,17 @@ class OpenAIArkTransport:
                 store=False,
                 max_output_tokens=request.max_output_tokens,
                 tools=[],
-                text={
-                    "format": {
-                        "type": "json_schema",
-                        "name": self._schema_name,
-                        "strict": True,
-                        "schema": provider_schema,
-                    }
-                },
+                text=cast(
+                    Any,
+                    {
+                        "format": {
+                            "type": "json_schema",
+                            "name": self._schema_name,
+                            "strict": True,
+                            "schema": provider_schema,
+                        }
+                    },
+                ),
                 extra_body={"thinking": {"type": "disabled"}},
             )
         finally:
@@ -254,30 +257,31 @@ class OpenAIArkTransport:
 def _provider_input(request_bytes: bytes) -> str | list[dict[str, str]]:
     try:
         text_value = request_bytes.decode("utf-8")
-        request_value = json.loads(text_value)
+        request_value: object = json.loads(text_value)
     except UnicodeDecodeError, json.JSONDecodeError:
         raise ModelViolation("MODEL-REQUEST") from None
-    if (
-        not isinstance(request_value, dict)
-        or request_value.get("schema_version") != _DIALOGUE_INPUT_VERSION
-    ):
+    if not isinstance(request_value, dict):
         return text_value
-    messages_value = request_value.get("messages")
+    request_document = cast(dict[object, object], request_value)
+    if request_document.get("schema_version") != _DIALOGUE_INPUT_VERSION:
+        return text_value
+    messages_value = request_document.get("messages")
     if not isinstance(messages_value, list) or not messages_value:
         raise ModelViolation("MODEL-REQUEST")
     messages: list[dict[str, str]] = []
-    for message_value in messages_value:
+    for message_value in cast(list[object], messages_value):
         if not isinstance(message_value, dict):
             raise ModelViolation("MODEL-REQUEST")
-        role = message_value.get("role")
-        content = message_value.get("content")
+        message = cast(dict[object, object], message_value)
+        role = message.get("role")
+        content = message.get("content")
         if (
             role not in {"system", "user", "assistant"}
             or not isinstance(content, str)
             or not content
         ):
             raise ModelViolation("MODEL-REQUEST")
-        messages.append({"role": role, "content": content})
+        messages.append({"role": cast(str, role), "content": content})
     return messages
 
 
@@ -437,15 +441,7 @@ class VolcengineArkModelAdapter(ModelPort):
             ),
         )
         try:
-            request_value = json.loads(request.canonical_bytes)
-            available_refs = request_value.get("available_refs")
-            if isinstance(available_refs, list):
-                allowed_refs = frozenset(str(item) for item in available_refs)
-            else:
-                allowed_refs = frozenset(
-                    str(item["ref"])
-                    for item in request_value.get("included_context_refs", ())
-                )
+            allowed_refs = _candidate_allowed_refs(request.canonical_bytes)
             candidate = self._parse_candidate(
                 output_text.encode("utf-8"),
                 allowed_context_refs=allowed_refs,
@@ -520,36 +516,69 @@ def _client(api_key: memoryview, binding: ModelBinding) -> AsyncOpenAI:
 
 def _available_refs(request_bytes: bytes) -> tuple[str, ...]:
     try:
-        value = json.loads(request_bytes)
+        value: object = json.loads(request_bytes)
     except UnicodeDecodeError, json.JSONDecodeError:
         raise ModelViolation("MODEL-REQUEST") from None
-    refs = value.get("available_refs") if isinstance(value, dict) else None
-    if not isinstance(refs, list) or any(type(item) is not str for item in refs):
+    if not isinstance(value, dict):
         return ()
-    return tuple(sorted(set(cast(list[str], refs))))
+    refs = cast(dict[object, object], value).get("available_refs")
+    if not isinstance(refs, list):
+        return ()
+    ref_values = cast(list[object], refs)
+    if any(type(item) is not str for item in ref_values):
+        return ()
+    return tuple(sorted(set(cast(list[str], ref_values))))
+
+
+def _candidate_allowed_refs(request_bytes: bytes) -> frozenset[str]:
+    value: object = json.loads(request_bytes)
+    if not isinstance(value, dict):
+        raise TypeError("model request must be an object")
+    document = cast(dict[object, object], value)
+    available_refs = document.get("available_refs")
+    if isinstance(available_refs, list):
+        return frozenset(str(item) for item in cast(list[object], available_refs))
+    included_context_refs = document.get("included_context_refs", ())
+    if not isinstance(included_context_refs, (list, tuple)):
+        raise TypeError("included context refs must be a sequence")
+    refs: set[str] = set()
+    for item in cast(list[object] | tuple[object, ...], included_context_refs):
+        if not isinstance(item, dict):
+            raise TypeError("included context ref must be an object")
+        ref = cast(dict[object, object], item).get("ref")
+        if ref is None:
+            raise KeyError("ref")
+        refs.add(str(ref))
+    return frozenset(refs)
 
 
 def _strict_provider_schema(
-    value: Any,
+    value: object,
     *,
     available_refs: tuple[str, ...],
-) -> Any:
+) -> object:
     if isinstance(value, list):
         return [
             _strict_provider_schema(item, available_refs=available_refs)
-            for item in value
+            for item in cast(list[object], value)
         ]
     if not isinstance(value, dict):
         return value
-    result = {
-        key: _strict_provider_schema(item, available_refs=available_refs)
-        for key, item in value.items()
-        if key not in {"default", "discriminator"}
-        and not (key == "title" and isinstance(item, str))
-    }
+    result: dict[str, object] = {}
+    for key, item in cast(dict[object, object], value).items():
+        if not isinstance(key, str):
+            raise ModelViolation("MODEL-BINDING")
+        if key in {"default", "discriminator"} or (
+            key == "title" and isinstance(item, str)
+        ):
+            continue
+        result[key] = _strict_provider_schema(item, available_refs=available_refs)
     properties = result.get("properties")
     if isinstance(properties, dict):
-        result["required"] = list(properties)
+        property_keys = tuple(cast(dict[object, object], properties))
+        if any(not isinstance(key, str) for key in property_keys):
+            raise ModelViolation("MODEL-BINDING")
+        result["required"] = list(cast(tuple[str, ...], property_keys))
         result["additionalProperties"] = False
     elif result.get("type") == "object" and "additionalProperties" not in result:
         result["additionalProperties"] = False

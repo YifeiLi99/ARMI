@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_CONFIG_NAMES = frozenset(
-    {"runtime.yaml", "model-bindings.yaml", "web-search.yaml"}
-)
+_CONFIG_NAMES = frozenset({"runtime.yaml", "model-bindings.yaml", "web-search.yaml"})
 
 
 def runtime_config_path(name: str) -> Path:

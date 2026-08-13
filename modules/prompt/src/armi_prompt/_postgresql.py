@@ -31,9 +31,7 @@ class PostgreSQLPromptOwner:
     async def close(self) -> None:
         return None
 
-    def _drafts(
-        self, drafts: tuple[CandidateOwnerDraft, ...]
-    ) -> tuple[Any, ...]:
+    def _drafts(self, drafts: tuple[CandidateOwnerDraft, ...]) -> tuple[Any, ...]:
         return tuple(
             self._application.decode(item.canonical_payload)
             for item in drafts
@@ -227,7 +225,10 @@ class PostgreSQLPromptOwner:
         ).fetchone()
         if accepted is None:
             raise PromptViolation("PROMPT-CANDIDATE")
-        if artifact.media_type != "application/json" or artifact.privacy_scope.value != "private":
+        if (
+            artifact.media_type != "application/json"
+            or artifact.privacy_scope.value != "private"
+        ):
             raise PromptViolation("PROMPT-ARTIFACT")
         author = await (
             await transaction.execute(
@@ -256,7 +257,9 @@ class PostgreSQLPromptOwner:
                 artifact.content_digest.value,
                 author[0],
                 commit_id,
-                "subject_created" if draft.current_revision_id is None else "subject_revised",
+                "subject_created"
+                if draft.current_revision_id is None
+                else "subject_revised",
             ),
         )
         updated = await (

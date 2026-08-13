@@ -330,7 +330,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
         )
     try:
         return load_yaml_file(path)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         raise ConfigurationViolation(
             "CFG-YAML", "configuration file is malformed"
         ) from None

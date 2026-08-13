@@ -367,11 +367,14 @@ class CandidateRelationshipDraft:
             != len(self.commitments)
             or len(self.open_issues) > 32
             or any(type(item) is not RelationshipIssue for item in self.open_issues)
-            or any(item.status is not RelationshipIssueStatus.OPEN for item in self.open_issues)
-            or len({item.issue_id for item in self.open_issues}) != len(self.open_issues)
             or any(
-                commitment_id
-                not in {item.commitment_id for item in self.commitments}
+                item.status is not RelationshipIssueStatus.OPEN
+                for item in self.open_issues
+            )
+            or len({item.issue_id for item in self.open_issues})
+            != len(self.open_issues)
+            or any(
+                commitment_id not in {item.commitment_id for item in self.commitments}
                 for issue in self.open_issues
                 for commitment_id in issue.commitment_ids
             )

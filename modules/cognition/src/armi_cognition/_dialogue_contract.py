@@ -39,9 +39,7 @@ HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candid
 HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v15"
 HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v16"
 HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v17"
-HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION = (
-    "armi.creator-dialogue-candidate.v18"
-)
+HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v18"
 HISTORICAL_COMPACT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v19"
 HISTORICAL_COMPACT_WEB_DIALOGUE_CANDIDATE_VERSION = (
     "armi.creator-dialogue-candidate.v20"
@@ -1137,8 +1135,7 @@ def dialogue_model_output_schema(*, web_search: bool) -> dict[str, Any]:
 def _strip_provider_schema_annotations(value: Any) -> Any:
     if isinstance(value, list):
         return [
-            _strip_provider_schema_annotations(item)
-            for item in cast(list[Any], value)
+            _strip_provider_schema_annotations(item) for item in cast(list[Any], value)
         ]
     if isinstance(value, dict):
         mapping = cast(dict[str, Any], value)

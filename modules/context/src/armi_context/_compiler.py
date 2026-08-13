@@ -246,7 +246,11 @@ def _scene_speaker(result: ContextItemResult) -> object:
         value = cast(object, json.loads(content))
     except json.JSONDecodeError:
         return None
-    return cast(dict[str, object], value).get("speaker") if isinstance(value, dict) else None
+    return (
+        cast(dict[str, object], value).get("speaker")
+        if isinstance(value, dict)
+        else None
+    )
 
 
 def _source(candidate: ContextItemCandidate) -> dict[str, object]:

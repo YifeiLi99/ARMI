@@ -89,7 +89,7 @@ def probe_continuity(
                     and prompt_counts.revision_count == 0
                     else ContinuityState.INVALID
                 )
-    except (psycopg.Error, PromptViolation):
+    except psycopg.Error, PromptViolation:
         return ContinuityState.INVALID
     if len(rows) != 1:
         return ContinuityState.INVALID

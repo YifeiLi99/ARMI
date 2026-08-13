@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import httpx
 from armi_context.api import (
@@ -52,11 +52,14 @@ class ArkEmbeddingTransport:
                 },
             )
         response.raise_for_status()
-        value = response.json()
+        value: object = response.json()
         if not isinstance(value, dict):
             raise ModelViolation("MODEL-EMBEDDING-RESPONSE")
-        value["provider_request_id"] = response.headers.get("x-request-id")
-        return value
+        document = cast(dict[object, object], value)
+        if any(not isinstance(key, str) for key in document):
+            raise ModelViolation("MODEL-EMBEDDING-RESPONSE")
+        document["provider_request_id"] = response.headers.get("x-request-id")
+        return cast(dict[str, Any], document)
 
 
 class VolcengineArkEmbeddingAdapter:
@@ -95,31 +98,42 @@ class VolcengineArkEmbeddingAdapter:
                 binding=self._binding,
                 text=text,
             )
-            data = value.get("data")
-            usage = value.get("usage")
-            if not isinstance(data, list) or len(data) != 1:
+            document = cast(dict[str, object], value)
+            data_value = document.get("data")
+            usage_value = document.get("usage")
+            if not isinstance(data_value, list):
                 raise ModelViolation("MODEL-EMBEDDING-RESPONSE")
-            embedding = data[0].get("embedding") if isinstance(data[0], dict) else None
-            if (
-                not isinstance(embedding, list)
-                or len(embedding) != EMBEDDING_DIMENSIONS
-                or any(type(item) not in {int, float} for item in embedding)
+            data = cast(list[object], data_value)
+            if len(data) != 1 or not isinstance(data[0], dict):
+                raise ModelViolation("MODEL-EMBEDDING-RESPONSE")
+            embedding_value = cast(dict[object, object], data[0]).get("embedding")
+            if not isinstance(embedding_value, list):
+                raise ModelViolation("MODEL-EMBEDDING-DIMENSIONS")
+            embedding = cast(list[object], embedding_value)
+            if len(embedding) != EMBEDDING_DIMENSIONS or any(
+                type(item) not in {int, float} for item in embedding
             ):
                 raise ModelViolation("MODEL-EMBEDDING-DIMENSIONS")
+            numeric_embedding = cast(list[int | float], embedding)
+            usage = (
+                cast(dict[object, object], usage_value)
+                if isinstance(usage_value, dict)
+                else None
+            )
             input_tokens = (
                 usage.get("prompt_tokens", usage.get("input_tokens"))
-                if isinstance(usage, dict)
+                if usage is not None
                 else None
             )
             if input_tokens is not None and (
                 type(input_tokens) is not int or input_tokens < 0
             ):
                 raise ModelViolation("MODEL-EMBEDDING-RESPONSE")
-            request_id = value.get("provider_request_id")
+            request_id = document.get("provider_request_id")
             if request_id is not None and type(request_id) is not str:
                 raise ModelViolation("MODEL-EMBEDDING-RESPONSE")
             return EmbeddingResponse(
-                tuple(float(item) for item in embedding),
+                tuple(float(item) for item in numeric_embedding),
                 request_id,
                 input_tokens,
             )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import mimetypes
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
@@ -136,7 +137,7 @@ class NapCatHttpClient(NapCatGateway):
             "video": "/get_file",
             "file": "/get_file",
         }[kind]
-        payload: dict[str, str] = {"file": locator}
+        payload: dict[str, int | str] = {"file": locator}
         if kind == "audio":
             payload["out_format"] = "mp3"
         document = await self._read_action(path, payload)
@@ -150,7 +151,7 @@ class NapCatHttpClient(NapCatGateway):
         file_name = (
             raw_name
             if type(raw_name) is str and raw_name
-            else Path(cast(str, raw_path)).name
+            else Path(raw_path).name
             if type(raw_path) is str and raw_path
             else f"qq-{kind}"
         )
@@ -166,7 +167,7 @@ class NapCatHttpClient(NapCatGateway):
         return NapCatDownloadedFile(content, file_name, media_type)
 
     async def _read_action(
-        self, path: str, payload: dict[str, int | str]
+        self, path: str, payload: Mapping[str, int | str]
     ) -> dict[str, Any]:
         try:
             response = await self._client.post(path, json=payload)
@@ -175,16 +176,18 @@ class NapCatHttpClient(NapCatGateway):
         if response.status_code < 200 or response.status_code >= 300:
             raise NapCatViolation("NAPCAT-ACTION-UNAVAILABLE")
         try:
-            document = response.json()
+            document: object = response.json()
         except ValueError:
             raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID") from None
+        if not isinstance(document, dict):
+            raise NapCatViolation("NAPCAT-ACTION-REJECTED")
+        response_document = cast(dict[object, object], document)
         if (
-            not isinstance(document, dict)
-            or document.get("status") != "ok"
-            or document.get("retcode") != 0
+            response_document.get("status") != "ok"
+            or response_document.get("retcode") != 0
         ):
             raise NapCatViolation("NAPCAT-ACTION-REJECTED")
-        return cast(dict[str, Any], document)
+        return cast(dict[str, Any], response_document)
 
     async def _send(
         self, path: str, payload: dict[str, int | str], echo: str

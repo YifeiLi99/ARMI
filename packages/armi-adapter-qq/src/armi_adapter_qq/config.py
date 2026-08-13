@@ -32,7 +32,7 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
         raise ValueError("QQ channel configuration must be a regular file")
     try:
         document = cast(dict[str, object], load_yaml_file(path))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         raise ValueError("QQ channel configuration is unreadable") from None
     expected = {
         "schema_version",
@@ -99,8 +99,10 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
         or type(reply_group_allowlist) is not list
     ):
         raise ValueError("QQ channel configuration values are invalid")
-    if any(type(item) is not int for item in reply_private_user_allowlist) or any(
-        type(item) is not int for item in reply_group_allowlist
+    private_user_allowlist_values = cast(list[object], reply_private_user_allowlist)
+    group_allowlist_values = cast(list[object], reply_group_allowlist)
+    if any(type(item) is not int for item in private_user_allowlist_values) or any(
+        type(item) is not int for item in group_allowlist_values
     ):
         raise ValueError("QQ reply allowlist is invalid")
     return QQNapCatBindingConfig(
@@ -110,8 +112,8 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
             allowed_groups,
             reply_to_other_private_users,
             reply_in_groups,
-            frozenset(cast(list[int], reply_private_user_allowlist)),
-            frozenset(cast(list[int], reply_group_allowlist)),
+            frozenset(cast(list[int], private_user_allowlist_values)),
+            frozenset(cast(list[int], group_allowlist_values)),
         ),
         api_base_url,
         event_port,

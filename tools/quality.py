@@ -6,9 +6,11 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 GATE_ORDER = (
     "QLT-LOCKED",
@@ -343,6 +345,8 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        cast(Any, sys.stdout).reconfigure(errors="replace")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--root", type=Path, default=Path(__file__).resolve().parents[1]

@@ -1069,6 +1069,7 @@ def compose_data_rights_module(
                 except UnicodeDecodeError:
                     raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
                 config = prepared.effective.config
+
                 def factory() -> PostgreSQLUnitOfWorkFactory:
                     return PostgreSQLUnitOfWorkFactory(
                         conninfo,

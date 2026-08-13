@@ -14,6 +14,7 @@ from armi_material.api import (
     MaterialAdminSnapshot,
     MaterialViolation,
 )
+from armi_mood.api import MoodAdminComponent
 from armi_subject_state.api import SubjectStateAdminComponent
 
 
@@ -40,6 +41,12 @@ class _SubjectState:
         return ()
 
 
+class _Mood:
+    def current_component(self, *, private: bool) -> MoodAdminComponent | None:
+        del private
+        return None
+
+
 class _Observation(AdminObservationGateway):
     def __init__(
         self,
@@ -51,6 +58,7 @@ class _Observation(AdminObservationGateway):
             "postgresql://unused",
             expected_role="armi_test_admin",
             materials=materials,
+            mood=_Mood(),
             subject_state=_SubjectState(),
         )
         self.subject = subject

@@ -36,7 +36,9 @@ def encode(value: CandidatePromptDraft) -> bytes:
                 "fact_class": value.fact_class.value,
                 "prompt_document_id": str(value.prompt_document_id),
                 "current_revision_id": (
-                    None if value.current_revision_id is None else str(value.current_revision_id)
+                    None
+                    if value.current_revision_id is None
+                    else str(value.current_revision_id)
                 ),
                 "expected_revision_no": value.expected_revision_no,
                 "content": json.loads(value.content_bytes),
@@ -77,7 +79,7 @@ def decode(payload: bytes) -> CandidatePromptDraft:
             raw["expected_revision_no"],
             rfc8785.dumps(cast(Any, raw["content"])),
         )
-    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
         raise PromptViolation("PROMPT-CODEC") from None
 
 
@@ -103,7 +105,7 @@ def decode_legacy(value: object) -> CandidatePromptDraft:
             cast(int, item["expected_revision_no"]),
             rfc8785.dumps(cast(Any, content)),
         )
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         raise PromptViolation("PROMPT-CODEC") from None
 
 

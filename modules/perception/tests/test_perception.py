@@ -240,9 +240,7 @@ class ExternalContentExtractorTests(unittest.TestCase):
 
 class ExternalContentModelRequestTests(unittest.TestCase):
     def test_loads_packaged_recognition_models(self) -> None:
-        binding = load_external_recognition_binding(
-            Path("configs/model-bindings.yaml")
-        )
+        binding = load_external_recognition_binding(Path("configs/model-bindings.yaml"))
         self.assertEqual(
             binding.target_for(ExternalMessagePartKind.IMAGE),
             ("volcengine_ark", "doubao-seed-2-0-lite-260428"),

@@ -59,7 +59,10 @@ class MaintenanceOpportunityOutcome:
             or rejected != (self.opportunity_id is None)
             or (
                 self.opportunity_id is not None
-                and (type(self.opportunity_id) is not UUID or self.opportunity_id.version != 7)
+                and (
+                    type(self.opportunity_id) is not UUID
+                    or self.opportunity_id.version != 7
+                )
             )
             or (
                 rejected
@@ -103,7 +106,9 @@ def _proposal(
         or type(basis_ordinals) is not tuple
         or not basis_ordinals
         or len(basis_ordinals) > 8
-        or any(type(value) is not int or not 1 <= value <= 999 for value in basis_ordinals)
+        or any(
+            type(value) is not int or not 1 <= value <= 999 for value in basis_ordinals
+        )
         or len(set(basis_ordinals)) != len(basis_ordinals)
     ):
         raise SleepViolation("SLEEP-CANDIDATE-PROPOSAL")
@@ -244,7 +249,9 @@ class SleepCognitionPort(Protocol):
         self, payload: bytes
     ) -> CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft: ...
 
-    def bind_legacy(self, value: object, *, maintenance: bool) -> CandidateOwnerDraft: ...
+    def bind_legacy(
+        self, value: object, *, maintenance: bool
+    ) -> CandidateOwnerDraft: ...
 
 
 def default_sleep_cognition() -> SleepCognitionPort:
