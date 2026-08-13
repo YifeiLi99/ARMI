@@ -6,7 +6,6 @@ import asyncio
 import json
 import os
 import shutil
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,7 +13,6 @@ from typing import Any
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -26,19 +24,21 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    TransactionIsolation,
+)
+from armi_kernel.contracts import Digest, ErrorCategory, Instant, Purpose, TraceId
+from armi_runtime_foundation import RuntimeTransactionFailure
+from psycopg import sql
+
+from .api import (
     CreatorExportCommand,
     CreatorExportPort,
     CreatorExportResult,
     CreatorExportStatus,
     CreatorExportViolation,
-    RuntimeFence,
-    TransactionIsolation,
+    DataRightsArtifactStorePort,
+    DataRightsUnitOfWorkFactory,
 )
-from armi_kernel.contracts import Digest, ErrorCategory, Instant, Purpose, TraceId
-from psycopg import sql
-
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 _EXPORT_FORMAT = "armi.creator-local-export.v1"
 
@@ -72,8 +72,8 @@ class CreatorExportService(CreatorExportPort):
         *,
         creator_party_id: UUID,
         data_root: Path,
-        storage: ContentAddressedArtifactStore,
-        unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+        storage: DataRightsArtifactStorePort,
+        unit_of_work_factory: DataRightsUnitOfWorkFactory,
     ) -> None:
         if creator_party_id.version != 7 or not data_root.is_absolute():
             raise CreatorExportViolation("CREATOR-EXPORT-COMPOSITION")
@@ -86,7 +86,7 @@ class CreatorExportService(CreatorExportPort):
         try:
             await self._uow_factory.open()
             await asyncio.to_thread(self._prepare_root)
-        except DatabaseTransactionError, OSError:
+        except RuntimeTransactionFailure, OSError:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
     async def close(self) -> None:
@@ -146,7 +146,7 @@ class CreatorExportService(CreatorExportPort):
         except CreatorExportViolation:
             await self._settle_failed(export_id, command.trace_id)
             raise
-        except ArtifactViolation, DatabaseTransactionError, OSError, ValueError:
+        except ArtifactViolation, RuntimeTransactionFailure, OSError, ValueError:
             await self._settle_failed(export_id, command.trace_id)
             raise CreatorExportViolation("CREATOR-EXPORT-FAILED") from None
         finally:
@@ -155,7 +155,7 @@ class CreatorExportService(CreatorExportPort):
     async def get(self, export_id: UUID) -> CreatorExportResult | None:
         try:
             async with self._uow_factory.unit_of_work(read_only=True) as unit_of_work:
-                connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+                connection = unit_of_work.transaction
                 row = await (
                     await connection.execute(
                         """
@@ -169,7 +169,7 @@ class CreatorExportService(CreatorExportPort):
                         (export_id, self._creator_party_id),
                     )
                 ).fetchone()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
         return None if row is None else self._result(row, newly_created=False)
 
@@ -182,7 +182,7 @@ class CreatorExportService(CreatorExportPort):
         export_id = uuid7()
         try:
             async with self._uow_factory.unit_of_work() as unit_of_work:
-                connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+                connection = unit_of_work.transaction
                 await connection.execute(
                     "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                     (f"creator-export:{self._creator_party_id}",),
@@ -247,7 +247,7 @@ class CreatorExportService(CreatorExportPort):
                 return export_id, True
         except CreatorExportViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
     async def _write_snapshot(self, staging: Path) -> _SnapshotResult:
@@ -261,7 +261,7 @@ class CreatorExportService(CreatorExportPort):
                 isolation=TransactionIsolation.REPEATABLE_READ,
                 read_only=True,
             ) as unit_of_work:
-                connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+                connection = unit_of_work.transaction
                 snapshot_row = await (
                     await connection.execute("SELECT transaction_timestamp()")
                 ).fetchone()
@@ -314,7 +314,7 @@ class CreatorExportService(CreatorExportPort):
                     )
                 ).fetchall()
                 artifacts = tuple(_artifact_snapshot(row) for row in artifact_rows)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise
         return _SnapshotResult(
             tables=tuple(tables),
@@ -362,7 +362,7 @@ class CreatorExportService(CreatorExportPort):
     ) -> CreatorExportResult:
         try:
             async with self._uow_factory.unit_of_work() as unit_of_work:
-                connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+                connection = unit_of_work.transaction
                 row = await (
                     await connection.execute(
                         """
@@ -416,7 +416,7 @@ class CreatorExportService(CreatorExportPort):
                 return self._result(row, newly_created=True)
         except CreatorExportViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
     async def _settle_failed(self, export_id: UUID, trace_id: TraceId) -> None:
@@ -568,36 +568,4 @@ def _remove_staging(path: Path, exports_root: Path) -> None:
     shutil.rmtree(path)
 
 
-def build_creator_export_service(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    creator_party_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-) -> CreatorExportService:
-    return CreatorExportService(
-        creator_party_id=creator_party_id,
-        data_root=data_root,
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
-        ),
-        unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
-            conninfo,
-            environment_id=environment_id,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            acquire_timeout_seconds=acquire_timeout_seconds,
-            statement_timeout_seconds=statement_timeout_seconds,
-            authority_admission=authority_admission,
-        ),
-    )
-
-
-__all__ = ("CreatorExportService", "build_creator_export_service")
+__all__ = ("CreatorExportService", "_ArtifactSnapshot")

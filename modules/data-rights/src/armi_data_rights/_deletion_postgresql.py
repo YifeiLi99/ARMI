@@ -17,14 +17,14 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    DataRightsViolation,
 )
 from armi_kernel.contracts import Digest, Purpose, TraceId
 from armi_memory.api import MemoryDataRightsParticipant
 from armi_relationship.api import RelationshipDataRightsParticipant
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from psycopg import sql
 
-from .unit_of_work import PostgreSQLUnitOfWork
+from .api import DataRightsViolation
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,9 +46,9 @@ class LocalDataDeletionRepository:
         self._relationships = relationships
 
     async def pending_order_ids(
-        self, unit_of_work: PostgreSQLUnitOfWork
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork
     ) -> tuple[UUID, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         rows = await (
             await connection.execute(
                 """
@@ -64,10 +64,10 @@ class LocalDataDeletionRepository:
 
     async def prepare(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         order_id: UUID,
     ) -> tuple[DeletionArtifactItem, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         order = await (
             await connection.execute(
                 """
@@ -188,14 +188,14 @@ class LocalDataDeletionRepository:
 
     async def settle_artifact(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         order_id: UUID,
         item_id: UUID,
         artifact_id: UUID,
         completed: bool,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         status = "completed" if completed else "partial"
         remaining = None if completed else "local_artifact_store"
         await connection.execute(
@@ -230,10 +230,10 @@ class LocalDataDeletionRepository:
 
     async def finalize(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         order_id: UUID,
     ) -> None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         counts = await (
             await connection.execute(
                 """

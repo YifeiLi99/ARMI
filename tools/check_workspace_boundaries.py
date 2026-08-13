@@ -318,6 +318,20 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-data-rights",
+        module="armi_data_rights",
+        project_dir=Path("modules/data-rights"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-memory==0.0.0",
+            "armi-relationship==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "psycopg[binary]==3.3.4",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-cognition",
         module="armi_cognition",
         project_dir=Path("modules/cognition"),
@@ -372,6 +386,7 @@ DISTRIBUTIONS = (
             "armi-cognition==0.0.0",
             "armi-codex==0.0.0",
             "armi-context==0.0.0",
+            "armi-data-rights==0.0.0",
             "armi-evidence==0.0.0",
             "armi-effect==0.0.0",
             "armi-expression==0.0.0",
@@ -1073,6 +1088,18 @@ def _check_import(
             }
         )
         or (
+            source_distribution == "armi-data-rights"
+            and target_distribution
+            not in {
+                None,
+                "armi-data-rights",
+                "armi-kernel",
+                "armi-memory",
+                "armi-relationship",
+                "armi-runtime-foundation",
+            }
+        )
+        or (
             source_distribution == "armi-cognition"
             and target_distribution
             not in {
@@ -1240,6 +1267,13 @@ def _check_import(
         ),
         "armi-codex": frozenset(
             {"armi_codex", "armi_codex.api", "armi_codex.bootstrap"}
+        ),
+        "armi-data-rights": frozenset(
+            {
+                "armi_data_rights",
+                "armi_data_rights.api",
+                "armi_data_rights.bootstrap",
+            }
         ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
@@ -1479,6 +1513,18 @@ def _check_import(
                     "Codex bootstrap is reserved for Runtime composition",
                 )
             )
+        if (
+            imported_module == "armi_data_rights.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "data-rights bootstrap is reserved for Runtime composition",
+                )
+            )
         if imported_module not in public_modules[target_distribution]:
             violations.append(
                 Violation(
@@ -1694,6 +1740,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_codex": root / "modules/codex/src/armi_codex/__init__.py",
         "armi_codex.api": root / "modules/codex/src/armi_codex/api.py",
         "armi_codex.bootstrap": root / "modules/codex/src/armi_codex/bootstrap.py",
+        "armi_data_rights": root
+        / "modules/data-rights/src/armi_data_rights/__init__.py",
+        "armi_data_rights.api": root
+        / "modules/data-rights/src/armi_data_rights/api.py",
+        "armi_data_rights.bootstrap": root
+        / "modules/data-rights/src/armi_data_rights/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1743,6 +1795,26 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         relative,
                         1,
                         "Codex task and verification writes are owned by armi-codex",
+                    )
+                )
+            if (
+                distribution.name != "armi-data-rights"
+                and ".runtime_resources.schema.alembic." not in module
+                and not module.startswith("armi_admin.persistence.")
+                and re.search(
+                    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:deletion_orders|deletion_items|creator_exports)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-DATA-RIGHTS-SQL",
+                        relative,
+                        1,
+                        "data-right orders, items and exports are owned by "
+                        "armi-data-rights",
                     )
                 )
             if (
@@ -1938,7 +2010,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                     source,
                     re.IGNORECASE,
                 )
-                and "armi_runtime.adapters.persistence.data_deletion" not in module
+                and "armi_data_rights._deletion_postgresql" not in module
             ):
                 violations.append(
                     Violation(
@@ -2050,7 +2122,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                 distribution.name != "armi-effect"
                 and ".runtime_resources.schema.alembic." not in module
                 and "armi_codex._postgresql" not in module
-                and "armi_runtime.adapters.persistence.data_deletion" not in module
+                and "armi_data_rights._deletion_postgresql" not in module
                 and not module.startswith("armi_admin.persistence.")
                 and re.search(
                     r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
@@ -2160,6 +2232,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "Codex delegation": (
             "codex_pipeline = compose_codex_pipeline(",
             "codex_pipeline.task_sources",
+        ),
+        "data rights": (
+            "data_rights_module = compose_data_rights_module(",
+            "data_rights_module.exports",
+            "data_rights_module.orders",
+            "data_rights=data_rights_module.gate",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_kernel.application import ArtifactViolation, DataRightsViolation
+from armi_kernel.application import ArtifactViolation
+from armi_runtime_foundation import RuntimeTransactionFailure
 
-from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
+from ._deletion_postgresql import LocalDataDeletionRepository
+from .api import (
+    DataRightsArtifactStorePort,
+    DataRightsUnitOfWorkFactory,
+    DataRightsViolation,
+)
 
 
 class LocalDataDeletionExecutor:
@@ -19,8 +22,8 @@ class LocalDataDeletionExecutor:
         self,
         *,
         repository: LocalDataDeletionRepository,
-        storage: ContentAddressedArtifactStore,
-        unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+        storage: DataRightsArtifactStorePort,
+        unit_of_work_factory: DataRightsUnitOfWorkFactory,
     ) -> None:
         self._repository = repository
         self._storage = storage
@@ -32,7 +35,7 @@ class LocalDataDeletionExecutor:
                 order_ids = await self._repository.pending_order_ids(unit_of_work)
             for order_id in order_ids:
                 await self.execute(order_id)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def execute(self, order_id: UUID) -> None:
@@ -58,7 +61,7 @@ class LocalDataDeletionExecutor:
                 await self._repository.finalize(unit_of_work, order_id)
         except DataRightsViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
 

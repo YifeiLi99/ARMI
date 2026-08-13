@@ -306,6 +306,29 @@ requires-dist = [
 ]
 
 [[package]]
+name = "armi-data-rights"
+version = "0.0.0"
+source = { editable = "modules/data-rights" }
+dependencies = [
+    { name = "armi-kernel" },
+    { name = "armi-memory" },
+    { name = "armi-relationship" },
+    { name = "armi-runtime-foundation" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-memory", editable = "modules/memory" },
+    { name = "armi-relationship", editable = "modules/relationship" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
 name = "armi-evidence"
 version = "0.0.0"
 source = { editable = "modules/evidence" }
@@ -602,6 +625,7 @@ dependencies = [
     { name = "armi-cognition" },
     { name = "armi-codex" },
     { name = "armi-context" },
+    { name = "armi-data-rights" },
     { name = "armi-evidence" },
     { name = "armi-effect" },
     { name = "armi-expression" },
@@ -640,6 +664,7 @@ requires-dist = [
     { name = "armi-cognition", editable = "modules/cognition" },
     { name = "armi-codex", editable = "modules/codex" },
     { name = "armi-context", editable = "modules/context" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-effect", editable = "modules/effect" },
     { name = "armi-expression", editable = "modules/expression" },

@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from armi_kernel.application import (
+from armi_kernel.contracts import Digest, Instant
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from .api import (
     DataRightsExecutionStatus,
     DataRightsOrderKind,
     DataRightsPartyKey,
@@ -14,10 +17,6 @@ from armi_kernel.application import (
     DataRightsScopeKind,
     DataRightsViolation,
 )
-from armi_kernel.contracts import Digest, Instant
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
-
-from .unit_of_work import PostgreSQLUnitOfWork
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,10 +69,10 @@ class DataRightsOrderRepository:
 
     async def other_human_party(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         party_key: DataRightsPartyKey,
     ) -> UUID:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -89,14 +88,14 @@ class DataRightsOrderRepository:
 
     async def find_existing(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         requester_party_id: UUID,
         order_kind: DataRightsOrderKind,
         idempotency_key: str,
         lock: bool,
     ) -> DataRightsOrderSnapshot | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         locking = "FOR UPDATE" if lock else ""
         row = await (
             await connection.execute(
@@ -116,7 +115,7 @@ class DataRightsOrderRepository:
 
     async def insert(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         order_id: UUID,
         requester_party_id: UUID,
@@ -128,7 +127,7 @@ class DataRightsOrderRepository:
         request_digest: Digest,
         trace_id: str,
     ) -> DataRightsOrderSnapshot:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -165,12 +164,12 @@ class DataRightsOrderRepository:
 
     async def get(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         requester_party_id: UUID,
         order_id: UUID,
     ) -> DataRightsOrderSnapshot | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -187,11 +186,11 @@ class DataRightsOrderRepository:
 
     async def list_orders(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         requester_party_id: UUID | None,
     ) -> tuple[DataRightsOrderSnapshot, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         scope = "" if requester_party_id is None else "WHERE requester_party_id = %s"
         parameters: tuple[object, ...] = (
             () if requester_party_id is None else (requester_party_id,)
@@ -212,9 +211,9 @@ class DataRightsOrderRepository:
         return tuple(_snapshot(row) for row in rows)
 
     async def get_any(
-        self, unit_of_work: PostgreSQLUnitOfWork, order_id: UUID
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, order_id: UUID
     ) -> DataRightsOrderSnapshot | None:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
@@ -229,9 +228,9 @@ class DataRightsOrderRepository:
         return None if row is None else _snapshot(row)
 
     async def deletion_items(
-        self, unit_of_work: PostgreSQLUnitOfWork, order_id: UUID
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, order_id: UUID
     ) -> tuple[DataRightsDeletionItemSnapshot, ...]:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = unit_of_work.transaction
         rows = await (
             await connection.execute(
                 """

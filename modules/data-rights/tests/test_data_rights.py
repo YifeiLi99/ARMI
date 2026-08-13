@@ -7,7 +7,9 @@ from typing import cast
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_data_rights._deletion_postgresql import LocalDataDeletionRepository
+from armi_data_rights._postgresql import DataRightsOrderRepository
+from armi_data_rights.api import (
     DataRightsExecutionStatus,
     DataRightsOrderCommand,
     DataRightsOrderKind,
@@ -17,9 +19,7 @@ from armi_kernel.application import (
     DataRightsViolation,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
-from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
-from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 
 class _Cursor:
@@ -133,7 +133,7 @@ def test_effective_order_guard_controls_new_interactions(blocked: bool) -> None:
     repository = DataRightsOrderRepository()
     observed = asyncio.run(
         repository.blocks_new_interaction(
-            cast(PostgreSQLUnitOfWork, _UnitOfWork(connection)),
+            cast(PostgreSQLRuntimeUnitOfWork, _UnitOfWork(connection)),
             uuid7(),
         )
     )

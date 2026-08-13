@@ -73,6 +73,7 @@ from armi_cognition._validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
+from armi_data_rights.bootstrap import bootstrap_data_rights_gate
 from armi_effect._admission import (
     PostgreSQLResponseAdmissionRepository,
 )
@@ -184,7 +185,6 @@ from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
 )
-from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
 )
@@ -646,7 +646,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_inputs=CreatorInputRepository(bootstrap_evidence().write),
                 other_inputs=OtherHumanInputRepository(bootstrap_evidence().write),
                 unit_of_work_factory=input_factory,
-                data_rights=DataRightsOrderRepository(),
+                data_rights=bootstrap_data_rights_gate(),
             )
             await service.open()
             try:

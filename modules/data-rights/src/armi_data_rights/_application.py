@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -18,6 +15,16 @@ from armi_kernel.application import (
     CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+)
+from armi_kernel.contracts import Digest, Instant, Purpose
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    RuntimeTransactionFailure,
+)
+
+from ._deletion import LocalDataDeletionExecutor
+from ._postgresql import DataRightsOrderRepository, DataRightsOrderSnapshot
+from .api import (
     DataRightsDeletionItemResult,
     DataRightsExecutionStatus,
     DataRightsItemStatus,
@@ -29,25 +36,9 @@ from armi_kernel.application import (
     DataRightsPartyKey,
     DataRightsRequesterKind,
     DataRightsScopeKind,
+    DataRightsUnitOfWorkFactory,
     DataRightsViolation,
-    RuntimeFence,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose
-from armi_memory.api import MemoryDataRightsParticipant
-from armi_relationship.api import RelationshipDataRightsParticipant
-
-from armi_runtime.adapters.persistence.data_deletion import LocalDataDeletionRepository
-from armi_runtime.adapters.persistence.data_rights import (
-    DataRightsOrderRepository,
-    DataRightsOrderSnapshot,
-)
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWork,
-    PostgreSQLUnitOfWorkFactory,
-)
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
-
-from .data_deletion import LocalDataDeletionExecutor
 
 
 class DataRightsOrderService(DataRightsOrderPort):
@@ -65,7 +56,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         creator_party_id: UUID,
         deletion: LocalDataDeletionExecutor,
         repository: DataRightsOrderRepository,
-        unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+        unit_of_work_factory: DataRightsUnitOfWorkFactory,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         if creator_party_id.version != 7:
@@ -80,7 +71,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         try:
             await self._uow_factory.open()
             await self._deletion.resume_pending()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def close(self) -> None:
@@ -196,7 +187,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                 return await self._details(unit, party_id)
         except DataRightsViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def _detail_for_other(
@@ -210,7 +201,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                 return await self._detail_in_unit(unit, order_id, party_id)
         except DataRightsViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def _list(
@@ -219,7 +210,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         try:
             async with self._uow_factory.unit_of_work(read_only=True) as unit:
                 return await self._details(unit, requester_party_id)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def _detail(
@@ -228,11 +219,11 @@ class DataRightsOrderService(DataRightsOrderPort):
         try:
             async with self._uow_factory.unit_of_work(read_only=True) as unit:
                 return await self._detail_in_unit(unit, order_id, requester_party_id)
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def _details(
-        self, unit: PostgreSQLUnitOfWork, requester_party_id: UUID | None
+        self, unit: PostgreSQLRuntimeUnitOfWork, requester_party_id: UUID | None
     ) -> tuple[DataRightsOrderDetail, ...]:
         orders = await self._repository.list_orders(
             unit, requester_party_id=requester_party_id
@@ -243,7 +234,7 @@ class DataRightsOrderService(DataRightsOrderPort):
 
     async def _detail_in_unit(
         self,
-        unit: PostgreSQLUnitOfWork,
+        unit: PostgreSQLRuntimeUnitOfWork,
         order_id: UUID,
         requester_party_id: UUID | None,
     ) -> DataRightsOrderDetail | None:
@@ -261,7 +252,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         )
 
     async def _detail_from_snapshot(
-        self, unit: PostgreSQLUnitOfWork, snapshot: DataRightsOrderSnapshot
+        self, unit: PostgreSQLRuntimeUnitOfWork, snapshot: DataRightsOrderSnapshot
     ) -> DataRightsOrderDetail:
         items = await self._repository.deletion_items(unit, snapshot.order_id)
         return DataRightsOrderDetail(
@@ -307,7 +298,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                 requester_party_id = await self._requester_party(
                     unit_of_work, requester_kind, party_key
                 )
-                await unit_of_work._connection_for_repository().execute(  # pyright: ignore[reportPrivateUsage]
+                await unit_of_work.transaction.execute(
                     "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                     (f"data-rights:{requester_party_id}",),
                 )
@@ -353,7 +344,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     trace_id=command.trace_id.value,
                 )
                 if command.order_kind is DataRightsOrderKind.DELETE_RELATED:
-                    await unit_of_work._connection_for_repository().execute(  # pyright: ignore[reportPrivateUsage]
+                    await unit_of_work.transaction.execute(
                         """
                         UPDATE armi.subjects
                         SET state_epoch = state_epoch + 1
@@ -375,7 +366,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                 return self._result(snapshot, newly_created=True)
         except DataRightsViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def _get(
@@ -398,12 +389,12 @@ class DataRightsOrderService(DataRightsOrderPort):
                 return None if snapshot is None else self._result(snapshot, False)
         except DataRightsViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def _requester_party(
         self,
-        unit_of_work: PostgreSQLUnitOfWork,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         requester_kind: DataRightsRequesterKind,
         party_key: DataRightsPartyKey | None,
     ) -> UUID:
@@ -460,47 +451,4 @@ class DataRightsOrderService(DataRightsOrderPort):
         )
 
 
-def build_data_rights_order_service(
-    conninfo: str,
-    *,
-    environment_id: UUID,
-    creator_party_id: UUID,
-    data_root: Path,
-    max_object_bytes: int,
-    pool_min: int,
-    pool_max: int,
-    acquire_timeout_seconds: int,
-    statement_timeout_seconds: int,
-    authority_admission: Callable[[], RuntimeFence],
-    memory_data_rights: MemoryDataRightsParticipant,
-    relationship_data_rights: RelationshipDataRightsParticipant,
-    notifier: CreatorProjectionNotifier | None = None,
-) -> DataRightsOrderService:
-    unit_of_work_factory = PostgreSQLUnitOfWorkFactory(
-        conninfo,
-        environment_id=environment_id,
-        pool_min=pool_min,
-        pool_max=pool_max,
-        acquire_timeout_seconds=acquire_timeout_seconds,
-        statement_timeout_seconds=statement_timeout_seconds,
-        authority_admission=authority_admission,
-    )
-    deletion = LocalDataDeletionExecutor(
-        repository=LocalDataDeletionRepository(
-            memory_data_rights, relationship_data_rights
-        ),
-        storage=ContentAddressedArtifactStore(
-            data_root / "artifacts", max_object_bytes=max_object_bytes
-        ),
-        unit_of_work_factory=unit_of_work_factory,
-    )
-    return DataRightsOrderService(
-        creator_party_id=creator_party_id,
-        deletion=deletion,
-        repository=DataRightsOrderRepository(),
-        unit_of_work_factory=unit_of_work_factory,
-        notifier=notifier,
-    )
-
-
-__all__ = ("DataRightsOrderService", "build_data_rights_order_service")
+__all__ = ("DataRightsOrderService",)

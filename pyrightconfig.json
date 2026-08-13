@@ -33,6 +33,7 @@
     "modules/effect/src",
     "modules/web-observation/src",
     "modules/codex/src",
+    "modules/data-rights/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src"
   ],
@@ -64,6 +65,7 @@
     "modules/effect/src",
     "modules/web-observation/src",
     "modules/codex/src",
+    "modules/data-rights/src",
     "apps/armi-runtime/src",
     "apps/armi-admin/src",
     "tools/quality.py",

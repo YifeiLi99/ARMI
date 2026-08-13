@@ -18,6 +18,7 @@ from armi_activity.api import ActivityViolation
 from armi_capability.api import CapabilityViolation
 from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
 from armi_context.api import ContextViolation
+from armi_data_rights.api import CreatorExportViolation, DataRightsViolation
 from armi_effect.api import EffectViolation
 from armi_expression.api import ResponseViolation
 from armi_interaction.api import (
@@ -28,8 +29,6 @@ from armi_interaction.api import (
 )
 from armi_kernel.application import (
     CandidateViolation,
-    CreatorExportViolation,
-    DataRightsViolation,
     LifeRecordQueryViolation,
     ModelViolation,
     OtherHumanRecordViolation,
@@ -82,8 +81,7 @@ from .database import (
     compose_codex_pipeline,
     compose_context_embedding_pipeline,
     compose_context_pipeline,
-    compose_creator_export_service,
-    compose_data_rights_order_service,
+    compose_data_rights_module,
     compose_effect_grant_cancellation,
     compose_effect_registration_pipeline,
     compose_evidence_module,
@@ -191,8 +189,7 @@ async def _serve(
     scene_timeline_query = None
     creator_scenes = None
     activity_module = None
-    creator_export_service = None
-    data_rights_order_service = None
+    data_rights_module = None
     life_record_query = None
     exact_life_query_pipeline = None
     creator_relationship_query = None
@@ -335,27 +332,6 @@ async def _serve(
             )
             evidence_module = compose_evidence_module()
             await evidence_module.open()
-            interaction_module = compose_interaction_module(
-                prepared,
-                creator_party_id=creator_context.party_id,
-                cursor_key=derive_timeline_cursor_key(prepared),
-                authority_admission=authority.require_writable,
-                notifier=creator_events,
-                subject_state_read=subject_state_module.read,
-                evidence=evidence_module.write,
-                wakeups=work_wakeups,
-                diagnostic=lambda event: diagnostic.emit(
-                    event,
-                    result_code="CREATOR_INPUT",
-                ),
-                fault_injector=inject_admin_fault,
-            )
-            await interaction_module.open()
-            scene_timeline_query = interaction_module.scene_timeline
-            creator_scenes = interaction_module.creator_scenes
-            creator_input = interaction_module.creator_input
-            other_human_input = interaction_module.other_human_input
-            external_message_input = interaction_module.external_message_input
             activity_module = compose_activity_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -411,13 +387,7 @@ async def _serve(
                 creator_party_id=creator_context.party_id,
             )
             await sleep_module.open()
-            creator_export_service = compose_creator_export_service(
-                prepared,
-                creator_party_id=creator_context.party_id,
-                authority_admission=authority.require_writable,
-            )
-            await creator_export_service.open()
-            data_rights_order_service = compose_data_rights_order_service(
+            data_rights_module = compose_data_rights_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
                 authority_admission=authority.require_writable,
@@ -425,7 +395,29 @@ async def _serve(
                 relationship_data_rights=relationship_module.data_rights,
                 notifier=creator_events,
             )
-            await data_rights_order_service.open()
+            await data_rights_module.open()
+            interaction_module = compose_interaction_module(
+                prepared,
+                creator_party_id=creator_context.party_id,
+                cursor_key=derive_timeline_cursor_key(prepared),
+                authority_admission=authority.require_writable,
+                notifier=creator_events,
+                subject_state_read=subject_state_module.read,
+                evidence=evidence_module.write,
+                data_rights=data_rights_module.gate,
+                wakeups=work_wakeups,
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="CREATOR_INPUT",
+                ),
+                fault_injector=inject_admin_fault,
+            )
+            await interaction_module.open()
+            scene_timeline_query = interaction_module.scene_timeline
+            creator_scenes = interaction_module.creator_scenes
+            creator_input = interaction_module.creator_input
+            other_human_input = interaction_module.other_human_input
+            external_message_input = interaction_module.external_message_input
             effect_grant_cancellation = compose_effect_grant_cancellation()
             capability_policy = compose_capability_policy(
                 prepared,
@@ -751,10 +743,8 @@ async def _serve(
                 await mood_module.close()
             if prompt_module is not None:
                 await prompt_module.close()
-            if creator_export_service is not None:
-                await creator_export_service.close()
-            if data_rights_order_service is not None:
-                await data_rights_order_service.close()
+            if data_rights_module is not None:
+                await data_rights_module.close()
             if perception_module is not None:
                 await perception_module.close()
             if qq_channel is not None:
@@ -992,10 +982,8 @@ async def _serve(
             await mood_module.close()
         if prompt_module is not None:
             await prompt_module.close()
-        if creator_export_service is not None:
-            await creator_export_service.close()
-        if data_rights_order_service is not None:
-            await data_rights_order_service.close()
+        if data_rights_module is not None:
+            await data_rights_module.close()
         if perception_module is not None:
             perception_module.stop()
         if context_pipeline is not None:
@@ -1194,8 +1182,8 @@ async def _serve(
         creator_maintenance_query=(None if sleep_module is None else sleep_module.read),
         creator_relationship_query=creator_relationship_query,
         creator_prompt=None if prompt_module is None else prompt_module.creator,
-        creator_export=creator_export_service,
-        data_rights=data_rights_order_service,
+        creator_export=(None if data_rights_module is None else data_rights_module.exports),
+        data_rights=(None if data_rights_module is None else data_rights_module.orders),
         creator_emergency_wake=life_opportunity_pipeline,
         creator_events=creator_events,
         creator_input=creator_input,
@@ -1300,10 +1288,8 @@ async def _serve(
             await mood_module.close()
         if prompt_module is not None:
             await prompt_module.close()
-        if creator_export_service is not None:
-            await creator_export_service.close()
-        if data_rights_order_service is not None:
-            await data_rights_order_service.close()
+        if data_rights_module is not None:
+            await data_rights_module.close()
         if context_pipeline is not None:
             await context_pipeline.close()
         if life_opportunity_pipeline is not None:

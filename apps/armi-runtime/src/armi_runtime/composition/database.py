@@ -38,6 +38,11 @@ from armi_cognition.bootstrap import (
 from armi_context import load_embedding_binding
 from armi_context.api import ContextEmbeddingRuntimePort, ContextRuntimePort
 from armi_context.bootstrap import bootstrap_context, bootstrap_context_embedding
+from armi_data_rights.api import (
+    DataRightsInteractionGate,
+    DataRightsViolation,
+)
+from armi_data_rights.bootstrap import DataRightsModule, bootstrap_data_rights
 from armi_effect.api import (
     ActionAdapterPort,
     EffectGrantCancellationPort,
@@ -60,11 +65,9 @@ from armi_interaction.api import CreatorInputTransactionPort
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel.application import (
     CandidateViolation,
-    CreatorExportViolation,
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
-    DataRightsViolation,
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     ModelBinding,
@@ -160,7 +163,6 @@ from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
 )
-from armi_runtime.adapters.persistence.data_rights import DataRightsOrderRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.other_human_records import (
@@ -186,8 +188,6 @@ from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkF
 from .birth_manifest import packaged_birth_digests
 from .config_assets import runtime_config_path
 from .configuration import ConfigurationViolation
-from .creator_exports import CreatorExportService, build_creator_export_service
-from .data_rights import DataRightsOrderService, build_data_rights_order_service
 from .environment import PreparedEnvironment
 from .exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
@@ -463,6 +463,7 @@ def compose_interaction_module(
     notifier: CreatorProjectionNotifier | None,
     subject_state_read: SubjectStateReadPort,
     evidence: EvidenceWritePort,
+    data_rights: DataRightsInteractionGate,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
@@ -522,7 +523,7 @@ def compose_interaction_module(
                         max_object_bytes=config.artifacts.max_object_bytes,
                     ),
                     catalog=ArtifactCatalogRepository(),
-                    data_rights=DataRightsOrderRepository(),
+                    data_rights=data_rights,
                     subject_state=subject_state_read,
                     evidence=evidence,
                     notifier=notifier,
@@ -1044,50 +1045,7 @@ def compose_prompt_module(
         raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
 
 
-def compose_creator_export_service(
-    prepared: PreparedEnvironment,
-    *,
-    creator_party_id: UUID,
-    authority_admission: Callable[[], RuntimeFence],
-) -> CreatorExportService:
-    """Resolve the Runtime credential for Creator local complete-data export."""
-
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> CreatorExportService:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
-                config = prepared.effective.config
-                return build_creator_export_service(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    creator_party_id=creator_party_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
-
-
-def compose_data_rights_order_service(
+def compose_data_rights_module(
     prepared: PreparedEnvironment,
     *,
     creator_party_id: UUID,
@@ -1095,7 +1053,7 @@ def compose_data_rights_order_service(
     memory_data_rights: MemoryDataRightsParticipant,
     relationship_data_rights: RelationshipDataRightsParticipant,
     notifier: CreatorProjectionNotifier | None = None,
-) -> DataRightsOrderService:
+) -> DataRightsModule:
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
         raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE")
@@ -1105,27 +1063,38 @@ def compose_data_rights_order_service(
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> DataRightsOrderService:
+            def create(value: memoryview) -> DataRightsModule:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
                     raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
                 config = prepared.effective.config
-                return build_data_rights_order_service(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
+                def factory() -> PostgreSQLUnitOfWorkFactory:
+                    return PostgreSQLUnitOfWorkFactory(
+                        conninfo,
+                        environment_id=config.environment.environment_id,
+                        pool_min=config.database.pool_min,
+                        pool_max=config.database.pool_max,
+                        acquire_timeout_seconds=(
+                            config.database.pool_acquire_timeout_seconds
+                        ),
+                        statement_timeout_seconds=(
+                            config.database.statement_timeout_seconds
+                        ),
+                        authority_admission=authority_admission,
+                    )
+
+                return bootstrap_data_rights(
                     creator_party_id=creator_party_id,
                     data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
+                    order_factory=factory(),
+                    export_factory=factory(),
+                    storage=ContentAddressedArtifactStore(
+                        prepared.data_root / "artifacts",
+                        max_object_bytes=config.artifacts.max_object_bytes,
                     ),
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                    memory_data_rights=memory_data_rights,
-                    relationship_data_rights=relationship_data_rights,
+                    memory=memory_data_rights,
+                    relationship=relationship_data_rights,
                     notifier=notifier,
                 )
 
@@ -2045,8 +2014,7 @@ __all__ = (
     "compose_capability_policy",
     "compose_codex_pipeline",
     "compose_context_pipeline",
-    "compose_creator_export_service",
-    "compose_data_rights_order_service",
+    "compose_data_rights_module",
     "compose_effect_grant_cancellation",
     "compose_effect_registration_pipeline",
     "compose_evidence_module",
