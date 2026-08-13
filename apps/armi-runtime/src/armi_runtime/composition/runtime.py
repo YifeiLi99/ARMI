@@ -586,6 +586,7 @@ async def _serve(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 capability_consumption=capability_policy.consumption,
+                interaction_delivery=interaction_module.effect_delivery,
                 notifier=creator_events,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(

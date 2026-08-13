@@ -22,6 +22,7 @@ from .api import (
     EffectDispatchBoundaryPort,
     EffectGrantCancellationPort,
     EffectRuntimePort,
+    EffectTimelinePort,
     EffectWakeupPort,
     ResponseAdmissionRuntimePort,
 )
@@ -48,6 +49,7 @@ def bootstrap_effect_runtime(
     storage: EffectArtifactStorePort,
     work: DurableWorkPort,
     capability_consumption: CapabilityGrantConsumptionPort,
+    interaction_delivery: EffectTimelinePort,
     wakeups: EffectWakeupPort,
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Diagnostic | None = None,
@@ -60,6 +62,7 @@ def bootstrap_effect_runtime(
         storage=storage,
         work=work,
         capability_consumption=capability_consumption,
+        interaction_delivery=interaction_delivery,
         wakeups=wakeups,
         notifier=notifier,
         diagnostic=diagnostic,

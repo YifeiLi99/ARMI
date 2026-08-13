@@ -451,6 +451,18 @@ class ActionAdapterPort(Protocol):
     ) -> EffectAdapterReceipt | None: ...
 
 
+@runtime_checkable
+class EffectTimelinePort(Protocol):
+    async def record_party_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        effect_id: UUID,
+        occurred_at: Instant,
+    ) -> None: ...
+
+
 def _uuid7(value: object) -> None:
     if type(value) is not UUID or value.version != 7:
         raise EffectViolation("CON-EFFECT-ID")
@@ -479,6 +491,7 @@ __all__ = (
     "EffectRuntimePort",
     "EffectSettlement",
     "EffectStatus",
+    "EffectTimelinePort",
     "EffectVerificationStatus",
     "EffectView",
     "EffectViolation",

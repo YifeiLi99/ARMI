@@ -44,6 +44,7 @@ from .api import (
     EffectArtifactStorePort,
     EffectId,
     EffectRegistrationResult,
+    EffectTimelinePort,
     EffectView,
     EffectViolation,
     EffectWakeupPort,
@@ -81,6 +82,7 @@ class EffectRegistrationPipeline:
         storage: EffectArtifactStorePort,
         work: DurableWorkPort,
         capability_consumption: CapabilityGrantConsumptionPort,
+        interaction_delivery: EffectTimelinePort,
         notifier: CreatorProjectionNotifier | None = None,
         adapter: ActionAdapterPort | None = None,
         external_message_adapter: ActionAdapterPort | None = None,
@@ -97,7 +99,7 @@ class EffectRegistrationPipeline:
         if adapter is not None:
             self._adapter = adapter
         else:
-            local_inbox = PostgreSQLLocalInbox(factory)
+            local_inbox = PostgreSQLLocalInbox(factory, interaction_delivery)
             routes: dict[str, ActionAdapterPort] = {
                 "creator_inbox": local_inbox,
                 "other_human_inbox": local_inbox,

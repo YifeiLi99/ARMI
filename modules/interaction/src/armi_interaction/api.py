@@ -7,7 +7,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import ArtifactId, ArtifactRegistration, PublishedArtifact
-from armi_kernel.contracts import Digest, TraceId
+from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
@@ -261,6 +261,18 @@ class InteractionPerceptionPort(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
+class InteractionEffectDeliveryPort(Protocol):
+    async def record_party_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        effect_id: UUID,
+        occurred_at: Instant,
+    ) -> None: ...
+
+
 __all__ = (
     "PROJECTION_VERSION",
     "SCENE_COLLECTION_PROJECTION_VERSION",
@@ -307,6 +319,7 @@ __all__ = (
     "ExternalVisualRole",
     "InteractionArtifactCatalogPort",
     "InteractionDataRightsGate",
+    "InteractionEffectDeliveryPort",
     "InteractionPerceptionPort",
     "InteractionWakeupPort",
     "ObservedExternalMessage",

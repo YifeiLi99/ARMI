@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid7
 
-from armi_kernel.contracts import Digest, TraceId
+from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from .api import (
@@ -291,6 +291,29 @@ class PostgreSQLInteractionPerception:
                SET recent_context_boundary=%s,scene_version=scene_version+1
                WHERE scene_id=%s AND current_status='open'""",
             (timeline_id, snapshot.scene_id),
+        )
+
+    async def record_party_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        effect_id: UUID,
+        occurred_at: Instant,
+    ) -> None:
+        timeline_id = uuid7()
+        await transaction.execute(
+            """INSERT INTO armi.scene_timeline_items
+               (timeline_item_id,scene_id,source_kind,source_ref,source_event_no,
+                result_status,occurred_at)
+               VALUES (%s,%s,'party_response',%s,1,'completed',%s)""",
+            (timeline_id, scene_id, effect_id, occurred_at.value),
+        )
+        await transaction.execute(
+            """UPDATE armi.interaction_scenes
+               SET recent_context_boundary=%s,scene_version=scene_version+1
+               WHERE scene_id=%s AND recent_context_boundary IS DISTINCT FROM %s""",
+            (timeline_id, scene_id, timeline_id),
         )
 
 

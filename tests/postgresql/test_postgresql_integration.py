@@ -6203,7 +6203,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             unit_of_work,
                             dispatch_snapshot,
                         )
-                    adapter = PostgreSQLLocalInbox(response_factory)
+                    adapter = PostgreSQLLocalInbox(
+                        response_factory, PostgreSQLInteractionPerception()
+                    )
                     receipt = await adapter.dispatch(
                         dispatch_snapshot.request,
                         payloads["reply"],

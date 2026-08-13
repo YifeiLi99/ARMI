@@ -70,7 +70,11 @@ from armi_effect.bootstrap import (
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_evidence.bootstrap import EvidenceModule, bootstrap_evidence
 from armi_expression.bootstrap import bootstrap_expression
-from armi_interaction.api import CreatorInputTransactionPort, InteractionPerceptionPort
+from armi_interaction.api import (
+    CreatorInputTransactionPort,
+    InteractionEffectDeliveryPort,
+    InteractionPerceptionPort,
+)
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
@@ -1337,6 +1341,7 @@ def compose_effect_registration_pipeline(
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     capability_consumption: CapabilityGrantConsumptionPort,
+    interaction_delivery: InteractionEffectDeliveryPort,
     notifier: CreatorProjectionNotifier | None = None,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
@@ -1354,6 +1359,7 @@ def compose_effect_registration_pipeline(
         ),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         capability_consumption=capability_consumption,
+        interaction_delivery=interaction_delivery,
         notifier=notifier,
         wakeups=wakeups,
         diagnostic=diagnostic,

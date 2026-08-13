@@ -31,6 +31,7 @@ from .api import (
     ExternalMessageInputPort,
     InteractionArtifactCatalogPort,
     InteractionDataRightsGate,
+    InteractionEffectDeliveryPort,
     InteractionPerceptionPort,
     InteractionWakeupPort,
     OtherHumanInputPort,
@@ -49,6 +50,7 @@ class InteractionModule:
     other_human_input: OtherHumanInputPort
     external_message_input: ExternalMessageInputPort
     perception: InteractionPerceptionPort
+    effect_delivery: InteractionEffectDeliveryPort
     _timeline: PostgreSQLSceneTimelineQuery
 
     async def open(self) -> None:
@@ -125,6 +127,7 @@ def bootstrap_interaction(
         storage=storage,
         codex_tasks=codex_task_projection,
     )
+    perception = PostgreSQLInteractionPerception()
     return InteractionModule(
         creator_input=creator_input,
         creator_operations=creator_input,
@@ -133,7 +136,8 @@ def bootstrap_interaction(
         scene_timeline=timeline,
         other_human_input=other_human,
         external_message_input=external,
-        perception=PostgreSQLInteractionPerception(),
+        perception=perception,
+        effect_delivery=perception,
         _timeline=timeline,
     )
 
