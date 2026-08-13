@@ -103,6 +103,7 @@ from armi_interaction._timeline_postgresql import PostgreSQLSceneTimelineQuery
 from armi_interaction.api import (
     ConfigureExternalCreatorCommand,
     CreatorInputAcceptance,
+    CreatorOperationPhase,
     ExternalAccountKey,
     ExternalChannel,
     ExternalConversationKey,
@@ -2437,6 +2438,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 first = await gateway.accept(command)
                 repeated = await gateway.accept(command)
+                async with factory.unit_of_work(read_only=True) as unit_of_work:
+                    operation = await CreatorInputRepository(
+                        bootstrap_evidence().write
+                    ).operation(
+                        unit_of_work,
+                        opportunity_id=first.opportunity_id,
+                        creator_party_id=creator_party_id,
+                    )
+                self.assertEqual(operation.phase, CreatorOperationPhase.ACCEPTED)
+                self.assertEqual(operation.acceptance, repeated)
                 with self.assertRaisesRegex(RuntimeError, "CODEX-TASK-IDEMPOTENCY"):
                     await gateway.accept(
                         CreatorCodexTaskCommand(
