@@ -197,6 +197,20 @@ class MaterialCandidateSource:
 
 
 @dataclass(frozen=True, slots=True)
+class MaterialCandidateSourceRef:
+    material_id: UUID
+    head_version: int
+
+    def __post_init__(self) -> None:
+        if (
+            not _uuid7(self.material_id)
+            or type(self.head_version) is not int
+            or self.head_version <= 0
+        ):
+            raise MaterialViolation("MATERIAL-SOURCE-REF")
+
+
+@dataclass(frozen=True, slots=True)
 class MaterialContextItem:
     material_id: UUID
     current_revision_id: UUID
@@ -345,7 +359,7 @@ class MaterialReadPort(Protocol):
         *,
         subject_id: UUID,
         generation_id: UUID,
-        episode_id: UUID,
+        sources: tuple[MaterialCandidateSourceRef, ...],
     ) -> tuple[MaterialCandidateSource, ...]: ...
 
     async def life_record_branch(
@@ -370,6 +384,16 @@ class MaterialReadPort(Protocol):
     async def get_creator_visible(
         self, material_id: UUID
     ) -> CreatorLifeMaterialItem | None: ...
+
+
+@runtime_checkable
+class MaterialCandidateContextPort(Protocol):
+    async def material_sources(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> tuple[MaterialCandidateSourceRef, ...]: ...
 
 
 @runtime_checkable
@@ -439,7 +463,9 @@ __all__ = (
     "MaterialAdminItem",
     "MaterialAdminReadPort",
     "MaterialAdminSnapshot",
+    "MaterialCandidateContextPort",
     "MaterialCandidateSource",
+    "MaterialCandidateSourceRef",
     "MaterialCognitionPort",
     "MaterialCommitPort",
     "MaterialContextItem",

@@ -247,6 +247,7 @@ def test_terminal_validation_failure_also_fails_owning_episode() -> None:
             cast(Any, SimpleNamespace()),
             cast(Any, SimpleNamespace()),
             cast(Any, SimpleNamespace()),
+            cast(Any, SimpleNamespace()),
         ).fail(
             cast(Any, unit_of_work),
             lease=cast(Any, lease),

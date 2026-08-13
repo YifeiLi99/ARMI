@@ -38,6 +38,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Purpose, SubjectId
 from armi_material.api import (
+    MaterialCandidateContextPort,
     MaterialCandidateSource,
     MaterialCognitionPort,
     MaterialReadPort,
@@ -178,6 +179,7 @@ class CandidateValidationPipeline:
         work: DurableWorkPort,
         activity_cognition: ActivityCognitionPort,
         activity_read: ActivityReadPort,
+        context_read: MaterialCandidateContextPort,
         memory_cognition: MemoryCognitionPort,
         memory_read: MemoryReadPort,
         mood_cognition: MoodCognitionPort,
@@ -212,6 +214,7 @@ class CandidateValidationPipeline:
             relationship_read,
             sleep_read,
             activity_read,
+            context_read,
             memories=memory_read,
             mood=mood_read,
             prompts=prompt_read,

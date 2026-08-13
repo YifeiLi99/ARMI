@@ -8,7 +8,11 @@ from pathlib import Path
 from armi_activity.api import ActivityCognitionPort, ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
 from armi_kernel.application import DurableWorkPort
-from armi_material.api import MaterialCognitionPort, MaterialReadPort
+from armi_material.api import (
+    MaterialCandidateContextPort,
+    MaterialCognitionPort,
+    MaterialReadPort,
+)
 from armi_memory.api import MemoryCognitionPort, MemoryReadPort
 from armi_mood.api import MoodCognitionPort, MoodReadPort
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
@@ -139,6 +143,7 @@ def bootstrap_cognition_candidate(
     work: DurableWorkPort,
     activity_cognition: ActivityCognitionPort,
     activity_read: ActivityReadPort,
+    context_read: MaterialCandidateContextPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
     mood_cognition: MoodCognitionPort,
@@ -164,6 +169,7 @@ def bootstrap_cognition_candidate(
         work=work,
         activity_cognition=activity_cognition,
         activity_read=activity_read,
+        context_read=context_read,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
         mood_cognition=mood_cognition,

@@ -49,7 +49,11 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-from armi_material.api import MaterialCandidateSource, MaterialReadPort
+from armi_material.api import (
+    MaterialCandidateContextPort,
+    MaterialCandidateSource,
+    MaterialReadPort,
+)
 from armi_memory.api import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
@@ -143,6 +147,7 @@ class PostgreSQLCandidateValidationRepository:
 
     __slots__ = (
         "_activities",
+        "_context",
         "_materials",
         "_memories",
         "_mood",
@@ -157,6 +162,7 @@ class PostgreSQLCandidateValidationRepository:
         relationships: RelationshipReadPort,
         sleep: SleepReadPort,
         activities: ActivityReadPort,
+        context: MaterialCandidateContextPort,
         memories: MemoryReadPort | None = None,
         mood: MoodReadPort | None = None,
         prompts: PromptReadPort | None = None,
@@ -164,6 +170,7 @@ class PostgreSQLCandidateValidationRepository:
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
+        self._context = context
         self._memories = memories
         self._mood = mood
         self._prompts = prompts
@@ -379,11 +386,15 @@ class PostgreSQLCandidateValidationRepository:
             raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
         if self._materials is None:
             raise CandidateViolation("CANDIDATE-MATERIAL-OWNER")
+        material_context_sources = await self._context.material_sources(
+            unit_of_work.transaction,
+            episode_id=row[0],
+        )
         material_rows = await self._materials.candidate_sources(
             unit_of_work.transaction,
             subject_id=row[2],
             generation_id=row[3],
-            episode_id=row[0],
+            sources=material_context_sources,
         )
         if self._prompts is None:
             raise CandidateViolation("CANDIDATE-SUBJECT-PROMPT-CONTEXT")

@@ -28,6 +28,7 @@ from .api import (
     LifeMaterialPrivacyStatus,
     LifeMaterialStatus,
     MaterialCandidateSource,
+    MaterialCandidateSourceRef,
     MaterialLifeRecordItem,
     MaterialOpportunitySource,
     MaterialProjectionSource,
@@ -94,45 +95,50 @@ class PostgreSQLMaterialOwner:
         *,
         subject_id: UUID,
         generation_id: UUID,
-        episode_id: UUID,
+        sources: tuple[MaterialCandidateSourceRef, ...],
     ) -> tuple[MaterialCandidateSource, ...]:
-        rows = await (
-            await transaction.execute(
-                """SELECT material.life_material_id,material.current_revision_id,
+        result: list[MaterialCandidateSource] = []
+        for source in sources:
+            row = await (
+                await transaction.execute(
+                    """SELECT material.life_material_id,material.current_revision_id,
                           material.head_version,material.owner_party_id,material.material_kind,
                           revision.title,revision.metadata,revision.material_status,
                           revision.privacy_status,artifact.artifact_id,artifact.content_digest,
                           artifact.byte_size,artifact.media_type,artifact.logical_kind,
                           artifact.privacy_scope,artifact.integrity_status
-                   FROM armi.cognitive_context_items AS item
-                   JOIN armi.life_materials AS material
-                     ON material.life_material_id=item.source_ref AND material.subject_id=%s
-                    AND material.life_generation_id=%s AND material.head_version=item.source_version
-                    AND material.deleted_at IS NULL
+                   FROM armi.life_materials AS material
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
                    JOIN armi.artifacts AS artifact ON artifact.artifact_id=revision.artifact_id
-                   WHERE item.cognitive_episode_id=%s AND item.disposition='included'
-                     AND item.section='material' AND item.item_kind='current_material'
-                     AND item.source_kind='life_material' ORDER BY item.ordinal""",
-                (subject_id, generation_id, episode_id),
+                   WHERE material.life_material_id=%s AND material.subject_id=%s
+                     AND material.life_generation_id=%s AND material.head_version=%s
+                     AND material.deleted_at IS NULL""",
+                    (
+                        source.material_id,
+                        subject_id,
+                        generation_id,
+                        source.head_version,
+                    ),
+                )
+            ).fetchone()
+            if row is None:
+                raise MaterialViolation("MATERIAL-SOURCE-STALE")
+            result.append(
+                MaterialCandidateSource(
+                    row[0],
+                    row[1],
+                    int(row[2]),
+                    row[3],
+                    LifeMaterialKind(str(row[4])),
+                    str(row[5]),
+                    _metadata(row[6]),
+                    LifeMaterialStatus(str(row[7])),
+                    LifeMaterialPrivacyStatus(str(row[8])),
+                    _artifact(row, 9),
+                )
             )
-        ).fetchall()
-        return tuple(
-            MaterialCandidateSource(
-                row[0],
-                row[1],
-                int(row[2]),
-                row[3],
-                LifeMaterialKind(str(row[4])),
-                str(row[5]),
-                _metadata(row[6]),
-                LifeMaterialStatus(str(row[7])),
-                LifeMaterialPrivacyStatus(str(row[8])),
-                _artifact(row, 9),
-            )
-            for row in rows
-        )
+        return tuple(result)
 
     async def life_record_branch(
         self,
