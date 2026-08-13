@@ -182,7 +182,6 @@ from armi_runtime.adapters.persistence.other_human_records import (
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
 )
-from armi_runtime.adapters.persistence.role_policy import physical_role_name
 from armi_runtime.adapters.persistence.runtime_authority import (
     PostgreSQLRuntimeAuthority,
 )
@@ -512,9 +511,9 @@ def compose_opportunity_admission() -> OpportunityAdmissionPort:
 def compose_interaction_module(
     prepared: PreparedEnvironment,
     *,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     creator_party_id: UUID,
     cursor_key: bytes,
-    authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None,
     subject_state_read: SubjectStateReadPort,
     evidence: EvidenceWritePort,
@@ -527,79 +526,28 @@ def compose_interaction_module(
 ) -> InteractionModule:
     """Resolve and bind the one active interaction owner implementation."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise DatabaseViolation(
-            "DB-CONNECTION-UNAVAILABLE",
-            "the required database credential locator is unavailable",
-            status="unavailable",
-            exit_code=3,
-        )
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> InteractionModule:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise DatabaseViolation(
-                        "DB-CONNECTION-UNAVAILABLE",
-                        "the configured PostgreSQL connection is unavailable",
-                        status="unavailable",
-                        exit_code=3,
-                    ) from None
-                config = prepared.effective.config
-                expected_role = physical_role_name(
-                    config.environment.environment_id, "runtime"
-                )
-                return bootstrap_interaction(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    expected_role=expected_role,
-                    creator_party_id=creator_party_id,
-                    cursor_key=cursor_key,
-                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
-                        conninfo,
-                        environment_id=config.environment.environment_id,
-                        pool_min=config.database.pool_min,
-                        pool_max=config.database.pool_max,
-                        acquire_timeout_seconds=(
-                            config.database.pool_acquire_timeout_seconds
-                        ),
-                        statement_timeout_seconds=(
-                            config.database.statement_timeout_seconds
-                        ),
-                        authority_admission=authority_admission,
-                    ),
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    codex_task_projection=bootstrap_codex_timeline_projection(),
-                    catalog=ArtifactCatalogRepository(),
-                    data_rights=data_rights,
-                    subject_state=subject_state_read,
-                    evidence=evidence,
-                    evidence_read=evidence_read,
-                    opportunity=opportunity,
-                    notifier=notifier,
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                    fault_injector=fault_injector,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise DatabaseViolation(
-            "DB-ROLE-CREDENTIAL-SCOPE",
-            "the configured PostgreSQL connection is unavailable",
-            status="unavailable",
-            exit_code=3,
-        ) from None
+    config = prepared.effective.config
+    return bootstrap_interaction(
+        unit_of_work_factory,
+        environment_id=config.environment.environment_id,
+        creator_party_id=creator_party_id,
+        cursor_key=cursor_key,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        codex_task_projection=bootstrap_codex_timeline_projection(),
+        catalog=ArtifactCatalogRepository(),
+        data_rights=data_rights,
+        subject_state=subject_state_read,
+        evidence=evidence,
+        evidence_read=evidence_read,
+        opportunity=opportunity,
+        notifier=notifier,
+        wakeups=wakeups,
+        diagnostic=diagnostic,
+        fault_injector=fault_injector,
+    )
 
 
 def compose_activity_module(

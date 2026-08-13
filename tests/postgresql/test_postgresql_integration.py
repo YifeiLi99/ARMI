@@ -2491,14 +2491,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(operation.phase, CreatorOperationPhase.ACCEPTED)
                 self.assertEqual(operation.acceptance, repeated)
                 timeline_query = PostgreSQLSceneTimelineQuery(
-                    fixture.runtime_dsn,
+                    factory,
                     environment_id=fixture.environment_id,
-                    expected_role=fixture.runtime_role,
                     creator_party_id=creator_party_id,
                     cursor_key=b"c" * 32,
                     storage=storage,
                     codex_tasks=bootstrap_codex_timeline_projection(),
-                    pool_timeout_seconds=2,
                 )
                 await timeline_query.open()
                 try:
@@ -4671,10 +4669,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             cursor: OpaqueCursor | None,
             scene_key: str = "default",
         ) -> SceneTimelinePage:
-            gateway = PostgreSQLSceneTimelineQuery(
+            factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
-                expected_role=fixture.runtime_role,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            gateway = PostgreSQLSceneTimelineQuery(
+                factory,
+                environment_id=fixture.environment_id,
                 creator_party_id=scene[1],
                 cursor_key=b"s" * 32,
                 storage=ContentAddressedArtifactStore(
@@ -4682,8 +4688,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     max_object_bytes=1024 * 1024,
                 ),
                 codex_tasks=bootstrap_codex_timeline_projection(),
-                pool_timeout_seconds=2,
             )
+            await factory.open()
             await gateway.open()
             try:
                 return await gateway.query(
@@ -4691,6 +4697,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             finally:
                 await gateway.close()
+                await factory.close()
 
         first_page = asyncio.run(
             read_page(None),

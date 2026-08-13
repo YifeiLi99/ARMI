@@ -46,31 +46,21 @@ class InteractionModule:
     scene_timeline: SceneTimelineQueryPort
     other_human_input: OtherHumanInputPort
     external_message_input: ExternalMessageInputPort
-    _factory: PostgreSQLRuntimeUnitOfWorkFactory
     _timeline: PostgreSQLSceneTimelineQuery
 
     async def open(self) -> None:
-        await self._factory.open()
-        try:
-            await self._timeline.open()
-        except Exception:
-            await self._factory.close()
-            raise
+        await self._timeline.open()
 
     async def close(self) -> None:
         await self._timeline.close()
-        await self._factory.close()
 
 
 def bootstrap_interaction(
-    conninfo: str,
+    unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
-    expected_role: str,
     environment_id: UUID,
     creator_party_id: UUID,
     cursor_key: bytes,
-    pool_timeout_seconds: int,
-    unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
     storage: ContentAddressedArtifactStore,
     codex_task_projection: SceneTimelineCodexTaskProjectionPort,
     catalog: InteractionArtifactCatalogPort,
@@ -125,14 +115,12 @@ def bootstrap_interaction(
         notifier=notifier,
     )
     timeline = PostgreSQLSceneTimelineQuery(
-        conninfo,
+        unit_of_work_factory,
         environment_id=environment_id,
-        expected_role=expected_role,
         creator_party_id=creator_party_id,
         cursor_key=cursor_key,
         storage=storage,
         codex_tasks=codex_task_projection,
-        pool_timeout_seconds=pool_timeout_seconds,
     )
     return InteractionModule(
         creator_input=creator_input,
@@ -142,7 +130,6 @@ def bootstrap_interaction(
         scene_timeline=timeline,
         other_human_input=other_human,
         external_message_input=external,
-        _factory=unit_of_work_factory,
         _timeline=timeline,
     )
 

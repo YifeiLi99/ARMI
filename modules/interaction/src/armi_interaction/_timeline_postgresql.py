@@ -10,7 +10,6 @@ from datetime import datetime
 from typing import Any, cast
 from uuid import UUID
 
-import psycopg
 import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
@@ -22,8 +21,10 @@ from armi_kernel.application import (
     AuditResultStatus,
 )
 from armi_kernel.contracts import Digest, Instant, OpaqueCursor
-from psycopg.pq import TransactionStatus
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
 
 from ._scene_contract import (
     PROJECTION_VERSION,
@@ -34,8 +35,6 @@ from ._scene_contract import (
     SceneTimelineQuery,
     TimelineItemId,
 )
-
-_SEARCH_PATH = "pg_catalog, armi"
 
 
 def _b64encode(value: bytes) -> str:
@@ -164,23 +163,6 @@ class SceneTimelineCursorCodec:
         return before_at, before_id
 
 
-async def _configure(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-) -> None:
-    await connection.set_autocommit(True)
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
-async def _reset(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-) -> None:
-    if connection.info.transaction_status != TransactionStatus.IDLE:
-        await connection.rollback()
-    await connection.execute("RESET ROLE")
-    await connection.execute("RESET ALL")
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
 class PostgreSQLSceneTimelineQuery:
     """Query one Creator-visible scene using a dedicated read-only pool."""
 
@@ -188,27 +170,22 @@ class PostgreSQLSceneTimelineQuery:
         "_codec",
         "_codex_tasks",
         "_creator_party_id",
-        "_expected_role",
-        "_pool",
-        "_pool_timeout_seconds",
+        "_factory",
         "_storage",
     )
 
     def __init__(
         self,
-        conninfo: str,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
         environment_id: UUID,
-        expected_role: str,
         creator_party_id: UUID,
         cursor_key: bytes,
         storage: ContentAddressedArtifactStore,
         codex_tasks: SceneTimelineCodexTaskProjectionPort,
-        pool_timeout_seconds: int,
     ) -> None:
         self._creator_party_id = creator_party_id
-        self._expected_role = expected_role
-        self._pool_timeout_seconds = pool_timeout_seconds
+        self._factory = factory
         self._storage = storage
         self._codex_tasks = codex_tasks
         self._codec = SceneTimelineCursorCodec(
@@ -217,47 +194,16 @@ class PostgreSQLSceneTimelineQuery:
             creator_party_id=creator_party_id,
         )
 
-        async def check(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-        ) -> None:
-            row = await (
-                await connection.execute(
-                    "SELECT session_user, current_user, current_setting('search_path')"
-                )
-            ).fetchone()
-            if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
-                raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
-
-        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
-            conninfo,
-            min_size=1,
-            max_size=1,
-            open=False,
-            configure=_configure,
-            check=check,
-            reset=_reset,
-            timeout=float(pool_timeout_seconds),
-            name="armi-scene-timeline-query",
-        )
-
     async def open(self) -> None:
-        try:
-            await self._pool.open(wait=True)
-        except psycopg.Error, PoolTimeout:
-            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._pool.close()
+        return None
 
     async def query(self, request: SceneTimelineQuery) -> SceneTimelinePage:
         try:
-            async with (
-                self._pool.connection(
-                    timeout=float(self._pool_timeout_seconds)
-                ) as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("SET TRANSACTION READ ONLY")
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                connection = unit_of_work.transaction
                 scene_rows = await (
                     await connection.execute(
                         """
@@ -474,7 +420,7 @@ class PostgreSQLSceneTimelineQuery:
                     ).fetchall()
         except SceneQueryViolation:
             raise
-        except psycopg.Error, PoolTimeout:
+        except RuntimeTransactionFailure:
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
 
         visible = rows[: request.limit]

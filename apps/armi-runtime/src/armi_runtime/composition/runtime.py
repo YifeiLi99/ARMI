@@ -413,9 +413,9 @@ async def _serve(
             opportunity_admission = compose_opportunity_admission()
             interaction_module = compose_interaction_module(
                 prepared,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
-                authority_admission=authority.require_writable,
                 notifier=creator_events,
                 subject_state_read=subject_state_module.read,
                 evidence=evidence_module.write,
