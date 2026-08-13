@@ -137,14 +137,6 @@ class PostgreSQLEffectDispatchRepository:
             """,
             (attempt_id, row[1]),
         )
-        await connection.execute(
-            """
-            UPDATE armi.action_operations
-            SET phase = 'dispatching', outcome = NULL
-            WHERE effect_id = %s AND phase = 'effect_registered' AND outcome IS NULL
-            """,
-            (row[1],),
-        )
         request = FrozenEffectRequest(
             EffectId(row[1]),
             EffectAttemptId(attempt_id),
@@ -788,10 +780,6 @@ class PostgreSQLEffectDispatchRepository:
                 snapshot.claim_token,
             ),
         )
-        await connection.execute(
-            "UPDATE armi.action_operations SET phase='effect_registered', outcome=NULL WHERE effect_id=%s",
-            (snapshot.request.effect_id.value,),
-        )
 
     async def _settle_cancelled(
         self,
@@ -838,8 +826,7 @@ class PostgreSQLEffectDispatchRepository:
                     settled_at=%s, cancelled_at=%s
                 WHERE effect_id=%s AND current_attempt_id=%s
                   AND status='dispatching'
-                RETURNING policy_decision_id, action_intent_revision_id,
-                          operation_id
+                RETURNING policy_decision_id, action_intent_revision_id
                 """,
                 (
                     observation_id,
@@ -869,26 +856,9 @@ class PostgreSQLEffectDispatchRepository:
             connection,
             prior_decision_id=UUID(str(effect[0])),
             action_revision_id=UUID(str(effect[1])),
-            operation_id=UUID(str(effect[2])),
             reason_code=reason_code,
         )
         if current_decision_id is None:
-            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        operation = await (
-            await connection.execute(
-                """
-                UPDATE armi.action_operations
-                SET phase='terminal', outcome='cancelled',
-                    current_policy_decision_id=%s, reason_code=NULL,
-                    completed_at=%s
-                WHERE operation_id=%s
-                  AND phase='dispatching' AND outcome IS NULL
-                RETURNING operation_id
-                """,
-                (current_decision_id, attempt[0], effect[2]),
-            )
-        ).fetchone()
-        if operation is None:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
         await uow.audit.append(
             AuditDraft(
@@ -978,23 +948,6 @@ class PostgreSQLEffectDispatchRepository:
                 error_code,
                 snapshot.outbox_id,
                 snapshot.claim_token,
-            ),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.action_operations SET phase='terminal',
-                outcome=CASE WHEN %s='effect_completed' THEN 'completed'
-                             WHEN %s='effect_unknown' THEN 'unknown'
-                             ELSE 'failed' END,
-                reason_code=%s, completed_at=%s
-            WHERE effect_id=%s
-            """,
-            (
-                operation_status,
-                operation_status,
-                error_code,
-                attempt[0],
-                snapshot.request.effect_id.value,
             ),
         )
         await uow.audit.append(
@@ -1087,26 +1040,7 @@ class PostgreSQLEffectDispatchRepository:
                 ),
             )
         ).fetchone()
-        operation = await (
-            await connection.execute(
-                """
-                UPDATE armi.action_operations
-                SET phase='terminal',
-                    outcome=CASE WHEN %s='effect_completed' THEN 'completed'
-                                 ELSE 'failed' END,
-                    reason_code=%s, completed_at=%s
-                WHERE effect_id=%s AND phase='terminal' AND outcome='unknown'
-                RETURNING operation_id
-                """,
-                (
-                    operation_status,
-                    error_code,
-                    effect[0],
-                    snapshot.request.effect_id.value,
-                ),
-            )
-        ).fetchone()
-        if outbox is None or operation is None:
+        if outbox is None:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
         await uow.audit.append(
             AuditDraft(

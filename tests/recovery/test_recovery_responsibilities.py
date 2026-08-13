@@ -76,11 +76,9 @@ class _CandidateRejectionConnection:
         *,
         rejected_opportunity_id: object,
         failed_opportunity_id: object,
-        operation_id: object,
     ) -> None:
         self._rejected_opportunity_id = rejected_opportunity_id
         self._failed_opportunity_id = failed_opportunity_id
-        self._operation_id = operation_id
 
     async def execute(
         self,
@@ -94,19 +92,15 @@ class _CandidateRejectionConnection:
                     (self._failed_opportunity_id, "failed"),
                 ]
             )
-        if "UPDATE armi.action_operations AS operation" in statement:
-            return _Cursor([(self._operation_id,)])
         raise AssertionError(statement)
 
 
-def test_candidate_rejection_recovery_closes_opportunity_and_codex_operation() -> None:
+def test_candidate_rejection_recovery_closes_opportunity() -> None:
     rejected_opportunity_id = uuid7()
     failed_opportunity_id = uuid7()
-    operation_id = uuid7()
     connection = _CandidateRejectionConnection(
         rejected_opportunity_id=rejected_opportunity_id,
         failed_opportunity_id=failed_opportunity_id,
-        operation_id=operation_id,
     )
     writer = _Writer()
 
@@ -130,14 +124,8 @@ def test_candidate_rejection_recovery_closes_opportunity_and_codex_operation() -
             "REC-OPPORTUNITY-EPISODE-FAILED",
             failed_opportunity_id,
         ),
-        (
-            "creator_response_operation",
-            "REC-CODEX-RESULT-CANDIDATE-REJECTED",
-            operation_id,
-        ),
     ]
     assert writer.events == [
         ("opportunity.recovered.candidate_rejected", rejected_opportunity_id),
         ("opportunity.recovered.failed", failed_opportunity_id),
-        ("codex.result.recovered.candidate_rejected", operation_id),
     ]

@@ -247,7 +247,7 @@ class DeclaredResponseEffectDraft:
 
     action_intent_revision_id: UUID
     action_intent_id: UUID
-    operation_id: UUID
+    operation_ref: UUID
     subject_id: UUID
     scene_id: UUID
     context_party_id: UUID
@@ -268,7 +268,7 @@ class DeclaredResponseEffectDraft:
         for value in (
             self.action_intent_revision_id,
             self.action_intent_id,
-            self.operation_id,
+            self.operation_ref,
             self.subject_id,
             self.scene_id,
             self.context_party_id,
@@ -303,7 +303,7 @@ class DeclaredResponseEffectDraft:
 
 @dataclass(frozen=True, slots=True)
 class ResponseAdmissionResult:
-    operation_id: CreatorResponseOperationId
+    operation_ref: CreatorResponseOperationId
     status: ResponseAdmissionStatus
     action_intent_id: ActionIntentId | None = None
     no_action_id: FormalNoActionId | None = None
@@ -312,7 +312,7 @@ class ResponseAdmissionResult:
 
     def __post_init__(self) -> None:
         if (
-            type(self.operation_id) is not CreatorResponseOperationId
+            type(self.operation_ref) is not CreatorResponseOperationId
             or type(self.status) is not ResponseAdmissionStatus
             or (
                 self.grant_ref is not None

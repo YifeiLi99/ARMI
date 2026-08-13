@@ -47,7 +47,7 @@ _WORK_KIND = "cognition.response.admit"
 
 @dataclass(frozen=True, slots=True)
 class ResponseAdmissionSnapshot:
-    operation_id: UUID
+    operation_ref: UUID
     action_intent_id: UUID
     subject_id: UUID
     scene_id: UUID
@@ -72,18 +72,17 @@ class PostgreSQLResponseAdmissionRepository:
         row = await (
             await connection.execute(
                 """
-                    SELECT operation.operation_id, operation.phase,
-                           operation.outcome
+                    SELECT intent.operation_ref
                     FROM armi.durable_work AS work
-                    JOIN armi.action_operations AS operation
-                      ON operation.admission_work_id = work.work_id
+                    JOIN armi.action_intents AS intent
+                      ON intent.action_intent_id = work.owner_ref
                     WHERE work.work_id = %s
                       AND work.status = 'leased'
                       AND work.current_attempt_id = %s
                       AND work.lease_owner = %s
                       AND work.lease_token = %s
                       AND work.lease_expires_at > statement_timestamp()
-                    FOR UPDATE OF work, operation
+                    FOR UPDATE OF work
                 """,
                 (
                     lease.work_id.value,
@@ -95,18 +94,7 @@ class PostgreSQLResponseAdmissionRepository:
         ).fetchone()
         if row is None:
             return
-        if str(row[1]) != "admission_pending" or row[2] is not None:
-            await unit_of_work.work.complete(
-                lease,
-                WorkResultRef("creator_response_operation", row[0]),
-            )
-            return
-        await self._fail_locked(
-            unit_of_work,
-            lease,
-            row[0],
-            "RESPONSE-ADMISSION-STATE",
-        )
+        await self._fail_locked(unit_of_work, lease, "RESPONSE-ADMISSION-STATE")
 
     async def fail_current_work(
         self,
@@ -119,18 +107,17 @@ class PostgreSQLResponseAdmissionRepository:
         row = await (
             await connection.execute(
                 """
-                    SELECT operation.operation_id, operation.phase,
-                           operation.outcome
+                    SELECT intent.operation_ref
                     FROM armi.durable_work AS work
-                    JOIN armi.action_operations AS operation
-                      ON operation.admission_work_id = work.work_id
+                    JOIN armi.action_intents AS intent
+                      ON intent.action_intent_id = work.owner_ref
                     WHERE work.work_id = %s
                       AND work.status = 'leased'
                       AND work.current_attempt_id = %s
                       AND work.lease_owner = %s
                       AND work.lease_token = %s
                       AND work.lease_expires_at > statement_timestamp()
-                    FOR UPDATE OF work, operation
+                    FOR UPDATE OF work
                 """,
                 (
                     lease.work_id.value,
@@ -142,32 +129,14 @@ class PostgreSQLResponseAdmissionRepository:
         ).fetchone()
         if row is None:
             return
-        if str(row[1]) != "admission_pending" or row[2] is not None:
-            await unit_of_work.work.complete(
-                lease,
-                WorkResultRef("creator_response_operation", row[0]),
-            )
-            return
-        await self._fail_locked(unit_of_work, lease, row[0], code)
+        await self._fail_locked(unit_of_work, lease, code)
 
     async def _fail_locked(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
-        operation_id: UUID,
         code: str,
     ) -> None:
-        connection = unit_of_work.transaction
-        await connection.execute(
-            """
-            UPDATE armi.action_operations
-            SET phase = 'terminal', outcome = 'failed', reason_code = %s,
-                completed_at = statement_timestamp()
-            WHERE operation_id = %s
-              AND phase = 'admission_pending' AND outcome IS NULL
-            """,
-            (code, operation_id),
-        )
         await unit_of_work.work.fail(lease, error_code=code)
 
     async def snapshot(
@@ -179,18 +148,14 @@ class PostgreSQLResponseAdmissionRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT operation.operation_id,
+                SELECT intent.operation_ref,
                        intent.action_intent_id, intent.subject_id,
                        intent.scene_id, intent.context_party_id,
                        revision.response_artifact_id, revision.response_digest,
                        revision.response_bytes, work.trace_id
                 FROM armi.durable_work AS work
-                JOIN armi.action_operations AS operation
-                  ON operation.admission_work_id = work.work_id
-                 AND operation.phase = 'admission_pending'
-                 AND operation.outcome IS NULL
                 JOIN armi.action_intents AS intent
-                  ON intent.action_intent_id = operation.action_intent_id
+                  ON intent.action_intent_id = work.owner_ref
                 JOIN armi.action_intent_revisions AS revision
                   ON revision.action_intent_revision_id = intent.current_revision_id
                  AND revision.action_intent_id = intent.action_intent_id
@@ -239,15 +204,15 @@ class PostgreSQLResponseAdmissionRepository:
         locked = await (
             await connection.execute(
                 """
-                SELECT phase, outcome
-                FROM armi.action_operations
-                WHERE operation_id = %s
+                SELECT operation_ref
+                FROM armi.action_intents
+                WHERE action_intent_id = %s AND operation_ref = %s
                 FOR UPDATE
                 """,
-                (snapshot.operation_id,),
+                (snapshot.action_intent_id, snapshot.operation_ref),
             )
         ).fetchone()
-        if locked is None or locked != ("admission_pending", None):
+        if locked is None:
             raise ResponseViolation("RESPONSE-WORK-STALE")
         if not integrity_ok:
             status = ResponseAdmissionStatus.FAILED
@@ -317,7 +282,7 @@ class PostgreSQLResponseAdmissionRepository:
                     Any,
                     {
                         "schema_version": "armi.creator-response.v1",
-                        "operation_id": str(snapshot.operation_id),
+                        "operation_ref": str(snapshot.operation_ref),
                         "action_intent_id": str(snapshot.action_intent_id),
                         "content_digest": snapshot.content_digest.value,
                         "status": status.value,
@@ -328,35 +293,6 @@ class PostgreSQLResponseAdmissionRepository:
                 )
             )
         )
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.action_operations
-                SET phase = CASE WHEN %s = 'accepted' THEN 'admitted' ELSE 'terminal' END,
-                    outcome = CASE WHEN %s = 'accepted' THEN NULL
-                                   WHEN %s IN ('unauthorized', 'unavailable') THEN 'denied'
-                                   ELSE 'failed' END,
-                    matched_grant_id = %s,
-                    reason_code = %s,
-                    completed_at = CASE WHEN %s = 'accepted' THEN NULL
-                                        ELSE statement_timestamp() END
-                WHERE operation_id = %s
-                  AND phase = 'admission_pending' AND outcome IS NULL
-                RETURNING operation_id
-                """,
-                (
-                    status.value,
-                    status.value,
-                    status.value,
-                    grant_id,
-                    reason,
-                    status.value,
-                    snapshot.operation_id,
-                ),
-            )
-        ).fetchone()
-        if updated is None:
-            raise ResponseViolation("RESPONSE-WORK-STALE")
         if status is ResponseAdmissionStatus.ACCEPTED:
             registration_work_id = uuid7()
             now = datetime.now(UTC)
@@ -364,8 +300,8 @@ class PostgreSQLResponseAdmissionRepository:
                 WorkDraft(
                     WorkId(registration_work_id),
                     "effect.register",
-                    WorkOwner("creator_response_operation", snapshot.operation_id),
-                    IdempotencyKey(f"effect-register:{snapshot.operation_id}"),
+                    WorkOwner("action_intent", snapshot.action_intent_id),
+                    IdempotencyKey(f"effect-register:{snapshot.action_intent_id}"),
                     registration_work_digest,
                     60,
                     Instant(now),
@@ -373,23 +309,12 @@ class PostgreSQLResponseAdmissionRepository:
                     2,
                     snapshot.trace_id,
                     subject_id=SubjectId(snapshot.subject_id),
-                    payload=WorkPayloadRef(
-                        "creator_response_operation", snapshot.operation_id
-                    ),
+                    payload=WorkPayloadRef("action_intent", snapshot.action_intent_id),
                 )
-            )
-            await connection.execute(
-                """
-                UPDATE armi.action_operations
-                SET registration_work_id = %s
-                WHERE operation_id = %s
-                  AND registration_work_id IS NULL
-                """,
-                (registration_work_id, snapshot.operation_id),
             )
         await unit_of_work.work.complete(
             lease,
-            WorkResultRef("creator_response_operation", snapshot.operation_id),
+            WorkResultRef("creator_response_operation", snapshot.operation_ref),
         )
         audit_status = {
             ResponseAdmissionStatus.ACCEPTED: AuditResultStatus.ACCEPTED,
@@ -403,7 +328,7 @@ class PostgreSQLResponseAdmissionRepository:
                 AuditReference("runtime", unit_of_work.environment_id),
                 Purpose("cognition.response"),
                 "cognition.response.admitted",
-                AuditReference("creator_response_operation", snapshot.operation_id),
+                AuditReference("creator_response_operation", snapshot.operation_ref),
                 audit_status,
                 snapshot.trace_id,
                 AuditSensitivity.PRIVATE,
@@ -416,7 +341,7 @@ class PostgreSQLResponseAdmissionRepository:
             )
         )
         return ResponseAdmissionResult(
-            CreatorResponseOperationId(snapshot.operation_id),
+            CreatorResponseOperationId(snapshot.operation_ref),
             status,
             ActionIntentId(snapshot.action_intent_id),
             grant_ref=grant_id,

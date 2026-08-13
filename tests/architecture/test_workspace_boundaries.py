@@ -123,7 +123,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(ownership_registry_errors(schema_root), ())
         self.assertEqual(schema_tables_at_head(schema_root), frozenset(TABLE_OWNERSHIP))
-        self.assertTrue(TABLE_OWNERSHIP["action_operations"].pending_removal)
+        self.assertNotIn("action_operations", TABLE_OWNERSHIP)
 
     def test_schema_owner_registry_rejects_unregistered_and_stale_tables(self) -> None:
         with TemporaryDirectory() as directory:

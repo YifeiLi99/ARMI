@@ -91,7 +91,7 @@ def test_declared_response_effect_draft_freezes_the_cross_owner_contract() -> No
     draft = DeclaredResponseEffectDraft(
         action_intent_revision_id=ids[0],
         action_intent_id=ids[1],
-        operation_id=ids[2],
+        operation_ref=ids[2],
         subject_id=ids[3],
         scene_id=ids[4],
         context_party_id=ids[5],

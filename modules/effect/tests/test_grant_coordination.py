@@ -23,9 +23,7 @@ class _Cursor:
 class _Connection:
     def __init__(self, *, revoked: bool) -> None:
         self.revoked = revoked
-        self.ids = {
-            name: uuid7() for name in ("grant", "policy", "revision", "operation")
-        }
+        self.ids = {name: uuid7() for name in ("grant", "policy", "revision")}
         self.statements: list[str] = []
 
     async def execute(self, query: str, params: tuple[object, ...] = ()) -> _Cursor:
@@ -45,7 +43,6 @@ class _Connection:
                     "1" * 32,
                     self.ids["policy"],
                     self.ids["revision"],
-                    self.ids["operation"],
                 )
             )
         if "UPDATE armi.effect_attempts" in statement:
@@ -60,8 +57,6 @@ class _Connection:
             return _Cursor((self.ids["policy"],))
         if "INSERT INTO armi.policy_decisions" in statement:
             return _Cursor()
-        if "UPDATE armi.action_operations" in statement:
-            return _Cursor((self.ids["operation"],))
         raise AssertionError(f"unexpected statement: {statement}")
 
 

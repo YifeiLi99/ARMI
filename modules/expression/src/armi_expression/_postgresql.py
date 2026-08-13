@@ -124,15 +124,16 @@ class PostgreSQLExpressionOwner:
             INSERT INTO armi.action_intents (
                 action_intent_id, subject_id, scene_id,
                 context_party_id, root_opportunity_id, purpose,
-                current_revision_id, action_kind) VALUES (
+                current_revision_id, action_kind, operation_ref) VALUES (
                 %s, %s, %s, %s, %s, 'respond_to_creator', NULL,
-                'party_response')
+                'party_response', %s)
             """,
             (
                 action_id,
                 context.subject_id,
                 context.scene_id,
                 context.creator_party_id,
+                context.root_opportunity_id,
                 context.root_opportunity_id,
             ),
         )
@@ -200,8 +201,9 @@ class PostgreSQLExpressionOwner:
             INSERT INTO armi.dialogue_decisions (
                 dialogue_decision_id, opportunity_id, candidate_application_id,
                 candidate_validation_id, proposal_ref, decision_kind,
-                reason_class, subject_id, scene_id, context_party_id) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                reason_class, subject_id, scene_id, context_party_id,
+                operation_ref) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 no_action_id,
@@ -216,24 +218,7 @@ class PostgreSQLExpressionOwner:
                 context.subject_id,
                 context.scene_id,
                 context.creator_party_id,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.action_operations (
-                operation_id, root_opportunity_id, subject_id,
-                scene_id, context_party_id, dialogue_decision_id,
-                phase, outcome, completed_at, operation_kind) VALUES (
-                %s, %s, %s, %s, %s, %s, 'terminal', 'no_action',
-                statement_timestamp(), 'party_response')
-            """,
-            (
                 context.root_opportunity_id,
-                context.root_opportunity_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                no_action_id,
             ),
         )
 
@@ -265,7 +250,8 @@ class PostgreSQLExpressionOwner:
                 dialogue_decision_id, opportunity_id,
                 cognitive_episode_id, candidate_validation_id,
                 subject_commit_id, subject_id, scene_id, context_party_id,
-                decision_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                decision_kind, operation_ref) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 uuid7(),
@@ -277,6 +263,7 @@ class PostgreSQLExpressionOwner:
                 context.scene_id,
                 context.other_party_id,
                 decision_kind,
+                uuid7(),
             ),
         )
 
@@ -301,7 +288,8 @@ class PostgreSQLExpressionOwner:
                 dialogue_decision_id, opportunity_id,
                 cognitive_episode_id, candidate_validation_id,
                 candidate_application_id, subject_id, scene_id, context_party_id,
-                decision_kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                decision_kind, operation_ref) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 uuid7(),
@@ -313,6 +301,7 @@ class PostgreSQLExpressionOwner:
                 context.scene_id,
                 context.other_party_id,
                 "silence" if application_status == "no_action" else "defer",
+                uuid7(),
             ),
         )
 
@@ -416,8 +405,9 @@ class PostgreSQLExpressionOwner:
                     dialogue_decision_id, opportunity_id,
                     cognitive_episode_id, candidate_validation_id,
                     subject_commit_id, subject_id, scene_id, context_party_id,
-                    decision_kind) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, 'end_conversation')
+                    decision_kind, operation_ref) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    'end_conversation', %s)
                 """,
                 (
                     decision_id,
@@ -428,6 +418,7 @@ class PostgreSQLExpressionOwner:
                     context.subject_id,
                     context.scene_id,
                     context.other_party_id,
+                    uuid7(),
                 ),
             )
             return
@@ -449,7 +440,7 @@ class PostgreSQLExpressionOwner:
             raise ResponseViolation("SUBJECT-RELATIONSHIP-BOUNDARY")
         action_id = uuid7()
         revision_id = uuid7()
-        operation_id = uuid7()
+        operation_ref = uuid7()
         capability_kind = (
             "external.group.message.send"
             if group_route
@@ -481,9 +472,10 @@ class PostgreSQLExpressionOwner:
             """
             INSERT INTO armi.action_intents (
                 action_intent_id, subject_id, scene_id, context_party_id,
-                root_opportunity_id, purpose, current_revision_id, action_kind)
+                root_opportunity_id, purpose, current_revision_id, action_kind,
+                operation_ref)
             VALUES (%s, %s, %s, %s, %s, 'respond_to_other_human', NULL,
-                    'party_response')
+                    'party_response', %s)
             """,
             (
                 action_id,
@@ -491,6 +483,7 @@ class PostgreSQLExpressionOwner:
                 context.scene_id,
                 context.other_party_id,
                 context.root_opportunity_id,
+                operation_ref,
             ),
         )
         await connection.execute(
@@ -528,8 +521,9 @@ class PostgreSQLExpressionOwner:
                 dialogue_decision_id, opportunity_id,
                 cognitive_episode_id, candidate_validation_id,
                 subject_commit_id, subject_id, scene_id, context_party_id,
-                proposal_ref, decision_kind, action_intent_id, effect_id) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, NULL)
+                proposal_ref, decision_kind, action_intent_id, effect_id,
+                operation_ref) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, NULL, %s)
             """,
             (
                 decision_id,
@@ -542,25 +536,7 @@ class PostgreSQLExpressionOwner:
                 context.other_party_id,
                 reply.proposal_ref,
                 action_id,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.action_operations (
-                operation_id, root_opportunity_id, subject_id, scene_id,
-                context_party_id, action_intent_id, dialogue_decision_id,
-                phase, outcome, operation_kind) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, 'admitted', NULL,
-                'party_response')
-            """,
-            (
-                operation_id,
-                context.root_opportunity_id,
-                context.subject_id,
-                context.scene_id,
-                context.other_party_id,
-                action_id,
-                decision_id,
+                operation_ref,
             ),
         )
         effect_id = await self._effect_registration.register_declared_response(
@@ -568,7 +544,7 @@ class PostgreSQLExpressionOwner:
             DeclaredResponseEffectDraft(
                 action_intent_revision_id=revision_id,
                 action_intent_id=action_id,
-                operation_id=operation_id,
+                operation_ref=operation_ref,
                 subject_id=context.subject_id,
                 scene_id=context.scene_id,
                 context_party_id=context.other_party_id,
@@ -585,15 +561,6 @@ class PostgreSQLExpressionOwner:
                 trace_id=context.trace_id,
                 max_attempts=1 if group_route or private_route else 2,
             ),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.action_operations
-            SET phase = 'effect_registered', effect_id = %s,
-                effect_registered_at = statement_timestamp()
-            WHERE operation_id = %s AND phase = 'admitted' AND outcome IS NULL
-            """,
-            (effect_id, operation_id),
         )
         await connection.execute(
             "UPDATE armi.dialogue_decisions SET effect_id = %s "
@@ -647,8 +614,9 @@ class PostgreSQLExpressionOwner:
             INSERT INTO armi.dialogue_decisions (
                 dialogue_decision_id, opportunity_id, cognitive_episode_id,
                 candidate_validation_id, subject_commit_id, subject_id, scene_id,
-                context_party_id, proposal_ref, decision_kind, action_intent_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s)
+                context_party_id, proposal_ref, decision_kind, action_intent_id,
+                operation_ref)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, %s)
             """,
             (
                 decision_id,
@@ -661,6 +629,7 @@ class PostgreSQLExpressionOwner:
                 context.creator_party_id,
                 reply.proposal_ref,
                 action_id,
+                context.root_opportunity_id,
             ),
         )
         now_row = await (
@@ -684,26 +653,6 @@ class PostgreSQLExpressionOwner:
                 SubjectId(context.subject_id),
                 WorkPayloadRef("action_intent", action_id),
             )
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.action_operations (
-                operation_id, root_opportunity_id, subject_id,
-                scene_id, context_party_id, action_intent_id, dialogue_decision_id,
-                admission_work_id, phase, outcome, operation_kind) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                'admission_pending', NULL, 'party_response')
-            """,
-            (
-                context.root_opportunity_id,
-                context.root_opportunity_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                action_id,
-                decision_id,
-                work_id.value,
-            ),
         )
         await unit_of_work.audit.append(
             _audit(

@@ -44,7 +44,7 @@ from .api import (
 
 @dataclass(frozen=True, slots=True)
 class EffectRegistrationSnapshot:
-    operation_id: UUID
+    operation_ref: UUID
     root_operation_id: UUID
     action_revision_id: UUID
     subject_id: UUID
@@ -94,14 +94,14 @@ class PostgreSQLDeclaredResponseEffectRegistration:
             """
             INSERT INTO armi.effects (
                 effect_id, action_intent_revision_id, action_intent_id,
-                operation_id, subject_id, scene_id,
-                context_party_id, payload_artifact_id, payload_digest, payload_bytes,
+                subject_id, scene_id, context_party_id, payload_artifact_id,
+                payload_digest, payload_bytes,
                 effect_kind, capability_kind, operation_class, audience_scope,
                 data_scope, purpose, authorization_basis, destination_kind,
                 destination_party_id, destination_binding_id,
                 status, verification_status,
                 registration_digest, trace_id) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, 'send', %s, 'declared_party_response',
                 'respond_to_other_human', %s, %s, %s, %s,
                 'registered', 'not_started', %s, %s)
@@ -110,7 +110,6 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 effect_id,
                 draft.action_intent_revision_id,
                 draft.action_intent_id,
-                draft.operation_id,
                 draft.subject_id,
                 draft.scene_id,
                 draft.context_party_id,
@@ -159,20 +158,19 @@ class PostgreSQLEffectLedgerRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT operation.operation_id, operation.phase,
-                       operation.outcome, effect.effect_id
+                SELECT intent.operation_ref, effect.effect_id
                 FROM armi.durable_work AS work
-                JOIN armi.action_operations AS operation
-                  ON operation.registration_work_id = work.work_id
+                JOIN armi.action_intents AS intent
+                  ON intent.action_intent_id = work.owner_ref
                 LEFT JOIN armi.effects AS effect
-                  ON effect.operation_id = operation.operation_id
+                  ON effect.action_intent_id = intent.action_intent_id
                 WHERE work.work_id = %s
                   AND work.status = 'leased'
                   AND work.current_attempt_id = %s
                   AND work.lease_owner = %s
                   AND work.lease_token = %s
                   AND work.lease_expires_at > statement_timestamp()
-                FOR UPDATE OF work, operation
+                FOR UPDATE OF work
                 """,
                 (
                     lease.work_id.value,
@@ -184,24 +182,13 @@ class PostgreSQLEffectLedgerRepository:
         ).fetchone()
         if row is None:
             return
-        if row[3] is not None:
+        if row[1] is not None:
             await unit_of_work.work.complete(
                 lease,
-                WorkResultRef("effect", row[3]),
+                WorkResultRef("effect", row[1]),
             )
             return
-        if str(row[1]) == "terminal" or row[2] is not None:
-            await unit_of_work.work.complete(
-                lease,
-                WorkResultRef("creator_response_operation", row[0]),
-            )
-            return
-        await self._fail_locked(
-            unit_of_work,
-            lease,
-            row[0],
-            "EFFECT-REGISTRATION-STATE",
-        )
+        await self._fail_locked(unit_of_work, lease, "EFFECT-REGISTRATION-STATE")
 
     async def fail_current_work(
         self,
@@ -214,20 +201,19 @@ class PostgreSQLEffectLedgerRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT operation.operation_id, operation.phase,
-                       operation.outcome, effect.effect_id
+                SELECT intent.operation_ref, effect.effect_id
                 FROM armi.durable_work AS work
-                JOIN armi.action_operations AS operation
-                  ON operation.registration_work_id = work.work_id
+                JOIN armi.action_intents AS intent
+                  ON intent.action_intent_id = work.owner_ref
                 LEFT JOIN armi.effects AS effect
-                  ON effect.operation_id = operation.operation_id
+                  ON effect.action_intent_id = intent.action_intent_id
                 WHERE work.work_id = %s
                   AND work.status = 'leased'
                   AND work.current_attempt_id = %s
                   AND work.lease_owner = %s
                   AND work.lease_token = %s
                   AND work.lease_expires_at > statement_timestamp()
-                FOR UPDATE OF work, operation
+                FOR UPDATE OF work
                 """,
                 (
                     lease.work_id.value,
@@ -239,38 +225,20 @@ class PostgreSQLEffectLedgerRepository:
         ).fetchone()
         if row is None:
             return
-        if row[3] is not None:
+        if row[1] is not None:
             await unit_of_work.work.complete(
                 lease,
-                WorkResultRef("effect", row[3]),
+                WorkResultRef("effect", row[1]),
             )
             return
-        if str(row[1]) == "terminal" or row[2] is not None:
-            await unit_of_work.work.complete(
-                lease,
-                WorkResultRef("creator_response_operation", row[0]),
-            )
-            return
-        await self._fail_locked(unit_of_work, lease, row[0], code)
+        await self._fail_locked(unit_of_work, lease, code)
 
     async def _fail_locked(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
-        operation_id: UUID,
         code: str,
     ) -> None:
-        connection = unit_of_work.transaction
-        await connection.execute(
-            """
-            UPDATE armi.action_operations
-            SET phase = 'terminal', outcome = 'failed', reason_code = %s,
-                completed_at = statement_timestamp()
-            WHERE operation_id = %s
-              AND phase = 'admitted' AND outcome IS NULL
-            """,
-            (code, operation_id),
-        )
         await unit_of_work.work.fail(lease, error_code=code)
 
     async def snapshot(
@@ -280,29 +248,27 @@ class PostgreSQLEffectLedgerRepository:
         row = await (
             await connection.execute(
                 """
-            SELECT operation.operation_id, operation.root_opportunity_id,
-                   revision.action_intent_revision_id, operation.subject_id,
-                   operation.scene_id, operation.context_party_id,
+            SELECT intent.operation_ref, intent.root_opportunity_id,
+                   revision.action_intent_revision_id, intent.subject_id,
+                   intent.scene_id, intent.context_party_id,
                    COALESCE(revision.response_artifact_id, source.task_manifest_artifact_id),
                    COALESCE(revision.response_digest, revision.task_manifest_digest),
                    artifact.byte_size, work.trace_id,
-                   operation.operation_kind, revision.capability_kind,
+                   intent.action_kind, revision.capability_kind,
                    revision.operation_class, revision.purpose,
-                   operation.action_intent_id,
-                   CASE WHEN operation.operation_kind = 'party_response'
+                   intent.action_intent_id,
+                   CASE WHEN intent.action_kind = 'party_response'
                         THEN binding.external_binding_id END
             FROM armi.durable_work AS work
-            JOIN armi.action_operations AS operation
-              ON operation.registration_work_id = work.work_id
-             AND operation.phase = 'admitted' AND operation.outcome IS NULL
-            JOIN armi.action_intents AS intent ON intent.action_intent_id = operation.action_intent_id
+            JOIN armi.action_intents AS intent
+              ON intent.action_intent_id = work.owner_ref
             JOIN armi.action_intent_revisions AS revision
               ON revision.action_intent_revision_id = intent.current_revision_id
             LEFT JOIN armi.codex_task_sources AS source
               ON source.codex_task_source_id = revision.codex_task_source_id
             LEFT JOIN armi.external_channel_bindings AS binding
-              ON binding.scene_id = operation.scene_id
-             AND binding.party_id = operation.context_party_id
+              ON binding.scene_id = intent.scene_id
+             AND binding.party_id = intent.context_party_id
              AND binding.external_kind = 'person'
              AND binding.status = 'active'
             JOIN armi.artifacts AS artifact
@@ -353,11 +319,12 @@ class PostgreSQLEffectLedgerRepository:
             raise EffectViolation("EFFECT-FENCE")
         locked = await (
             await connection.execute(
-                "SELECT phase, outcome FROM armi.action_operations WHERE operation_id = %s FOR UPDATE",
-                (snapshot.operation_id,),
+                "SELECT operation_ref FROM armi.action_intents "
+                "WHERE action_intent_id = %s AND operation_ref = %s FOR UPDATE",
+                (snapshot.action_intent_id, snapshot.operation_ref),
             )
         ).fetchone()
-        if locked is None or locked != ("admitted", None):
+        if locked is None:
             raise EffectViolation("EFFECT-WORK-STALE")
         registration_digest = _registration_digest(snapshot)
         existing = await self._existing(connection, snapshot, registration_digest)
@@ -396,14 +363,14 @@ class PostgreSQLEffectLedgerRepository:
         await connection.execute(
             """
             INSERT INTO armi.policy_decisions (
-                policy_decision_id, action_intent_revision_id, operation_id,
+                policy_decision_id, action_intent_revision_id,
                 matched_grant_id, decision_outcome, policy_identity,
-                reason_code, valid_until) VALUES (%s, %s, %s, %s, %s, 'armi.policy-engine.deterministic-v1', %s, %s)
+                reason_code, valid_until) VALUES (
+                %s, %s, %s, %s, 'armi.policy-engine.deterministic-v1', %s, %s)
             """,
             (
                 decision_id,
                 snapshot.action_revision_id,
-                snapshot.operation_id,
                 grant_id,
                 outcome,
                 reason,
@@ -417,13 +384,13 @@ class PostgreSQLEffectLedgerRepository:
                 await connection.execute(
                     """
                 INSERT INTO armi.effects (
-                    effect_id, action_intent_revision_id, action_intent_id, operation_id,
+                    effect_id, action_intent_revision_id, action_intent_id,
                     policy_decision_id, subject_id, scene_id, context_party_id,
                     payload_artifact_id, payload_digest, payload_bytes, effect_kind,
                     capability_kind, operation_class, audience_scope, data_scope, purpose,
                     authorization_basis, destination_kind, destination_party_id,
                     destination_binding_id,
-                    registration_digest, trace_id, status, verification_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    registration_digest, trace_id, status, verification_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,'creator_grant',%s,%s,%s,%s,%s,
                     'registered','not_started')
                 RETURNING registered_at
@@ -432,7 +399,6 @@ class PostgreSQLEffectLedgerRepository:
                         effect_id,
                         snapshot.action_revision_id,
                         snapshot.action_intent_id,
-                        snapshot.operation_id,
                         decision_id,
                         snapshot.subject_id,
                         snapshot.scene_id,
@@ -488,20 +454,6 @@ class PostgreSQLEffectLedgerRepository:
                     else 2,
                 ),
             )
-            await connection.execute(
-                """
-                UPDATE armi.action_operations SET phase='effect_registered', outcome=NULL,
-                    current_policy_decision_id=%s, effect_id=%s,
-                    effect_registered_at=%s
-                WHERE operation_id=%s AND phase='admitted' AND outcome IS NULL
-                """,
-                (
-                    decision_id,
-                    effect_id,
-                    row[0],
-                    snapshot.operation_id,
-                ),
-            )
             await uow.work.complete(lease, WorkResultRef("effect", effect_id))
             result = EffectRegistrationResult(
                 EffectId(effect_id),
@@ -512,18 +464,9 @@ class PostgreSQLEffectLedgerRepository:
                 Instant(row[0]),
             )
         else:
-            await connection.execute(
-                "UPDATE armi.action_operations SET phase='terminal', outcome=%s, current_policy_decision_id=%s, reason_code=%s, completed_at=statement_timestamp() WHERE operation_id=%s AND phase='admitted' AND outcome IS NULL",
-                (
-                    "denied" if outcome == "denied" else "failed",
-                    decision_id,
-                    reason,
-                    snapshot.operation_id,
-                ),
-            )
             await uow.work.complete(
                 lease,
-                WorkResultRef("creator_response_operation", snapshot.operation_id),
+                WorkResultRef("creator_response_operation", snapshot.operation_ref),
             )
         await uow.audit.append(
             AuditDraft(
@@ -531,7 +474,7 @@ class PostgreSQLEffectLedgerRepository:
                 AuditReference("runtime", uow.environment_id),
                 Purpose("effect.registration"),
                 "effect.registration.settled",
-                AuditReference("creator_response_operation", snapshot.operation_id),
+                AuditReference("creator_response_operation", snapshot.operation_ref),
                 AuditResultStatus.ACCEPTED
                 if outcome == "allowed"
                 else (
@@ -559,7 +502,7 @@ class PostgreSQLEffectLedgerRepository:
         row = await (
             await connection.execute(
                 """
-            SELECT effect.effect_id, operation.root_opportunity_id, effect.effect_kind,
+            SELECT effect.effect_id, intent.root_opportunity_id, effect.effect_kind,
                    request.capability_request_id, permission.grant_id,
                    effect.capability_kind, effect.status,
                    effect.verification_status, effect.registered_at, effect.cancelled_at,
@@ -572,8 +515,8 @@ class PostgreSQLEffectLedgerRepository:
                    verification.patch_digest, verification.changed_path_count,
                    result_opportunity.current_disposition
             FROM armi.effects AS effect
-            JOIN armi.action_operations AS operation
-              ON operation.operation_id = effect.operation_id
+            JOIN armi.action_intents AS intent
+              ON intent.action_intent_id = effect.action_intent_id
             JOIN armi.policy_decisions AS policy
               ON policy.policy_decision_id = effect.policy_decision_id
             JOIN armi.permission_grants AS permission

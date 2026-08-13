@@ -73,15 +73,16 @@ class PostgreSQLCodexCommit:
             INSERT INTO armi.action_intents (
                 action_intent_id, subject_id, scene_id,
                 context_party_id, root_opportunity_id, purpose,
-                action_kind, current_revision_id) VALUES (
+                action_kind, current_revision_id, operation_ref) VALUES (
                 %s, %s, %s, %s, %s, 'delegate_codex_work',
-                'codex_delegation', NULL)
+                'codex_delegation', NULL, %s)
             """,
             (
                 action_id,
                 context.subject_id,
                 context.scene_id,
                 context.creator_party_id,
+                context.root_opportunity_id,
                 context.root_opportunity_id,
             ),
         )
@@ -113,24 +114,6 @@ class PostgreSQLCodexCommit:
             WHERE action_intent_id = %s
             """,
             (revision_id, action_id),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.action_operations (
-                operation_id, root_opportunity_id, subject_id,
-                scene_id, context_party_id, action_intent_id,
-                phase, outcome, operation_kind) VALUES (
-                %s, %s, %s, %s, %s, %s,
-                'admission_pending', NULL, 'codex_delegation')
-            """,
-            (
-                context.root_opportunity_id,
-                context.root_opportunity_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                action_id,
-            ),
         )
         await unit_of_work.audit.append(
             AuditDraft(

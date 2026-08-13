@@ -1441,27 +1441,6 @@ async def _finish_episode_and_work(
         """,
         (snapshot.opportunity_id,),
     )
-    if snapshot.opportunity_purpose == "consider_codex_result" and status in {
-        CandidateApplicationStatus.APPLIED,
-        CandidateApplicationStatus.NO_CHANGE,
-        CandidateApplicationStatus.DECLINED,
-        CandidateApplicationStatus.NO_ACTION,
-    }:
-        await connection.execute(
-            """
-            UPDATE armi.action_operations AS operation
-            SET phase='terminal', outcome='completed',
-                completed_at=statement_timestamp()
-            FROM armi.codex_result_sources AS source
-            JOIN armi.codex_verification_results AS verification
-              ON verification.codex_verification_id=source.codex_verification_id
-            WHERE source.opportunity_id=%s
-              AND operation.effect_id=verification.effect_id
-              AND operation.phase='result_pending'
-              AND operation.outcome IS NULL
-            """,
-            (snapshot.opportunity_id,),
-        )
     await unit_of_work.work.complete(
         lease, WorkResultRef("candidate_application", result_ref)
     )

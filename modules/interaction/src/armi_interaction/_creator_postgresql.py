@@ -292,44 +292,41 @@ class CreatorInputRepository:
                     commit.new_subject_version,
                     opportunity.reconsideration_no
                     , CASE
-                        WHEN response.operation_kind = 'party_response' THEN
-                            CASE response.phase
-                                WHEN 'admission_pending' THEN 'pending'
-                                WHEN 'admitted' THEN 'accepted'
-                                WHEN 'effect_registered' THEN 'effect_registered'
-                                WHEN 'dispatching' THEN 'effect_dispatching'
-                                WHEN 'terminal' THEN
-                                    CASE response.outcome
-                                        WHEN 'completed' THEN 'effect_completed'
-                                        WHEN 'failed' THEN 'effect_failed'
-                                        WHEN 'unknown' THEN 'effect_unknown'
-                                        WHEN 'cancelled' THEN 'effect_cancelled'
-                                        WHEN 'denied' THEN 'unauthorized'
-                                        WHEN 'no_action' THEN 'no_action'
-                                        ELSE response.outcome
-                                    END
-                                ELSE response.phase
-                            END
-                        WHEN response.operation_kind = 'codex_delegation' THEN
-                            CASE response.phase
-                                WHEN 'admission_pending' THEN 'codex_waiting_grant'
-                                WHEN 'dispatching' THEN 'codex_dispatching'
-                                WHEN 'result_pending' THEN 'codex_result_pending'
-                                WHEN 'terminal' THEN
-                                    CASE response.outcome
-                                        WHEN 'completed' THEN 'codex_result_accepted'
-                                        WHEN 'rejected' THEN 'codex_result_rejected'
-                                        WHEN 'failed' THEN 'codex_failed'
-                                        WHEN 'unknown' THEN 'codex_unknown'
-                                        WHEN 'cancelled' THEN 'codex_cancelled'
-                                        ELSE response.outcome
-                                    END
-                                ELSE response.phase
-                            END
+                        WHEN no_action.action_intent_id IS NULL
+                             AND no_action.dialogue_decision_id IS NOT NULL
+                          THEN 'no_action'
+                        WHEN intent.action_kind = 'party_response' THEN
+                          CASE
+                            WHEN policy.policy_decision_id IS NULL THEN 'pending'
+                            WHEN policy.decision_outcome <> 'allowed'
+                              THEN 'unauthorized'
+                            WHEN effect.effect_id IS NULL THEN 'accepted'
+                            WHEN effect.status = 'registered'
+                              THEN 'effect_registered'
+                            WHEN effect.status = 'dispatching'
+                              THEN 'effect_dispatching'
+                            ELSE 'effect_' || effect.status
+                          END
+                        WHEN intent.action_kind = 'codex_delegation' THEN
+                          CASE
+                            WHEN policy.policy_decision_id IS NULL
+                              THEN 'codex_waiting_grant'
+                            WHEN policy.decision_outcome <> 'allowed'
+                              THEN 'codex_failed'
+                            WHEN effect.effect_id IS NULL
+                              THEN 'codex_waiting_grant'
+                            WHEN effect.status = 'registered'
+                              THEN 'effect_registered'
+                            WHEN effect.status = 'dispatching'
+                              THEN 'codex_dispatching'
+                            WHEN effect.status = 'completed'
+                              THEN 'codex_result_pending'
+                            ELSE 'codex_' || effect.status
+                          END
                       END
-                    , response.reason_code
+                    , policy.reason_code
                     , no_action.decision_kind
-                    , response.effect_id
+                    , effect.effect_id
                 FROM armi.opportunities AS requested
                 JOIN LATERAL (
                     SELECT current.*
@@ -365,10 +362,18 @@ class CreatorInputRepository:
                   ON application.cognitive_episode_id = episode.cognitive_episode_id
                 LEFT JOIN armi.subject_commits AS commit
                   ON commit.subject_commit_id = application.subject_commit_id
-                LEFT JOIN armi.action_operations AS response
-                  ON response.root_opportunity_id = requested.opportunity_id
+                LEFT JOIN armi.action_intents AS intent
+                  ON intent.root_opportunity_id = requested.opportunity_id
+                LEFT JOIN armi.action_intent_revisions AS revision
+                  ON revision.action_intent_revision_id = intent.current_revision_id
+                LEFT JOIN armi.policy_decisions AS policy
+                  ON policy.action_intent_revision_id =
+                     revision.action_intent_revision_id
+                 AND policy.is_current
+                LEFT JOIN armi.effects AS effect
+                  ON effect.action_intent_id = intent.action_intent_id
                 LEFT JOIN armi.dialogue_decisions AS no_action
-                  ON no_action.dialogue_decision_id = response.dialogue_decision_id
+                  ON no_action.opportunity_id = requested.opportunity_id
                 WHERE requested.opportunity_id = %s
                   AND requested.root_opportunity_id = requested.opportunity_id
                   AND opportunity.context_party_id = %s
@@ -446,8 +451,12 @@ class CreatorInputRepository:
             phase = CreatorOperationPhase.CODEX_CANCELLED
         elif response_status == "no_action" and no_action_kind == "decline":
             phase = CreatorOperationPhase.FORMAL_DECLINED
-        elif response_status == "no_action" and no_action_kind == "no_action":
+        elif response_status == "no_action" and no_action_kind == "silence":
             phase = CreatorOperationPhase.FORMAL_NO_ACTION
+        elif response_status == "no_action" and no_action_kind == "defer":
+            phase = CreatorOperationPhase.DEFERRED
+        elif response_status == "no_action" and no_action_kind == "end_conversation":
+            phase = CreatorOperationPhase.COMPLETED
         elif response_status == "unauthorized":
             phase = CreatorOperationPhase.RESPONSE_UNAUTHORIZED
         elif response_status == "unavailable":

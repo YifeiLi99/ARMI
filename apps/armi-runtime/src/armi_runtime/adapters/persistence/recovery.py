@@ -598,36 +598,44 @@ class PostgreSQLRuntimeRecovery:
             response_backfill = await (
                 await connection.execute(
                     """
-                    SELECT response.operation_id,
-                           response.subject_id,
+                    SELECT intent.operation_ref,
+                           intent.subject_id,
+                           intent.action_intent_id,
                            revision.action_intent_revision_id,
                            revision.response_digest,
                            interaction.trace_id
-                    FROM armi.action_operations AS response
-                    JOIN armi.action_intents AS intent
-                      ON intent.action_intent_id = response.action_intent_id
+                    FROM armi.action_intents AS intent
                     JOIN armi.action_intent_revisions AS revision
                       ON revision.action_intent_revision_id =
                          intent.current_revision_id
                     JOIN armi.opportunities AS opportunity
                       ON opportunity.opportunity_id =
-                         response.root_opportunity_id
+                         intent.root_opportunity_id
                     JOIN armi.external_evidence AS evidence
                       ON evidence.evidence_id = opportunity.evidence_id
                     JOIN armi.party_input_interactions AS interaction
                       ON interaction.interaction_id =
                          evidence.interaction_id
-                    WHERE response.phase = 'admitted'
-                      AND response.outcome IS NULL
-                      AND response.registration_work_id IS NULL
-                    ORDER BY response.operation_id
-                    FOR UPDATE OF response
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM armi.effects AS effect
+                        WHERE effect.action_intent_id = intent.action_intent_id
+                    )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM armi.durable_work AS work
+                        WHERE work.work_kind = 'effect.register'
+                          AND work.owner_kind = 'action_intent'
+                          AND work.owner_ref = intent.action_intent_id
+                          AND work.status IN ('ready', 'leased', 'completed')
+                    )
+                    ORDER BY intent.operation_ref
+                    FOR UPDATE OF intent
                     """
                 )
             ).fetchall()
             for (
                 response_operation_id,
                 subject_id,
+                action_intent_id,
                 action_revision_id,
                 response_digest,
                 trace_id,
@@ -641,7 +649,7 @@ class PostgreSQLRuntimeRecovery:
                         payload_ref, payload_digest, priority, not_before,
                         deadline_at, status, max_attempts, attempt_count,
                         lease_token, trace_id) VALUES (
-                        %s, 'effect.register', 'creator_response_operation', %s,
+                        %s, 'effect.register', 'action_intent', %s,
                         %s, %s, 'action_intent_revision', %s, %s, 50,
                         statement_timestamp(),
                         statement_timestamp() + interval '3600 seconds',
@@ -649,7 +657,7 @@ class PostgreSQLRuntimeRecovery:
                     """,
                     (
                         work_id,
-                        response_operation_id,
+                        action_intent_id,
                         subject_id,
                         f"effect:{response_operation_id}",
                         action_revision_id,
@@ -657,21 +665,6 @@ class PostgreSQLRuntimeRecovery:
                         trace_id,
                     ),
                 )
-                updated = await (
-                    await connection.execute(
-                        """
-                        UPDATE armi.action_operations
-                        SET registration_work_id = %s
-                        WHERE operation_id = %s
-                          AND current_status = 'accepted'
-                          AND registration_work_id IS NULL
-                        RETURNING operation_id
-                        """,
-                        (work_id, response_operation_id),
-                    )
-                ).fetchone()
-                if updated is None:
-                    raise RecoveryViolation("REC-EFFECT-INVALID")
                 await PostgreSQLAuditWriter(connection).append(
                     AuditDraft(
                         AuditEventId(uuid7()),
@@ -1177,72 +1170,38 @@ class PostgreSQLRuntimeRecovery:
                     """
                     SELECT
                         count(*) FILTER (
-                            WHERE response.phase = 'admission_pending'
-                              AND response.outcome IS NULL
+                            WHERE policy.policy_decision_id IS NULL
+                              AND effect.effect_id IS NULL
+                              AND work.status IN ('ready', 'leased')
                         ),
                         count(*) FILTER (
                             WHERE opportunity.opportunity_id IS NULL
                                OR scene.scene_id IS NULL
-                               OR scene.subject_id <> response.subject_id
+                               OR scene.subject_id <> intent.subject_id
                                OR scene.primary_party_id
-                                  <> response.context_party_id
-                               OR (
-                                   response.phase = 'admission_pending'
-                                   AND response.outcome IS NULL
-                                   AND (
-                                       intent.action_intent_id IS NULL
-                                       OR revision.action_intent_revision_id
-                                          IS NULL
-                                       OR work.work_id IS NULL
-                                       OR work.work_kind
-                                          <> 'cognition.response.admit'
-                                       OR work.status NOT IN ('ready', 'leased')
-                                   )
-                               )
-                               OR (
-                                   response.phase IN ('admitted', 'effect_registered', 'dispatching')
-                                   AND response.outcome IS NULL
-                                   AND (
-                                       intent.action_intent_id IS NULL
-                                       OR revision.action_intent_revision_id
-                                          IS NULL
-                                       OR response.matched_grant_id IS NULL
-                                       OR work.status <> 'completed'
-                                   )
-                               )
-                               OR (
-                                   response.phase = 'terminal'
-                                   AND response.outcome = 'no_action'
-                                   AND no_action.dialogue_decision_id IS NULL
-                               )
-                               OR (
-                                   response.phase = 'terminal'
-                                   AND response.outcome IN ('denied', 'failed')
-                                   AND (
-                                       intent.action_intent_id IS NULL
-                                       OR revision.action_intent_revision_id
-                                          IS NULL
-                                       OR work.status <> 'completed'
-                                   )
-                               )
+                                  <> intent.context_party_id
+                               OR revision.action_intent_revision_id IS NULL
                         )
-                    FROM armi.action_operations AS response
+                    FROM armi.action_intents AS intent
                     LEFT JOIN armi.opportunities AS opportunity
                       ON opportunity.opportunity_id
-                       = response.root_opportunity_id
+                       = intent.root_opportunity_id
                     LEFT JOIN armi.interaction_scenes AS scene
-                      ON scene.scene_id = response.scene_id
-                    LEFT JOIN armi.action_intents AS intent
-                      ON intent.action_intent_id = response.action_intent_id
+                      ON scene.scene_id = intent.scene_id
                     LEFT JOIN armi.action_intent_revisions AS revision
                       ON revision.action_intent_id = intent.action_intent_id
                      AND revision.action_intent_revision_id
                        = intent.current_revision_id
-                    LEFT JOIN armi.dialogue_decisions AS no_action
-                      ON no_action.dialogue_decision_id
-                       = response.dialogue_decision_id
                     LEFT JOIN armi.durable_work AS work
-                      ON work.work_id = response.admission_work_id
+                      ON work.owner_kind = 'action_intent'
+                     AND work.owner_ref = intent.action_intent_id
+                     AND work.work_kind = 'cognition.response.admit'
+                    LEFT JOIN armi.policy_decisions AS policy
+                      ON policy.action_intent_revision_id =
+                         revision.action_intent_revision_id
+                     AND policy.is_current
+                    LEFT JOIN armi.effects AS effect
+                      ON effect.action_intent_id = intent.action_intent_id
                     """
                 )
             ).fetchone()
@@ -1256,38 +1215,20 @@ class PostgreSQLRuntimeRecovery:
                         count(*) FILTER (
                             WHERE decision.policy_decision_id IS NULL
                                OR decision.decision_outcome <> 'allowed'
-                               OR response.effect_id <> effect.effect_id
-                               OR current_decision.policy_decision_id IS NULL
                                OR (
                                    effect.status = 'registered'
-                                   AND (
-                                       outbox.status <> 'ready'
-                                       OR response.current_policy_decision_id
-                                          <> decision.policy_decision_id
-                                       OR NOT decision.is_current
-                                   )
+                                   AND outbox.status <> 'ready'
                                )
                                OR (
                                    effect.status = 'cancelled'
                                    AND (
                                        outbox.status <> 'cancelled'
-                                       OR current_decision.decision_outcome
-                                          <> 'denied'
-                                       OR current_decision.supersedes_policy_decision_id
-                                          <> decision.policy_decision_id
-                                       OR NOT current_decision.is_current
-                                       OR decision.is_current
                                    )
                                )
                         )
                     FROM armi.effects AS effect
                     LEFT JOIN armi.policy_decisions AS decision
                       ON decision.policy_decision_id = effect.policy_decision_id
-                    LEFT JOIN armi.action_operations AS response
-                      ON response.operation_id = effect.operation_id
-                    LEFT JOIN armi.policy_decisions AS current_decision
-                      ON current_decision.policy_decision_id =
-                         response.current_policy_decision_id
                     LEFT JOIN armi.effect_outbox_items AS outbox
                       ON outbox.effect_id = effect.effect_id
                     """
@@ -1306,124 +1247,34 @@ class PostgreSQLRuntimeRecovery:
                         (SELECT count(*) FROM armi.local_inbox_deliveries),
                         count(*) FILTER (
                             WHERE
-                                (effect.status = 'registered' AND outbox.status <> 'ready')
+                                (effect.status = 'registered'
+                                 AND outbox.status <> 'ready')
                                 OR (effect.status = 'dispatching' AND (
                                     outbox.status <> 'claimed'
                                     OR attempt.dispatch_state <> 'dispatching'
-                                    OR (
-                                        effect.effect_kind = 'creator_response'
-                                        AND (response.phase <> 'dispatching' OR response.outcome IS NOT NULL)
-                                    )
-                                    OR (
-                                        effect.effect_kind = 'codex_delegation'
-                                        AND (response.phase <> 'dispatching' OR response.outcome IS NOT NULL)
-                                    )
                                 ))
-                                OR (
-                                    effect.status = 'completed'
-                                    AND effect.effect_kind = 'creator_response'
-                                    AND (
+                                OR (effect.status = 'completed' AND (
                                     outbox.status <> 'delivered'
-                                    OR attempt.result_status NOT IN ('succeeded', 'unknown')
+                                    OR attempt.result_status
+                                       NOT IN ('succeeded', 'unknown')
                                     OR observation.reliability <> 'reliable'
-                                    OR observation.observation_kind <> 'receipt'
-                                    OR (
-                                        effect.destination_kind = 'creator_inbox'
-                                        AND (
-                                            delivery.effect_id IS NULL
-                                            OR observation.receiver_ref
-                                               <> delivery.delivery_id
-                                            OR observation.receiver_external_ref
-                                               IS NOT NULL
-                                        )
-                                    )
-                                    OR (
-                                        effect.destination_kind = 'external_private'
-                                        AND (
-                                            delivery.effect_id IS NOT NULL
-                                            OR observation.receiver_ref IS NULL
-                                            OR observation.receiver_external_ref
-                                               IS NULL
-                                        )
-                                    )
-                                    OR response.phase <> 'terminal'
-                                    OR response.outcome <> 'completed'
-                                    )
-                                )
-                                OR (
-                                    effect.status = 'completed'
-                                    AND effect.effect_kind = 'codex_delegation'
-                                    AND (
-                                        outbox.status <> 'delivered'
-                                        OR attempt.result_status <> 'succeeded'
-                                        OR observation.reliability <> 'reliable'
-                                        OR observation.observation_kind <> 'runner_verified'
-                                        OR delivery.effect_id IS NOT NULL
-                                        OR NOT (
-                                            (response.phase = 'result_pending' AND response.outcome IS NULL)
-                                            OR (response.phase = 'terminal' AND response.outcome IN ('completed', 'rejected'))
-                                        )
-                                    )
-                                )
+                                ))
                                 OR (effect.status = 'failed' AND (
                                     outbox.status <> 'dead'
-                                    OR attempt.result_status NOT IN ('failed', 'unknown')
-                                    OR observation.reliability <> 'reliable'
-                                    OR (
-                                        effect.effect_kind = 'creator_response'
-                                        AND (response.phase <> 'terminal' OR response.outcome <> 'failed')
-                                    )
-                                    OR (
-                                        effect.effect_kind = 'codex_delegation'
-                                        AND (
-                                            observation.observation_kind
-                                                <> 'runner_failed'
-                                            OR response.phase <> 'terminal'
-                                            OR response.outcome <> 'failed'
-                                        )
-                                    )
+                                    OR attempt.result_status
+                                       NOT IN ('failed', 'unknown')
                                 ))
                                 OR (effect.status = 'unknown' AND (
                                     outbox.status <> 'unknown'
                                     OR attempt.result_status <> 'unknown'
                                     OR observation.reliability <> 'inconclusive'
-                                    OR (
-                                        effect.effect_kind = 'creator_response'
-                                        AND (response.phase <> 'terminal' OR response.outcome <> 'unknown')
-                                    )
-                                    OR (
-                                        effect.effect_kind = 'codex_delegation'
-                                        AND (
-                                            observation.observation_kind
-                                                <> 'runner_unknown'
-                                            OR response.phase <> 'terminal'
-                                            OR response.outcome <> 'unknown'
-                                        )
-                                    )
                                 ))
-                                OR (effect.status = 'cancelled' AND (
-                                    outbox.status <> 'cancelled'
-                                    OR (
-                                        effect.effect_kind = 'creator_response'
-                                        AND (response.phase <> 'terminal' OR response.outcome <> 'cancelled')
-                                    )
-                                    OR (
-                                        effect.effect_kind = 'codex_delegation'
-                                        AND (
-                                            observation.observation_kind
-                                                <> 'runner_cancelled'
-                                            OR response.phase <> 'terminal'
-                                            OR response.outcome <> 'cancelled'
-                                        )
-                                    )
-                                ))
+                                OR (effect.status = 'cancelled'
+                                    AND outbox.status <> 'cancelled')
                         )
                     FROM armi.effects AS effect
                     JOIN armi.effect_outbox_items AS outbox
                       ON outbox.effect_id = effect.effect_id
-                    JOIN armi.action_operations AS response
-                      ON response.operation_id
-                       = effect.operation_id
                     LEFT JOIN armi.effect_attempts AS attempt
                       ON attempt.effect_attempt_id = effect.current_attempt_id
                      AND attempt.effect_id = effect.effect_id
@@ -1431,9 +1282,8 @@ class PostgreSQLRuntimeRecovery:
                       ON observation.effect_observation_id
                        = effect.current_observation_id
                      AND observation.effect_id = effect.effect_id
-                     AND observation.effect_attempt_id = attempt.effect_attempt_id
-                    LEFT JOIN armi.local_inbox_deliveries AS delivery
-                      ON delivery.effect_id = effect.effect_id
+                     AND observation.effect_attempt_id
+                       = attempt.effect_attempt_id
                     """
                 )
             ).fetchone()

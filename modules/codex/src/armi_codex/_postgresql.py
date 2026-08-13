@@ -61,7 +61,7 @@ class CodexDispatchSnapshot:
     attempt_no: int
     claim_owner: UUID
     claim_token: int
-    operation_id: UUID
+    operation_ref: UUID
     root_operation_id: UUID
     subject_id: UUID
     scene_id: UUID
@@ -398,8 +398,8 @@ class PostgreSQLCodexDelegationRepository:
             await connection.execute(
                 """
                 SELECT outbox.effect_outbox_item_id, effect.effect_id,
-                       operation.operation_id,
-                       operation.root_opportunity_id, effect.subject_id,
+                       intent.operation_ref,
+                       intent.root_opportunity_id, effect.subject_id,
                        effect.scene_id, effect.context_party_id,
                        source.codex_task_source_id,
                        source.source_bundle_artifact_id, source.source_bundle_digest,
@@ -413,8 +413,8 @@ class PostgreSQLCodexDelegationRepository:
                        manifest.privacy_scope, manifest.integrity_status
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
-                JOIN armi.action_operations AS operation
-                  ON operation.effect_id = effect.effect_id
+                JOIN armi.action_intents AS intent
+                  ON intent.action_intent_id = effect.action_intent_id
                 JOIN armi.action_intent_revisions AS revision
                   ON revision.action_intent_revision_id = effect.action_intent_revision_id
                 JOIN armi.codex_task_sources AS source
@@ -463,13 +463,6 @@ class PostgreSQLCodexDelegationRepository:
                 current_attempt_id=%s WHERE effect_id=%s AND status='registered'
             """,
             (attempt_id, row[1]),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.action_operations SET phase='dispatching', outcome=NULL
-            WHERE operation_id=%s AND phase='effect_registered' AND outcome IS NULL
-            """,
-            (row[2],),
         )
         return CodexDispatchSnapshot(
             row[0],
@@ -735,35 +728,6 @@ class PostgreSQLCodexDelegationRepository:
                 snapshot.outbox_id,
                 snapshot.claim_owner,
                 snapshot.claim_token,
-            ),
-        )
-        operation_phase = (
-            "result_pending"
-            if status is CodexVerificationStatus.VERIFIED
-            else "terminal"
-        )
-        operation_outcome = {
-            CodexVerificationStatus.VERIFIED: None,
-            CodexVerificationStatus.FAILED: "failed",
-            CodexVerificationStatus.UNKNOWN: "unknown",
-            CodexVerificationStatus.CANCELLED: "cancelled",
-        }[status]
-        await connection.execute(
-            """
-            UPDATE armi.action_operations
-            SET phase=%s, outcome=%s, reason_code=%s,
-                completed_at=CASE WHEN %s='terminal' THEN statement_timestamp() ELSE NULL END
-            WHERE operation_id=%s
-            """,
-            (
-                operation_phase,
-                operation_outcome,
-                terminal_error_code
-                if status
-                in {CodexVerificationStatus.FAILED, CodexVerificationStatus.UNKNOWN}
-                else cleanup_error_code,
-                operation_phase,
-                snapshot.operation_id,
             ),
         )
         evidence_id, result_source_id = uuid7(), uuid7()

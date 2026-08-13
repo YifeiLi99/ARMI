@@ -39,13 +39,12 @@ class PostgreSQLEffectGrantCancellation:
                 """
                 SELECT effect.effect_id, effect.subject_id,
                        effect.action_intent_revision_id,
-                       effect.operation_id,
                        effect.policy_decision_id,
-                       response.root_opportunity_id,
+                       intent.root_opportunity_id,
                        effect.destination_kind
                 FROM armi.effects AS effect
-                JOIN armi.action_operations AS response
-                  ON response.operation_id = effect.operation_id
+                JOIN armi.action_intents AS intent
+                  ON intent.action_intent_id = effect.action_intent_id
                 JOIN armi.policy_decisions AS policy
                   ON policy.policy_decision_id = effect.policy_decision_id
                  AND policy.is_current
@@ -65,10 +64,9 @@ class PostgreSQLEffectGrantCancellation:
             effect_id = UUID(str(row[0]))
             subject_id = UUID(str(row[1]))
             action_revision_id = UUID(str(row[2]))
-            operation_id = UUID(str(row[3]))
-            prior_decision_id = UUID(str(row[4]))
-            root_operation_id = UUID(str(row[5]))
-            destination_kind = str(row[6])
+            prior_decision_id = UUID(str(row[3]))
+            root_operation_id = UUID(str(row[4]))
+            destination_kind = str(row[5])
             decision_id = uuid7()
             cancellation_digest = Digest.from_bytes(
                 rfc8785.dumps(
@@ -92,16 +90,14 @@ class PostgreSQLEffectGrantCancellation:
                 """
                 INSERT INTO armi.policy_decisions (
                     policy_decision_id, action_intent_revision_id,
-                    operation_id, decision_outcome,
-                    policy_identity, reason_code,
+                    decision_outcome, policy_identity, reason_code,
                     supersedes_policy_decision_id) VALUES (
-                    %s, %s, %s, 'denied', 'armi.policy-engine.deterministic-v1',
+                    %s, %s, 'denied', 'armi.policy-engine.deterministic-v1',
                     %s, %s)
                 """,
                 (
                     decision_id,
                     action_revision_id,
-                    operation_id,
                     reason_code,
                     prior_decision_id,
                 ),
@@ -163,17 +159,6 @@ class PostgreSQLEffectGrantCancellation:
                 """,
                 (effect_id,),
             )
-            await transaction.execute(
-                """
-                UPDATE armi.action_operations
-                SET phase='terminal', outcome='cancelled',
-                    current_policy_decision_id=%s,
-                    completed_at=statement_timestamp()
-                WHERE operation_id=%s
-                  AND phase='effect_registered' AND outcome IS NULL
-                """,
-                (decision_id, operation_id),
-            )
             cancelled.append((effect_id, subject_id, root_operation_id))
         return tuple(cancelled)
 
@@ -220,11 +205,7 @@ async def coordinate_dispatch_boundary(
 
     del cancelled_operation_status
     connection = uow.transaction
-    expected_phase = {
-        "effect_dispatching": "dispatching",
-        "codex_dispatching": "dispatching",
-    }.get(expected_operation_status)
-    if expected_phase is None:
+    if expected_operation_status not in {"effect_dispatching", "codex_dispatching"}:
         return None
     policy_ref = await (
         await connection.execute(
@@ -262,25 +243,20 @@ async def coordinate_dispatch_boundary(
                    statement_timestamp() < outbox.dispatch_deadline,
                    effect.subject_id, effect.purpose, effect.trace_id,
                    effect.policy_decision_id,
-                   effect.action_intent_revision_id,
-                   effect.operation_id
+                   effect.action_intent_revision_id
             FROM armi.effect_outbox_items AS outbox
             JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
             JOIN armi.effect_attempts AS attempt
               ON attempt.effect_attempt_id=effect.current_attempt_id
             JOIN armi.policy_decisions AS policy
               ON policy.policy_decision_id=effect.policy_decision_id
-            JOIN armi.action_operations AS operation
-              ON operation.operation_id=
-                 effect.operation_id
             WHERE outbox.effect_outbox_item_id=%s
               AND outbox.status='claimed' AND outbox.claim_owner=%s
               AND outbox.claim_token=%s
               AND effect.effect_id=%s AND effect.status='dispatching'
               AND effect.current_attempt_id=%s
               AND attempt.dispatch_state='prepared'
-              AND operation.phase=%s AND operation.outcome IS NULL
-            FOR UPDATE OF outbox, effect, attempt, policy, operation
+            FOR UPDATE OF outbox, effect, attempt, policy
             """,
             (
                 outbox_id,
@@ -288,7 +264,6 @@ async def coordinate_dispatch_boundary(
                 claim_token,
                 effect_id,
                 attempt_id,
-                expected_phase,
             ),
         )
     ).fetchone()
@@ -380,30 +355,9 @@ async def coordinate_dispatch_boundary(
         connection,
         prior_decision_id=UUID(str(current[5])),
         action_revision_id=UUID(str(current[6])),
-        operation_id=UUID(str(current[7])),
         reason_code=reason_code,
     )
     if current_decision_id is None:
-        return None
-    operation = await (
-        await connection.execute(
-            """
-            UPDATE armi.action_operations
-            SET phase='terminal', outcome='cancelled', current_policy_decision_id=%s,
-                reason_code=NULL, completed_at=%s
-            WHERE operation_id=%s
-              AND phase=%s AND outcome IS NULL
-            RETURNING operation_id
-            """,
-            (
-                current_decision_id,
-                attempt[0],
-                current[7],
-                expected_phase,
-            ),
-        )
-    ).fetchone()
-    if operation is None:
         return None
     await uow.audit.append(
         AuditDraft(
@@ -427,7 +381,6 @@ async def supersede_effect_policy(
     *,
     prior_decision_id: UUID,
     action_revision_id: UUID,
-    operation_id: UUID,
     reason_code: str,
 ) -> UUID | None:
     superseded = await (
@@ -458,16 +411,14 @@ async def supersede_effect_policy(
         """
         INSERT INTO armi.policy_decisions (
             policy_decision_id, action_intent_revision_id,
-            operation_id, decision_outcome,
-            policy_identity, reason_code,
+            decision_outcome, policy_identity, reason_code,
             supersedes_policy_decision_id) VALUES (
-            %s,%s,%s,'denied','armi.policy-engine.deterministic-v1',
+            %s,%s,'denied','armi.policy-engine.deterministic-v1',
             %s,%s)
         """,
         (
             decision_id,
             action_revision_id,
-            operation_id,
             reason_code,
             prior_decision_id,
         ),

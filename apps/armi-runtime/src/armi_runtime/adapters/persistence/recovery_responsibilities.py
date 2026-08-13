@@ -170,43 +170,6 @@ async def repair_terminal_cognitive_responsibilities(
                 opportunity_id,
             )
         )
-    operations = await (
-        await connection.execute(
-            """
-            UPDATE armi.action_operations AS operation
-            SET phase = 'terminal', outcome = 'rejected',
-                reason_code = episode.failure_code,
-                completed_at = statement_timestamp()
-            FROM armi.codex_verification_results AS verification
-            JOIN armi.codex_result_sources AS source
-              ON source.codex_verification_id = verification.codex_verification_id
-            JOIN armi.cognitive_episodes AS episode
-              ON episode.opportunity_id = source.opportunity_id
-            WHERE operation.effect_id = verification.effect_id
-              AND operation.phase = 'result_pending'
-              AND operation.outcome IS NULL
-              AND episode.status = 'candidate_rejected'
-              AND episode.failure_code IS NOT NULL
-            RETURNING operation.operation_id
-            """
-        )
-    ).fetchall()
-    for (operation_id,) in operations:
-        findings.append(
-            RecoveryFinding(
-                "creator_response_operation",
-                RecoveryDecision.TERMINAL,
-                "REC-CODEX-RESULT-CANDIDATE-REJECTED",
-                operation_id,
-            )
-        )
-        await writer.append(
-            audit_factory(
-                fence,
-                "codex.result.recovered.candidate_rejected",
-                operation_id,
-            )
-        )
     return tuple(findings)
 
 

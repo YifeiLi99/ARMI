@@ -1155,25 +1155,20 @@ async def _activate_codex_registration(
     row = await (
         await connection.execute(
             """
-            SELECT operation.operation_id, operation.subject_id,
+            SELECT intent.operation_ref, intent.subject_id,
                    revision.task_manifest_digest, revision.codex_task_source_id,
-                   commit.trace_id
+                   commit.trace_id, intent.action_intent_id
             FROM armi.capability_requests AS request
             JOIN armi.action_intent_revisions AS revision
               ON revision.subject_commit_id = request.subject_commit_id
              AND revision.capability_kind = 'codex.delegated-work'
             JOIN armi.action_intents AS intent
               ON intent.current_revision_id = revision.action_intent_revision_id
-            JOIN armi.action_operations AS operation
-              ON operation.action_intent_id = intent.action_intent_id
-             AND operation.operation_kind = 'codex_delegation'
             JOIN armi.subject_commits AS commit
               ON commit.subject_commit_id = request.subject_commit_id
             WHERE request.capability_request_id = %s
-              AND operation.phase = 'admission_pending'
-              AND operation.outcome IS NULL
-              AND operation.operation_kind = 'codex_delegation'
-            FOR UPDATE OF operation
+              AND intent.action_kind = 'codex_delegation'
+            FOR UPDATE OF intent
             """,
             (capability_request_id,),
         )
@@ -1191,7 +1186,7 @@ async def _activate_codex_registration(
                 Any,
                 {
                     "schema_version": "armi.codex-delegation.v1",
-                    "operation_id": str(row[0]),
+                    "operation_ref": str(row[0]),
                     "task_source_id": str(row[3]),
                     "task_manifest_digest": str(row[2]),
                     "grant_id": str(grant_id),
@@ -1205,8 +1200,8 @@ async def _activate_codex_registration(
         WorkDraft(
             work_id,
             "effect.register",
-            WorkOwner("creator_response_operation", row[0]),
-            IdempotencyKey(f"effect-register:{row[0]}"),
+            WorkOwner("action_intent", row[5]),
+            IdempotencyKey(f"effect-register:{row[5]}"),
             registration_work_digest,
             60,
             Instant(now_row[0]),
@@ -1214,26 +1209,9 @@ async def _activate_codex_registration(
             2,
             TraceId(str(row[4])),
             subject_id=SubjectId(row[1]),
-            payload=WorkPayloadRef("creator_response_operation", row[0]),
+            payload=WorkPayloadRef("action_intent", row[5]),
         )
     )
-    updated = await (
-        await connection.execute(
-            """
-            UPDATE armi.action_operations
-            SET phase = 'admitted', outcome = NULL, matched_grant_id = %s,
-                completed_at = statement_timestamp(),
-                registration_work_id = %s
-            WHERE operation_id = %s
-              AND phase = 'admission_pending' AND outcome IS NULL
-              AND operation_kind = 'codex_delegation'
-            RETURNING operation_id
-            """,
-            (grant_id, work_id.value, row[0]),
-        )
-    ).fetchone()
-    if updated is None:
-        raise CapabilityViolation("CONFLICT-POLICY-VERSION")
 
 
 async def _load_result(

@@ -308,8 +308,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("capabilities", "configuration_digest"),
     ("capability_request_decisions", "scope_digest"),
     ("capability_requests", "request_digest"),
-    ("action_operations", "completion_digest"),
-    ("action_operations", "effect_registration_digest"),
     ("effect_attempts", "request_digest"),
     ("effect_outbox_items", "payload_digest"),
     ("effects", "settlement_digest"),
@@ -1103,6 +1101,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             (
                 schema_root / "alembic/versions/0008_cognition_candidate_contracts.py"
             ).unlink()
+            (
+                schema_root / "alembic/versions/0009_remove_shared_action_operations.py"
+            ).unlink()
+            (schema_root / "alembic/versions/0010_generic_recovery_metrics.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1112,7 +1114,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0008")
+        self.assertEqual(migrated.current_revision, "0010")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1191,6 +1193,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             (
                 schema_root / "alembic/versions/0008_cognition_candidate_contracts.py"
             ).unlink()
+            (
+                schema_root / "alembic/versions/0009_remove_shared_action_operations.py"
+            ).unlink()
+            (schema_root / "alembic/versions/0010_generic_recovery_metrics.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1220,7 +1226,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0008")
+        self.assertEqual(migrated.current_revision, "0010")
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             activation = connection.execute(
                 """
@@ -1288,10 +1294,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0009_probe.py").write_text(
+            (schema_root / "alembic/versions/0011_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0009'\n"
-                "down_revision = '0008'\n"
+                "revision = '0011'\n"
+                "down_revision = '0010'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1346,8 +1352,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0009")
-            self.assertEqual(migrated.head_revision, "0009")
+            self.assertEqual(migrated.current_revision, "0011")
+            self.assertEqual(migrated.head_revision, "0011")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1368,10 +1374,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0009_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0011_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0009'\n"
-                "down_revision = '0008'\n"
+                "revision = '0011'\n"
+                "down_revision = '0010'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1396,7 +1402,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0008",)])
+            self.assertEqual(history, [("0010",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -4039,7 +4045,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 INSERT INTO armi.effects (
-                    effect_id, action_intent_revision_id, operation_id,
+                    effect_id, action_intent_revision_id,
                     policy_decision_id, subject_id, scene_id,
                     context_party_id, payload_artifact_id, payload_digest,
                     payload_bytes, effect_kind, capability_kind,
@@ -4050,7 +4056,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     current_observation_id, settled_at,
                     action_intent_id
                 )
-                SELECT uuidv7(), uuidv7(), uuidv7(), uuidv7(), %s,
+                SELECT uuidv7(), uuidv7(), uuidv7(), %s,
                        uuidv7(), uuidv7(), uuidv7(),
                        'sha256:' || repeat('e', 64), 1,
                        'creator_response', 'creator.scene.reply', 'send',
@@ -5878,7 +5884,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.capability_request_basis_links),
                     (SELECT count(*) FROM armi.action_intents),
                     (SELECT count(*) FROM armi.action_intent_revisions),
-                    (SELECT count(*) FROM armi.action_operations),
                     (SELECT count(*) FROM armi.scene_timeline_items WHERE source_kind = 'subject_commit'),
                     (SELECT count(*) FROM armi.audit_events WHERE operation = 'cognition.subject.committed')
                 """
@@ -5896,7 +5901,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         len(item.basis_ordinals)
                         for item in change_set.capability_requests
                     ),
-                    len(change_set.action_choices),
                     len(change_set.action_choices),
                     len(change_set.action_choices),
                     1,
@@ -6321,10 +6325,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.action_intents (
                     action_intent_id, subject_id, scene_id, context_party_id,
                     root_opportunity_id, purpose, current_revision_id,
-                    action_kind) VALUES (%s, %s, %s, %s, %s, 'delegate_codex_work', NULL,
-                          'codex_delegation')
+                    action_kind, operation_ref) VALUES (%s, %s, %s, %s, %s, 'delegate_codex_work', NULL,
+                          'codex_delegation', %s)
                 """,
-                (foreign_action_id, *action_owner[2:]),
+                (foreign_action_id, *action_owner[2:], _uuid7()),
             )
             connection.commit()
             with self.assertRaises(psycopg.errors.ForeignKeyViolation):
@@ -6338,9 +6342,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             effect_state = connection.execute(
                 """
                 SELECT effect.status, effect_outbox.status,
-                       CASE WHEN operation.phase = 'terminal'
-                            THEN 'effect_' || operation.outcome
-                            ELSE operation.phase END,
+                       'effect_' || effect.status,
                        permission.consumed_uses,
                        original_policy.is_current, current_policy.is_current,
                        current_policy.supersedes_policy_decision_id =
@@ -6352,15 +6354,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         WHERE source_kind = 'party_response')
                 FROM armi.effects AS effect
                 JOIN armi.effect_outbox_items AS effect_outbox USING (effect_id)
-                JOIN armi.action_operations AS operation USING (effect_id)
                 JOIN armi.policy_decisions AS original_policy
                   ON original_policy.policy_decision_id =
                      effect.policy_decision_id
                 JOIN armi.policy_decisions AS current_policy
-                  ON current_policy.policy_decision_id =
-                     operation.current_policy_decision_id
+                  ON current_policy.action_intent_revision_id =
+                     effect.action_intent_revision_id
+                 AND current_policy.is_current
                 JOIN armi.permission_grants AS permission
-                  ON permission.grant_id = operation.matched_grant_id
+                  ON permission.grant_id = original_policy.matched_grant_id
                 """
             ).fetchone()
         self.assertEqual(
@@ -6713,7 +6715,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0008",)])
+            self.assertEqual(restored, [("0010",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

@@ -212,9 +212,13 @@ class AdminObservationGateway:
             )
         else:
             rows = self._all(
-                "SELECT operation_id, root_opportunity_id, current_status, "
-                "effect_id, completed_at FROM armi.action_operations "
-                "WHERE operation_id = %s OR root_opportunity_id = %s LIMIT 200",
+                "SELECT intent.operation_ref, intent.root_opportunity_id, "
+                "effect.status, effect.effect_id, effect.settled_at "
+                "FROM armi.action_intents AS intent "
+                "LEFT JOIN armi.effects AS effect "
+                "ON effect.action_intent_id = intent.action_intent_id "
+                "WHERE intent.operation_ref = %s "
+                "OR intent.root_opportunity_id = %s LIMIT 200",
                 (value, value),
             )
         return {
@@ -226,8 +230,8 @@ class AdminObservationGateway:
         mapping = {
             "subject": ("subjects", "subject_id"),
             "operation": (
-                "action_operations",
-                "operation_id",
+                "action_intents",
+                "operation_ref",
             ),
             "episode": ("cognitive_episodes", "cognitive_episode_id"),
             "effect": ("effects", "effect_id"),

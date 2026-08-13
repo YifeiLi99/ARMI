@@ -648,16 +648,15 @@ class AdminCorrectionGateway:
         result_id: str,
         for_update: bool,
     ) -> dict[str, Any]:
-        suffix = " FOR UPDATE OF effect, operation, outbox" if for_update else ""
+        suffix = " FOR UPDATE OF effect, intent, outbox" if for_update else ""
         row = connection.execute(
             "SELECT effect.effect_id, effect.status, effect.current_attempt_id, "
-            "effect.payload_digest, effect.operation_id, "
-            "CASE WHEN operation.phase = 'terminal' THEN operation.outcome "
-            "ELSE operation.phase END, outbox.effect_outbox_item_id, "
+            "effect.payload_digest, intent.operation_ref, effect.status, "
+            "outbox.effect_outbox_item_id, "
             "delivery.delivery_id, delivery.receipt_digest "
             "FROM armi.effects AS effect "
-            "JOIN armi.action_operations AS operation "
-            "ON operation.operation_id = effect.operation_id "
+            "JOIN armi.action_intents AS intent "
+            "ON intent.action_intent_id = effect.action_intent_id "
             "JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id = effect.effect_id "
             "LEFT JOIN armi.local_inbox_deliveries AS delivery "
             "ON delivery.effect_id = effect.effect_id "
@@ -705,7 +704,7 @@ class AdminCorrectionGateway:
             "handler": {
                 "effect_id": str(row[0]),
                 "attempt_id": str(row[2]),
-                "operation_id": str(row[4]),
+                "operation_ref": str(row[4]),
                 "outbox_id": str(row[6]),
                 "delivery_id": None if row[7] is None else str(row[7]),
                 "observation_id": result_id,
@@ -884,20 +883,6 @@ class AdminCorrectionGateway:
             != 1
         ):
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-EFFECT-OUTBOX")
-        if (
-            connection.execute(
-                "UPDATE armi.action_operations SET current_status = %s, "
-                "reason_code = %s, completed_at = statement_timestamp() "
-                "WHERE operation_id = %s",
-                (
-                    "effect_completed" if completed else "effect_failed",
-                    None if completed else "EFFECT-DELIVERY-NOT-FOUND",
-                    handler["operation_id"],
-                ),
-            ).rowcount
-            != 1
-        ):
-            raise AdminCorrectionGatewayError("ADMIN-CORRECTION-EFFECT-OPERATION")
 
     def _current_target_digest(
         self,

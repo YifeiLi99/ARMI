@@ -665,29 +665,6 @@ class PostgreSQLCandidateValidationRepository:
             ).fetchone()
             if resolved is None:
                 raise CandidateViolation("CANDIDATE-OPPORTUNITY-STATE")
-            if snapshot.purpose == "consider_codex_result":
-                operation = await (
-                    await connection.execute(
-                        """
-                        UPDATE armi.action_operations AS operation
-                        SET phase = 'terminal', outcome = 'rejected',
-                            reason_code = %s,
-                            completed_at = statement_timestamp()
-                        FROM armi.codex_result_sources AS source
-                        JOIN armi.codex_verification_results AS verification
-                          ON verification.codex_verification_id =
-                             source.codex_verification_id
-                        WHERE source.opportunity_id = %s
-                          AND operation.effect_id = verification.effect_id
-                          AND operation.phase = 'result_pending'
-                          AND operation.outcome IS NULL
-                        RETURNING operation.operation_id
-                        """,
-                        (cast(str, result.error_code), snapshot.opportunity_id),
-                    )
-                ).fetchone()
-                if operation is None:
-                    raise CandidateViolation("CANDIDATE-CODEX-RESULT-LINK")
         if change_set is not None:
             artifact = cast(ArtifactRef, change_set_artifact)
             now_row = await (

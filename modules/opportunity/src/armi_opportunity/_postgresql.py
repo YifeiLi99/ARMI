@@ -681,15 +681,30 @@ class PostgreSQLLifeOpportunityRepository:
                         FROM armi.opportunities AS opportunity
                         JOIN armi.action_intents AS intent
                           ON intent.root_opportunity_id = opportunity.opportunity_id
-                        JOIN armi.action_operations AS operation
-                          ON operation.root_opportunity_id = opportunity.opportunity_id
+                        LEFT JOIN armi.action_intent_revisions AS revision
+                          ON revision.action_intent_revision_id =
+                             intent.current_revision_id
+                        LEFT JOIN armi.policy_decisions AS policy
+                          ON policy.action_intent_revision_id =
+                             revision.action_intent_revision_id
+                         AND policy.is_current
+                        LEFT JOIN armi.effects AS effect
+                          ON effect.action_intent_id = intent.action_intent_id
                         WHERE opportunity.subject_id = %s
                           AND opportunity.scene_id = %s
                           AND opportunity.context_party_id = %s
                           AND opportunity.purpose = 'consider_creator_outreach'
                           AND (
-                              operation.phase <> 'terminal'
-                              OR operation.outcome = 'unknown'
+                              policy.policy_decision_id IS NULL
+                              OR (
+                                  policy.decision_outcome = 'allowed'
+                                  AND (
+                                      effect.effect_id IS NULL
+                                      OR effect.status IN (
+                                          'registered', 'dispatching', 'unknown'
+                                      )
+                                  )
+                              )
                           )
                           AND NOT EXISTS (
                               SELECT 1
