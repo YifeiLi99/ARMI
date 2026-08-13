@@ -277,6 +277,7 @@ async def _serve(
             )
             recovery_port = compose_runtime_recovery(
                 prepared,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 authority_admission=authority.require_writable,
                 mood_read=mood_module.read,
                 prompt_read=prompt_module.read,
@@ -298,7 +299,9 @@ async def _serve(
                     result_code="REC_SAFE",
                 )
             try:
-                observation_port = compose_runtime_observation(prepared)
+                observation_port = compose_runtime_observation(
+                    runtime_unit_of_work_factory
+                )
                 await observation_port.open()
                 observation_driver = RuntimeObservationDriver(
                     observation_port,

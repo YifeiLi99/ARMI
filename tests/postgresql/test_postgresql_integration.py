@@ -6844,22 +6844,32 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     lease_seconds=30,
                 )
                 await authorities[1].heartbeat(record.fence, lease_seconds=30)
-                recovery = PostgreSQLRuntimeRecovery(
+                recovery_factory = PostgreSQLUnitOfWorkFactory(
                     fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    pool_min=1,
+                    pool_max=1,
+                    acquire_timeout_seconds=2,
+                    statement_timeout_seconds=5,
+                    authority_admission=lambda: record.fence,
+                )
+                recovery = PostgreSQLRuntimeRecovery(
+                    recovery_factory,
                     environment_id=fixture.environment_id,
                     data_root=root.parent,
                     max_object_bytes=1024 * 1024,
-                    pool_timeout_seconds=2,
                     authority_admission=lambda: record.fence,
                     mood=bootstrap_mood().read,
                     prompts=bootstrap_prompt().read,
                     subject_state=bootstrap_subject_state().read,
                 )
+                await recovery_factory.open()
                 await recovery.open()
                 try:
                     summary = await recovery.recover()
                 finally:
                     await recovery.close()
+                    await recovery_factory.close()
                 await authorities[1].release(record.fence)
             finally:
                 for authority in authorities:

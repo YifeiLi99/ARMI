@@ -404,54 +404,11 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
 
 
 def compose_runtime_observation(
-    prepared: PreparedEnvironment,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
 ) -> PostgreSQLRuntimeObservation:
     """Resolve the Runtime credential for the private read-only sampler."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise DatabaseViolation(
-            "DB-CONNECTION-UNAVAILABLE",
-            "the required database credential locator is unavailable",
-            status="unavailable",
-            exit_code=3,
-        )
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> PostgreSQLRuntimeObservation:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise DatabaseViolation(
-                        "DB-CONNECTION-UNAVAILABLE",
-                        "the configured PostgreSQL connection is unavailable",
-                        status="unavailable",
-                        exit_code=3,
-                    ) from None
-                config = prepared.effective.config
-                return PostgreSQLRuntimeObservation(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.diagnostic_statement_timeout_seconds
-                    ),
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise DatabaseViolation(
-            "DB-ROLE-CREDENTIAL-SCOPE",
-            "the configured PostgreSQL connection is unavailable",
-            status="unavailable",
-            exit_code=3,
-        ) from None
+    return PostgreSQLRuntimeObservation(unit_of_work_factory)
 
 
 def inspect_creator_context(prepared: PreparedEnvironment) -> CreatorContext | None:
@@ -1310,6 +1267,7 @@ def compose_response_admission_pipeline(
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     authority_admission: Callable[[], RuntimeFence],
     mood_read: MoodReadPort,
     prompt_read: PromptReadPort,
@@ -1317,51 +1275,17 @@ def compose_runtime_recovery(
 ) -> PostgreSQLRuntimeRecovery:
     """Resolve the Runtime credential for the fenced startup recovery gateway."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise DatabaseViolation(
-            "DB-CONNECTION-UNAVAILABLE",
-            "the required database credential locator is unavailable",
-            status="unavailable",
-            exit_code=3,
-        )
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> PostgreSQLRuntimeRecovery:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise DatabaseViolation(
-                        "DB-CONNECTION-UNAVAILABLE",
-                        "the configured PostgreSQL connection is unavailable",
-                        status="unavailable",
-                        exit_code=3,
-                    ) from None
-                config = prepared.effective.config
-                return PostgreSQLRuntimeRecovery(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_timeout_seconds=(config.database.pool_acquire_timeout_seconds),
-                    authority_admission=authority_admission,
-                    mood=mood_read,
-                    prompts=prompt_read,
-                    subject_state=subject_state_read,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise DatabaseViolation(
-            "DB-ROLE-CREDENTIAL-SCOPE",
-            "the configured PostgreSQL connection is unavailable",
-            status="unavailable",
-            exit_code=3,
-        ) from None
+    config = prepared.effective.config
+    return PostgreSQLRuntimeRecovery(
+        unit_of_work_factory,
+        environment_id=config.environment.environment_id,
+        data_root=prepared.data_root,
+        max_object_bytes=config.artifacts.max_object_bytes,
+        authority_admission=authority_admission,
+        mood=mood_read,
+        prompts=prompt_read,
+        subject_state=subject_state_read,
+    )
 
 
 def compose_effect_registration_pipeline(

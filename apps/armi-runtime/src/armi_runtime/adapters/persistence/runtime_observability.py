@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, LiteralString
-from uuid import UUID
+from typing import LiteralString
 
-import psycopg
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
+    RuntimeTransactionFailure,
+)
 
-from .role_policy import physical_role_name
-
-_SEARCH_PATH = "pg_catalog, armi"
 _COUNT_QUERIES: dict[str, LiteralString] = {
     "armi.durable_work": (
         "SELECT status, count(*) FROM armi.durable_work GROUP BY status ORDER BY status"
@@ -62,69 +61,24 @@ class DatabaseObservation:
 class PostgreSQLRuntimeObservation:
     """Own one read-only diagnostic connection without write authority."""
 
-    __slots__ = ("_pool", "_statement_timeout_milliseconds")
+    __slots__ = ("_factory",)
 
     def __init__(
         self,
-        conninfo: str,
-        *,
-        environment_id: UUID,
-        acquire_timeout_seconds: int,
-        statement_timeout_seconds: int,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
     ) -> None:
-        expected_role = physical_role_name(environment_id, "runtime")
-
-        async def configure(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-        ) -> None:
-            await connection.set_autocommit(True)
-            await connection.execute("SET search_path TO pg_catalog, armi")
-
-        async def check(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-        ) -> None:
-            row = await (
-                await connection.execute(
-                    "SELECT session_user, current_user, current_setting('search_path')"
-                )
-            ).fetchone()
-            if row != (expected_role, expected_role, _SEARCH_PATH):
-                raise RuntimeObservationError("OBSERVABILITY_DATABASE_IDENTITY")
-
-        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
-            conninfo,
-            min_size=0,
-            max_size=1,
-            open=False,
-            configure=configure,
-            check=check,
-            timeout=float(acquire_timeout_seconds),
-            name="armi-runtime-observability",
-        )
-        self._statement_timeout_milliseconds = statement_timeout_seconds * 1000
+        self._factory = factory
 
     async def open(self) -> None:
-        try:
-            await self._pool.open(wait=True)
-        except PoolTimeout, psycopg.Error, RuntimeObservationError:
-            raise RuntimeObservationError(
-                "OBSERVABILITY_DATABASE_UNAVAILABLE"
-            ) from None
+        return None
 
     async def close(self) -> None:
-        await self._pool.close()
+        return None
 
     async def collect(self) -> DatabaseObservation:
         try:
-            async with (
-                self._pool.connection() as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("SET TRANSACTION READ ONLY")
-                await connection.execute(
-                    "SELECT set_config('statement_timeout', %s, true)",
-                    (str(self._statement_timeout_milliseconds),),
-                )
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                connection = unit_of_work.transaction
                 work_counts = await _counts(connection, "armi.durable_work")
                 work_age = await _oldest_age(
                     connection,
@@ -167,7 +121,7 @@ class PostgreSQLRuntimeObservation:
                         "SELECT pg_database_size(current_database())"
                     )
                 ).fetchone()
-        except PoolTimeout, psycopg.Error, RuntimeObservationError:
+        except RuntimeTransactionFailure, RuntimeObservationError:
             raise RuntimeObservationError(
                 "OBSERVABILITY_DATABASE_UNAVAILABLE"
             ) from None
@@ -189,7 +143,7 @@ class PostgreSQLRuntimeObservation:
 
 
 async def _counts(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]], table: str
+    connection: PostgreSQLTransaction, table: str
 ) -> tuple[tuple[str, int], ...]:
     query = _COUNT_QUERIES.get(table)
     if query is None:
@@ -199,7 +153,7 @@ async def _counts(
 
 
 async def _oldest_age(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
+    connection: PostgreSQLTransaction,
     table: str,
     predicate: str,
     timestamp_column: str,

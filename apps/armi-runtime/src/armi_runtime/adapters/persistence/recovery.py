@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid7
 
-import psycopg
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -23,6 +22,7 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    AuditWriter,
     RecoveryDecision,
     RecoveryFinding,
     RecoveryMetric,
@@ -36,19 +36,15 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptReadPort, PromptViolation
+from armi_runtime_foundation import PostgreSQLTransaction, RuntimeTransactionFailure
 from armi_subject_state.api import SubjectStateReadPort
-from psycopg.pq import TransactionStatus
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
-from armi_runtime.adapters.persistence.role_policy import physical_role_name
-
-from .audit_events import PostgreSQLAuditWriter
 from .recovery_responsibilities import (
     repair_terminal_cognitive_responsibilities,
     repair_work,
 )
+from .unit_of_work import PostgreSQLUnitOfWorkFactory
 
-_SEARCH_PATH = "pg_catalog, armi"
 _EXPECTED_CRITICAL_ARTIFACT_COUNT = 1
 _RECOVERY_METRIC_KINDS = (
     "requeued_work_count",
@@ -88,33 +84,14 @@ class _Scan:
     terminal_work: int
 
 
-async def _configure(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-) -> None:
-    await connection.set_autocommit(True)
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
-async def _reset(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-) -> None:
-    if connection.info.transaction_status != TransactionStatus.IDLE:
-        await connection.rollback()
-    await connection.execute("RESET ROLE")
-    await connection.execute("RESET ALL")
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
 class PostgreSQLRuntimeRecovery:
     """Classify and repair startup responsibility under one current fence."""
 
     __slots__ = (
         "_admission",
         "_environment_id",
-        "_expected_role",
+        "_factory",
         "_mood",
-        "_pool",
-        "_pool_timeout_seconds",
         "_prompts",
         "_storage",
         "_subject_state",
@@ -122,20 +99,18 @@ class PostgreSQLRuntimeRecovery:
 
     def __init__(
         self,
-        conninfo: str,
+        factory: PostgreSQLUnitOfWorkFactory,
         *,
         environment_id: UUID,
         data_root: Path,
         max_object_bytes: int,
-        pool_timeout_seconds: int,
         authority_admission: Callable[[], RuntimeFence],
         mood: MoodReadPort,
         prompts: PromptReadPort,
         subject_state: SubjectStateReadPort,
     ) -> None:
         self._environment_id = environment_id
-        self._expected_role = physical_role_name(environment_id, "runtime")
-        self._pool_timeout_seconds = pool_timeout_seconds
+        self._factory = factory
         self._admission = authority_admission
         self._subject_state = subject_state
         self._mood = mood
@@ -145,38 +120,14 @@ class PostgreSQLRuntimeRecovery:
             max_object_bytes=max_object_bytes,
         )
 
-        async def check(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-        ) -> None:
-            row = await (
-                await connection.execute(
-                    "SELECT session_user, current_user, current_setting('search_path')"
-                )
-            ).fetchone()
-            if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
-                raise RecoveryViolation("REC-ROLE-IDENTITY")
-
-        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
-            conninfo,
-            min_size=1,
-            max_size=1,
-            open=False,
-            configure=_configure,
-            check=check,
-            reset=_reset,
-            timeout=float(pool_timeout_seconds),
-            name="armi-runtime-recovery",
-        )
-
     async def open(self) -> None:
         try:
-            await self._pool.open(wait=True)
             await self._storage.prepare()
-        except psycopg.Error, PoolTimeout, ArtifactViolation:
+        except ArtifactViolation:
             raise RecoveryViolation("REC-DEPENDENCY") from None
 
     async def close(self) -> None:
-        await self._pool.close()
+        return None
 
     async def recover(self) -> RecoverySummary:
         fence = self._require_fence()
@@ -190,18 +141,14 @@ class PostgreSQLRuntimeRecovery:
             )
         except RecoveryViolation:
             raise
-        except psycopg.Error, PoolTimeout:
+        except RuntimeTransactionFailure:
             raise RecoveryViolation("REC-DATABASE") from None
 
     async def _start_and_repair(self, fence: RuntimeFence) -> _Scan:
-        async with (
-            self._pool.connection(
-                timeout=float(self._pool_timeout_seconds)
-            ) as connection,
-            connection.transaction(),
-        ):
+        async with self._factory.unit_of_work() as unit_of_work:
+            connection = unit_of_work.transaction
             await self._verify_fence(connection, fence)
-            writer = PostgreSQLAuditWriter(connection)
+            writer = unit_of_work.audit
             await self._abandon_old_runs(connection, writer, fence)
             run_id, inserted = await self._running_row(connection, fence)
             if inserted:
@@ -227,8 +174,8 @@ class PostgreSQLRuntimeRecovery:
 
     async def _abandon_old_runs(
         self,
-        connection: psycopg.AsyncConnection[tuple[Any, ...]],
-        writer: PostgreSQLAuditWriter,
+        connection: PostgreSQLTransaction,
+        writer: AuditWriter,
         fence: RuntimeFence,
     ) -> None:
         rows = await (
@@ -262,7 +209,7 @@ class PostgreSQLRuntimeRecovery:
 
     async def _running_row(
         self,
-        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        connection: PostgreSQLTransaction,
         fence: RuntimeFence,
     ) -> tuple[UUID, bool]:
         existing = await (
@@ -318,7 +265,7 @@ class PostgreSQLRuntimeRecovery:
 
     async def _validate_metric_set(
         self,
-        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        connection: PostgreSQLTransaction,
         run_id: UUID,
     ) -> None:
         rows = await (
@@ -333,7 +280,7 @@ class PostgreSQLRuntimeRecovery:
 
     async def _continuity(
         self,
-        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        connection: PostgreSQLTransaction,
         fence: RuntimeFence,
     ) -> tuple[tuple[RecoveryFinding, ...], tuple[ArtifactRef, ...]]:
         findings: list[RecoveryFinding] = []
@@ -516,14 +463,15 @@ class PostgreSQLRuntimeRecovery:
             and value.decision is RecoveryDecision.VERIFIED
             for value in sorted_findings
         )
-        async with (
-            self._pool.connection(
-                timeout=float(self._pool_timeout_seconds)
-            ) as connection,
-            connection.transaction(),
-        ):
+        async with self._factory.unit_of_work() as unit_of_work:
+            connection = unit_of_work.transaction
             await self._verify_fence(connection, fence)
-            await self._record_artifact_failures(connection, fence, sorted_findings)
+            await self._record_artifact_failures(
+                connection,
+                unit_of_work.audit,
+                fence,
+                sorted_findings,
+            )
             backfilled = await (
                 await connection.execute(
                     """
@@ -580,7 +528,7 @@ class PostgreSQLRuntimeRecovery:
                 )
             ).fetchall()
             for _work_id, episode_id, subject_id, trace_id in backfilled:
-                await PostgreSQLAuditWriter(connection).append(
+                await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
                         AuditReference(
@@ -666,7 +614,7 @@ class PostgreSQLRuntimeRecovery:
                         trace_id,
                     ),
                 )
-                await PostgreSQLAuditWriter(connection).append(
+                await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
                         AuditReference(
@@ -1632,20 +1580,18 @@ class PostgreSQLRuntimeRecovery:
             )
             if updated.rowcount != 1:
                 raise RecoveryViolation("REC-RUN-STALE")
-            async with connection.cursor() as metric_cursor:
-                await metric_cursor.executemany(
+            metric_rowcount = 0
+            for kind in _RECOVERY_METRIC_KINDS:
+                metric_result = await connection.execute(
                     """UPDATE armi.runtime_recovery_metrics SET metric_value = %s
                        WHERE recovery_run_id = %s AND metric_kind = %s""",
-                    tuple(
-                        (metrics[kind], scan.recovery_run_id, kind)
-                        for kind in _RECOVERY_METRIC_KINDS
-                    ),
+                    (metrics[kind], scan.recovery_run_id, kind),
                 )
-                metric_rowcount = metric_cursor.rowcount
+                metric_rowcount += metric_result.rowcount
             if metric_rowcount != len(_RECOVERY_METRIC_KINDS):
                 raise RecoveryViolation("REC-METRIC-SET")
             await self._validate_metric_set(connection, scan.recovery_run_id)
-            await PostgreSQLAuditWriter(connection).append(
+            await unit_of_work.audit.append(
                 _audit(
                     fence,
                     f"runtime.recovery.{status.value}",
@@ -1665,11 +1611,11 @@ class PostgreSQLRuntimeRecovery:
 
     async def _record_artifact_failures(
         self,
-        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        connection: PostgreSQLTransaction,
+        writer: AuditWriter,
         fence: RuntimeFence,
         findings: tuple[RecoveryFinding, ...],
     ) -> None:
-        writer = PostgreSQLAuditWriter(connection)
         for finding in findings:
             if (
                 finding.kind != "critical_artifact"
@@ -1706,7 +1652,7 @@ class PostgreSQLRuntimeRecovery:
 
     async def _verify_fence(
         self,
-        connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        connection: PostgreSQLTransaction,
         fence: RuntimeFence,
     ) -> None:
         row = await (

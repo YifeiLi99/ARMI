@@ -3,25 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 from uuid import UUID
 
-import psycopg
 from armi_kernel.application import (
     AuditDraft,
+    AuditWriter,
     RecoveryDecision,
     RecoveryFinding,
     RuntimeFence,
 )
-
-from .audit_events import PostgreSQLAuditWriter
+from armi_runtime_foundation import PostgreSQLTransaction
 
 AuditFactory = Callable[[RuntimeFence, str, UUID], AuditDraft]
 
 
 async def repair_work(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-    writer: PostgreSQLAuditWriter,
+    connection: PostgreSQLTransaction,
+    writer: AuditWriter,
     fence: RuntimeFence,
     audit_factory: AuditFactory,
 ) -> tuple[tuple[RecoveryFinding, ...], int, int]:
@@ -127,8 +125,8 @@ async def repair_work(
 
 
 async def repair_terminal_cognitive_responsibilities(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-    writer: PostgreSQLAuditWriter,
+    connection: PostgreSQLTransaction,
+    writer: AuditWriter,
     fence: RuntimeFence,
     audit_factory: AuditFactory,
 ) -> tuple[RecoveryFinding, ...]:
