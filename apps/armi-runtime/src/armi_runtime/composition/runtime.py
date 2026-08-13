@@ -511,6 +511,7 @@ async def _serve(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_read=activity_module.read,
+                capability_read=capability_policy.read,
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
                 mood_read=mood_module.read,

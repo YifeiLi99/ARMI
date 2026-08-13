@@ -15,6 +15,7 @@ from armi_artifact_store import (
     ContentAddressedArtifactStore,
     parse_life_material_artifact,
 )
+from armi_capability.api import CapabilityReadPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -167,6 +168,7 @@ class ContextPipeline(OpportunitySelector):
         catalog: ContextArtifactCatalogPort,
         work: DurableWorkPort,
         activity_read: ActivityReadPort,
+        capability_read: CapabilityReadPort,
         memory_read: MemoryReadPort,
         memory_projection: MemoryProjectionPort,
         mood_read: MoodReadPort,
@@ -189,6 +191,7 @@ class ContextPipeline(OpportunitySelector):
             relationship_read,
             sleep_read,
             activity_read,
+            capability_read,
             memories=memory_read,
             mood=mood_read,
             prompts=prompt_read,

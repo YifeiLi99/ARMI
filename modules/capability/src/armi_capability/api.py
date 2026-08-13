@@ -16,6 +16,7 @@ from armi_runtime_foundation import (
 )
 
 _CODE = re.compile(r"^(?:CON|CAPABILITY|POLICY|CONFLICT|SCOPE)-[A-Z0-9-]+$", re.ASCII)
+type CapabilityContextStatePayload = tuple[UUID, int, bytes, str]
 
 
 class CapabilityKind(StrEnum):
@@ -487,6 +488,13 @@ class CapabilityCommitPort(Protocol):
 
 @runtime_checkable
 class CapabilityReadPort(Protocol):
+    async def context_state_payloads(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> tuple[CapabilityContextStatePayload, ...]: ...
+
     async def request_ids_for_commit(
         self,
         transaction: PostgreSQLTransaction,
@@ -527,6 +535,7 @@ __all__ = (
     "CapabilityCommitPort",
     "CapabilityConsumptionRequest",
     "CapabilityConsumptionResult",
+    "CapabilityContextStatePayload",
     "CapabilityDecisionId",
     "CapabilityEffectCancellationPort",
     "CapabilityGrantConsumptionPort",

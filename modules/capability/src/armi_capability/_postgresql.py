@@ -42,6 +42,7 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 
+from ._context import load_context_state_payloads
 from .api import (
     CapabilityAuthorizationOutcome,
     CapabilityCommitContext,
@@ -699,6 +700,17 @@ class PostgreSQLCreatorGrantPolicy:
             )
         ).fetchall()
         return tuple(UUID(str(row[0])) for row in rows)
+
+    async def context_state_payloads(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> tuple[tuple[UUID, int, bytes, str], ...]:
+        return await load_context_state_payloads(
+            transaction,
+            subject_id=subject_id,
+        )
 
     async def commit_requests(
         self,

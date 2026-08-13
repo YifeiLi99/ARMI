@@ -9,6 +9,7 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_activity.api import ActivityReadPort
+from armi_capability.api import CapabilityContextStatePayload, CapabilityReadPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -43,7 +44,6 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_sleep.api import MaintenancePhase, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
 
-from ._capability import CapabilityStatePayload, load_capability_state_payloads
 from .api import ContextResult, ContextViolation
 
 _WORK_KIND = "cognition.context.prepare"
@@ -141,7 +141,7 @@ class ContextEpisodeSnapshot:
     relationship_issue_payloads: tuple[tuple[UUID, int, bytes], ...]
     material_sources: tuple[ContextMaterialSource, ...]
     activity_summary_bytes: bytes
-    capability_state_payloads: tuple[CapabilityStatePayload, ...]
+    capability_state_payloads: tuple[CapabilityContextStatePayload, ...]
     scene_bytes: bytes | None
     evidence: ContextArtifactSource | None
     outreach_trigger_bytes: bytes | None
@@ -161,6 +161,7 @@ class PostgreSQLContextRepository:
 
     __slots__ = (
         "_activities",
+        "_capabilities",
         "_memories",
         "_mood",
         "_prompts",
@@ -174,12 +175,14 @@ class PostgreSQLContextRepository:
         relationships: RelationshipReadPort,
         sleep: SleepReadPort,
         activities: ActivityReadPort,
+        capabilities: CapabilityReadPort,
         memories: MemoryReadPort | None = None,
         mood: MoodReadPort | None = None,
         prompts: PromptReadPort | None = None,
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
+        self._capabilities = capabilities
         self._memories = memories
         self._mood = mood
         self._prompts = prompts
@@ -606,8 +609,8 @@ class PostgreSQLContextRepository:
         capability_state_payloads = (
             ()
             if row[20] == "consider_other_human_input"
-            else await load_capability_state_payloads(
-                connection,
+            else await self._capabilities.context_state_payloads(
+                unit_of_work.transaction,
                 subject_id=row[2],
             )
         )

@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from armi_activity.api import ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
+from armi_capability.api import CapabilityReadPort
 from armi_kernel.application import DurableWorkPort
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
@@ -38,6 +39,7 @@ def bootstrap_context(
     catalog: ContextArtifactCatalogPort,
     work: DurableWorkPort,
     activity_read: ActivityReadPort,
+    capability_read: CapabilityReadPort,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     mood_read: MoodReadPort,
@@ -57,6 +59,7 @@ def bootstrap_context(
         catalog=catalog,
         work=work,
         activity_read=activity_read,
+        capability_read=capability_read,
         memory_read=memory_read,
         memory_projection=memory_projection,
         mood_read=mood_read,

@@ -286,6 +286,7 @@ source = { editable = "modules/context" }
 dependencies = [
     { name = "armi-activity" },
     { name = "armi-artifact-store" },
+    { name = "armi-capability" },
     { name = "armi-kernel" },
     { name = "armi-material" },
     { name = "armi-memory" },
@@ -303,6 +304,7 @@ dependencies = [
 requires-dist = [
     { name = "armi-activity", editable = "modules/activity" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-capability", editable = "modules/capability" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },

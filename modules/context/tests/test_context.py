@@ -13,7 +13,6 @@ from armi_context._application import (
     _context_request,
     _recent_scene_artifact_contract,
 )
-from armi_context._capability import _capability_state_payload
 from armi_context._compiler import DeterministicContextCompiler
 from armi_context._postgresql import (
     ContextEpisodeSnapshot,
@@ -306,72 +305,56 @@ def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> No
 
 def test_capability_state_separates_availability_authorization_and_desire() -> None:
     unavailable_id = uuid7()
-    unavailable = _capability_state_payload(
-        (
-            unavailable_id,
-            "codex.delegated-work",
-            "execute",
-            "unavailable",
-            2,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+    unavailable = (
+        unavailable_id,
+        2,
+        rfc8785.dumps(
+            {
+                "schema_version": "armi.capability-state.v1",
+                "capability_ref": str(unavailable_id),
+                "capability_kind": "codex.delegated-work",
+                "operation": "execute",
+                "availability_status": "unavailable",
+                "authorization_status": "unauthorized",
+                "current_request": None,
+                "effective_grant": None,
+            }
+        ),
+        "unauthorized",
     )
     request_id = uuid7()
-    denied = _capability_state_payload(
-        (
-            uuid7(),
-            "codex.delegated-work",
-            "execute",
-            "available",
-            2,
-            request_id,
-            2,
-            "denied",
-            "creator_denied",
-            None,
-            None,
-            "delegate_codex_work",
-            "isolated_ephemeral",
-            "explicit_only",
-            False,
-            3600,
-            1,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            datetime(2026, 1, 2, tzinfo=UTC),
-        )
+    denied_id = uuid7()
+    denied = (
+        denied_id,
+        2,
+        rfc8785.dumps(
+            {
+                "schema_version": "armi.capability-state.v1",
+                "capability_ref": str(denied_id),
+                "capability_kind": "codex.delegated-work",
+                "operation": "execute",
+                "availability_status": "available",
+                "authorization_status": "denied",
+                "current_request": {
+                    "request_ref": str(request_id),
+                    "request_version": 2,
+                    "status": "denied",
+                    "requested_scope": {
+                        "scope_kind": "codex_delegated_work",
+                        "workspace_scope": "isolated_ephemeral",
+                        "artifact_scope": "explicit_only",
+                        "network_access": False,
+                        "purpose": "delegate_codex_work",
+                        "valid_for_seconds": 3600,
+                        "max_uses": 1,
+                    },
+                    "resolution_reason_class": "creator_denied",
+                    "created_at": "2026-01-02T00:00:00+00:00",
+                },
+                "effective_grant": None,
+            }
+        ),
+        "denied",
     )
     request = _context_request(
         _snapshot((), capability_state_payloads=(unavailable, denied)),

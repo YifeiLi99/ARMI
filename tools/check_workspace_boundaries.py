@@ -258,6 +258,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-activity==0.0.0",
             "armi-artifact-store==0.0.0",
+            "armi-capability==0.0.0",
             "armi-kernel==0.0.0",
             "armi-material==0.0.0",
             "armi-memory==0.0.0",
@@ -1038,6 +1039,7 @@ def _check_import(
                 None,
                 "armi-activity",
                 "armi-artifact-store",
+                "armi-capability",
                 "armi-context",
                 "armi-kernel",
                 "armi-material",
