@@ -103,6 +103,13 @@ class CognitionWorkerPort(Protocol):
     async def run_worker(self) -> None: ...
 
 
+@runtime_checkable
+class SubjectChangeSetCodec(Protocol):
+    """Decode a frozen cognition change set through explicitly bound owner codecs."""
+
+    def decode(self, value: bytes) -> SubjectChangeSet: ...
+
+
 __all__ = (
     "CandidateValidationResult",
     "CandidateValidationStatus",
@@ -115,4 +122,5 @@ __all__ = (
     "CognitionWakeupPort",
     "CognitionWorkerPort",
     "SubjectChangeSet",
+    "SubjectChangeSetCodec",
 )

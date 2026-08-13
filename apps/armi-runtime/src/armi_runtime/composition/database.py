@@ -34,10 +34,15 @@ from armi_cognition.api import (
 )
 from armi_cognition.bootstrap import (
     bootstrap_cognition_candidate,
+    bootstrap_cognition_change_set_codec,
     bootstrap_cognition_model,
 )
-from armi_context import load_embedding_binding
-from armi_context.api import ContextEmbeddingRuntimePort, ContextRuntimePort
+from armi_context.api import (
+    EMBEDDING_DIMENSIONS,
+    ContextEmbeddingRuntimePort,
+    ContextRuntimePort,
+    EmbeddingBinding,
+)
 from armi_context.bootstrap import bootstrap_context, bootstrap_context_embedding
 from armi_data_rights.api import (
     DataRightsInteractionGate,
@@ -64,6 +69,7 @@ from armi_expression.api import ResponseViolation
 from armi_expression.bootstrap import bootstrap_expression
 from armi_interaction.api import CreatorInputTransactionPort
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
+from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     CandidateViolation,
     CreatorProjectionNotifier,
@@ -206,6 +212,9 @@ MODEL_LOCATOR_NAME: Final = "model.ark_api_key"
 SPEECH_LOCATOR_NAME: Final = "speech.volc_credentials"
 CODEX_LOCATOR_NAME: Final = "codex.auth_json"
 
+_EMBEDDING_BINDING_ID: Final = "armi.embedding.volcengine-ark-doubao-vision-250615-v1"
+_EMBEDDING_MODEL_ID: Final = "doubao-embedding-vision-250615"
+
 _REASON_BY_CODE: Final = {
     "DB-CONNECTION-UNAVAILABLE": "RUNTIME_DATABASE_UNAVAILABLE",
     "DB-PG-VERSION": "RUNTIME_DATABASE_VERSION_MISMATCH",
@@ -229,6 +238,38 @@ _REASON_BY_CODE: Final = {
     "DB-ROLE-SECURITY-DEFINER": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
     "DB-ROLE-CREDENTIAL-SCOPE": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
 }
+
+
+def _load_embedding_binding() -> EmbeddingBinding:
+    try:
+        value = load_yaml_file(runtime_config_path("model-bindings.yaml"))["embedding"]
+    except OSError, KeyError, TypeError, ValueError:
+        raise ModelViolation("MODEL-BINDING-MANIFEST") from None
+    expected = {
+        "provider": "volcengine_ark",
+        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+        "model_id": _EMBEDDING_MODEL_ID,
+        "model_binding": _EMBEDDING_BINDING_ID,
+        "version_policy": "fixed_model_id",
+        "dimensions": EMBEDDING_DIMENSIONS,
+        "timeout_seconds": 60,
+        "credential_identity": "armi.model.ark-api-key.v1",
+        "credential_locator": "model.ark_api_key",
+        "credential_purpose": "model.embedding",
+    }
+    if value != expected:
+        raise ModelViolation("MODEL-BINDING-MANIFEST")
+    return EmbeddingBinding(
+        provider=value["provider"],
+        api_base=value["api_base"],
+        model_id=value["model_id"],
+        model_binding=value["model_binding"],
+        dimensions=value["dimensions"],
+        timeout_seconds=value["timeout_seconds"],
+        credential_identity=value["credential_identity"],
+        credential_locator=value["credential_locator"],
+        credential_purpose=value["credential_purpose"],
+    )
 
 
 def _with_connection(
@@ -1258,9 +1299,7 @@ def compose_context_pipeline(
                     diagnostic=diagnostic,
                     embedding=(
                         VolcengineArkEmbeddingAdapter(
-                            binding=load_embedding_binding(
-                                runtime_config_path("model-bindings.yaml")
-                            ),
+                            binding=_load_embedding_binding(),
                             credential_port=prepared.credential_port,
                             locator=embedding_locator,
                         )
@@ -1321,9 +1360,7 @@ def compose_context_embedding_pipeline(
                         max_object_bytes=config.artifacts.max_object_bytes,
                     ),
                     adapter=VolcengineArkEmbeddingAdapter(
-                        binding=load_embedding_binding(
-                            runtime_config_path("model-bindings.yaml")
-                        ),
+                        binding=_load_embedding_binding(),
                         credential_port=prepared.credential_port,
                         locator=embedding_locator,
                     ),
@@ -1697,6 +1734,16 @@ def compose_subject_commit_pipeline(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    change_set_codec=bootstrap_cognition_change_set_codec(
+                        activity=activity_cognition,
+                        material=material_cognition,
+                        memory=memory_cognition,
+                        mood=mood_cognition,
+                        prompt=prompt_cognition,
+                        relationship=relationship_cognition,
+                        sleep=sleep_cognition,
+                        subject_state=subject_state_cognition,
+                    ),
                     activity_cognition=activity_cognition,
                     activity_commit=activity_commit,
                     capability_commit=capability_commit,

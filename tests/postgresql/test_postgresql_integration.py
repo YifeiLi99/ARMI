@@ -27,7 +27,7 @@ from uuid import UUID
 
 import psycopg
 import rfc8785
-from armi_activity.api import ActivityViolation
+from armi_activity.api import ActivityViolation, default_activity_cognition
 from armi_activity.bootstrap import bootstrap_activity
 from armi_admin.application import AdminConfig, AdminCredentialPort
 from armi_admin.mcp.contracts import (
@@ -64,7 +64,6 @@ from armi_codex.bootstrap import (
     bootstrap_codex_commit,
     bootstrap_codex_timeline_projection,
 )
-from armi_cognition import parse_subject_change_set
 from armi_cognition._model_contract import (
     build_request_bytes,
     candidate_schema,
@@ -76,6 +75,7 @@ from armi_cognition._validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
+from armi_cognition.bootstrap import bootstrap_cognition_change_set_codec
 from armi_data_rights.bootstrap import bootstrap_data_rights_gate
 from armi_effect._admission import (
     PostgreSQLResponseAdmissionRepository,
@@ -166,8 +166,11 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_material.api import default_material_cognition
 from armi_material.bootstrap import bootstrap_material, bootstrap_material_admin_read
+from armi_memory.api import default_memory_cognition
 from armi_memory.bootstrap import bootstrap_memory
+from armi_mood.api import default_mood_cognition
 from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_admin_read
 from armi_opportunity.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
 from armi_opportunity.bootstrap import bootstrap_opportunity
@@ -177,8 +180,12 @@ from armi_perception.api import (
     ExternalContentRecognitionStatus,
     ExternalMediaContent,
 )
+from armi_prompt.api import default_prompt_cognition
 from armi_prompt.bootstrap import bootstrap_prompt
-from armi_relationship.bootstrap import bootstrap_relationship
+from armi_relationship.bootstrap import (
+    bootstrap_relationship,
+    bootstrap_relationship_cognition,
+)
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.adapters.persistence.artifact_catalog import (
     ArtifactCatalogRepository,
@@ -224,8 +231,9 @@ from armi_runtime.composition.birth_manifest import packaged_birth_digests
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
-from armi_sleep.api import CreatorMaintenanceViolation
+from armi_sleep.api import CreatorMaintenanceViolation, default_sleep_cognition
 from armi_sleep.bootstrap import bootstrap_sleep
+from armi_subject_state.api import default_subject_state_cognition
 from armi_subject_state.bootstrap import (
     bootstrap_subject_state,
     bootstrap_subject_state_admin_read,
@@ -5017,9 +5025,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ],
                 "rejections": [],
             }
-            change_set = parse_subject_change_set(
-                rfc8785.dumps(cast(Any, change_set_document))
-            )
+            change_set = bootstrap_cognition_change_set_codec(
+                activity=default_activity_cognition(),
+                material=default_material_cognition(),
+                memory=default_memory_cognition(),
+                mood=default_mood_cognition(),
+                prompt=default_prompt_cognition(),
+                relationship=bootstrap_relationship_cognition(),
+                sleep=default_sleep_cognition(),
+                subject_state=default_subject_state_cognition(),
+            ).decode(rfc8785.dumps(cast(Any, change_set_document)))
         else:
             try:
                 live_credential = load_live_ark_credential(

@@ -18,13 +18,86 @@ from armi_sleep.api import SleepCognitionPort, SleepReadPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
 
 from ._candidate_application import CandidateValidationPipeline
+from ._change_set_codec import parse_subject_change_set
 from ._model_application import ModelPipeline
 from .api import (
     CognitionArtifactCatalogPort,
     CognitionModelAdapterFactory,
     CognitionWakeupPort,
     CognitionWorkerPort,
+    SubjectChangeSet,
+    SubjectChangeSetCodec,
 )
+
+
+class _BoundSubjectChangeSetCodec:
+    __slots__ = (
+        "_activity",
+        "_material",
+        "_memory",
+        "_mood",
+        "_prompt",
+        "_relationship",
+        "_sleep",
+        "_subject_state",
+    )
+
+    def __init__(
+        self,
+        *,
+        activity: ActivityCognitionPort,
+        material: MaterialCognitionPort,
+        memory: MemoryCognitionPort,
+        mood: MoodCognitionPort,
+        prompt: PromptCognitionPort,
+        relationship: RelationshipCognitionPort,
+        sleep: SleepCognitionPort,
+        subject_state: SubjectStateCognitionPort,
+    ) -> None:
+        self._activity = activity
+        self._material = material
+        self._memory = memory
+        self._mood = mood
+        self._prompt = prompt
+        self._relationship = relationship
+        self._sleep = sleep
+        self._subject_state = subject_state
+
+    def decode(self, value: bytes) -> SubjectChangeSet:
+        return parse_subject_change_set(
+            value,
+            self._relationship,
+            self._memory,
+            self._sleep,
+            self._activity,
+            self._material,
+            self._subject_state,
+            self._mood,
+            self._prompt,
+        )
+
+
+def bootstrap_cognition_change_set_codec(
+    *,
+    activity: ActivityCognitionPort,
+    material: MaterialCognitionPort,
+    memory: MemoryCognitionPort,
+    mood: MoodCognitionPort,
+    prompt: PromptCognitionPort,
+    relationship: RelationshipCognitionPort,
+    sleep: SleepCognitionPort,
+    subject_state: SubjectStateCognitionPort,
+) -> SubjectChangeSetCodec:
+    return _BoundSubjectChangeSetCodec(
+        activity=activity,
+        material=material,
+        memory=memory,
+        mood=mood,
+        prompt=prompt,
+        relationship=relationship,
+        sleep=sleep,
+        subject_state=subject_state,
+    )
 
 
 def bootstrap_cognition_model(
@@ -105,4 +178,8 @@ def bootstrap_cognition_candidate(
     )
 
 
-__all__ = ("bootstrap_cognition_candidate", "bootstrap_cognition_model")
+__all__ = (
+    "bootstrap_cognition_candidate",
+    "bootstrap_cognition_change_set_codec",
+    "bootstrap_cognition_model",
+)

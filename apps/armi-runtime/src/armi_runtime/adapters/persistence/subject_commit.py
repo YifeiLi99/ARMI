@@ -24,7 +24,7 @@ from armi_codex.api import (
     CodexCommitPort,
     CodexDelegationViolation,
 )
-from armi_cognition import SubjectChangeSet
+from armi_cognition.api import SubjectChangeSet
 from armi_evidence.api import EvidenceId, EvidenceWritePort, ExperienceEvidenceLink
 from armi_expression.api import (
     ExpressionCommitContext,

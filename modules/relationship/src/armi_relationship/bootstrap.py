@@ -32,6 +32,10 @@ class RelationshipModule:
         await self._owner.close()
 
 
+def bootstrap_relationship_cognition() -> RelationshipCognitionPort:
+    return RelationshipApplication()
+
+
 def bootstrap_relationship(
     conninfo: str,
     *,
@@ -56,4 +60,8 @@ def bootstrap_relationship(
     )
 
 
-__all__ = ("RelationshipModule", "bootstrap_relationship")
+__all__ = (
+    "RelationshipModule",
+    "bootstrap_relationship",
+    "bootstrap_relationship_cognition",
+)

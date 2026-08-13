@@ -16,7 +16,7 @@ from armi_artifact_store.life_material_codec import (
 )
 from armi_capability.api import CapabilityCommitPort, CapabilityReadPort
 from armi_codex.api import CodexCommitPort
-from armi_cognition import parse_subject_change_set
+from armi_cognition.api import SubjectChangeSetCodec
 from armi_evidence.api import EvidenceWritePort
 from armi_expression.api import (
     CreatorReplyDraft,
@@ -101,6 +101,7 @@ class SubjectCommitPipeline:
     __slots__ = (
         "_activity_cognition",
         "_catalog",
+        "_change_set_codec",
         "_diagnostic",
         "_factory",
         "_fault_injector",
@@ -124,6 +125,7 @@ class SubjectCommitPipeline:
         self,
         *,
         factory: PostgreSQLUnitOfWorkFactory,
+        change_set_codec: SubjectChangeSetCodec,
         storage: ContentAddressedArtifactStore,
         activity_cognition: ActivityCognitionPort,
         activity_commit: ActivityCommitPort,
@@ -153,6 +155,7 @@ class SubjectCommitPipeline:
         fault_injector: FaultInjector | None = None,
     ) -> None:
         self._factory = factory
+        self._change_set_codec = change_set_codec
         self._activity_cognition = activity_cognition
         self._catalog = ArtifactCatalogRepository()
         self._storage = storage
@@ -217,17 +220,7 @@ class SubjectCommitPipeline:
         lease = cast(WorkLease, records[0].lease)
         try:
             snapshot = await self._snapshot(lease)
-            change_set = parse_subject_change_set(
-                await self._read(snapshot),
-                self._relationship_cognition,
-                self._memory_cognition,
-                self._sleep_cognition,
-                self._activity_cognition,
-                self._material_cognition,
-                self._subject_state_cognition,
-                self._mood_cognition,
-                self._prompt_cognition,
-            )
+            change_set = self._change_set_codec.decode(await self._read(snapshot))
             replies = tuple(
                 item
                 for item in change_set.action_choices
@@ -728,6 +721,7 @@ def build_subject_commit_pipeline(
     acquire_timeout_seconds: int,
     statement_timeout_seconds: int,
     authority_admission: Callable[[], RuntimeFence],
+    change_set_codec: SubjectChangeSetCodec,
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
     capability_commit: CapabilityCommitPort,
@@ -769,6 +763,7 @@ def build_subject_commit_pipeline(
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
+        change_set_codec=change_set_codec,
         activity_cognition=activity_cognition,
         activity_commit=activity_commit,
         capability_commit=capability_commit,

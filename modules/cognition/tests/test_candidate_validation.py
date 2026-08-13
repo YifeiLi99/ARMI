@@ -16,16 +16,13 @@ import rfc8785
 from armi_activity.api import ActivityStatus, default_activity_cognition
 from armi_capability.api import CodexDelegatedWorkScope, CreatorSceneReplyScope
 from armi_codex.api import CodexDelegationDraft
-from armi_cognition import (
-    CandidateValidationStatus,
-)
-from armi_cognition import (
-    parse_subject_change_set as _parse_subject_change_set,
-)
 from armi_cognition._candidate_postgresql import (
     PostgreSQLCandidateValidationRepository,
     _relationship_party_ids,
     _validation_drafts,
+)
+from armi_cognition._change_set_codec import (
+    parse_subject_change_set as _parse_subject_change_set,
 )
 from armi_cognition._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
@@ -41,6 +38,7 @@ from armi_cognition._validator import (
     _memory_source_kind,
     _relationship_wire,
 )
+from armi_cognition.api import CandidateValidationStatus
 from armi_expression.api import (
     CreatorReplyDraft,
     OtherHumanEndConversationDraft,
