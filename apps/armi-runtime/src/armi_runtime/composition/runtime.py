@@ -438,7 +438,7 @@ async def _serve(
             effect_grant_cancellation = compose_effect_grant_cancellation()
             capability_policy = compose_capability_policy(
                 prepared,
-                authority_admission=authority.require_writable,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 cursor_key=derive_timeline_cursor_key(prepared),
                 effect_cancellation=effect_grant_cancellation,
                 notifier=creator_events,
@@ -561,7 +561,7 @@ async def _serve(
             await subject_commit_pipeline.open()
             response_pipeline = compose_response_admission_pipeline(
                 prepared,
-                authority_admission=authority.require_writable,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -571,7 +571,7 @@ async def _serve(
             await response_pipeline.open()
             effect_pipeline = compose_effect_registration_pipeline(
                 prepared,
-                authority_admission=authority.require_writable,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 capability_consumption=capability_policy.consumption,
                 notifier=creator_events,
                 wakeups=work_wakeups,
@@ -588,11 +588,11 @@ async def _serve(
                 try:
                     codex_pipeline = compose_codex_pipeline(
                         prepared,
+                        unit_of_work_factory=runtime_unit_of_work_factory,
                         creator_party_id=creator_context.party_id,
                         creator_input=interaction_module.creator_transaction,
                         evidence=evidence_module.write,
                         opportunity=opportunity_admission,
-                        authority_admission=authority.require_writable,
                         notifier=creator_events,
                         diagnostic=lambda event: diagnostic.emit(
                             event, result_code="CODEX_DELEGATION"

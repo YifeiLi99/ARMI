@@ -370,16 +370,12 @@ class CodexEffectPipeline:
 
     async def open(self) -> None:
         try:
-            await self._factory.open()
             await self._storage.prepare()
-        except RuntimeTransactionFailure:
-            raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
         except ArtifactViolation:
             raise CodexDelegationViolation("CODEX-TASK-ARTIFACT") from None
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()

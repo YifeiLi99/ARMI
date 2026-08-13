@@ -115,12 +115,10 @@ class EffectRegistrationPipeline:
         self._fault_injector = fault_injector or _ignore_diagnostic
 
     async def open(self) -> None:
-        await self._factory.open()
         await self._storage.prepare()
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()

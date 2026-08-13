@@ -98,10 +98,10 @@ class PostgreSQLCreatorGrantPolicy:
         self._stop = asyncio.Event()
 
     async def open(self) -> None:
-        await self._factory.open()
+        return None
 
     async def close(self) -> None:
-        await self._factory.close()
+        return None
 
     def stop(self) -> None:
         self._stop.set()

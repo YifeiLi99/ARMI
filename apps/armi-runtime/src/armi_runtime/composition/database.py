@@ -18,7 +18,6 @@ from armi_capability.api import (
     CapabilityCommitPort,
     CapabilityGrantConsumptionPort,
     CapabilityReadPort,
-    CapabilityViolation,
 )
 from armi_capability.bootstrap import CapabilityModule, bootstrap_capability
 from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
@@ -50,7 +49,6 @@ from armi_effect.api import (
     ActionAdapterPort,
     EffectGrantCancellationPort,
     EffectRuntimePort,
-    EffectViolation,
     ResponseAdmissionRuntimePort,
 )
 from armi_effect.bootstrap import (
@@ -62,7 +60,6 @@ from armi_effect.bootstrap import (
 )
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_evidence.bootstrap import EvidenceModule, bootstrap_evidence
-from armi_expression.api import ResponseViolation
 from armi_expression.bootstrap import bootstrap_expression
 from armi_interaction.api import CreatorInputTransactionPort
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
@@ -1494,95 +1491,42 @@ def compose_effect_grant_cancellation() -> EffectGrantCancellationPort:
 def compose_capability_policy(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     cursor_key: bytes,
     effect_cancellation: EffectGrantCancellationPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> CapabilityModule:
     """Resolve the Runtime credential for the sole active T-04 policy."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise CapabilityViolation("POLICY-DATABASE")
-    try:
-        with prepared.credential_port.resolve(
-            locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> CapabilityModule:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise CapabilityViolation("POLICY-DATABASE") from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_capability(
-                    factory,
-                    environment_id=config.environment.environment_id,
-                    cursor_key=cursor_key,
-                    effect_cancellation=effect_cancellation,
-                    notifier=notifier,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise CapabilityViolation("POLICY-DATABASE") from None
+    return bootstrap_capability(
+        unit_of_work_factory,
+        environment_id=prepared.effective.config.environment.environment_id,
+        cursor_key=cursor_key,
+        effect_cancellation=effect_cancellation,
+        notifier=notifier,
+    )
 
 
 def compose_response_admission_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ResponseAdmissionRuntimePort:
     """Resolve the Runtime credential for the S028 admission worker."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise ResponseViolation("RESPONSE-DATABASE")
-    try:
-        with prepared.credential_port.resolve(
-            locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> ResponseAdmissionRuntimePort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise ResponseViolation("RESPONSE-DATABASE") from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_response_admission(
-                    factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    work=PostgreSQLDurableWorkGateway(factory),
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise ResponseViolation("RESPONSE-DATABASE") from None
+    config = prepared.effective.config
+    return bootstrap_response_admission(
+        factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+        wakeups=wakeups,
+        diagnostic=diagnostic,
+    )
 
 
 def compose_runtime_recovery(
@@ -1645,7 +1589,7 @@ def compose_runtime_recovery(
 def compose_effect_registration_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     capability_consumption: CapabilityGrantConsumptionPort,
     notifier: CreatorProjectionNotifier | None = None,
     wakeups: WorkWakeupBus,
@@ -1655,114 +1599,59 @@ def compose_effect_registration_pipeline(
 ) -> EffectRuntimePort:
     """Resolve the Runtime credential for the S029 T-05 worker."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise EffectViolation("EFFECT-DATABASE")
-    try:
-        with prepared.credential_port.resolve(
-            locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> EffectRuntimePort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise EffectViolation("EFFECT-DATABASE") from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_effect_runtime(
-                    factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    work=PostgreSQLDurableWorkGateway(factory),
-                    capability_consumption=capability_consumption,
-                    notifier=notifier,
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                    fault_injector=fault_injector,
-                    external_message_adapter=external_message_adapter,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise EffectViolation("EFFECT-DATABASE") from None
+    config = prepared.effective.config
+    return bootstrap_effect_runtime(
+        factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+        capability_consumption=capability_consumption,
+        notifier=notifier,
+        wakeups=wakeups,
+        diagnostic=diagnostic,
+        fault_injector=fault_injector,
+        external_message_adapter=external_message_adapter,
+    )
 
 
 def compose_codex_pipeline(
     prepared: PreparedEnvironment,
     *,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     creator_party_id: UUID,
     creator_input: CreatorInputTransactionPort,
     evidence: EvidenceWritePort,
     opportunity: OpportunityAdmissionPort,
-    authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CodexRuntimePort:
     """Compose the one active S039 Codex dispatcher without exposing auth."""
 
-    database_locator = prepared.effective.config.secret_locators.get(
-        RUNTIME_LOCATOR_NAME
-    )
     auth_locator = prepared.effective.config.secret_locators.get(CODEX_LOCATOR_NAME)
-    if database_locator is None or auth_locator is None:
+    if auth_locator is None:
         raise CodexDelegationViolation("CODEX-DELEGATION-CREDENTIAL")
-    try:
-        with prepared.credential_port.resolve(
-            database_locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> CodexRuntimePort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise CodexDelegationViolation(
-                        "CODEX-DELEGATION-DATABASE"
-                    ) from None
-                config = prepared.effective.config
-
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                )
-                run_root = prepared.data_root / "codex-runner"
-                return bootstrap_codex(
-                    factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    catalog=ArtifactCatalogRepository(),
-                    environment_root=prepared.root,
-                    run_root=run_root,
-                    creator_party_id=creator_party_id,
-                    creator_input=creator_input,
-                    evidence=evidence,
-                    opportunity=opportunity,
-                    dispatch_boundary=bootstrap_effect_dispatch_boundary(),
-                    runner_entry_module="armi_runtime.codex_runner_cli",
-                    notifier=notifier,
-                    diagnostic=diagnostic,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise CodexDelegationViolation("CODEX-DELEGATION-CREDENTIAL") from None
+    config = prepared.effective.config
+    run_root = prepared.data_root / "codex-runner"
+    return bootstrap_codex(
+        factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        catalog=ArtifactCatalogRepository(),
+        environment_root=prepared.root,
+        run_root=run_root,
+        creator_party_id=creator_party_id,
+        creator_input=creator_input,
+        evidence=evidence,
+        opportunity=opportunity,
+        dispatch_boundary=bootstrap_effect_dispatch_boundary(),
+        runner_entry_module="armi_runtime.codex_runner_cli",
+        notifier=notifier,
+        diagnostic=diagnostic,
+    )
 
 
 __all__ = (
